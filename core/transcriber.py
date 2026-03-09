@@ -51,7 +51,19 @@ class Transcriber:
         # ✅ NUOVO v3.2: Carica parametri profilo
         # ========================================
         self._load_profile_params()
-        
+
+        # Adaptive batch manager (future-ready per BatchedInferencePipeline)
+        from utils.adaptive_batch_manager import AdaptiveBatchSizeManager
+        profile_config = ProfileConfig.get_profile_config(self.profile)
+        batch_hint = profile_config.get('batch_size_hint', None)
+        self.batch_manager = AdaptiveBatchSizeManager(
+            device=self.device,
+            use_gpu=(self.device == 'cuda'),
+            initial_size=batch_hint,
+            log_callback=self.log_callback,
+        )
+        self.batch_size_for_transcription = None  # None finché BatchedInferencePipeline non disponibile
+
         # Inizializza modello con parametri profilo
         self._init_faster_whisper()
         
@@ -114,6 +126,11 @@ class Transcriber:
         """
         try:
             from faster_whisper import WhisperModel
+            try:
+                from faster_whisper import BatchedInferencePipeline
+                _batched_available = True
+            except ImportError:
+                _batched_available = False
             
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
@@ -150,7 +167,16 @@ class Transcriber:
                 )
                 
                 self.log(f"  ✅ Modello {model_size} caricato su CPU con {self.num_workers} workers")
-            
+
+            # Future-ready: attiva BatchedInferencePipeline se disponibile
+            if _batched_available:
+                self.faster_whisper_model = BatchedInferencePipeline(self.faster_whisper_model)
+                self.batch_size_for_transcription = self.batch_manager.current_batch_size
+                self.log(f"  BatchedInferencePipeline attivo (batch_size={self.batch_size_for_transcription})")
+            else:
+                self.batch_size_for_transcription = None
+                self.log("  BatchedInferencePipeline non disponibile — elaborazione sequenziale")
+
             self._check_vad_availability()
             
         except Exception as e:
@@ -246,24 +272,29 @@ class Transcriber:
                 chunk_path_str = str(chunk_path)
                 
                 
+                transcribe_kwargs = dict(
+                    language=whisper_language,
+                    beam_size=self.beam_size,
+                )
+                if self.batch_size_for_transcription is not None:
+                    transcribe_kwargs['batch_size'] = self.batch_manager.get_batch_size()
+
                 if self.vad_available:
                     segments, info = self.faster_whisper_model.transcribe(
-                        chunk_path_str, # <--- 1. Percorso file audio (Posizionale 1)
-                        language=whisper_language, # <--- 2. Codice lingua (Keyword Argument) - può essere None
-                        beam_size=self.beam_size,
+                        chunk_path_str,
                         vad_filter=True,
                         vad_parameters=dict(
                             min_silence_duration_ms=500,
                             threshold=0.5
-                        )
+                        ),
+                        **transcribe_kwargs
                     )
                 else:
                     segments, info = self.faster_whisper_model.transcribe(
-                        chunk_path_str, # <--- 1. Percorso file audio (Posizionale 1)
-                        language=whisper_language, # <--- 2. Codice lingua (Keyword Argument) - può essere None
-                        beam_size=self.beam_size,
+                        chunk_path_str,
                         vad_filter=False,
-                        word_timestamps=False
+                        word_timestamps=False,
+                        **transcribe_kwargs
                     )
                 
                 if detected_language is None:

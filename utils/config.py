@@ -79,6 +79,15 @@ class Config:
         
         # Sistema profili dinamici trascrizione
         'transcription_profile': 'balanced',
+
+        # Adaptive Batch Size
+        'adaptive_batch_enabled': True,
+        'adaptive_batch_initial_size': 0,   # 0 = auto-detect
+        'adaptive_batch_max_size': 24,
+        'adaptive_batch_min_size': 1,
+        'adaptive_batch_warmup_batches': 5,
+        'adaptive_batch_high_threshold': 0.85,
+        'adaptive_batch_low_threshold': 0.60,
         
         # ========================================================================
         # Translation Model Settings (MODIFICATO v5.0 - Claude API Support)
@@ -105,7 +114,7 @@ class Config:
 
         # Library Scanner Settings
         'library_scanner_url': 'http://192.168.1.18:6680',
-        'library_scanner_api_key': '',
+        'library_scanner_api_key': 'IDu_J0LvpqcmJ0nCFjXc6rlu2oKNoDE2bEO8CUVrNng',
         'library_scanner_enabled': True,
     }
     
@@ -589,6 +598,23 @@ class Config:
             return False
         p = Path(path)
         return p.exists() and (p / 'config.json').exists()
+
+    # ========================================================================
+    # METODI HELPER per Adaptive Batch Size
+    # ========================================================================
+
+    def get_adaptive_batch_config(self) -> Dict[str, Any]:
+        """Ottieni configurazione adaptive batch size"""
+        raw_initial = self.get('adaptive_batch_initial_size', 0)
+        return {
+            'enabled':          self.get('adaptive_batch_enabled', True),
+            'initial_size':     raw_initial or None,   # 0 → None (auto-detect)
+            'max_size':         self.get('adaptive_batch_max_size', 24),
+            'min_size':         self.get('adaptive_batch_min_size', 1),
+            'warmup_batches':   self.get('adaptive_batch_warmup_batches', 5),
+            'high_threshold':   self.get('adaptive_batch_high_threshold', 0.85),
+            'low_threshold':    self.get('adaptive_batch_low_threshold', 0.60),
+        }
 
 
 # ============================================================================

@@ -22,6 +22,7 @@ from gui.profile_dialog import ProfileSelectionDialog
 from gui.translation_model_dialog import TranslationModelDialog
 from gui.library_scanner_widget import LibraryScannerWidget
 from gui.opensubtitles_settings_widget import OpenSubtitlesSettingsWidget
+from gui.adaptive_batch_settings_widget import AdaptiveBatchSettingsWidget, DIALOG_STYLE
 from utils.file_handler import FileHandler
 from utils.logger import setup_logger
 from utils.config import get_config
@@ -159,8 +160,16 @@ class MainWindow(QMainWindow):
         self.translation_model_btn = QToolButton()
         self.translation_model_btn.setText("🌐")
         self.translation_model_btn.setFixedSize(32, 32)
+        self.translation_model_btn.setToolTip("Modello di traduzione")
         self.translation_model_btn.clicked.connect(self.open_translation_model_settings)
         header_layout.addWidget(self.translation_model_btn)
+
+        self.adaptive_batch_btn = QToolButton()
+        self.adaptive_batch_btn.setText("🎯")
+        self.adaptive_batch_btn.setFixedSize(32, 32)
+        self.adaptive_batch_btn.setToolTip("Adaptive Batch Size — impostazioni memoria")
+        self.adaptive_batch_btn.clicked.connect(self.open_adaptive_batch_settings)
+        header_layout.addWidget(self.adaptive_batch_btn)
 
         self.settings_btn = QToolButton()
         self.settings_btn.setText("⚙️")
@@ -491,6 +500,23 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(12, 12, 12, 12)
         widget = OpenSubtitlesSettingsWidget(parent=dialog)
+        layout.addWidget(widget)
+        close_btn = QPushButton("Chiudi")
+        close_btn.clicked.connect(dialog.accept)
+        layout.addWidget(close_btn)
+        dialog.exec()
+
+    def open_adaptive_batch_settings(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Adaptive Batch Size — Impostazioni")
+        dialog.setMinimumWidth(400)
+        dialog.setStyleSheet(DIALOG_STYLE)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(12, 12, 12, 12)
+        widget = AdaptiveBatchSettingsWidget(parent=dialog)
+        widget.settings_changed.connect(
+            lambda: self.log_message("🎯 Adaptive batch settings salvate.")
+        )
         layout.addWidget(widget)
         close_btn = QPushButton("Chiudi")
         close_btn.clicked.connect(dialog.accept)

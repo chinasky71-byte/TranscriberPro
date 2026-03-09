@@ -56,6 +56,7 @@ class ProfileConfig:
         TranscriptionProfile.FAST: {
             'num_workers': 8,
             'beam_size': 5,
+            'batch_size_hint': 12,
             'name': 'Velocità Massima',
             'description': 'Massima velocità per uso quotidiano e draft rapidi',
             
@@ -92,6 +93,7 @@ class ProfileConfig:
         TranscriptionProfile.BALANCED: {
             'num_workers': 6,
             'beam_size': 7,
+            'batch_size_hint': 8,
             'name': 'Bilanciato',
             'description': 'Bilanciamento ottimale qualità/velocità (RACCOMANDATO)',
             
@@ -124,6 +126,7 @@ class ProfileConfig:
         TranscriptionProfile.QUALITY: {
             'num_workers': 8,  # ✅ MODIFICATO: 4 → 8
             'beam_size': 10,
+            'batch_size_hint': 4,
             'name': 'Alta Qualità',
             'description': 'Alta qualità per audio difficile o accenti',
             
@@ -161,6 +164,7 @@ class ProfileConfig:
         TranscriptionProfile.MAXIMUM: {
             'num_workers': 10,  # ✅ MODIFICATO: 4 → 10
             'beam_size': 12,
+            'batch_size_hint': 2,
             'name': 'Qualità Massima',
             'description': 'Qualità massima per casi critici (molto lento)',
             
@@ -195,6 +199,7 @@ class ProfileConfig:
         TranscriptionProfile.BATCH: {
             'num_workers': 8,
             'beam_size': 7,
+            'batch_size_hint': 16,
             'name': 'Batch Rapido',
             'description': 'Ottimizzato per elaborazione batch di molti file',
             
@@ -285,7 +290,8 @@ class ProfileConfig:
         
         return {
             'num_workers': config['num_workers'],
-            'beam_size': config['beam_size']
+            'beam_size': config['beam_size'],
+            'batch_size_hint': config.get('batch_size_hint', None),
         }
     
     @classmethod
