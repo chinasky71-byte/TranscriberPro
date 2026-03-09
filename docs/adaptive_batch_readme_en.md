@@ -1,4 +1,4 @@
-# 🧠 Adaptive Batch Size - IA Transcriber Pro
+# Adaptive Batch Size - Transcriber Pro
 
 ## 📖 Table of Contents
 
@@ -105,7 +105,7 @@ if memory_used > 85%:  # Safety threshold
 
 ### Configuration File
 
-Edit `config/settings.json`:
+Settings are located in `~/.transcriberpro/config.json` under the `transcription.adaptive_batch` key:
 
 ```json
 {
@@ -752,9 +752,7 @@ Where gpu_compute_limit is usually 3-4x
 
 ---
 
-**Document Version**: 1.0.0  
-**Last Updated**: October 2025  
-**Author**: IA Transcriber Pro Team
+*Transcriber Pro — Python 3.11 / CUDA 12.6 / PyTorch 2.8*
 
 ---
 

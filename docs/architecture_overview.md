@@ -1,830 +1,261 @@
-# 🏗️ Transcriber Pro - Architettura Tecnica
+# Architettura Tecnica - Transcriber Pro
 
-> **Documento per:** Developer, Contributor, Advanced Users  
-> **Versione:** 1.0  
-> **Ultima modifica:** Ottobre 2025
+> **Documento per:** Developer, Contributor, Advanced Users
 
 ---
 
-## 📑 Indice
+## Panoramica
 
-- [Panoramica Architettura](#panoramica-architettura)
-- [Stack Tecnologico](#stack-tecnologico)
-- [Struttura Modulare](#struttura-modulare)
-- [Flusso Dati](#flusso-dati)
-- [Design Patterns](#design-patterns)
-- [Pipeline Processing](#pipeline-processing)
-- [Gestione Memoria](#gestione-memoria)
-- [API Interna](#api-interna)
-- [Estensibilità](#estensibilità)
-
----
-
-## 🎯 Panoramica Architettura
-
-### Principi di Design
-
-**Transcriber Pro** è costruito seguendo questi principi:
-
-1. **Modularità** - Componenti indipendenti e sostituibili
-2. **Scalabilità** - Gestione efficiente risorse GPU/CPU
-3. **Robustezza** - Gestione errori e fallback automatici
-4. **Estensibilità** - Facile aggiunta nuove funzionalità
-5. **Performance** - Ottimizzazione per hardware consumer
-
-### Architettura High-Level
+Transcriber Pro è organizzato in tre layer principali:
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                   PRESENTATION LAYER                     │
-│                      (PyQt6 GUI)                        │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐             │
-│  │  Main    │  │ Resource │  │  Video   │             │
-│  │  Window  │  │ Monitor  │  │  Preview │             │
-│  └──────────┘  └──────────┘  └──────────┘             │
-└────────────────────┬────────────────────────────────────┘
-                     │ Signals/Slots
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│                   BUSINESS LOGIC LAYER                   │
-│                    (Core Processing)                     │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │           ProcessingPipeline (Orchestrator)     │   │
-│  └─────────────────────────────────────────────────┘   │
-│         │         │          │           │             │
-│    ┌────▼───┐ ┌──▼────┐ ┌───▼─────┐ ┌──▼──────┐       │
-│    │Subtitle│ │Audio  │ │Transcr- │ │Transl-  │       │
-│    │Extract │ │Process│ │iber     │ │ator     │       │
-│    └────────┘ └───────┘ └─────────┘ └─────────┘       │
-└────────────────────┬────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│                   DATA ACCESS LAYER                      │
-│                   (Utils & Clients)                      │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐             │
-│  │  TMDB    │  │  IMDb    │  │OpenSubs  │             │
-│  │  Client  │  │  Client  │  │  Client  │             │
-│  └──────────┘  └──────────┘  └──────────┘             │
-└─────────────────────────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│                   AI MODELS LAYER                        │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐ │
-│  │  Faster-     │  │    NLLB      │  │   Demucs     │ │
-│  │  Whisper     │  │    200       │  │  htdemucs    │ │
-│  │  (1.5B)      │  │   (3.3B)     │  │              │ │
-│  └──────────────┘  └──────────────┘  └──────────────┘ │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────┐
+│           PRESENTATION LAYER            │
+│         (PyQt6 GUI — gui/)              │
+├─────────────────────────────────────────┤
+│             CORE LAYER                  │
+│   (Transcription, Translation, Pipeline)│
+├─────────────────────────────────────────┤
+│            UTILS LAYER                  │
+│  (Config, TMDB, OpenSubtitles, Library) │
+└─────────────────────────────────────────┘
 ```
 
 ---
 
-## 💻 Stack Tecnologico
-
-### Core Technologies
-
-| Layer | Technology | Version | Purpose |
-|-------|-----------|---------|---------|
-| **GUI** | PyQt6 | 6.6+ | Interfaccia grafica moderna |
-| **AI/ML** | PyTorch | 2.1+ | Framework deep learning |
-| **Transcription** | Faster-Whisper | 1.0+ | Speech-to-text optimized |
-| **Translation** | NLLB-200 | 3.3B | Neural translation (Meta) |
-| **Audio Sep** | Demucs | 4.0+ | Source separation (Meta) |
-| **Video/Audio** | FFmpeg | 6.0+ | Multimedia framework |
-
-### Dependencies Tree
+## Struttura Directory
 
 ```
-transcriber-pro/
-├── GUI Layer
-│   ├── PyQt6 (UI framework)
-│   ├── psutil (system monitoring)
-│   └── pynvml (GPU monitoring)
-│
-├── AI/ML Layer
-│   ├── torch (core framework)
-│   ├── transformers (Hugging Face)
-│   ├── faster-whisper (CTranslate2 backend)
-│   └── demucs (audio separation)
-│
-├── Audio Processing
-│   ├── torchaudio (audio I/O)
-│   ├── librosa (analysis)
-│   ├── soundfile (file handling)
-│   └── pydub (conversion)
-│
-├── Subtitle Processing
-│   ├── pysrt (SRT parsing)
-│   └── chardet (encoding detection)
-│
-└── External APIs
-    ├── requests (HTTP client)
-    └── xmlrpc.client (OpenSubtitles)
+TranscriberPro/
+├── main.py                              # Punto di ingresso, bootstrap Qt
+├── core/
+│   ├── transcriber.py                   # Motore Faster-Whisper
+│   ├── translator.py                    # Factory + implementazioni traduzione
+│   └── pipeline.py                      # Orchestratore del workflow completo
+├── gui/
+│   ├── main_window.py                   # Finestra principale
+│   ├── settings_dialog.py               # Dialog impostazioni
+│   ├── translation_model_dialog.py      # Selezione motore traduzione + API keys
+│   └── workers.py                       # QThread worker per elaborazione async
+├── utils/
+│   ├── config.py                        # Singleton configurazione
+│   ├── tmdb_client.py                   # Client TMDB API
+│   ├── omdb_client.py                   # Client OMDB API (fallback)
+│   ├── subtitle_uploader_interface.py   # Interfaccia astratta uploader
+│   ├── opensubtitles_rest_uploader.py   # Implementazione REST OpenSubtitles
+│   ├── opensubtitles_xmlrpc_uploader.py # Implementazione legacy XML-RPC
+│   └── library_scanner_client.py        # Client Library Scanner (Plex/Jellyfin)
+└── NLLB_Tranined/                       # Configurazione modello NLLB finetuned
+    └── *.json                           # Config tokenizer e modello (no pesi)
 ```
 
 ---
 
-## 📂 Struttura Modulare
+## Core Layer
 
-### Directory Layout Dettagliato
+### `core/transcriber.py` — Motore di Trascrizione
 
-```
-transcriber-pro/
-│
-├── main.py                      # Entry point applicazione
-│
-├── gui/                         # Presentation Layer
-│   ├── __init__.py
-│   ├── main_window.py          # Finestra principale
-│   ├── splash_screen.py        # Splash screen iniziale
-│   ├── widgets.py              # Widget custom (ResourceMonitor, etc.)
-│   └── workers.py              # QThread workers per processing
-│
-├── core/                        # Business Logic Layer
-│   ├── __init__.py
-│   ├── pipeline.py             # 🎯 Orchestratore principale
-│   ├── transcriber.py          # Wrapper Faster-Whisper
-│   ├── translator.py           # Wrapper NLLB-200
-│   ├── audio_processor.py      # Demucs + chunking intelligente
-│   ├── subtitle_extractor.py   # Estrazione sottotitoli embedded
-│   ├── subtitle_cleaner.py     # Pulizia e normalizzazione
-│   └── audio_track_selector.py # Selezione traccia audio ottimale
-│
-├── utils/                       # Data Access Layer
-│   ├── __init__.py
-│   ├── config.py               # Configuration manager (singleton)
-│   ├── logger.py               # Logging system
-│   ├── file_handler.py         # File operations
-│   ├── resource_monitor.py     # System resource monitoring
-│   ├── tmdb_client.py          # TMDB API client
-│   ├── imdb_client.py          # IMDb web scraper
-│   ├── opensubtitles_client.py # OpenSubtitles REST API
-│   ├── opensubtitles_xmlrpc_uploader.py  # XML-RPC uploader
-│   ├── opensubtitles_config.py # OpenSubtitles configuration
-│   ├── subtitle_uploader_interface.py  # Uploader interface (ABC)
-│   └── translations.py         # i18n support
-│
-├── scripts/                     # Utility scripts
-│   ├── verify_opensubtitles_setup.py
-│   └── test_imports.py
-│
-├── docs/                        # Documentation
-│   ├── GUIDA_UTENTE.md
-│   ├── GUIDA_INSTALLAZIONE.md
-│   └── OPENSUBTITLES_README.md
-│
-└── tests/                       # Unit & Integration tests
-    ├── test_pipeline.py
-    ├── test_transcriber.py
-    └── test_translator.py
-```
+Wrappa **Faster-Whisper** (implementazione CTranslate2 di Whisper).
 
-### Moduli Core - Responsabilità
+**Classi principali:**
+- `WhisperTranscriber` — gestisce caricare/scaricare il modello, trascrivere audio
 
-#### 1. **ProcessingPipeline** (`core/pipeline.py`)
+**Modelli supportati:** `small`, `medium`, `large-v3`
 
-**Responsabilità:** Orchestrazione workflow completo
+**Profili di trascrizione** (configurati da `Config`):
 
-**Metodi principali:**
+| Profilo | Modello | VAD | Beam Size |
+|---------|---------|-----|-----------|
+| Fast | small | Sì | 1 |
+| Balanced | medium | Sì | 3 |
+| Quality | large-v3 | Sì | 5 |
+| Maximum | large-v3 | No | 10 |
+| Batch | medium | Sì | 3 |
+
+Il modello viene caricato in memoria GPU tramite CUDA 12.6 / cuDNN 9.x.
+
+---
+
+### `core/translator.py` — Motori di Traduzione
+
+Implementa un **Factory Pattern** per i motori di traduzione.
+
+**Funzione factory:**
 ```python
-class ProcessingPipeline:
-    def process(self) -> bool:
-        """Entry point - esegue pipeline completo"""
-        
-    def _check_embedded_subtitles(self) -> bool:
-        """STEP 1: Verifica sottotitoli embedded"""
-        
-    def _extract_subtitles(self) -> bool:
-        """STEP 2a: Estrae sottotitoli se presenti"""
-        
-    def _transcribe_audio(self) -> bool:
-        """STEP 2b: Trascrizione se no sottotitoli"""
-        
-    def _clean_subtitles(self) -> bool:
-        """STEP 3: Pulizia sottotitoli"""
-        
-    def _smart_translate(self) -> bool:
-        """STEP 4: Traduzione intelligente"""
-        
-    def _save_final(self) -> bool:
-        """STEP 5: Salvataggio output"""
-        
-    def _upload_opensubtitles(self) -> bool:
-        """STEP 6: Upload (opzionale)"""
+def create_translator(engine: str, config: Config) -> BaseTranslator
 ```
 
-**Pattern:** Template Method Pattern
+**Motori disponibili:**
 
----
+| Engine string | Classe | Tipo | Note |
+|---------------|--------|------|------|
+| `nllb` | `NLLBTranslator` | Locale (GPU) | NLLB-200-3.3B |
+| `nllb_finetuned` | `NLLBFinetunedTranslator` | Locale (GPU) | Da NLLB_Tranined/ |
+| `aya` | `AyaTranslator` | Locale (GPU) | Aya-23-8B, richiede HF token |
+| `claude` | `ClaudeTranslator` | Cloud API | Sonnet 4.6, richiede API key |
+| `openai` | `OpenAITranslator` | Cloud API | GPT-4o-mini, richiede API key |
 
-#### 2. **Transcriber** (`core/transcriber.py`)
-
-**Responsabilità:** Wrapper Faster-Whisper con gestione chunks
-
-**Architettura:**
+Tutti i traduttori implementano l'interfaccia:
 ```python
-class Transcriber:
-    def __init__(self, method='faster-whisper'):
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.faster_whisper_model = None
-        self._init_faster_whisper()
-    
-    def transcribe(self, audio_chunks, language=None) -> (bool, str):
-        """Trascrizione chunks con VAD intelligente"""
-        segments, detected_lang = self._transcribe_chunks_faster_whisper(...)
-        return self._save_srt(segments, output_path)
-    
-    def _transcribe_chunks_faster_whisper(self, chunks, lang):
-        """Trascrizione batch con progress tracking"""
-        for chunk_path, start_time, end_time in chunks:
-            segments = model.transcribe(chunk_path, language=lang, vad_filter=True)
-            # Merge con offset temporale
+class BaseTranslator:
+    def translate(self, text: str, src_lang: str, tgt_lang: str) -> str: ...
+    def translate_batch(self, texts: list[str], ...) -> list[str]: ...
 ```
 
-**Features:**
-- ✅ Auto-detect lingua (99 lingue)
-- ✅ VAD (Voice Activity Detection)
-- ✅ Beam search ottimizzato
-- ✅ GPU/CPU auto-switch
-- ✅ Fallback se VAD fallisce
+**Batch Processing:**
+I traduttori locali processano i sottotitoli in batch per massimizzare il throughput GPU. Il batch size è adattivo in base alla VRAM disponibile (vedi `docs/adaptive_batch_readme_it.md`).
+
+Claude API e OpenAI usano batch di 4 sottotitoli per chiamata API.
 
 ---
 
-#### 3. **AudioProcessor** (`core/audio_processor.py`)
+### `core/pipeline.py` — Orchestrazione
 
-**Responsabilità:** Separazione vocale + chunking intelligente
-
-**Pipeline Intelligente:**
-```python
-class AudioProcessor:
-    CHUNK_TARGET_DURATION = 20  # Target 20s chunks
-    CHUNK_MIN_DURATION = 10
-    CHUNK_MAX_DURATION = 25
-    
-    def separate_vocals(self, audio_path):
-        """Pipeline intelligente basata su durata"""
-        duration = self._get_duration(audio_path)
-        
-        if duration <= 300:  # ≤5 min
-            return self._separate_fast_path(wav, sr)
-        elif duration <= 5400:  # 5-90 min
-            return self._separate_standard_path(wav, sr, duration)
-        else:  # >90 min
-            return self._separate_robust_path(wav, sr, duration)
-    
-    def chunk_audio_intelligent(self, vocals_path):
-        """Chunking basato su silenzio"""
-        silences = self._detect_silences(audio)
-        chunks = self._create_chunks_at_silences(
-            silences,
-            target=self.CHUNK_TARGET_DURATION
-        )
-```
-
-**Strategia Demucs:**
-
-| Durata | Path | Metodo | VRAM | Velocità |
-|--------|------|--------|------|----------|
-| ≤5min | Fast | Direct processing | 8GB | 🔥🔥🔥 |
-| 5-90min | Standard | Auto-split (25% overlap) | 6GB | 🔥🔥 |
-| >90min | Robust | Manual chunks (5min+10s) | 4GB | 🔥 |
-
----
-
-#### 4. **NLLBTranslator** (`core/translator.py`)
-
-**Responsabilità:** Traduzione neurale batch
-
-```python
-class NLLBTranslator:
-    def __init__(self, model_name="facebook/nllb-200-3.3B", batch_size=6):
-        self.model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.translator = pipeline("translation", ...)
-        
-    def translate_srt_file(self, input_path, output_path, src_lang, tgt_lang):
-        """Traduzione file SRT completo"""
-        subtitles = self._parse_srt(content)
-        
-        # Batch processing
-        for batch in chunks(subtitles, self.batch_size):
-            translated = self.translator(
-                [text for _, _, _, text in batch],
-                src_lang=src_lang_nllb,
-                tgt_lang=tgt_lang_nllb
-            )
-```
-
-**Ottimizzazioni:**
-- ✅ Batch processing (6-8 sub per volta)
-- ✅ GPU FP16 acceleration
-- ✅ Context preservation tra batch
-- ✅ Unload automatico modello dopo uso
-
----
-
-## 🔄 Flusso Dati
-
-### Workflow Completo
-
-```mermaid
-graph TD
-    A[Video Input] --> B{Has Subtitles?}
-    B -->|Yes| C[Extract Subtitles]
-    B -->|No| D[Extract Audio]
-    C --> H[Clean Subtitles]
-    D --> E[Separate Vocals - Demucs]
-    E --> F[Intelligent Chunking]
-    F --> G[Transcribe - Whisper]
-    G --> H
-    H --> I{Translate?}
-    I -->|Yes| J[NLLB Translation]
-    I -->|No| K[Save SRT]
-    J --> K
-    K --> L{Upload?}
-    L -->|Yes| M[Get TMDB Metadata]
-    M --> N[OpenSubtitles Upload]
-    L -->|No| O[Done]
-    N --> O
-```
-
-### Data Flow per Trascrizione
+Coordina l'intero workflow:
 
 ```
-video.mp4 (2h film)
+Input Video
     ↓
-[FFmpeg] Extract audio
+Estrazione Audio (FFmpeg)
     ↓
-video_raw.wav (1.4 GB, stereo, 48kHz)
+Trascrizione (Faster-Whisper)
     ↓
-[Demucs] Vocal separation (Standard Path: auto-split)
+Ricerca Metadata (TMDB → OMDB fallback)
     ↓
-video_vocals.wav (700 MB, mono, 44.1kHz)
+Traduzione (motore selezionato)
     ↓
-[Silence Detection] Find pauses
+Scrittura file .srt / .LANG.srt
     ↓
-chunk_times = [(0, 18.3), (18.3, 35.7), ...]  # 120 chunks
+Upload OpenSubtitles (se abilitato)
     ↓
-[Physical Split] Create WAV files
-    ↓
-chunk_001.wav, chunk_002.wav, ..., chunk_120.wav
-    ↓
-[Faster-Whisper] Transcribe each (parallel-capable)
-    ↓
-segments = [
-    {'start': 0, 'end': 18.3, 'text': 'Hello world'},
-    {'start': 18.3, 'end': 35.7, 'text': 'This is a test'},
-    ...
-]  # 450 segments totali
-    ↓
-[Merge & Format] Combine to SRT
-    ↓
-video_transcribed.srt (45 KB)
+Notifica Library Scanner (se configurato)
 ```
 
 ---
 
-## 🎨 Design Patterns
+## Utils Layer
 
-### 1. Factory Pattern - Uploader
+### `utils/config.py` — Configurazione Singleton
 
-**File:** `utils/subtitle_uploader_interface.py`
+Classe `Config` — singleton globale che gestisce tutta la configurazione.
 
-```python
-class SubtitleUploaderInterface(ABC):
-    """Abstract base class per uploader"""
-    
-    @abstractmethod
-    def authenticate(self, username, password) -> bool:
-        pass
-    
-    @abstractmethod
-    def upload(self, video_path, subtitle_path, metadata):
-        pass
+**Storage:** `~/.transcriberpro/config.json`
 
-class UploaderFactory:
-    _implementations = {}
-    
-    @classmethod
-    def register_implementation(cls, name: str, uploader_class):
-        """Registra nuova implementazione"""
-        cls._implementations[name] = uploader_class
-    
-    @classmethod
-    def create_uploader(cls, implementation: str, **kwargs):
-        """Factory method"""
-        if implementation not in cls._implementations:
-            raise ValueError(f"Implementation {implementation} not available")
-        return cls._implementations[implementation](**kwargs)
-
-# Registrazione
-UploaderFactory.register_implementation('xmlrpc', OpenSubtitlesXMLRPCUploader)
-# Future: UploaderFactory.register_implementation('rest', OpenSubtitlesRESTUploader)
-
-# Utilizzo
-uploader = UploaderFactory.create_uploader('xmlrpc', username='...', password='...')
-```
-
-**Vantaggi:**
-- ✅ Facile aggiunta nuove implementazioni
-- ✅ Zero breaking changes
-- ✅ Testing facilitato (mock uploader)
-
----
-
-### 2. Singleton Pattern - Config
-
-**File:** `utils/config.py`
+**Chiavi principali:**
 
 ```python
-_config_instance = None
-
-def get_config() -> Config:
-    """Ottiene istanza singleton configurazione"""
-    global _config_instance
-    if _config_instance is None:
-        _config_instance = Config()
-    return _config_instance
-
-class Config:
-    def __init__(self):
-        self.settings = {}
-        self.load()
-```
-
-**Utilizzo:**
-```python
-# Ovunque nel codice
-from utils.config import get_config
-
-config = get_config()
-use_gpu = config.get('use_gpu', True)
-```
-
----
-
-### 3. Observer Pattern - GUI Updates
-
-**File:** `gui/workers.py` + `core/pipeline.py`
-
-```python
-# Worker thread (PyQt6)
-class ProcessingWorker(QThread):
-    progress = pyqtSignal(int)
-    log_message = pyqtSignal(str)
-    finished = pyqtSignal(bool)
-    
-    def run(self):
-        pipeline = ProcessingPipeline(...)
-        pipeline.set_log_callback(self.emit_log)
-        success = pipeline.process()
-        self.finished.emit(success)
-    
-    def emit_log(self, message: str):
-        self.log_message.emit(message)
-
-# Main Window
-class MainWindow:
-    def start_processing(self):
-        self.worker = ProcessingWorker(...)
-        self.worker.log_message.connect(self.append_log)
-        self.worker.progress.connect(self.update_progress)
-        self.worker.start()
-```
-
----
-
-### 4. Strategy Pattern - Transcription Methods
-
-```python
-class Transcriber:
-    def __init__(self, method='faster-whisper'):
-        self.method = method
-        if method == 'faster-whisper':
-            self._init_faster_whisper()
-        # Future: elif method == 'whisper-base': ...
-    
-    def transcribe(self, **kwargs):
-        if self.method == 'faster-whisper':
-            return self._transcribe_faster_whisper(**kwargs)
-        # Future strategies: whisper-base, whisper-small, etc.
-```
-
----
-
-## 🧠 Gestione Memoria
-
-### GPU Memory Management
-
-**Strategia VRAM:**
-
-```python
-# core/pipeline.py - Memory Swapping
-
-# STEP 1: Demucs caricato
-audio_processor.separate_vocals(...)  # ~4GB VRAM
-
-# Cleanup Demucs
-audio_processor.cleanup_model()
-del audio_processor
-if torch.cuda.is_available():
-    torch.cuda.empty_cache()  # Libera VRAM
-
-# STEP 2: Whisper caricato
-transcriber = Transcriber()  # ~5GB VRAM
-transcriber.transcribe(...)
-
-# Cleanup Whisper
-transcriber.cleanup()
-if torch.cuda.is_available():
-    torch.cuda.empty_cache()
-
-# STEP 3: NLLB caricato
-translator = NLLBTranslator()  # ~7GB VRAM
-translator.translate_srt_file(...)
-
-# Cleanup NLLB
-translator.unload_model()
-if torch.cuda.is_available():
-    torch.cuda.empty_cache()
-```
-
-**Timeline VRAM (RTX 3060 12GB):**
-```
-0─────────5─────────10────────15min
-│ Demucs  │ Whisper │   NLLB   │
-├─────────┤         │          │
-│  4GB    │   5GB   │   7GB    │
-│ ✓ Free  │ ✓ Free  │ ✓ Free   │
-└─────────┴─────────┴──────────┘
-```
-
----
-
-### Fallback Strategy
-
-```python
-try:
-    # Prova GPU
-    model.to('cuda')
-    output = model(input.cuda())
-except RuntimeError as e:
-    if "out of memory" in str(e).lower():
-        # Fallback CPU
-        torch.cuda.empty_cache()
-        model.to('cpu')
-        output = model(input.cpu())
-        logger.warning("GPU OOM - Fallback CPU")
-```
-
----
-
-## 🔌 API Interna
-
-### Core API - ProcessingPipeline
-
-```python
-from core.pipeline import ProcessingPipeline
-
-# Inizializzazione
-pipeline = ProcessingPipeline(
-    video_path="/path/to/video.mp4",
-    config=config_instance
-)
-
-# Set callback per log GUI
-def log_callback(message: str):
-    print(f"[LOG] {message}")
-
-pipeline.set_log_callback(log_callback)
-
-# Esecuzione
-success = pipeline.process()
-
-if success:
-    print(f"Subtitle salvato: {pipeline.final_srt}")
-else:
-    print("Elaborazione fallita")
-```
-
----
-
-### Utils API - TMDB Client
-
-```python
-from utils.tmdb_client import get_tmdb_client
-
-# Singleton client
-client = get_tmdb_client()
-
-# Ricerca film
-result = client.search_movie("The Matrix", year=1999)
-if result:
-    print(f"Title: {result['title']}")
-    print(f"IMDb ID: {result.get('imdb_id')}")
-    print(f"Year: {result['release_date'][:4]}")
-```
-
----
-
-### Utils API - OpenSubtitles Upload
-
-```python
-from utils.subtitle_uploader_interface import UploaderFactory, SubtitleMetadata
-
-# Crea uploader
-uploader = UploaderFactory.create_uploader(
-    'xmlrpc',
-    username='my_username',
-    password='my_password'
-)
-
-# Metadata
-metadata = SubtitleMetadata(
-    imdb_id='tt0133093',
-    language_code='ita',
-    release_name='The.Matrix.1999.1080p.BluRay.x264'
-)
-
-# Upload
-success, url = uploader.upload(
-    video_path='/path/to/video.mp4',
-    subtitle_path='/path/to/video.it.srt',
-    metadata=metadata
-)
-
-if success:
-    print(f"Uploaded: {url}")
-```
-
----
-
-## 🔧 Estensibilità
-
-### Come Aggiungere Nuove Features
-
-#### 1. Nuovo Modello Trascrizione
-
-**File da modificare:** `core/transcriber.py`
-
-```python
-class Transcriber:
-    SUPPORTED_METHODS = ['faster-whisper', 'whisper-base', 'whisper-small']
-    
-    def __init__(self, method='faster-whisper'):
-        self.method = method
-        
-        if method == 'faster-whisper':
-            self._init_faster_whisper()
-        elif method == 'whisper-base':
-            self._init_whisper_base()  # NEW
-        elif method == 'whisper-small':
-            self._init_whisper_small()  # NEW
-    
-    def _init_whisper_base(self):
-        """Inizializza Whisper base model (più veloce, meno accurato)"""
-        from faster_whisper import WhisperModel
-        self.model = WhisperModel("base", device=self.device)
-```
-
----
-
-#### 2. Nuova Lingua Output
-
-**File da modificare:** `core/translator.py`
-
-```python
-class NLLBTranslator:
-    # Aggiungi mapping
-    LANGUAGE_CODES = {
-        ...
-        'ita': 'ita_Latn',
-        'eng': 'eng_Latn',
-        'fra': 'fra_Latn',  # NEW
-        'spa': 'spa_Latn',  # NEW
-    }
-```
-
-**File da modificare:** `utils/config.py`
-
-```json
 {
-  "language": "fra",  # Invece di "ita"
-  ...
+    # Traduzione
+    "translation_model": "nllb",         # nllb | nllb_finetuned | aya | claude | openai
+    "target_language": "it",
+    "claude_api_key": "",
+    "openai_api_key": "",
+    "huggingface_token": "",
+
+    # Trascrizione
+    "transcription_profile": "balanced", # fast | balanced | quality | maximum | batch
+    "whisper_language": "auto",
+
+    # Metadata
+    "tmdb_api_key": "",
+    "omdb_api_key": "",
+
+    # OpenSubtitles
+    "opensubtitles_username": "",
+    "opensubtitles_password": "",
+    "opensubtitles_api_key": "",
+    "opensubtitles_auto_upload": false,
+    "opensubtitles_check_duplicates": true,
+
+    # Library Scanner
+    "library_scanner_url": "",
+    "library_scanner_api_key": "",
 }
 ```
 
+Accesso thread-safe con lock interno. Lettura/scrittura su disco ad ogni modifica.
+
 ---
 
-#### 3. Nuovo Uploader (REST API futura)
+### `utils/subtitle_uploader_interface.py` — Pattern Uploader
 
-**Step 1:** Crea implementazione
+Interfaccia astratta con factory per i due uploader OpenSubtitles:
 
 ```python
-# File: utils/opensubtitles_rest_uploader.py
+class SubtitleUploaderInterface(ABC):
+    @abstractmethod
+    def upload(self, subtitle_path, video_path, language, imdb_id) -> bool: ...
 
-from utils.subtitle_uploader_interface import SubtitleUploaderInterface
-
-class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
-    def __init__(self, api_key: str, **kwargs):
-        self.api_key = api_key
-        self.base_url = "https://api.opensubtitles.com"
-    
-    def authenticate(self, username, password):
-        # JWT authentication
-        response = requests.post(
-            f"{self.base_url}/auth/login",
-            json={"username": username, "password": password}
-        )
-        self.token = response.json()['token']
-        return True
-    
-    def upload(self, video_path, subtitle_path, metadata):
-        # REST API upload
-        headers = {"Authorization": f"Bearer {self.token}"}
-        # ... implementazione REST
+    @abstractmethod
+    def check_duplicate(self, video_hash, language) -> bool: ...
 ```
 
-**Step 2:** Registra factory
+**Implementazioni:**
+- `OpenSubtitlesRESTUploader` — REST API moderna (default)
+- `OpenSubtitlesXMLRPCUploader` — Legacy XML-RPC (fallback)
 
-```python
-# File: utils/opensubtitles_rest_uploader.py (in fondo)
+La factory seleziona automaticamente REST se l'API key è presente, altrimenti XML-RPC.
 
-from utils.subtitle_uploader_interface import UploaderFactory
-UploaderFactory.register_implementation('rest', OpenSubtitlesRESTUploader)
+---
+
+### `utils/library_scanner_client.py` — Library Scanner
+
+Client HTTP per notificare server Library Scanner (Plex/Jellyfin/Emby) dell'aggiornamento dei sottotitoli.
+
+Configurabile in **Settings → Library Scanner**.
+
+---
+
+## Presentation Layer (GUI)
+
+Basato su **PyQt6 6.6.1**.
+
+- L'elaborazione avviene in `QThread` worker per non bloccare la UI
+- I progressi vengono comunicati via **Qt signals/slots**
+- Le impostazioni vengono lette/scritte tramite `Config` (singleton condiviso)
+
+**Dialog principali:**
+- `SettingsDialog` — impostazioni generali, API keys, OpenSubtitles, Library Scanner
+- `TranslationModelDialog` — scelta motore traduzione, configurazione API keys cloud, HuggingFace token
+
+---
+
+## Stack Tecnologico
+
+| Componente | Tecnologia | Versione |
+|------------|-----------|---------|
+| GUI | PyQt6 | 6.6.1 |
+| Trascrizione | Faster-Whisper | 1.0.3 |
+| Deep Learning | PyTorch | 2.8+cu126 |
+| Accelerazione | CUDA | 12.6 |
+| Traduzione locale | Transformers (HuggingFace) | 4.57+ |
+| Traduzione cloud 1 | Anthropic SDK | ≥0.39 |
+| Traduzione cloud 2 | OpenAI SDK | ≥1.0 |
+| Audio processing | FFmpeg | 6.0+ |
+| Metadata | TMDB API v3 / OMDB API | — |
+| Upload subtitle | OpenSubtitles REST API v1 | — |
+| Python | CPython | 3.11 |
+
+---
+
+## Flusso Dati — Traduzione con Contesto TMDB
+
+Quando si usa **Claude API** o **OpenAI**, il traduttore riceve anche la sinossi TMDB:
+
+```
+SRT file + sinossi TMDB
+         ↓
+Batch di 4 sottotitoli
+         ↓
+Prompt strutturato con contesto
+         ↓
+Claude/OpenAI API call
+         ↓
+Sottotitoli tradotti con terminologia coerente
 ```
 
-**Step 3:** Usa
-
-```python
-# ZERO BREAKING CHANGES!
-uploader = UploaderFactory.create_uploader('rest', api_key='....')
-```
+Questo garantisce coerenza nella traduzione di nomi di personaggi, luoghi e terminologia specifica del contenuto.
 
 ---
 
-## 📊 Performance Benchmarks
-
-### Hardware Testato
-
-**Sistema di riferimento:**
-- CPU: Intel i7-12700KF (12 core, 20 thread)
-- RAM: 12 GB DDR4
-- GPU: NVIDIA RTX 3060 12GB VRAM
-- Storage: SSD NVMe
-
-### Tempi di Elaborazione
-
-| Video | Durata | GPU Time | CPU Time | Speedup |
-|-------|--------|----------|----------|---------|
-| Short clip | 5 min | 45 sec | 7 min | 9.3x |
-| TV Episode | 45 min | 7 min | 67 min | 9.5x |
-| Movie | 2h 15min | 20 min | 3h 22min | 10.1x |
-| Long doc | 4h | 38 min | 6h 12min | 9.8x |
-
-**Media:** ~10x speedup GPU vs CPU
-
----
-
-## 🚀 Roadmap Tecnico
-
-### v1.1 (Pianificato)
-
-- [ ] Supporto macOS (MPS backend PyTorch)
-- [ ] Whisper model selector (base/small/medium/large)
-- [ ] Parallel chunk processing (multi-GPU)
-- [ ] API REST per uso remoto
-
-### v1.2 (Futuro)
-
-- [ ] Docker containerization
-- [ ] Cloud processing (AWS/Azure)
-- [ ] Real-time transcription (streaming)
-- [ ] Plugin system per estensioni
-
----
-
-## 📚 Riferimenti
-
-**Papers:**
-- Whisper: [Robust Speech Recognition via Large-Scale Weak Supervision](https://arxiv.org/abs/2212.04356)
-- NLLB: [No Language Left Behind](https://arxiv.org/abs/2207.04672)
-- Demucs: [Hybrid Spectrogram and Waveform Source Separation](https://arxiv.org/abs/2111.03600)
-
-**Libraries:**
-- [Faster-Whisper](https://github.com/guillaumekln/faster-whisper)
-- [Transformers (Hugging Face)](https://huggingface.co/docs/transformers)
-- [Demucs](https://github.com/facebookresearch/demucs)
-- [PyQt6](https://www.riverbankcomputing.com/software/pyqt/)
-
----
-
-<div align="center">
-
-**Contribuisci al progetto! 🚀**
-
-*Pull requests welcome - Vedi CONTRIBUTING.md*
-
-</div>
+*Transcriber Pro — Python 3.11 / CUDA 12.6 / PyTorch 2.8*
