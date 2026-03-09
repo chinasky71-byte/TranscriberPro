@@ -452,8 +452,22 @@ class NLLBTranslator(BaseTranslator):
         """Inizializza il traduttore NLLB usando l'istanza singleton"""
         super().__init__(log_callback, context)
         self.model, self.tokenizer, self.device = _get_nllb_translator_resources()
-        self.current_batch_size = self.BATCH_SIZE_ADAPTIVE
-        self.oom_consecutive_failures = 0
+
+        from utils.adaptive_batch_manager import AdaptiveBatchSizeManager
+        cfg = get_config().get_adaptive_batch_config() if get_config else {}
+        self.batch_manager = AdaptiveBatchSizeManager(
+            device=self.device,
+            use_gpu=self.use_gpu,
+            initial_size=cfg.get('initial_size'),
+            min_size=cfg.get('min_size', self.MIN_BATCH_SIZE),
+            max_size=cfg.get('max_size', self.MAX_BATCH_SIZE),
+            warmup_batches=cfg.get('warmup_batches', 5),
+            high_threshold=cfg.get('high_threshold', 0.85),
+            low_threshold=cfg.get('low_threshold', 0.60),
+            log_callback=self.log,
+        )
+        # Alias per compatibilità con il loop translate_file
+        self.current_batch_size = self.batch_manager.current_batch_size
 
     def _nllb_to_iso(self, lang_code: str) -> Optional[str]:
         """Converte codice ISO 639-2/1 in codice NLLB"""
@@ -490,22 +504,14 @@ class NLLBTranslator(BaseTranslator):
                 )
             
             translations = self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
-            self.oom_consecutive_failures = 0
-            
             return translations
             
         except RuntimeError as e:
             if "out of memory" in str(e).lower() or "CUDA" in str(e):
-                self.oom_consecutive_failures += 1
+                self.batch_manager.record_oom()
+                self.current_batch_size = self.batch_manager.current_batch_size
 
-                if self.use_gpu:
-                    torch.cuda.empty_cache()
-                    torch.cuda.synchronize()
-
-                if self.current_batch_size > self.MIN_BATCH_SIZE:
-                    new_batch_size = max(self.MIN_BATCH_SIZE, self.current_batch_size // 2)
-                    self.log(f"  OOM! Riduco batch: {self.current_batch_size} ---> {new_batch_size}")
-                    self.current_batch_size = new_batch_size
+                if self.batch_manager.current_batch_size > self.MIN_BATCH_SIZE or self.current_batch_size > self.MIN_BATCH_SIZE:
                     raise Exception("Out of Memory - Batch Size Ridotto")
                 else:
                     self.log(f"   OPS! OOM critico con batch_size=1. Memoria GPU insufficiente.")
@@ -514,7 +520,7 @@ class NLLBTranslator(BaseTranslator):
                 raise
 
 
-    def translate_file(self, input_path: Path, output_path: Path, 
+    def translate_file(self, input_path: Path, output_path: Path,
                       src_lang: str, tgt_lang: str, context: Optional[str] = None) -> bool:
         """
         Traduce file SRT da lingua sorgente a lingua target
@@ -570,20 +576,21 @@ class NLLBTranslator(BaseTranslator):
                 return True
             
             self.log(f"  Trovati {total} sottotitoli da tradurre")
-            
-            self.current_batch_size = self.BATCH_SIZE_ADAPTIVE
-            self.oom_consecutive_failures = 0
+
+            self.batch_manager.reset()
+            self.current_batch_size = self.batch_manager.current_batch_size
             is_first_batch = True
-            
+
             i = 0
             last_progress = -1
             max_retries_per_batch = 3
 
             while i < total:
+                self.current_batch_size = self.batch_manager.current_batch_size
                 batch_index = (i // self.current_batch_size) + 1
                 total_batches = (total + self.current_batch_size - 1) // self.current_batch_size
 
-                batch = parsed_subtitles[i:i + self.current_batch_size]
+                batch = parsed_subtitles[i:i + self.batch_manager.get_batch_size()]
                 texts_to_translate: List[str] = []
                 current_batch_placeholders: List[Dict[str, str]] = []
                 skip_translation_flags: List[bool] = []
@@ -597,10 +604,10 @@ class NLLBTranslator(BaseTranslator):
                     skip_translation_flags.append(only_masked)
 
                 progress = int((i / total) * 100)
-                if progress != last_progress:
+                if progress != last_progress and not self.batch_manager.is_warming_up:
                     self.log(f"   Progresso: {progress}% ({i}/{total})")
                     last_progress = progress
-                
+
                 retries = 0
                 batch_success = False
                 
@@ -646,15 +653,16 @@ class NLLBTranslator(BaseTranslator):
                             translated_subtitles.append((index, start, end, post_processed_results[j]))
                         
                         batch_success = True
+                        self.batch_manager.record_success()
                         is_first_batch = False
                         i += len(batch)
-                    
+
                     except Exception as e:
                         retries += 1
-                        
+
                         if 'Out of Memory - Batch Size Ridotto' in str(e):
                             self.log(f"   Retry #{retries}/{max_retries_per_batch} con batch size ridotto...")
-                            
+                            self.current_batch_size = self.batch_manager.current_batch_size
                             batch = parsed_subtitles[i:i + self.current_batch_size]
                             original_texts = [item[3] for item in batch]
                             texts_to_translate, current_batch_placeholders, skip_translation_flags = [], [], []
@@ -663,30 +671,31 @@ class NLLBTranslator(BaseTranslator):
                                 texts_to_translate.append(final_text)
                                 current_batch_placeholders.append(placeholders)
                                 skip_translation_flags.append(only_masked)
-                            
+
                         elif 'Out of Memory - GPU Memoria Insufficiente' in str(e):
-                            self.log(f" Ã¢ÂÅ’ ERRORE CRITICO: GPU memoria insufficiente. Batch saltato.")
-                            for item in batch:
-                                translated_subtitles.append(item) 
-                            is_first_batch = False
-                            i += len(batch)
-                            break
-                            
-                        else:
-                            self.log(f" Ã¢ÂÅ’ Errore sconosciuto nel batch ({str(e)[:100]}). Batch saltato.")
+                            self.log(f" ERRORE CRITICO: GPU memoria insufficiente. Batch saltato.")
                             for item in batch:
                                 translated_subtitles.append(item)
                             is_first_batch = False
                             i += len(batch)
                             break
-                
+
+                        else:
+                            self.log(f" Errore sconosciuto nel batch ({str(e)[:100]}). Batch saltato.")
+                            for item in batch:
+                                translated_subtitles.append(item)
+                            is_first_batch = False
+                            i += len(batch)
+                            break
+
                 if not batch_success and retries >= max_retries_per_batch:
-                    self.log(f" Ã¢ÂÅ’ Batch fallito dopo {max_retries_per_batch} tentativi. Mantengo originali.")
+                    self.log(f" Batch fallito dopo {max_retries_per_batch} tentativi. Mantengo originali.")
                     for item in batch:
                         translated_subtitles.append(item)
                     is_first_batch = False
                     i += len(batch)
-                        
+
+            self.batch_manager.log_summary()
             self.log(f"   Progresso: 100% ({total}/{total})")
             srt_content = self._generate_srt(translated_subtitles)
             with open(output_path, 'w', encoding='utf-8') as f:
@@ -866,8 +875,21 @@ class AyaTranslator(BaseTranslator):
         """Inizializza il traduttore Aya usando l'istanza singleton"""
         super().__init__(log_callback, context)
         self.model, self.tokenizer, self.device = _get_aya_translator_resources()
-        self.current_batch_size = self.BATCH_SIZE_ADAPTIVE
-        self.oom_consecutive_failures = 0
+
+        from utils.adaptive_batch_manager import AdaptiveBatchSizeManager
+        cfg = get_config().get_adaptive_batch_config() if get_config else {}
+        self.batch_manager = AdaptiveBatchSizeManager(
+            device=self.device,
+            use_gpu=self.use_gpu,
+            initial_size=cfg.get('initial_size'),
+            min_size=cfg.get('min_size', self.MIN_BATCH_SIZE),
+            max_size=cfg.get('max_size', self.MAX_BATCH_SIZE),
+            warmup_batches=cfg.get('warmup_batches', 5),
+            high_threshold=cfg.get('high_threshold', 0.85),
+            low_threshold=cfg.get('low_threshold', 0.60),
+            log_callback=self.log,
+        )
+        self.current_batch_size = self.batch_manager.current_batch_size
     
     def _aya_to_iso(self, lang_code: str) -> Optional[str]:
         """Converte codice ISO 639-2/1 in codice Aya"""
@@ -965,22 +987,14 @@ class AyaTranslator(BaseTranslator):
                 # Se passa tutti i controlli, usa la traduzione
                 translations.append(translation)
 
-            self.oom_consecutive_failures = 0
-            
             return translations
             
         except RuntimeError as e:
             if "out of memory" in str(e).lower() or "CUDA" in str(e):
-                self.oom_consecutive_failures += 1
-                
-                if self.use_gpu:
-                    torch.cuda.empty_cache()
-                    torch.cuda.synchronize()
-                
-                if self.current_batch_size > self.MIN_BATCH_SIZE:
-                    new_batch_size = max(self.MIN_BATCH_SIZE, self.current_batch_size // 2)
-                    self.log(f"  OOM! Riduco batch: {self.current_batch_size} ---> {new_batch_size}")
-                    self.current_batch_size = new_batch_size
+                self.batch_manager.record_oom()
+                self.current_batch_size = self.batch_manager.current_batch_size
+
+                if self.batch_manager.current_batch_size > self.MIN_BATCH_SIZE or self.current_batch_size > self.MIN_BATCH_SIZE:
                     raise Exception("Out of Memory - Batch Size Ridotto")
                 else:
                     self.log(f"   OPS! OOM critico con batch_size=1. Memoria GPU insufficiente.")
@@ -1040,18 +1054,19 @@ class AyaTranslator(BaseTranslator):
             
             self.log(f"  Trovati {total} sottotitoli da tradurre")
             
-            self.current_batch_size = self.BATCH_SIZE_ADAPTIVE
-            self.oom_consecutive_failures = 0
-            
+            self.batch_manager.reset()
+            self.current_batch_size = self.batch_manager.current_batch_size
+
             i = 0
             last_progress = -1
             max_retries_per_batch = 3
 
             while i < total:
+                self.current_batch_size = self.batch_manager.current_batch_size
                 batch_index = (i // self.current_batch_size) + 1
                 total_batches = (total + self.current_batch_size - 1) // self.current_batch_size
 
-                batch = parsed_subtitles[i:i + self.current_batch_size]
+                batch = parsed_subtitles[i:i + self.batch_manager.get_batch_size()]
                 texts_to_translate: List[str] = []
                 current_batch_placeholders: List[Dict[str, str]] = []
                 skip_translation_flags: List[bool] = []
@@ -1065,10 +1080,10 @@ class AyaTranslator(BaseTranslator):
                     skip_translation_flags.append(only_masked)
 
                 progress = int((i / total) * 100)
-                if progress != last_progress:
+                if progress != last_progress and not self.batch_manager.is_warming_up:
                     self.log(f"   Progresso: {progress}% ({i}/{total})")
                     last_progress = progress
-                
+
                 retries = 0
                 batch_success = False
                 
@@ -1111,14 +1126,15 @@ class AyaTranslator(BaseTranslator):
                             translated_subtitles.append((index, start, end, post_processed_results[j]))
                         
                         batch_success = True
+                        self.batch_manager.record_success()
                         i += len(batch)
-                    
+
                     except Exception as e:
                         retries += 1
-                        
+
                         if 'Out of Memory - Batch Size Ridotto' in str(e):
                             self.log(f"   Retry #{retries}/{max_retries_per_batch} con batch size ridotto...")
-                            
+                            self.current_batch_size = self.batch_manager.current_batch_size
                             batch = parsed_subtitles[i:i + self.current_batch_size]
                             original_texts = [item[3] for item in batch]
                             texts_to_translate, current_batch_placeholders, skip_translation_flags = [], [], []
@@ -1127,27 +1143,28 @@ class AyaTranslator(BaseTranslator):
                                 texts_to_translate.append(final_text)
                                 current_batch_placeholders.append(placeholders)
                                 skip_translation_flags.append(only_masked)
-                            
+
                         elif 'Out of Memory - GPU Memoria Insufficiente' in str(e):
-                            self.log(f" Ã¢ÂÅ’ ERRORE CRITICO: GPU memoria insufficiente. Batch saltato.")
+                            self.log(f" ERRORE CRITICO: GPU memoria insufficiente. Batch saltato.")
                             for item in batch:
                                 translated_subtitles.append(item)
                             i += len(batch)
                             break
-                            
+
                         else:
-                            self.log(f" Ã¢ÂÅ’ Errore sconosciuto nel batch ({str(e)[:100]}). Batch saltato.")
+                            self.log(f" Errore sconosciuto nel batch ({str(e)[:100]}). Batch saltato.")
                             for item in batch:
                                 translated_subtitles.append(item)
                             i += len(batch)
                             break
-                
+
                 if not batch_success and retries >= max_retries_per_batch:
-                    self.log(f" Ã¢ÂÅ’ Batch fallito dopo {max_retries_per_batch} tentativi. Mantengo originali.")
+                    self.log(f" Batch fallito dopo {max_retries_per_batch} tentativi. Mantengo originali.")
                     for item in batch:
                         translated_subtitles.append(item)
                     i += len(batch)
-                        
+
+            self.batch_manager.log_summary()
             self.log(f"   Progresso: 100% ({total}/{total})")
             srt_content = self._generate_srt(translated_subtitles)
             with open(output_path, 'w', encoding='utf-8') as f:
@@ -1541,8 +1558,21 @@ class NLLBFineTunedTranslator(NLLBTranslator):
         # e usa direttamente le risorse fine-tuned
         BaseTranslator.__init__(self, log_callback, context)
         self.model, self.tokenizer, self.device = _get_nllb_ft_resources()
-        self.current_batch_size = self.BATCH_SIZE_ADAPTIVE
-        self.oom_consecutive_failures = 0
+
+        from utils.adaptive_batch_manager import AdaptiveBatchSizeManager
+        cfg = get_config().get_adaptive_batch_config() if get_config else {}
+        self.batch_manager = AdaptiveBatchSizeManager(
+            device=self.device,
+            use_gpu=self.use_gpu,
+            initial_size=cfg.get('initial_size'),
+            min_size=cfg.get('min_size', self.MIN_BATCH_SIZE),
+            max_size=cfg.get('max_size', self.MAX_BATCH_SIZE),
+            warmup_batches=cfg.get('warmup_batches', 5),
+            high_threshold=cfg.get('high_threshold', 0.85),
+            low_threshold=cfg.get('low_threshold', 0.60),
+            log_callback=self.log,
+        )
+        self.current_batch_size = self.batch_manager.current_batch_size
 
 
 # ============================================================================

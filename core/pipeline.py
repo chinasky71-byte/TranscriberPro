@@ -274,13 +274,26 @@ class ProcessingPipeline:
 
             
             # ============================================================
+            # STEP 5.5: Scarica Whisper e Demucs prima della traduzione
+            # ============================================================
+            if self._transcriber:
+                self._transcriber.cleanup()
+                self._transcriber = None
+            if self._audio_processor:
+                self._audio_processor.cleanup_model()
+                self._audio_processor = None
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+
+            # ============================================================
             # STEP 6: Traduzione (se lingua sorgente != lingua target)
             # ============================================================
             source_language_639_1 = self.LANG_MAP_639_2_TO_639_1.get(source_language_639_2, 'und')
             target_language_639_1 = self.LANG_MAP_639_2_TO_639_1.get(target_language, 'und')
-            
+
             if source_language_639_1 != target_language_639_1:
-                
+
                 self._log(f"\n6. Traduzione ({source_language_639_1} â†’ {target_language_639_1})...")
                 
                 

@@ -3,8 +3,11 @@ Main Application Entry Point
 File: main.py
 """
 import sys
+import warnings
 import logging
 from pathlib import Path
+
+warnings.filterwarnings("ignore", message="In 2.9, this function's implementation")
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer
