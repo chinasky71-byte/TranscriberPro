@@ -1,0 +1,267 @@
+═══════════════════════════════════════════════════════════════════════════
+  CLAUDE API INTEGRATION - GUIDA COMPLETA
+═══════════════════════════════════════════════════════════════════════════
+
+VERSIONE: 6.0
+DATA: Gennaio 2026
+
+═══════════════════════════════════════════════════════════════════════════
+  1. PANORAMICA
+═══════════════════════════════════════════════════════════════════════════
+
+TranscriberPro ora supporta 3 motori di traduzione:
+
+┌─────────────┬──────────────┬─────────────┬──────────────┬─────────────┐
+│ MODELLO     │ TIPO         │ GPU         │ QUALITÀ      │ VELOCITÀ    │
+├─────────────┼──────────────┼─────────────┼──────────────┼─────────────┤
+│ NLLB-200    │ Locale       │ Richiesta   │ ★★★☆☆        │ ★★★★★       │
+│ Aya-23-8B   │ Locale       │ Richiesta   │ ★★★★☆        │ ★★★☆☆       │
+│ Claude API  │ Cloud        │ NON usata   │ ★★★★★        │ ★★★★☆       │
+└─────────────┴──────────────┴─────────────┴──────────────┴─────────────┘
+
+VANTAGGI CLAUDE API:
+✅ Qualità traduzione superiore con comprensione contestuale
+✅ Zero uso GPU (ideale se GPU occupata da altri task)
+✅ Usa contesto TMDB (sinossi) per traduzioni più accurate
+✅ Batch processing intelligente (4 sottotitoli per chiamata)
+✅ Gestione automatica rate limits
+✅ Supporto 50+ lingue
+✅ Setup istantaneo (no download modelli)
+
+CONSIDERAZIONI:
+💰 Richiede piano a pagamento Anthropic (usa il tuo piano esistente)
+🌐 Richiede connessione internet
+📊 Costo stimato: ~$0.01-0.05 per film (basato su Sonnet 4 pricing)
+
+═══════════════════════════════════════════════════════════════════════════
+  2. INSTALLAZIONE
+═══════════════════════════════════════════════════════════════════════════
+
+PASSO 1: Installare la libreria anthropic
+─────────────────────────────────────────
+Aprire terminale/prompt dei comandi e eseguire:
+
+  pip install anthropic
+
+Oppure installare tutte le dipendenze aggiornate:
+
+  pip install -r requirements.txt
+
+
+PASSO 2: Ottenere API key Anthropic
+────────────────────────────────────
+1. Vai su: https://console.anthropic.com
+2. Effettua login (o crea account se necessario)
+3. Naviga su: Settings → API Keys
+4. Clicca "Create Key"
+5. Copia l'API key (formato: sk-ant-...)
+
+⚠️ IMPORTANTE: Conserva l'API key in modo sicuro!
+   Non condividerla mai e non committarla su repository pubblici.
+
+
+PASSO 3: Configurare API key in TranscriberPro
+───────────────────────────────────────────────
+Metodo 1 - GUI (consigliato):
+  a) Apri TranscriberPro
+  b) Vai su: Settings → Translation Model
+  c) Seleziona "Claude API (Sonnet 4)"
+  d) Inserisci API key nel campo "Claude API Key"
+  e) Clicca "Save API Key"
+  f) Clicca "Save & Close"
+
+Metodo 2 - File config (avanzato):
+  a) Apri: %USERPROFILE%\.transcriberpro\config.json
+  b) Aggiungi/modifica:
+     "claude_api_key": "sk-ant-tua-api-key-qui"
+  c) Salva il file
+
+
+PASSO 4: Verifica configurazione
+─────────────────────────────────
+1. Riapri il dialog "Translation Model"
+2. Verifica che appaia: "✅ API key configurata" sotto Claude
+3. Seleziona Claude e clicca "Save & Close"
+
+═══════════════════════════════════════════════════════════════════════════
+  3. UTILIZZO
+═══════════════════════════════════════════════════════════════════════════
+
+USO NORMALE:
+────────────
+Una volta configurato Claude come modello di traduzione:
+
+1. Elabora video normalmente (Trascrizione → Traduzione)
+2. Claude userà automaticamente:
+   - Contesto TMDB (sinossi del film/serie)
+   - Batch processing intelligente
+   - Retry automatici per rate limits
+
+3. Statistiche visibili nel log:
+   • Numero chiamate API
+   • Token input/output
+   • Progresso traduzione
+
+
+SWITCHING TRA MODELLI:
+───────────────────────
+Per cambiare motore traduzione:
+
+1. Settings → Translation Model
+2. Seleziona modello desiderato (NLLB / Aya / Claude)
+3. Save & Close
+
+Il cambio è immediato e persistente.
+
+
+INTEGRAZIONE CON TMDB:
+──────────────────────
+Claude usa automaticamente le sinossi TMDB per migliorare le traduzioni:
+
+• Per FILM: Usa la sinossi generale
+• Per SERIE TV: Usa la sinossi dell'episodio specifico (se disponibile)
+
+Questo permette traduzioni più accurate di:
+- Nomi personaggi
+- Terminologia specifica
+- Contesto situazionale
+- Giochi di parole
+
+═══════════════════════════════════════════════════════════════════════════
+  4. COSTI E PRICING
+═══════════════════════════════════════════════════════════════════════════
+
+MODELLO USATO: Claude Sonnet 4 (claude-sonnet-4-20250514)
+
+PRICING ANTHROPIC (Gennaio 2026):
+─────────────────────────────────
+• Input: $3.00 per 1M tokens
+• Output: $15.00 per 1M tokens
+
+STIMA COSTI PER CONTENUTO:
+──────────────────────────
+Film (90-120 min, ~1500 sottotitoli):
+  • Token input: ~8,000-12,000
+  • Token output: ~10,000-15,000
+  • Costo totale: ~$0.15-0.25 per film
+
+Serie TV (45 min episodio, ~700 sottotitoli):
+  • Token input: ~4,000-6,000
+  • Token output: ~5,000-8,000
+  • Costo totale: ~$0.06-0.12 per episodio
+
+OTTIMIZZAZIONI INTEGRATE:
+─────────────────────────
+✓ Batch processing (4 sottotitoli/chiamata) riduce overhead
+✓ Prompt ottimizzato minimizza token sprecati
+✓ Retry intelligente evita chiamate duplicate
+✓ Context truncation (max 800 char) per sinossi lunghe
+
+⚡ SUGGERIMENTO: Monitora i costi nella Anthropic Console
+
+═══════════════════════════════════════════════════════════════════════════
+  5. TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════════════════
+
+PROBLEMA: "Libreria 'anthropic' non disponibile"
+────────────────────────────────────────────────
+SOLUZIONE:
+  pip install anthropic
+
+
+PROBLEMA: "API key non valida"
+───────────────────────────────
+VERIFICA:
+  • API key inizia con 'sk-ant-'
+  • Lunghezza minima 40 caratteri
+  • Copiata correttamente (no spazi extra)
+  • Key attiva in console.anthropic.com
+
+
+PROBLEMA: "Rate limit exceeded"
+────────────────────────────────
+SOLUZIONE:
+  Il software gestisce automaticamente con retry exponential backoff.
+  Se persiste, verifica il tuo tier su console.anthropic.com
+
+
+PROBLEMA: "API connection error"
+─────────────────────────────────
+VERIFICA:
+  • Connessione internet attiva
+  • Firewall non blocca anthropic.com
+  • Proxy configurato correttamente (se presente)
+
+
+PROBLEMA: Traduzione di bassa qualità
+──────────────────────────────────────
+POSSIBILI CAUSE:
+  • Sinossi TMDB mancante o errata
+  • Lingua sorgente rilevata male
+  • Sottotitoli molto frammentati
+
+SOLUZIONE:
+  • Verifica metadata TMDB corretti
+  • Specifica lingua sorgente manualmente
+  • Considera post-editing per contenuti critici
+
+
+PROBLEMA: Costi elevati
+────────────────────────
+VERIFICA:
+  • Stai traducendo contenuti molto lunghi?
+  • Verificare log per numero chiamate API
+  • Considera NLLB/Aya per contenuti lunghi (gratis, locale)
+
+═══════════════════════════════════════════════════════════════════════════
+  6. FILE MODIFICATI
+═══════════════════════════════════════════════════════════════════════════
+
+Aggiornare questi file nel progetto:
+
+📄 CORE:
+  • translator.py                    (ClaudeTranslator + factory aggiornata)
+  • __init__.py                      (export ClaudeTranslator)
+  • config.py                        (claude_api_key + validazione)
+
+📄 GUI:
+  • translation_model_dialog.py     (selezione Claude + config API key)
+
+📄 DEPENDENCIES:
+  • requirements.txt                 (anthropic>=0.39.0)
+
+═══════════════════════════════════════════════════════════════════════════
+  7. SUPPORTO E CONTATTI
+═══════════════════════════════════════════════════════════════════════════
+
+Anthropic Documentation:
+  https://docs.anthropic.com
+
+API Reference:
+  https://docs.anthropic.com/claude/reference
+
+Pricing:
+  https://www.anthropic.com/pricing
+
+Console (API keys):
+  https://console.anthropic.com
+
+Support:
+  support@anthropic.com
+
+═══════════════════════════════════════════════════════════════════════════
+  8. NOTE FINALI
+═══════════════════════════════════════════════════════════════════════════
+
+✅ Claude API è completamente integrato e pronto all'uso
+✅ Usa il tuo piano a pagamento esistente (nessun costo extra software)
+✅ Compatibile con NLLB e Aya (switch istantaneo)
+✅ Statistiche dettagliate in ogni traduzione
+✅ Fallback automatico su NLLB in caso di errori
+
+🎯 RACCOMANDAZIONI D'USO:
+   • Claude: Contenuti importanti, massima qualità richiesta
+   • Aya: Ottimo compromesso qualità/velocità (GPU richiesta)
+   • NLLB: Batch processing, velocità massima (GPU richiesta)
+
+═══════════════════════════════════════════════════════════════════════════

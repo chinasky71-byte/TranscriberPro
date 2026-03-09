@@ -1,0 +1,27 @@
+=================================================================
+  Modello_V3 - NLLB-200 Fine-Tuned EN->IT
+  Generato: 27/02/2026 15:19
+=================================================================
+
+Il modello è pronto all'uso. Non sono necessarie conversioni aggiuntive.
+
+=================================================================
+PIPELINE DI FINE-TUNING
+=================================================================
+Questo modello è il risultato di 3 round successivi di fine-tuning:
+
+  Base:    facebook/nllb-200-3.3B  (modello originale Meta AI)
+  v1:      Fine-tuning su 576k coppie sottotitoli EN-IT
+           Best eval_loss: 1.1629 (step 35500)
+  v2:      Continual fine-tuning su 1.99M coppie (orig + TV)
+           Best eval_loss: 1.2296
+  Stage 2: Fine-tuning su 29.4k coppie slang/colloquiale
+  (v3)     Dataset: slang GPT-4 (21k) + anchor TV (9k)
+           Best eval_loss: 1.4008
+
+Il modello è ottimizzato per:
+  - Sottotitoli cinematografici e serie TV
+  - Linguaggio colloquiale, espressioni slang, dialogo naturale
+  - Preservazione del tono e registro (formale, informale, umoristico)
+
+=================================================================

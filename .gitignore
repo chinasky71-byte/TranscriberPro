@@ -1,0 +1,49 @@
+# Credentials and API keys
+claude api key.txt
+huggingface_download_token.txt
+omdb_api.txt
+tmdb_api.txt
+
+# Claude Code
+.claude/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# AI Models (too large for git)
+models/
+*.bin
+*.safetensors
+*.pt
+*.pth
+
+# System files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+logs/
+
+# Test / debug / dev files
+test_*.py
+debug_*.py
+fix_*.py
+speed_fix_*.py
+test_*.srt
+*.odt
+Gemini_Generated_Image_transcriptor.png
+QWEN_OLLAMA_INTEGRATION_SPEC.md
+*.it.srt
