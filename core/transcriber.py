@@ -466,6 +466,19 @@ class Transcriber:
                 'words': list(current_words),
             })
 
+        # Anti-frammento: se il residuo finale ha < 4 parole, riunirlo al
+        # chunk precedente. Parole isolate vengono ancorate male dal forced
+        # aligner e creano sottotitoli anticipati o ritardati.
+        if len(result) >= 2 and len(result[-1]['words']) < 4:
+            tail = result.pop()
+            prev = result[-1]
+            result[-1] = {
+                'start': prev['start'],
+                'end':   tail['end'],
+                'text':  (prev['text'] + ' ' + tail['text']).strip(),
+                'words': prev['words'] + tail['words'],
+            }
+
         return result or [{'start': segment['start'], 'end': segment['end'], 'text': text}]
 
     def cleanup(self):
