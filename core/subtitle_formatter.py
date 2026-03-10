@@ -32,6 +32,8 @@ CPL_MAX       = 42    # Characters Per Line massimo
 MIN_DURATION  = 1.0   # Durata minima blocco (s) — anti-flash
 GAP_GROUP     = 1.0   # Gap max (s) per raggruppare 2 speaker in un blocco
 DIALOGUE_WIN  = 4.0   # Finestra (s) per rilevare contesto dialogo
+MERGE_GAP     = 0.3   # Gap max (s) per unire frammenti della stessa frase (stesso speaker)
+MERGE_GAP_TINY = 0.05  # Gap max (s) per unire ignorando lo speaker (artefatto aligner)
 
 
 class SubtitleFormatter:
@@ -62,12 +64,17 @@ class SubtitleFormatter:
         if not segs:
             return ""
 
+        segs = self._merge_short_segments(segs)
+
         if not any(s.get('speaker') for s in segs):
             # Nessuna diarization: CPL + durata minima, nessun trattino
-            return self._render(self._enforce_min_duration(self._segments_to_blocks(segs)))
+            blocks = self._segments_to_blocks(segs)
+            blocks = self._fix_overlaps(blocks)
+            return self._render(self._enforce_min_duration(blocks))
 
         self._mark_dialogue(segs)
         blocks = self._build_blocks(segs)
+        blocks = self._fix_overlaps(blocks)
         blocks = self._enforce_min_duration(blocks)
         srt = self._render(blocks)
         self.log(f"  📄 SRT formattato: {len(blocks)} blocchi, "
@@ -100,6 +107,62 @@ class SubtitleFormatter:
         text = re.sub(r'^-\s+', '', text)      # trattino iniziale preesistente
         text = re.sub(r'\s+', ' ', text)        # spazi multipli
         return text.strip()
+
+    _SENTENCE_END = re.compile(r'[.?!…]$')
+
+    def _merge_short_segments(self, segs: List[Dict]) -> List[Dict]:
+        """Unisce segmenti consecutivi che formano la stessa frase.
+
+        Il forced aligner e Whisper spesso spezzano frasi in più segmenti
+        ravvicinati (es. "È stato colpito" | 20ms | "la testa.").
+        Questo passo li riunisce prima della formattazione.
+
+        Condizioni per il merge:
+          - gap ≤ MERGE_GAP (300ms)
+          - il primo segmento NON termina con punteggiatura finale (.?!…)
+          - testo combinato ≤ cpl_max * 2 (84 caratteri = 2 righe piene)
+          - stesso speaker (o nessuno dei due ha speaker)
+        """
+        if not segs:
+            return segs
+
+        result = [dict(segs[0])]
+        for seg in segs[1:]:
+            prev     = result[-1]
+            gap      = seg['start'] - prev['end']
+            prev_txt = prev.get('text', '').strip()
+            combined = (prev_txt + ' ' + seg.get('text', '').strip()).strip()
+
+            # Gap ≤ MERGE_GAP_TINY: artefatto aligner, impossibile cambio reale
+            # di speaker in 50ms — ignoriamo il controllo speaker.
+            # Gap ≤ MERGE_GAP: merge solo se stesso speaker.
+            speaker_ok = (
+                gap <= MERGE_GAP_TINY
+                or prev.get('speaker') == seg.get('speaker')
+            )
+            can_merge = (
+                gap <= MERGE_GAP
+                and speaker_ok
+                and prev_txt
+                and not self._SENTENCE_END.search(prev_txt)
+                and len(combined) <= self.cpl_max * 2
+            )
+
+            if can_merge:
+                result[-1] = dict(prev)
+                result[-1]['end']  = seg['end']
+                result[-1]['text'] = combined
+                if 'words' in prev or 'words' in seg:
+                    result[-1]['words'] = (
+                        prev.get('words', []) + seg.get('words', [])
+                    )
+            else:
+                result.append(dict(seg))
+
+        merged = len(segs) - len(result)
+        if merged:
+            self.log(f"  🔗 Merge frammenti: {len(segs)} → {len(result)} segmenti ({merged} uniti)")
+        return result
 
     # ── Dialogue detection ────────────────────────────────────────────────────
 
@@ -220,6 +283,30 @@ class SubtitleFormatter:
 
         # Ricorsione per linee ancora troppo lunghe
         return self._wrap_cpl(line1) + self._wrap_cpl(line2)
+
+    # ── Overlap fix ───────────────────────────────────────────────────────────
+
+    def _fix_overlaps(self, blocks: List[Dict]) -> List[Dict]:
+        """Elimina sovrapposizioni temporali tra blocchi consecutivi.
+
+        Il forced aligner produce word timestamps dove la fine del segmento N
+        supera di ~20ms l'inizio del segmento N+1. Questi micro-overlap causano
+        un 'flash' nei player perché i due sottotitoli appaiono sovrapposti
+        per un fotogramma prima che il primo scompaia.
+
+        Fix: se block[i].end > block[i+1].start, clippiamo block[i].end a
+        block[i+1].start - 20ms (gap minimo garantito). Se dopo il clip la
+        durata è zero o negativa, usiamo direttamente block[i+1].start come
+        nuovo end (il blocco durerà 0ms e verrà poi espanso da
+        _enforce_min_duration se necessario).
+        """
+        result = list(blocks)
+        for i in range(len(result) - 1):
+            if result[i]['end'] > result[i + 1]['start']:
+                new_end = result[i + 1]['start'] - 0.020
+                result[i] = dict(result[i])
+                result[i]['end'] = max(new_end, result[i]['start'])
+        return result
 
     # ── Min duration (anti-flash) ─────────────────────────────────────────────
 
