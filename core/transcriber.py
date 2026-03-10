@@ -46,6 +46,7 @@ class Transcriber:
         self.log_callback: Optional[Callable] = None
         self.faster_whisper_model = None
         self.vad_available = False
+        self._last_segments: list = []
         
         # ========================================
         # ✅ NUOVO v3.2: Carica parametri profilo
@@ -168,6 +169,9 @@ class Transcriber:
                 
                 self.log(f"  ✅ Modello {model_size} caricato su CPU con {self.num_workers} workers")
 
+            # VAD check sul WhisperModel puro (prima del wrapping)
+            self._check_vad_availability()
+
             # Future-ready: attiva BatchedInferencePipeline se disponibile
             if _batched_available:
                 self.faster_whisper_model = BatchedInferencePipeline(self.faster_whisper_model)
@@ -176,8 +180,6 @@ class Transcriber:
             else:
                 self.batch_size_for_transcription = None
                 self.log("  BatchedInferencePipeline non disponibile — elaborazione sequenziale")
-
-            self._check_vad_availability()
             
         except Exception as e:
             error_msg = f"❌ Errore caricamento modello Faster-Whisper: {e}"
@@ -238,96 +240,153 @@ class Transcriber:
                  whisper_language = lang_map_3_to_2.get(whisper_language.lower(), whisper_language)
         
         
-        self.log(f"  📊 Trascrizione di {total_chunks} chunks audio...")
-        self.log(f"  ⚙️ Profilo: {self.profile_name} (beam={self.beam_size}, workers={self.num_workers})")
-        if auto_detect:
-            self.log(f"  🎯 Lingua: AUTO-DETECT (rilevamento automatico)")
-        else:
-            self.log(f"  🎯 Lingua: {whisper_language}")
-        self.log(f"  ⏳ Elaborazione in corso...")
-        
         all_segments = []
-        failed_chunks = 0
         detected_language = None
-        
-        progress_thresholds = {
-            25: int(total_chunks * 0.25),
-            50: int(total_chunks * 0.50),
-            75: int(total_chunks * 0.75),
-            100: total_chunks
-        }
-        
-        logged_progress = set()
-        
-        for i, (chunk_path, start_time, end_time) in enumerate(audio_chunks):
-            chunk_num = i + 1
-            
-            try:
-                chunk_path_obj = Path(chunk_path)
-                if not chunk_path_obj.exists():
-                    logger.error(f"Chunk {chunk_num} non trovato: {chunk_path}")
-                    failed_chunks += 1
-                    continue
-                
-                chunk_path_str = str(chunk_path)
-                
-                
-                transcribe_kwargs = dict(
-                    language=whisper_language,
-                    beam_size=self.beam_size,
-                )
-                if self.batch_size_for_transcription is not None:
-                    transcribe_kwargs['batch_size'] = self.batch_manager.get_batch_size()
 
-                if self.vad_available:
-                    segments, info = self.faster_whisper_model.transcribe(
-                        chunk_path_str,
-                        vad_filter=True,
-                        vad_parameters=dict(
-                            min_silence_duration_ms=500,
-                            threshold=0.5
-                        ),
-                        **transcribe_kwargs
-                    )
-                else:
-                    segments, info = self.faster_whisper_model.transcribe(
-                        chunk_path_str,
-                        vad_filter=False,
-                        word_timestamps=False,
-                        **transcribe_kwargs
-                    )
-                
-                if detected_language is None:
-                    detected_language = info.language if hasattr(info, 'language') else None
-                    if detected_language and auto_detect:
-                        self.log(f"  🔍 Lingua rilevata automaticamente: {detected_language}")
-                
+        # ── Modalità BatchedInferencePipeline: file unico, nessun chunking ──
+        batched_mode = (
+            len(audio_chunks) == 1 and self.batch_size_for_transcription is not None
+        )
+
+        if batched_mode:
+            chunk_path, _, total_duration = audio_chunks[0]
+            bs = self.batch_manager.get_batch_size()
+            self.log(f"  📊 BatchedInferencePipeline — file unico ({total_duration:.0f}s), batch_size={bs}")
+            self.log(f"  ⚙️ Profilo: {self.profile_name} (beam={self.beam_size})")
+            if auto_detect:
+                self.log("  🎯 Lingua: AUTO-DETECT")
+            else:
+                self.log(f"  🎯 Lingua: {whisper_language}")
+
+            # BatchedInferencePipeline richiede vad_filter=True obbligatoriamente
+            # word_timestamps=True per splitting preciso dei segmenti lunghi
+            transcribe_kwargs = dict(
+                language=whisper_language,
+                beam_size=self.beam_size,
+                batch_size=bs,
+                word_timestamps=True,
+            )
+            try:
+                segments, info = self.faster_whisper_model.transcribe(
+                    str(chunk_path),
+                    vad_filter=True,
+                    vad_parameters=dict(min_silence_duration_ms=500, threshold=0.5),
+                    **transcribe_kwargs
+                )
+
+                detected_language = info.language if hasattr(info, 'language') else None
+                if detected_language and auto_detect:
+                    self.log(f"  🔍 Lingua rilevata automaticamente: {detected_language}")
+
+                last_pct = -1
                 for segment in segments:
                     all_segments.append({
-                        'start': segment.start + start_time,
-                        'end': segment.end + start_time,
-                        'text': segment.text.strip()
+                        'start': segment.start,
+                        'end': segment.end,
+                        'text': segment.text.strip(),
+                        'words': [
+                            {'start': w.start, 'end': w.end, 'word': w.word}
+                            for w in (segment.words or [])
+                        ],
                     })
-                
-                for percentage, threshold in progress_thresholds.items():
-                    if chunk_num >= threshold and percentage not in logged_progress:
-                        self.log(f"  ✅ Trascrizione completata: {percentage}%")
-                        logged_progress.add(percentage)
-                        break
-                
+                    if total_duration > 0:
+                        pct = min(int((segment.end / total_duration) * 100), 99)
+                        if pct != last_pct:
+                            self.log(f"   Progresso: {pct}%")
+                            last_pct = pct
+
+                self.log("  ✅ Trascrizione completata: 100%")
+
+                # Suddividi segmenti lunghi usando i word timestamps
+                raw_count = len(all_segments)
+                split_segments = []
+                for seg in all_segments:
+                    split_segments.extend(self._split_segment_by_words(seg))
+                all_segments = split_segments
+                self.log(f"  ✂️ Suddivisione: {raw_count} → {len(all_segments)} segmenti")
+                self._last_segments = all_segments   # esposto per diarization in pipeline
+
             except Exception as e:
-                # Logga l'errore completo per diagnostica
-                error_msg = f"❌ ERRORE chunk {chunk_num}: {str(e)}"
-                logger.error(error_msg, exc_info=True)
-                failed_chunks += 1
-                continue
-        
-        if failed_chunks > 0:
-            self.log(f"  ⚠️ Completato con {failed_chunks} chunks falliti su {total_chunks}")
+                logger.error(f"❌ Errore BatchedInferencePipeline: {e}", exc_info=True)
+                self.log(f"  ❌ Errore trascrizione: {str(e)}")
+
         else:
-            if 100 not in logged_progress and total_chunks > 0:
-                self.log(f"  ✅ Trascrizione completata: 100%")
-        
+            # ── Modalità classica: N chunk sequenziali ──
+            failed_chunks = 0
+            progress_thresholds = {
+                25: int(total_chunks * 0.25),
+                50: int(total_chunks * 0.50),
+                75: int(total_chunks * 0.75),
+                100: total_chunks,
+            }
+            logged_progress = set()
+
+            self.log(f"  📊 Trascrizione di {total_chunks} chunks audio...")
+            self.log(f"  ⚙️ Profilo: {self.profile_name} (beam={self.beam_size}, workers={self.num_workers})")
+            if auto_detect:
+                self.log("  🎯 Lingua: AUTO-DETECT (rilevamento automatico)")
+            else:
+                self.log(f"  🎯 Lingua: {whisper_language}")
+            self.log("  ⏳ Elaborazione in corso...")
+
+            for i, (chunk_path, start_time, end_time) in enumerate(audio_chunks):
+                chunk_num = i + 1
+                try:
+                    chunk_path_obj = Path(chunk_path)
+                    if not chunk_path_obj.exists():
+                        logger.error(f"Chunk {chunk_num} non trovato: {chunk_path}")
+                        failed_chunks += 1
+                        continue
+
+                    transcribe_kwargs = dict(language=whisper_language, beam_size=self.beam_size)
+                    if self.batch_size_for_transcription is not None:
+                        transcribe_kwargs['batch_size'] = self.batch_manager.get_batch_size()
+
+                    if self.vad_available:
+                        segments, info = self.faster_whisper_model.transcribe(
+                            str(chunk_path),
+                            vad_filter=True,
+                            vad_parameters=dict(min_silence_duration_ms=500, threshold=0.5),
+                            **transcribe_kwargs
+                        )
+                    else:
+                        segments, info = self.faster_whisper_model.transcribe(
+                            str(chunk_path),
+                            vad_filter=False,
+                            word_timestamps=False,
+                            **transcribe_kwargs
+                        )
+
+                    if detected_language is None:
+                        detected_language = info.language if hasattr(info, 'language') else None
+                        if detected_language and auto_detect:
+                            self.log(f"  🔍 Lingua rilevata automaticamente: {detected_language}")
+
+                    for segment in segments:
+                        all_segments.append({
+                            'start': segment.start + start_time,
+                            'end': segment.end + start_time,
+                            'text': segment.text.strip()
+                        })
+
+                    for percentage, threshold in progress_thresholds.items():
+                        if chunk_num >= threshold and percentage not in logged_progress:
+                            self.log(f"  ✅ Trascrizione completata: {percentage}%")
+                            logged_progress.add(percentage)
+                            break
+
+                except Exception as e:
+                    error_msg = f"❌ ERRORE chunk {chunk_num}: {str(e)}"
+                    logger.error(error_msg, exc_info=True)
+                    failed_chunks += 1
+                    continue
+
+            if failed_chunks > 0:
+                self.log(f"  ⚠️ Completato con {failed_chunks} chunks falliti su {total_chunks}")
+            elif 100 not in logged_progress and total_chunks > 0:
+                self.log("  ✅ Trascrizione completata: 100%")
+            self._last_segments = all_segments   # esposto per diarization in pipeline
+
         self.log(f"  📝 Totale segmenti trascritti: {len(all_segments)}")
         
         # Salva se richiesto
@@ -337,6 +396,68 @@ class Transcriber:
         
         return len(all_segments) > 0, detected_language
     
+    def _split_segment_by_words(
+        self,
+        segment: dict,
+        max_chars: int = 80,
+        max_duration: float = 6.0,
+    ) -> list:
+        """
+        Divide un segmento lungo in sotto-segmenti usando i word timestamps.
+        Restituisce una lista di dict {start, end, text} pronti per save_srt_file.
+        """
+        words = segment.get('words', [])
+        text = segment['text']
+        duration = segment['end'] - segment['start']
+
+        # Segmento già corto: nessuno split necessario
+        if not words or (len(text) <= max_chars and duration <= max_duration):
+            return [{'start': segment['start'], 'end': segment['end'],
+                     'text': text, 'words': words}]
+
+        result = []
+        current_words = []
+        current_start = None
+        current_text = ''
+
+        for word in words:
+            w_text = word['word']
+            if current_start is None:
+                current_start = word['start']
+
+            candidate_text = current_text + w_text
+            candidate_duration = word['end'] - current_start
+
+            if current_words and (
+                len(candidate_text.strip()) > max_chars
+                or candidate_duration > max_duration
+            ):
+                # Chiudi segmento corrente (preserva words per diarization word-level)
+                result.append({
+                    'start': current_start,
+                    'end': current_words[-1]['end'],
+                    'text': current_text.strip(),
+                    'words': list(current_words),
+                })
+                # Inizia nuovo segmento
+                current_start = word['start']
+                current_text = w_text
+                current_words = [word]
+            else:
+                current_text = candidate_text
+                current_words.append(word)
+
+        # Ultimo segmento residuo
+        if current_words and current_text.strip():
+            result.append({
+                'start': current_start,
+                'end': current_words[-1]['end'],
+                'text': current_text.strip(),
+                'words': list(current_words),
+            })
+
+        return result or [{'start': segment['start'], 'end': segment['end'], 'text': text}]
+
     def cleanup(self):
         """Pulizia risorse GPU"""
         try:
@@ -375,24 +496,35 @@ def format_timestamp(seconds: float) -> str:
 
 
 def segments_to_srt(segments: List[Dict]) -> str:
-    """Converte segmenti in formato SRT"""
+    """Converte segmenti in formato SRT.
+
+    Se i segmenti hanno il campo 'speaker', aggiunge un trattino (-)
+    solo al primo segmento di ogni nuovo parlante (stile sottotitoli
+    dialogo italiano). Nessun ID numerico esposto.
+    """
     srt_content = []
-    
-    for i, segment in enumerate(segments, 1):
+    prev_speaker = None
+    idx = 0
+
+    for segment in segments:
         text = clean_html_tags(segment['text'])
-        
+
         if not text:
             continue
-        
-        srt_content.append(str(i))
-        
+
+        idx += 1
+        speaker = segment.get('speaker')
+        if speaker and speaker != prev_speaker:
+            text = f"- {text}"
+        prev_speaker = speaker
+
+        srt_content.append(str(idx))
         start_ts = format_timestamp(segment['start'])
         end_ts = format_timestamp(segment['end'])
         srt_content.append(f"{start_ts} --> {end_ts}")
-        
         srt_content.append(text)
         srt_content.append("")
-    
+
     return "\n".join(srt_content)
 
 

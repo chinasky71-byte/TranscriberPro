@@ -112,9 +112,16 @@ class Config:
         # HuggingFace token (per modelli gated come Aya)
         'huggingface_token': '',
 
+        # Speaker Diarization (pyannote.audio)
+        'enable_diarization': False,
+        'diarization_num_speakers': 0,   # 0 = auto-detect
+
+        # Forced Alignment (whisperx + wav2vec2)
+        'enable_forced_alignment': False,
+
         # Library Scanner Settings
         'library_scanner_url': 'http://192.168.1.18:6680',
-        'library_scanner_api_key': 'IDu_J0LvpqcmJ0nCFjXc6rlu2oKNoDE2bEO8CUVrNng',
+        'library_scanner_api_key': '',
         'library_scanner_enabled': True,
     }
     
