@@ -28,22 +28,24 @@ class Transcriber:
     Con supporto profili dinamici per ottimizzazione parametri
     """
     
-    def __init__(self, method: str = 'faster-whisper'):
+    def __init__(self, method: str = 'faster-whisper', log_callback: Optional[Callable] = None):
         """
         Args:
-            method: Sempre 'faster-whisper' (unico metodo supportato)
+            method:       Sempre 'faster-whisper' (unico metodo supportato)
+            log_callback: Callback opzionale da passare all'init (usato dal pre-load
+                          anticipato della pipeline, prima di set_log_callback()).
         """
         self.config = get_config()
         self.method = 'faster-whisper'
-        
+
         device_config = self.config.get('whisper_device', 'auto')
-        
+
         if device_config == 'auto':
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
         else:
             self.device = device_config
-        
-        self.log_callback: Optional[Callable] = None
+
+        self.log_callback: Optional[Callable] = log_callback
         self.faster_whisper_model = None
         self.vad_available = False
         self._last_segments: list = []
@@ -133,11 +135,14 @@ class Transcriber:
             except ImportError:
                 _batched_available = False
             
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-                torch.cuda.empty_cache()
-                logger.info("🧹 Cache CUDA svuotata prima del caricamento modello")
-            
+            # NON chiamare torch.cuda.synchronize() / empty_cache() qui.
+            # ctranslate2 ≥4.7 usa lazy CUDA init e richiede di essere il
+            # primo a inizializzare il contesto CUDA del processo.
+            # Se PyTorch chiama cudaDeviceSynchronize() prima (via synchronize()),
+            # crea il contesto con i propri flag → ctranslate2 trova un contesto
+            # incompatibile e chiama std::abort() silenziosamente.
+            # Il cleanup pre-load è gestito da cleanup() prima del reload.
+
             model_size = self.config.get('whisper_model', 'large-v3')
             
             self.log(f"  📦 Caricamento modello {model_size}...")
@@ -145,16 +150,21 @@ class Transcriber:
             self.log(f"  👷 Workers: {self.num_workers} | 🎯 Beam: {self.beam_size}")
             
             if self.device == "cuda":
-                compute_type = "float16"
+                # int8_float16: pesi INT8 (~1.5GB vs ~3GB float16), compute FP16.
+                # Più robusto dopo Demucs (VRAM frammentata) — qualità identica.
+                compute_type = "int8_float16"
                 device_index = 0
-                
+
+                import gc
+                gc.collect()
+
                 self.faster_whisper_model = WhisperModel(
                     model_size,
                     device="cuda",
                     device_index=device_index,
                     compute_type=compute_type,
-                    num_workers=self.num_workers,  
-                    cpu_threads=self.num_workers   
+                    num_workers=self.num_workers,
+                    cpu_threads=self.num_workers
                 )
                 
                 self.log(f"  ✅ Modello {model_size} caricato su CUDA con {self.num_workers} workers")

@@ -208,7 +208,25 @@ class ProcessingPipeline:
                         # Usa get_selected_language() per ottenere lingua traccia
                         source_language_639_2 = audio_selector.get_selected_language()
                         self._log(f"âœ… Audio estratto. Lingua: {source_language_639_2}")
-                        
+
+                        # ================================================
+                        # STEP 2.5: Pre-carica WhisperModel PRIMA di Demucs
+                        #
+                        # ctranslate2 ≥4.7 usa lazy CUDA init: il suo backend
+                        # CUDA si inizializza al primo WhisperModel().
+                        # Se PyTorch ha già usato CUDA pesantemente (Demucs),
+                        # ctranslate2 trova il contesto in uno stato che non
+                        # gestisce → std::abort() silenzioso.
+                        #
+                        # Caricando Whisper QUI (contesto CUDA vergine), Demucs
+                        # viene poi eseguito con ctranslate2 già inizializzato,
+                        # senza conflitti. VRAM: ~1.5GB Whisper + ~5GB Demucs
+                        # peak = ~6.5GB su 12GB → sicuro.
+                        # ================================================
+                        self._log("\n2.5. Pre-caricamento Whisper (prima di Demucs)...")
+                        if self._transcriber is None:
+                            self._transcriber = Transcriber(log_callback=self._log_callback)
+
                         # STEP 3: Processing audio (separazione vocale + chunking)
                         try:
                             from faster_whisper import BatchedInferencePipeline
@@ -227,15 +245,15 @@ class ProcessingPipeline:
                             output_dir=temp_dir,
                             use_batched_pipeline=_use_batched
                         )
-                        
+
                         if chunk_list:
                             self._log(f"âœ… Audio processato: {len(chunk_list)} chunks creati")
-                            
+
                             # STEP 4: Trascrizione
                             self._log("\n4. Trascrizione audio (Faster-Whisper)...")
                             if self._transcriber is None:
-                                self._transcriber = Transcriber()
-                                self._transcriber.set_log_callback(self._log_callback)
+                                # Fallback: non dovrebbe mai entrare qui dopo il pre-load 2.5
+                                self._transcriber = Transcriber(log_callback=self._log_callback)
                             
                             subtitle_path = self.file_handler.get_temp_path(
                                 self.video_path, 
