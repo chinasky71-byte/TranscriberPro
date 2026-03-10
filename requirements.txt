@@ -68,6 +68,9 @@ HyperPyYAML==1.2.3
 # --- ONNX Runtime (VAD) ---
 onnxruntime==1.24.3
 
+# --- GPU Monitoring ---
+nvidia-ml-py==13.590.48
+
 # --- Training / optimization ---
 einops==0.8.2
 pytorch-metric-learning==2.9.0
