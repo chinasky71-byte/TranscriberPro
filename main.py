@@ -9,6 +9,11 @@ from pathlib import Path
 
 warnings.filterwarnings("ignore", message="In 2.9, this function's implementation")
 
+# onnxruntime deve essere importato PRIMA di PyQt6.
+# Qt6 carica DLL che confliggono con onnxruntime_pybind11_state se importato dopo.
+# Pre-caricarlo qui garantisce che i suoi DLL siano già inizializzati.
+import onnxruntime as _ort  # noqa: F401 (usato da faster-whisper VAD)
+
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer
 

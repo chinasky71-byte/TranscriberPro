@@ -13,7 +13,7 @@
 
 # --- Core ML / Speech ---
 faster-whisper==1.2.1
-ctranslate2==4.7.1
+ctranslate2==4.6.0
 whisperx==3.8.1
 pyannote-audio==4.0.4
 pyannote-core==6.0.1
@@ -105,6 +105,7 @@ rich==14.3.3
 pyyaml==6.0.3
 filelock==3.20.0
 fsspec==2025.12.0
+setuptools==69.5.1
 packaging==26.0
 psutil==7.2.2
 pywin32==311
