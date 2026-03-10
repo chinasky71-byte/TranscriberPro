@@ -210,14 +210,22 @@ class ProcessingPipeline:
                         self._log(f"âœ… Audio estratto. Lingua: {source_language_639_2}")
                         
                         # STEP 3: Processing audio (separazione vocale + chunking)
-                        self._log("\n3. Processing audio (Demucs + Chunking)...")
+                        try:
+                            from faster_whisper import BatchedInferencePipeline
+                            _use_batched = True
+                        except ImportError:
+                            _use_batched = False
+
+                        step3_label = "Demucs + BatchedInferencePipeline" if _use_batched else "Demucs + Chunking"
+                        self._log(f"\n3. Processing audio ({step3_label})...")
                         if self._audio_processor is None:
                             self._audio_processor = AudioProcessor()
                             self._audio_processor.set_log_callback(self._log_callback)
-                        
+
                         chunk_list = self._audio_processor.process_for_transcription(
                             audio_path=audio_path,
-                            output_dir=temp_dir
+                            output_dir=temp_dir,
+                            use_batched_pipeline=_use_batched
                         )
                         
                         if chunk_list:
@@ -248,6 +256,76 @@ class ProcessingPipeline:
                                 self._log(f"âœ… Trascrizione completata. Lingua rilevata: {source_language_639_2}")
                             else:
                                 raise Exception("Trascrizione fallita o file SRT non creato.")
+
+                            # ================================================
+                            # STEP 4.2: Forced Alignment (opzionale)
+                            # Whisper ancora in VRAM — Wav2Vec2 caricato
+                            # affianco (~5GB totali, dentro i 12GB).
+                            # Aggiorna _last_segments con timestamp precisi
+                            # che verranno poi usati dalla diarization.
+                            # ================================================
+                            enable_forced_alignment = self.config.get('enable_forced_alignment', False)
+                            if enable_forced_alignment and len(chunk_list) == 1:
+                                vocals_path_align = str(chunk_list[0][0])
+                                from core.aligner import ForcedAligner
+                                from core.transcriber import save_srt_file
+                                aligner = ForcedAligner(self._log)
+                                try:
+                                    device_align = "cuda" if torch.cuda.is_available() else "cpu"
+                                    loaded = aligner.load(detected_lang_639_1, device_align)
+                                    if loaded:
+                                        self._log("🔠 Forced alignment in corso...")
+                                        aligned_segs = aligner.align(
+                                            list(self._transcriber._last_segments),
+                                            vocals_path_align,
+                                        )
+                                        self._transcriber._last_segments = aligned_segs
+                                        save_srt_file(aligned_segs, subtitle_path)
+                                        self._log("✅ Timestamp riallineati con precisione fonema")
+                                except Exception as e:
+                                    self._log(f"⚠️ Forced alignment fallito: {e} — timestamp Whisper mantenuti")
+                                finally:
+                                    aligner.unload()
+
+                            # ================================================
+                            # STEP 4.5: Speaker Diarization (opzionale)
+                            # ================================================
+                            enable_diarization = self.config.get('enable_diarization', False)
+                            if enable_diarization and len(chunk_list) == 1:
+                                if self.config.is_huggingface_token_set():
+                                    segments_for_diarization = list(self._transcriber._last_segments)
+                                    vocals_path = str(chunk_list[0][0])
+
+                                    # Cleanup modelli (libera VRAM per pyannote)
+                                    if self._transcriber:
+                                        self._transcriber.cleanup()
+                                        self._transcriber = None
+                                    if self._audio_processor:
+                                        self._audio_processor.cleanup_model()
+                                        self._audio_processor = None
+                                    if torch.cuda.is_available():
+                                        torch.cuda.synchronize()
+                                        torch.cuda.empty_cache()
+
+                                    from core.diarizer import Diarizer
+                                    from core.subtitle_formatter import SubtitleFormatter
+                                    self._log("🎭 Speaker diarization in corso...")
+                                    diarizer = Diarizer(self.config.get_huggingface_token(), self._log)
+                                    try:
+                                        diarizer.load()
+                                        num_spk = self.config.get('diarization_num_speakers', 0)
+                                        diarization_result = diarizer.diarize(vocals_path, num_speakers=num_spk)
+                                        annotated = diarizer.assign_speakers(segments_for_diarization, diarization_result)
+                                        formatter = SubtitleFormatter(log_callback=self._log)
+                                        formatter.save(annotated, subtitle_path)
+                                        self._log("✅ Speaker labels + formattazione professionale applicati")
+                                    except Exception as e:
+                                        self._log(f"⚠️ Diarization fallita: {e} — SRT senza speaker labels")
+                                    finally:
+                                        diarizer.unload()
+                                else:
+                                    self._log("⚠️ Diarization abilitata ma token HuggingFace non configurato.")
+
                         else:
                             raise Exception("Processing audio fallito - nessun chunk creato.")
                     else:

@@ -60,47 +60,58 @@ class AudioProcessor:
             self.log_callback(message)
     
     def process_for_transcription(
-        self, 
+        self,
         audio_path: Path,
         output_dir: Path,
         max_chunk_duration: int = 30,  # Deprecato, ora usa self.CHUNK_TARGET_DURATION
-        min_chunk_duration: int = 5    # Deprecato, ora usa self.CHUNK_MIN_DURATION
+        min_chunk_duration: int = 5,   # Deprecato, ora usa self.CHUNK_MIN_DURATION
+        use_batched_pipeline: bool = False
     ) -> List[Tuple[Path, float, float]]:
         """
         Processo completo audio per trascrizione con pipeline intelligente
-        
+
         Args:
             audio_path: Path audio grezzo estratto dal video
             output_dir: Directory per file temporanei
             max_chunk_duration: DEPRECATO (usa self.CHUNK_TARGET_DURATION)
             min_chunk_duration: DEPRECATO (usa self.CHUNK_MIN_DURATION)
-            
+            use_batched_pipeline: Se True, salta il chunking e restituisce il file
+                                   vocals intero (ottimizzato per BatchedInferencePipeline)
+
         Returns:
             Lista di (chunk_path, start_time, end_time)
         """
         try:
             self._log("=== AUDIO PROCESSING - PIPELINE INTELLIGENTE ===")
             self._log(f"Input: {audio_path.name}")
-            
+
             # STEP 1: Separazione vocale (pipeline intelligente)
             self._log("STEP 1: Separazione vocale (Demucs - Pipeline Intelligente)...")
-            
+
             vocals_path = self.separate_vocals(audio_path)
-            
+
             if not vocals_path or not vocals_path.exists():
                 self._log("  ⚠️ Separazione vocale fallita - Uso audio originale")
                 vocals_path = audio_path
             else:
                 self._log(f"  ✅ Vocals separati: {vocals_path.name}")
-            
+
+            # STEP 2-3: BatchedInferencePipeline mode — salta chunking
+            if use_batched_pipeline:
+                self._log("STEP 2-3: BatchedInferencePipeline attivo — chunking saltato")
+                wav_info = torchaudio.info(str(vocals_path))
+                total_duration = wav_info.num_frames / wav_info.sample_rate
+                self._log(f"✅ Audio processing completato: file unico ({total_duration:.1f}s)")
+                return [(vocals_path, 0.0, total_duration)]
+
             # STEP 2: Chunking intelligente basato su silenzio
             self._log("STEP 2: Chunking intelligente (target 15-20s)...")
             chunk_times = self.chunk_audio_intelligent(vocals_path)
-            
+
             if not chunk_times:
                 self.logger.error("Chunking fallito")
                 return []
-            
+
             # STEP 3: Crea chunk fisici
             self._log(f"STEP 3: Creazione {len(chunk_times)} chunk fisici...")
             chunk_files = self._create_physical_chunks(
@@ -108,10 +119,10 @@ class AudioProcessor:
                 chunk_times,
                 output_dir
             )
-            
+
             self._log(f"✅ Audio processing completato: {len(chunk_files)} chunks pronti")
             return chunk_files
-            
+
         except Exception as e:
             self.logger.error(f"Errore audio processing: {e}", exc_info=True)
             return []
@@ -131,6 +142,10 @@ class AudioProcessor:
             
             # Carica modello se necessario
             if self.demucs_model is None:
+                # Pulisci VRAM prima di caricare Demucs (run precedenti potrebbero
+                # aver lasciato frammenti di altri modelli, es. pyannote)
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 self._log("  📦 Caricamento modello Demucs htdemucs...")
                 self.demucs_model = get_model('htdemucs')
                 self.demucs_model.to(self.device)

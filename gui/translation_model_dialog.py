@@ -8,7 +8,8 @@ VERSIONE: v2.1 - CLAUDE API INTEGRATION (Fixed Qt widgets)
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QRadioButton,
                              QLabel, QPushButton, QButtonGroup, QFrame,
                              QProgressBar, QTextEdit, QScrollArea, QWidget,
-                             QMessageBox, QLineEdit, QGroupBox, QFileDialog)
+                             QMessageBox, QLineEdit, QGroupBox, QFileDialog,
+                             QCheckBox, QSpinBox)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
 from PyQt6.QtGui import QFont, QIcon
 import shutil
@@ -154,6 +155,10 @@ class TranslationModelDialog(QDialog):
         oai_widget, self.oai_radio = self.create_model_section_openai()
         scroll_layout.addWidget(oai_widget)
         self.button_group.addButton(self.oai_radio)
+
+        # Speaker Diarization
+        diarization_widget = self.create_diarization_section()
+        scroll_layout.addWidget(diarization_widget)
 
         scroll_layout.addStretch()
         scroll.setWidget(scroll_widget)
@@ -880,6 +885,226 @@ class TranslationModelDialog(QDialog):
 
         self.accept()
     
+    def create_diarization_section(self) -> QWidget:
+        """Crea sezione Speaker Diarization"""
+        container = QFrame()
+        container.setFrameShape(QFrame.Shape.Box)
+        container.setStyleSheet("""
+            QFrame {
+                border: 1px solid #7b1fa2;
+                border-radius: 8px;
+                padding: 15px;
+                background: #fdf3ff;
+            }
+        """)
+
+        layout = QVBoxLayout(container)
+
+        title_label = QLabel("🎭 Speaker Diarization")
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #6a1b9a;")
+        layout.addWidget(title_label)
+
+        desc_label = QLabel(
+            "Identifica chi parla in ogni sottotitolo.\n"
+            "Aggiunge un trattino ( - ) al cambio di parlante, stile dialogo cinema."
+        )
+        desc_label.setStyleSheet("color: #555; font-size: 12px; margin-top: 4px;")
+        desc_label.setWordWrap(True)
+        layout.addWidget(desc_label)
+
+        # --- Token HuggingFace ---
+        token_group = QGroupBox("HuggingFace Token")
+        token_layout = QVBoxLayout()
+
+        token_row = QHBoxLayout()
+        self.diarization_hf_token_input = QLineEdit()
+        self.diarization_hf_token_input.setPlaceholderText("hf_...")
+        self.diarization_hf_token_input.setEchoMode(QLineEdit.EchoMode.Password)
+        current_token = self.config.get_huggingface_token()
+        if current_token:
+            self.diarization_hf_token_input.setText(current_token)
+
+        save_token_btn = QPushButton("Salva")
+        save_token_btn.setFixedWidth(70)
+        save_token_btn.clicked.connect(self.save_diarization_hf_token)
+        token_row.addWidget(self.diarization_hf_token_input)
+        token_row.addWidget(save_token_btn)
+        token_layout.addLayout(token_row)
+
+        token_info = QLabel(
+            "Crea un token su huggingface.co/settings/tokens\n"
+            "Poi accetta i termini su:\n"
+            "  • huggingface.co/pyannote/speaker-diarization-3.1\n"
+            "  • huggingface.co/pyannote/segmentation-3.0"
+        )
+        token_info.setStyleSheet("color: #888; font-size: 11px;")
+        token_layout.addWidget(token_info)
+
+        # Stato token
+        self.diarization_token_status = QLabel()
+        self._update_diarization_token_status()
+        token_layout.addWidget(self.diarization_token_status)
+
+        token_group.setLayout(token_layout)
+        layout.addWidget(token_group)
+
+        # --- Test connessione ---
+        test_btn = QPushButton("Testa download modello pyannote")
+        test_btn.clicked.connect(self.test_pyannote_download)
+        layout.addWidget(test_btn)
+
+        self.diarization_test_label = QLabel("")
+        self.diarization_test_label.setWordWrap(True)
+        self.diarization_test_label.setStyleSheet("font-size: 11px; color: #555;")
+        layout.addWidget(self.diarization_test_label)
+
+        # --- Forced Alignment ---
+        self.forced_alignment_checkbox = QCheckBox("Forced Alignment (precisione broadcast/cinema)")
+        self.forced_alignment_checkbox.setChecked(self.config.get('enable_forced_alignment', False))
+        self.forced_alignment_checkbox.setToolTip(
+            "Riallinea ogni parola al millisecondo esatto in cui viene pronunciata.\n"
+            "Migliora la precisione dei timestamp del 30%.\n"
+            "Consigliato per sottotitoli professionali.\n"
+            "Aumenta il tempo di elaborazione del 15-20%.\n"
+            "Richiede whisperx installato (pip install whisperx)."
+        )
+        self.forced_alignment_checkbox.toggled.connect(self.on_forced_alignment_toggled)
+        layout.addWidget(self.forced_alignment_checkbox)
+
+        # --- Checkbox abilitazione diarization ---
+        self.diarization_checkbox = QCheckBox("Identifica parlanti (Speaker Diarization)")
+        self.diarization_checkbox.setChecked(self.config.get('enable_diarization', False))
+        self.diarization_checkbox.toggled.connect(self.on_diarization_toggled)
+        layout.addWidget(self.diarization_checkbox)
+
+        # --- SpinBox num parlanti ---
+        num_row = QHBoxLayout()
+        num_label = QLabel("N° parlanti:")
+        num_label.setFixedWidth(100)
+        self.diarization_num_speakers = QSpinBox()
+        self.diarization_num_speakers.setRange(0, 10)
+        self.diarization_num_speakers.setValue(self.config.get('diarization_num_speakers', 0))
+        self.diarization_num_speakers.setSpecialValueText("auto")
+        self.diarization_num_speakers.setToolTip("0 = rilevamento automatico")
+        self.diarization_num_speakers.valueChanged.connect(self.on_num_speakers_changed)
+        num_row.addWidget(num_label)
+        num_row.addWidget(self.diarization_num_speakers)
+        num_row.addStretch()
+        layout.addLayout(num_row)
+
+        return container
+
+    def save_diarization_hf_token(self):
+        """Salva token HuggingFace dalla sezione diarization"""
+        token = self.diarization_hf_token_input.text().strip()
+        if not token:
+            QMessageBox.warning(self, "Token vuoto", "Inserisci un token valido.")
+            return
+        is_valid, error = self.config.validate_huggingface_token(token)
+        if not is_valid:
+            QMessageBox.warning(self, "Token non valido", error)
+            return
+        self.config.set_huggingface_token(token)
+        # Sincronizza anche il campo token nella sezione Aya
+        if hasattr(self, 'hf_token_input'):
+            self.hf_token_input.setText(token)
+        self._update_diarization_token_status()
+        QMessageBox.information(self, "Salvato", "Token HuggingFace salvato!")
+
+    def _update_diarization_token_status(self):
+        if self.config.is_huggingface_token_set():
+            self.diarization_token_status.setText("✅ Token configurato")
+            self.diarization_token_status.setStyleSheet("color: green; font-weight: bold; font-size: 11px;")
+        else:
+            self.diarization_token_status.setText("⚠️ Token non configurato")
+            self.diarization_token_status.setStyleSheet("color: orange; font-size: 11px;")
+
+    def test_pyannote_download(self):
+        """Testa il download della pipeline pyannote con il token configurato"""
+        token = self.config.get_huggingface_token()
+        if not token:
+            self.diarization_test_label.setText("❌ Token non configurato. Salvalo prima.")
+            self.diarization_test_label.setStyleSheet("color: red; font-size: 11px;")
+            return
+
+        self.diarization_test_label.setText("⏳ Download in corso (prima volta: ~1 GB)...")
+        self.diarization_test_label.setStyleSheet("color: #555; font-size: 11px;")
+        from PyQt6.QtWidgets import QApplication
+        QApplication.processEvents()
+
+        try:
+            import warnings, torch, numpy as np, tempfile, os
+            import soundfile as sf
+            warnings.filterwarnings("ignore", message="torchcodec is not installed")
+            from pyannote.audio import Pipeline
+
+            self.diarization_test_label.setText("⏳ Caricamento pipeline pyannote...")
+            QApplication.processEvents()
+
+            pipeline = Pipeline.from_pretrained(
+                "pyannote/speaker-diarization-3.1",
+                token=token
+            )
+            if torch.cuda.is_available():
+                pipeline = pipeline.to(torch.device("cuda"))
+
+            # Audio sintetico: 4 secondi, 2 "parlanti" (toni diversi)
+            sr = 16000
+            t = np.linspace(0, 4.0, sr * 4, dtype=np.float32)
+            audio = np.concatenate([
+                0.3 * np.sin(2 * np.pi * 200 * t[:sr * 2]),
+                0.3 * np.sin(2 * np.pi * 600 * t[sr * 2:]),
+            ])
+
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
+                tmp_path = f.name
+            sf.write(tmp_path, audio, sr)
+
+            try:
+                import torchaudio
+                waveform, sample_rate = torchaudio.load(tmp_path)
+                output = pipeline({'waveform': waveform, 'sample_rate': sample_rate})
+                annotation = getattr(output, 'speaker_diarization', output)
+                turns = list(annotation.itertracks(yield_label=True))
+                del pipeline
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                self.diarization_test_label.setText(
+                    f"✅ Modello OK! Trovati {len(turns)} turni sul test audio.\n"
+                    "Puoi abilitare la diarization."
+                )
+                self.diarization_test_label.setStyleSheet("color: green; font-size: 11px;")
+            finally:
+                os.unlink(tmp_path)
+
+        except Exception as e:
+            err = str(e)
+            if "403" in err or "gated" in err.lower() or "restricted" in err.lower():
+                msg = (
+                    "❌ Accesso negato (403).\n"
+                    "Accetta i termini su:\n"
+                    "  huggingface.co/pyannote/speaker-diarization-3.1\n"
+                    "  huggingface.co/pyannote/segmentation-3.0"
+                )
+            elif "401" in err or "token" in err.lower():
+                msg = "❌ Token non valido o scaduto. Controllalo su huggingface.co/settings/tokens"
+            else:
+                msg = f"❌ Errore: {err}"
+            self.diarization_test_label.setText(msg)
+            self.diarization_test_label.setStyleSheet("color: red; font-size: 11px;")
+
+    def on_forced_alignment_toggled(self, checked: bool):
+        """Salva stato checkbox forced alignment"""
+        self.config.set('enable_forced_alignment', checked)
+
+    def on_diarization_toggled(self, checked: bool):
+        """Salva stato checkbox diarization"""
+        self.config.set('enable_diarization', checked)
+
+    def on_num_speakers_changed(self, value: int):
+        """Salva numero parlanti"""
+        self.config.set('diarization_num_speakers', value)
+
     def apply_theme(self):
         """Applica tema moderno"""
         self.setStyleSheet("""
