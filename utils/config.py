@@ -93,6 +93,7 @@ class Config:
         # Translation Model Settings (MODIFICATO v5.0 - Claude API Support)
         # ========================================================================
         'translation_model': 'nllb',  # 'nllb', 'aya', o 'claude'
+        'target_language': 'ita',     # ISO 639-2 lingua target sottotitoli
         
         # Claude API (cloud-based translation)
         'claude_api_key': '',  # API key Anthropic per Claude
@@ -585,6 +586,12 @@ class Config:
 
         self.set('translation_model', model)
         logger.info(f"✅ Modello traduzione impostato: {model.upper()}")
+
+    def get_target_language(self) -> str:
+        return self.get('target_language', 'ita')
+
+    def set_target_language(self, lang: str) -> None:
+        self.set('target_language', lang, save=True)
 
     # ========================================================================
     # METODI HELPER per NLLB Fine-Tuned

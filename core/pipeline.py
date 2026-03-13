@@ -35,6 +35,7 @@ FUNZIONALITÃ€ COMPLETE:
 âœ… Gestione memoria GPU ottimizzata
 âœ… Output ISO 639-1 (2 lettere)
 """
+import gc
 import logging
 import subprocess
 import tempfile
@@ -60,6 +61,7 @@ from utils.tmdb_client import get_tmdb_client
 from utils.subtitle_uploader_interface import UploaderFactory, SubtitleMetadata
 from utils.opensubtitles_config import get_opensubtitles_config
 from utils.logger import setup_logger
+from utils.resource_monitor import release_ram_to_os
 
 logger = setup_logger(__name__)
 
@@ -323,7 +325,9 @@ class ProcessingPipeline:
                                         self._audio_processor = None
                                     if torch.cuda.is_available():
                                         torch.cuda.synchronize()
+                                        gc.collect()
                                         torch.cuda.empty_cache()
+                                    release_ram_to_os()
 
                                     from core.diarizer import Diarizer
                                     from core.subtitle_formatter import SubtitleFormatter
@@ -378,11 +382,11 @@ class ProcessingPipeline:
             if self._audio_processor:
                 self._audio_processor.cleanup_model()
                 self._audio_processor = None
-            import gc
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
                 torch.cuda.empty_cache()
+            release_ram_to_os()
 
             # ============================================================
             # STEP 6: Traduzione (se lingua sorgente != lingua target)
@@ -687,51 +691,60 @@ class ProcessingPipeline:
 
     def _cleanup(self):
         """
-        Cleanup risorse - Scarica modelli e libera memoria GPU
-        
-        Ottimizzato per RTX 3060 12GB VRAM:
-        - Scarica modello Faster-Whisper (~1.5GB VRAM)
-        - Scarica modello Demucs (~2GB VRAM)
-        - Mantiene NLLB in singleton per prossimi file
-        - Svuota cache CUDA
-        - Rimuove file temporanei
+        Cleanup risorse -- scarica tutti i modelli e libera RAM/VRAM.
+
+        Sequenza ottimizzata:
+        1. Unload modelli (Whisper, Demucs, Traduttore) + azzera riferimenti a None
+        2. CUDA sync + empty_cache
+        3. release_ram_to_os() aggressivo (3x gc + EmptyWorkingSet)
+        4. Rimozione file temporanei
         """
         try:
-            self._log("ðŸ§¹ Inizio cleanup risorse...")
-            
-            # 1. Cleanup Transcriber (scarica modello Whisper)
+            import psutil as _psutil
+            _ram_before = _psutil.Process().memory_info().rss / 1024**3
+            self._log(f"🧹 Cleanup risorse... (RAM: {_ram_before:.1f} GB)")
+
+            # 1. Unload Whisper
             if self._transcriber:
                 self._transcriber.cleanup()
                 self._transcriber = None
-                self._log("âœ… Modello Whisper scaricato")
-            
-            # 2. Cleanup AudioProcessor (scarica modello Demucs)
+                self._log("  ✅ Whisper scaricato")
+
+            # 2. Unload Demucs
             if self._audio_processor:
                 self._audio_processor.cleanup_model()
                 self._audio_processor = None
-                self._log("âœ… Modello Demucs scaricato")
-            
-            # 3. Cleanup Translator (scarica modello dalla VRAM)
+                self._log("  ✅ Demucs scaricato")
+
+            # 3. Unload Traduttore (+ azzera riferimento -- era mancante il None)
             if self._translator:
                 self._translator.cleanup()
-                self._log("✅ Modello traduttore scaricato dalla VRAM")
-            
-            # 4. Cleanup Memoria GPU (Finale)
+                self._translator = None
+                self._log("  ✅ Traduttore scaricato")
+
+            # 4. CUDA: sync + svuota cache VRAM
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
                 torch.cuda.empty_cache()
-                self._log("✅ Cache CUDA svuotata")
-            
-            # 5. Cleanup File Temporanei
+                self._log("  ✅ Cache CUDA svuotata")
+
+            # 5. RAM: 3x gc + EmptyWorkingSet (Windows) / malloc_trim (Linux)
+            release_ram_to_os()
+
+            _ram_after = _psutil.Process().memory_info().rss / 1024**3
+            _freed = _ram_before - _ram_after
+            self._log(f"  ✅ RAM: {_ram_before:.1f} → {_ram_after:.1f} GB (liberati {_freed:.1f} GB)")
+
+            # 6. File temporanei
             if self.video_path:
-                 self.file_handler.cleanup(self.video_path)
-                 self._log("✅ File temporanei rimossi")
-            
+                self.file_handler.cleanup(self.video_path)
+                self._log("  ✅ File temporanei rimossi")
+
             self._log("✅ Cleanup completato")
-        
+
         except Exception as e:
             logger.warning(f"❌ Errore cleanup: {e}")
-    
+
     def cleanup(self):
         """
         Metodo pubblico per cleanup esterno (chiamato dalla GUI)

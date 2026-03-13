@@ -11,6 +11,7 @@ MODIFICHE v3.5:
 ✅ Aggiunta lista codici lingua invalidi per rilevamento robusto
 """
 import re
+import time
 from pathlib import Path
 from typing import List, Dict, Optional, Callable, Tuple
 import torch
@@ -289,6 +290,7 @@ class Transcriber:
                     self.log(f"  🔍 Lingua rilevata automaticamente: {detected_language}")
 
                 last_pct = -1
+                t0_transcribe = time.time()
                 for segment in segments:
                     all_segments.append({
                         'start': segment.start,
@@ -302,10 +304,15 @@ class Transcriber:
                     if total_duration > 0:
                         pct = min(int((segment.end / total_duration) * 100), 99)
                         if pct != last_pct:
-                            self.log(f"   Progresso: {pct}%")
+                            bars = int(pct / 10)
+                            bar = '█' * bars + '░' * (10 - bars)
+                            self.log(f"  🎙️ Trascrizione: [{bar}] {pct:3d}%")
                             last_pct = pct
 
-                self.log("  ✅ Trascrizione completata: 100%")
+                elapsed = time.time() - t0_transcribe
+                mins, secs = divmod(int(elapsed), 60)
+                time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
+                self.log(f"  ✅ Trascrizione: [██████████] 100% │ {time_str}")
 
                 # Suddividi segmenti lunghi usando i word timestamps
                 raw_count = len(all_segments)
@@ -323,13 +330,8 @@ class Transcriber:
         else:
             # ── Modalità classica: N chunk sequenziali ──
             failed_chunks = 0
-            progress_thresholds = {
-                25: int(total_chunks * 0.25),
-                50: int(total_chunks * 0.50),
-                75: int(total_chunks * 0.75),
-                100: total_chunks,
-            }
-            logged_progress = set()
+            last_progress_pct = -1
+            t0_transcribe = time.time()
 
             self.log(f"  📊 Trascrizione di {total_chunks} chunks audio...")
             self.log(f"  ⚙️ Profilo: {self.profile_name} (beam={self.beam_size}, workers={self.num_workers})")
@@ -337,7 +339,6 @@ class Transcriber:
                 self.log("  🎯 Lingua: AUTO-DETECT (rilevamento automatico)")
             else:
                 self.log(f"  🎯 Lingua: {whisper_language}")
-            self.log("  ⏳ Elaborazione in corso...")
 
             for i, (chunk_path, start_time, end_time) in enumerate(audio_chunks):
                 chunk_num = i + 1
@@ -379,11 +380,12 @@ class Transcriber:
                             'text': segment.text.strip()
                         })
 
-                    for percentage, threshold in progress_thresholds.items():
-                        if chunk_num >= threshold and percentage not in logged_progress:
-                            self.log(f"  ✅ Trascrizione completata: {percentage}%")
-                            logged_progress.add(percentage)
-                            break
+                    pct = int((chunk_num / total_chunks) * 100)
+                    if pct != last_progress_pct:
+                        bars = int(pct / 10)
+                        bar = '█' * bars + '░' * (10 - bars)
+                        self.log(f"  🎙️ Trascrizione: [{bar}] {pct:3d}% ({chunk_num}/{total_chunks})")
+                        last_progress_pct = pct
 
                 except Exception as e:
                     error_msg = f"❌ ERRORE chunk {chunk_num}: {str(e)}"
@@ -391,10 +393,12 @@ class Transcriber:
                     failed_chunks += 1
                     continue
 
+            elapsed = time.time() - t0_transcribe
+            mins, secs = divmod(int(elapsed), 60)
+            time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
             if failed_chunks > 0:
                 self.log(f"  ⚠️ Completato con {failed_chunks} chunks falliti su {total_chunks}")
-            elif 100 not in logged_progress and total_chunks > 0:
-                self.log("  ✅ Trascrizione completata: 100%")
+            self.log(f"  ✅ Trascrizione: [██████████] 100% ({total_chunks}/{total_chunks}) │ {time_str}")
             self._last_segments = all_segments   # esposto per diarization in pipeline
 
         self.log(f"  📝 Totale segmenti trascritti: {len(all_segments)}")
@@ -487,7 +491,7 @@ class Transcriber:
             if self.faster_whisper_model:
                 del self.faster_whisper_model
                 self.faster_whisper_model = None
-            
+            import gc; gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
                 torch.cuda.empty_cache()

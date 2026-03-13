@@ -27,6 +27,7 @@ class Diarizer:
         warnings.filterwarnings("ignore", module=r"torchaudio\._backend\.utils")             # torchaudio 2.9 deprecation
         warnings.filterwarnings("ignore", module=r"pyannote\.audio\.utils\.reproducibility") # TF32
         warnings.filterwarnings("ignore", module=r"pyannote\.audio\.models\.blocks\.pooling") # std() on short audio
+        warnings.filterwarnings("ignore", message=r".*speechbrain\.pretrained.*")            # speechbrain 1.0 module redirect
 
         # Salva stato TF32 prima che pyannote lo disabiliti
         self._tf32_matmul = torch.backends.cuda.matmul.allow_tf32
@@ -207,5 +208,6 @@ class Diarizer:
         # Ripristina stato TF32 precedente
         torch.backends.cuda.matmul.allow_tf32 = getattr(self, '_tf32_matmul', True)
         torch.backends.cudnn.allow_tf32        = getattr(self, '_tf32_cudnn',  True)
+        import gc; gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()

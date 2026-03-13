@@ -7,7 +7,8 @@ Fix: Emoji Log + Colori UI + Selezione Poster Automatica
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QListWidget, QTextEdit, QProgressBar,
                              QFileDialog, QMessageBox, QCheckBox, QLabel,
-                             QFrame, QToolButton, QSizePolicy, QLayout, QDialog)
+                             QFrame, QToolButton, QSizePolicy, QLayout, QDialog,
+                             QComboBox)
 from PyQt6.QtCore import Qt, QTimer, QSize, QMutex, QMutexLocker
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPixmap, QTextCursor
 import os
@@ -30,6 +31,23 @@ from utils.tmdb_client import get_tmdb_client
 
 # Log setup
 logger = setup_logger()
+
+SUBTITLE_LANGUAGES = [
+    ("Italiano",             "ita"),
+    ("Inglese",              "eng"),
+    ("Francese",             "fra"),
+    ("Spagnolo",             "spa"),
+    ("Tedesco",              "deu"),
+    ("Portoghese",           "por"),
+    ("Russo",                "rus"),
+    ("Giapponese",           "jpn"),
+    ("Cinese Semplificato",  "zho"),
+    ("Arabo",                "ara"),
+    ("Coreano",              "kor"),
+    ("Olandese",             "nld"),
+    ("Polacco",              "pol"),
+    ("Turco",                "tur"),
+]
 
 # Testi interfaccia
 TEXTS = {
@@ -225,8 +243,25 @@ class MainWindow(QMainWindow):
         os_row.addWidget(self.opensubtitles_settings_btn)
         os_row.addStretch()
 
+        lang_row = QHBoxLayout()
+        lang_row.setSpacing(6)
+        lang_label = QLabel("Lingua SRT:")
+        self.target_lang_combo = QComboBox()
+        current_lang = self.config.get_target_language()
+        for display_name, code in SUBTITLE_LANGUAGES:
+            self.target_lang_combo.addItem(display_name, code)
+        idx = next((i for i, (_, c) in enumerate(SUBTITLE_LANGUAGES)
+                    if c == current_lang), 0)
+        self.target_lang_combo.setCurrentIndex(idx)
+        self.target_lang_combo.currentIndexChanged.connect(
+            self.on_target_language_changed)
+        lang_row.addWidget(lang_label)
+        lang_row.addWidget(self.target_lang_combo)
+        lang_row.addStretch()
+
         options_layout.addWidget(self.shutdown_checkbox)
         options_layout.addLayout(os_row)
+        options_layout.addLayout(lang_row)
         layout.addLayout(options_layout)
 
         # Library Scanner Widget
@@ -300,7 +335,7 @@ class MainWindow(QMainWindow):
         text = re.sub(r'[ðâïœ™]+', '', text)
         return text.strip()
 
-    UPDATABLE_PATTERNS = ["Progresso:", "Demucs: [", "Traduzione: ["]
+    UPDATABLE_PATTERNS = ["Progresso:", "Demucs: [", "Traduzione: [", "Trascrizione: ["]
 
     def log_message(self, message: str):
         message = self.fix_mojibake(message)
@@ -550,7 +585,12 @@ class MainWindow(QMainWindow):
     
     def on_opensubtitles_checkbox_changed(self, state):
         self.config.set('opensubtitles_upload_enabled', state == Qt.CheckState.Checked.value)
-    
+
+    def on_target_language_changed(self, index: int):
+        code = self.target_lang_combo.itemData(index)
+        if code:
+            self.config.set_target_language(code)
+
     def on_compact_log_changed(self, state):
         self.compact_log_enabled = state == Qt.CheckState.Checked.value
 
