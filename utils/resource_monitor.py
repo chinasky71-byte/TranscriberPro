@@ -2,6 +2,10 @@
 System resource monitoring
 File: utils/resource_monitor.py
 """
+import gc
+import sys
+import ctypes
+import ctypes.util
 import psutil
 import logging
 try:
@@ -9,6 +13,45 @@ try:
     NVML_AVAILABLE = True
 except:
     NVML_AVAILABLE = False
+
+
+def release_ram_to_os() -> None:
+    """Forza il rilascio della RAM Python all'OS nel modo più aggressivo possibile.
+
+    Sequenza:
+    1. gc.collect() × 3 — raccoglie tutte e 3 le generazioni, inclusi cicli
+       inter-generazionali che una singola passata non rompe.
+    2. PyTorch CPU allocator reset — libera i pool di tensor allocati su CPU.
+    3. OS-specific trim:
+       - Win32: SetProcessWorkingSetSize + EmptyWorkingSet (pagina fuori tutto
+         ciò che non è bloccato, Task Manager lo vede subito)
+       - Linux/macOS: malloc_trim(0) restituisce heap libero al kernel.
+    """
+    # --- 1. Garbage collection completa (tutte le generazioni) ---
+    for _ in range(3):
+        gc.collect()
+
+    # --- 2. OS-specific memory trim ---
+    try:
+        if sys.platform == 'win32':
+            kernel32 = ctypes.windll.kernel32
+            # SetProcessWorkingSetSize(-1, -1): rimuove limiti e trim al minimo
+            kernel32.SetProcessWorkingSetSize(
+                ctypes.c_void_p(-1),
+                ctypes.c_size_t(-1),
+                ctypes.c_size_t(-1),
+            )
+            # EmptyWorkingSet: svuota tutte le pagine non bloccate (più aggressivo)
+            kernel32.EmptyWorkingSet(ctypes.c_void_p(-1))
+        else:
+            _libc_name = ctypes.util.find_library('c') or 'libc.so.6'
+            _libc = ctypes.CDLL(_libc_name)
+            _libc.malloc_trim.argtypes = [ctypes.c_size_t]
+            _libc.malloc_trim.restype = ctypes.c_int
+            _libc.malloc_trim(ctypes.c_size_t(0))
+    except Exception:
+        pass  # silenzioso — non critico
+
 
 class ResourceMonitor:
     def __init__(self, max_ram_gb=30, max_vram_gb=12):

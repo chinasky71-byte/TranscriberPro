@@ -23,11 +23,18 @@ from typing import List, Dict, Optional, Callable
 # Override modello: lingue per cui vogliamo un modello specifico
 # invece di quello che whisperx selezionerebbe di default.
 #
-# Italiano: whisperx default = VOXPOPULI_ASR_BASE_10K_IT (torchaudio, ~100MB, base).
-# Per qualità broadcast/cinema usiamo XLSR-53 large (~1.2GB, molto più preciso).
+# Per qualità broadcast/cinema usiamo modelli XLSR-53 large (~1.2GB).
+# whisperx default per italiano = VOXPOPULI_ASR_BASE_10K_IT (torchaudio, ~100MB, base).
 MODEL_OVERRIDES: Dict[str, str] = {
     'it': 'jonatasgrosman/wav2vec2-large-xlsr-53-italian',
+    'en': 'jonatasgrosman/wav2vec2-large-xlsr-53-english',
+    'fr': 'jonatasgrosman/wav2vec2-large-xlsr-53-french',
+    'es': 'jonatasgrosman/wav2vec2-large-xlsr-53-spanish',
 }
+
+# Modello generico multilingua: usato come fallback per lingue senza
+# modello specifico e senza supporto nativo in whisperx.
+GENERIC_ALIGN_MODEL = 'facebook/wav2vec2-large-xlsr-53'
 
 
 class ForcedAligner:
@@ -60,14 +67,25 @@ class ForcedAligner:
         self.log(f"  📦 Caricamento modello alignment per '{language_code}'...")
         try:
             self._model, self._metadata = whisperx.load_align_model(**kwargs)
-        except ValueError as e:
-            # whisperx lancia ValueError per lingue senza modello wav2vec2
-            self.log(f"  ⚠️ Forced alignment: lingua '{language_code}' non supportata — skip")
-            return False
+        except ValueError:
+            # whisperx lancia ValueError per lingue senza modello wav2vec2 nativo.
+            # Proviamo il modello generico multilingua come fallback.
+            self.log(
+                f"  ℹ️ Nessun modello nativo per '{language_code}' "
+                f"— fallback modello generico ({GENERIC_ALIGN_MODEL.split('/')[-1]})"
+            )
+            kwargs['model_name'] = GENERIC_ALIGN_MODEL
+            try:
+                self._model, self._metadata = whisperx.load_align_model(**kwargs)
+            except Exception as e:
+                self.log(
+                    f"  ⚠️ Forced alignment: lingua '{language_code}' non supportata — skip"
+                )
+                return False
 
         self._device = device
         model_id = getattr(self._model, 'name_or_path',
-                           MODEL_OVERRIDES.get(language_code, 'wav2vec2'))
+                           kwargs.get('model_name', GENERIC_ALIGN_MODEL))
         self.log(f"  ✅ Aligner caricato ({model_id.split('/')[-1]})")
         return True
 
@@ -126,6 +144,7 @@ class ForcedAligner:
         self._model = None
         self._metadata = None
         self._device = None
+        import gc; gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 

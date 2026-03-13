@@ -194,23 +194,59 @@ class BaseTranslator(ABC):
             logger.error(f"Errore parsing SRT: {e}")
             return []
     
-    def _generate_srt(self, subtitles: List[SRT_SUBTITLE]) -> str:
+    def _extract_dash_flags(
+        self, subtitles: List[SRT_SUBTITLE]
+    ) -> Tuple[List[SRT_SUBTITLE], Dict[int, List[bool]]]:
+        """Rimuove i prefissi '- ' dai testi e restituisce i flags per il restore.
+
+        Il '- ' è formattazione (marcatore cambio parlante da diarizzazione),
+        non contenuto da tradurre. I modelli MT (specialmente NLLB) possono
+        non preservarlo → va estratto prima e ripristinato dopo la traduzione.
+        """
+        dash_flags: Dict[int, List[bool]] = {}
+        clean: List[SRT_SUBTITLE] = []
+        for idx, start, end, text in subtitles:
+            lines = text.split('\n')
+            flags = []
+            clean_lines = []
+            for line in lines:
+                if line.startswith('- '):
+                    flags.append(True)
+                    clean_lines.append(line[2:])
+                else:
+                    flags.append(False)
+                    clean_lines.append(line)
+            dash_flags[idx] = flags
+            clean.append((idx, start, end, '\n'.join(clean_lines)))
+        return clean, dash_flags
+
+    def _generate_srt(self, subtitles: List[SRT_SUBTITLE],
+                      dash_flags: Dict[int, List[bool]] = None) -> str:
         """
         Genera contenuto SRT da lista sottotitoli
-        
+
         Args:
             subtitles: Lista di tuple (index, start_time, end_time, text)
-            
+            dash_flags: Flags opzionali per ripristinare prefissi '- ' (diarizzazione)
+
         Returns:
             Stringa contenuto SRT formattato
         """
         srt_content = []
         for index, start, end, text in subtitles:
+            if dash_flags and index in dash_flags:
+                lines = text.split('\n')
+                flags = dash_flags[index]
+                restored = []
+                for i, line in enumerate(lines):
+                    has_dash = flags[i] if i < len(flags) else False
+                    restored.append(f"- {line}" if has_dash and line.strip() else line)
+                text = '\n'.join(restored)
             srt_content.append(f"{index}")
             srt_content.append(f"{start} --> {end}")
             srt_content.append(text)
             srt_content.append("")
-        
+
         return "\n".join(srt_content)
 
     def _mask_text(self, text: str, model_prefix: str) -> Tuple[str, Dict[str, str], bool]:
@@ -311,7 +347,7 @@ def _load_nllb_model(model_name: str = "facebook/nllb-200-3.3B"):
                         logger.info(f"  VRAM sufficiente ({free_vram_gb:.1f} GB) — caricamento fp16 (no bitsandbytes)")
                         _nllb_model = AutoModelForSeq2SeqLM.from_pretrained(
                             model_name,
-                            torch_dtype=torch.float16,
+                            dtype=torch.float16,
                             device_map="auto",
                             low_cpu_mem_usage=True
                         )
@@ -412,7 +448,7 @@ def _load_nllb_ft_model():
                         logger.info(f"  VRAM sufficiente ({free_vram_gb:.1f} GB) — caricamento fp16 (no bitsandbytes)")
                         _nllb_ft_model = AutoModelForSeq2SeqLM.from_pretrained(
                             model_path,
-                            torch_dtype=torch.float16,
+                            dtype=torch.float16,
                             device_map="auto",
                             low_cpu_mem_usage=True
                         )
@@ -642,7 +678,9 @@ class NLLBTranslator(BaseTranslator):
                 self.log(f"  ❌ Codice lingua non supportato: {src_lang} o {tgt_lang}")
                 return False
 
-            parsed_subtitles = self._parse_srt(input_path)
+            parsed_subtitles, dash_flags = self._extract_dash_flags(
+                self._parse_srt(input_path)
+            )
             total = len(parsed_subtitles)
             translated_subtitles = []
 
@@ -786,7 +824,7 @@ class NLLBTranslator(BaseTranslator):
             self.log(f"  ✅ Traduzione: [██████████] 100% ({total}/{total}) │ {time_str}")
 
             self.batch_manager.log_summary()
-            srt_content = self._generate_srt(translated_subtitles)
+            srt_content = self._generate_srt(translated_subtitles, dash_flags)
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(srt_content)
             
@@ -1145,7 +1183,9 @@ class AyaTranslator(BaseTranslator):
                 self.log(f" Codice lingua non supportato: {src_lang} o {tgt_lang}")
                 return False
             
-            parsed_subtitles = self._parse_srt(input_path)
+            parsed_subtitles, dash_flags = self._extract_dash_flags(
+                self._parse_srt(input_path)
+            )
             total = len(parsed_subtitles)
             translated_subtitles = []
             
@@ -1269,7 +1309,7 @@ class AyaTranslator(BaseTranslator):
 
             self.batch_manager.log_summary()
             self.log(f"   Progresso: 100% ({total}/{total})")
-            srt_content = self._generate_srt(translated_subtitles)
+            srt_content = self._generate_srt(translated_subtitles, dash_flags)
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(srt_content)
 
@@ -1575,7 +1615,9 @@ OUTPUT: Return ONLY numbered translations (1., 2., 3., etc.). Nothing else. No q
             if isinstance(output_path, str):
                 output_path = Path(output_path)
             
-            subtitles = self._parse_srt(input_path)
+            subtitles, dash_flags = self._extract_dash_flags(
+            self._parse_srt(input_path)
+        )
             total = len(subtitles)
             
             if total == 0:
@@ -1626,7 +1668,7 @@ OUTPUT: Return ONLY numbered translations (1., 2., 3., etc.). Nothing else. No q
                 i = batch_end
 
             self.log(f"   Progresso: 100% ({total}/{total})")
-            srt_content = self._generate_srt(translated_subtitles)
+            srt_content = self._generate_srt(translated_subtitles, dash_flags)
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(srt_content)
 
@@ -1845,7 +1887,9 @@ Provide translations as a numbered list matching the input format exactly. DO NO
             if isinstance(output_path, str):
                 output_path = Path(output_path)
 
-            subtitles = self._parse_srt(input_path)
+            subtitles, dash_flags = self._extract_dash_flags(
+            self._parse_srt(input_path)
+        )
             total = len(subtitles)
 
             if total == 0:
@@ -1894,7 +1938,7 @@ Provide translations as a numbered list matching the input format exactly. DO NO
                 i = batch_end
 
             self.log(f"   Progresso: 100% ({total}/{total})")
-            srt_content = self._generate_srt(translated_subtitles)
+            srt_content = self._generate_srt(translated_subtitles, dash_flags)
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(srt_content)
 

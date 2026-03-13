@@ -1,347 +1,664 @@
-# Guida Utente - Transcriber Pro
+# 📖 Guida Utente - Transcriber Pro v1.0.3
 
 ## Indice
 
-1. [Panoramica](#panoramica)
-2. [Interfaccia Principale](#interfaccia-principale)
-3. [Workflow Base](#workflow-base)
-4. [Trascrizione](#trascrizione)
-5. [Profili di Trascrizione](#profili-di-trascrizione)
-6. [Traduzione](#traduzione)
-7. [Ricerca Metadata (TMDB/OMDB)](#ricerca-metadata-tmddomdb)
-8. [Upload OpenSubtitles](#upload-opensubtitles)
-9. [Library Scanner](#library-scanner)
-10. [Impostazioni](#impostazioni)
-11. [Output e File Generati](#output-e-file-generati)
-12. [FAQ](#faq)
+1. [Introduzione](#introduzione)
+2. [Interfaccia Grafica](#interfaccia-grafica)
+3. [Workflow Elaborazione](#workflow-elaborazione)
+4. [Upload OpenSubtitles](#upload-opensubtitles) ⭐ **NUOVO v1.0.3**
+5. [Configurazione Avanzata](#configurazione-avanzata)
+6. [Tips & Tricks](#tips--tricks)
+7. [Troubleshooting](#troubleshooting)
 
 ---
 
-## Panoramica
+## Introduzione
 
-**Transcriber Pro** è uno strumento desktop per la trascrizione automatica di video e la traduzione di sottotitoli, progettato per operare prevalentemente in locale con GPU NVIDIA.
+**Transcriber Pro** è un'applicazione desktop avanzata per la trascrizione e traduzione automatica di video utilizzando modelli di AI all'avanguardia.
 
-**Funzionalità principali:**
+### Funzionalità Principali
 
-- Trascrizione audio via **Faster-Whisper** (modelli small → large-v3)
-- Traduzione sottotitoli con 5 motori intercambiabili (locale e cloud)
-- Ricerca automatica metadata da **TMDB** e **OMDB**
-- Upload automatico su **OpenSubtitles.org**
-- Integrazione con **Library Scanner** (Plex/Jellyfin/Emby)
-- Interfaccia grafica **PyQt6** con elaborazione in background
-
----
-
-## Interfaccia Principale
-
-L'interfaccia è divisa in tre aree:
-
-### Pannello Sinistro — Lista File
-
-- **Aggiungi File**: trascina video o usa il pulsante per selezionarli
-- Formati supportati: MKV, MP4, AVI, MOV, WMV, M2TS, WEBM
-- Ogni file mostra: nome, stato (In attesa / In elaborazione / Completato / Errore), progresso
-- Click destro su un file per opzioni contestuali (rimuovi, apri cartella, etc.)
-
-### Pannello Centrale — Log e Progresso
-
-- Log in tempo reale dell'elaborazione corrente
-- Barra di progresso globale e per singolo file
-- Dettagli GPU/CPU usage durante l'elaborazione
-
-### Pannello Destro — Metadata
-
-- Dopo la ricerca TMDB/OMDB: titolo, anno, sinossi, poster
-- I metadata vengono usati per migliorare la qualità della traduzione
+- 🎤 **Trascrizione AI** - Faster-Whisper large-v3 (99+ lingue)
+- 🌍 **Traduzione Neurale** - NLLB-200 3.3B (200 lingue → Italiano)
+- 🎵 **Separazione Vocale** - Demucs per audio pulito
+- 🌐 **Upload Automatico** - OpenSubtitles.org REST API ⭐ **NUOVO**
+- 📊 **Metadata TMDB/IMDb** - Ricerca automatica informazioni film
+- 🖥️ **GUI Moderna** - Interfaccia intuitiva con monitoraggio risorse
 
 ---
 
-## Workflow Base
+## Interfaccia Grafica
 
-Il flusso di lavoro tipico è:
+### Layout Principale
 
 ```
-1. Aggiungi file video
-2. (Opzionale) Cerca metadata TMDB
-3. Avvia Trascrizione → genera file .srt nella lingua originale
-4. Avvia Traduzione → genera file .it.srt (o altra lingua target)
-5. (Opzionale) Carica su OpenSubtitles
+┌─────────────────────────────────────────────────────────┐
+│  [🎬 Transcriber Pro v1.0.3]                  [_ □ X] │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  ┌─────────────────┐  ┌──────────────────────────────┐ │
+│  │                 │  │  Coda di Elaborazione        │ │
+│  │   Anteprima     │  │  ┌──────────────────────────┐│ │
+│  │     Video       │  │  │ 🎬 Movie1.mkv           ││ │
+│  │                 │  │  │ 🎬 Movie2.mp4           ││ │
+│  │   (Poster)      │  │  │ 🎬 Movie3.avi           ││ │
+│  │                 │  │  └──────────────────────────┘│ │
+│  └─────────────────┘  │                              │ │
+│                       │  [➕ Aggiungi]  [📁 Cartella]│ │
+│  ┌─────────────────┐  │  [🗑️ Svuota]   [▶️ Avvia]   │ │
+│  │ Risorse Sistema │  └──────────────────────────────┘ │
+│  │ CPU:  45%       │                                   │
+│  │ RAM:  6.2/12GB  │  ┌──────────────────────────────┐ │
+│  │ GPU:  85%       │  │ Log Elaborazione             │ │
+│  │ VRAM: 8.1/12GB  │  │ ⏳ Trascrizione in corso...  │ │
+│  └─────────────────┘  │ ✅ Completato: movie1.it.srt │ │
+│                       └──────────────────────────────┘ │
+│  [⚙️ Settings]  [📤 OpenSubtitles: ON] [🌐 Network] │
+└─────────────────────────────────────────────────────────┘
 ```
 
-I file SRT vengono salvati nella stessa cartella del video sorgente.
+### Elementi Interfaccia
+
+#### Pannello Sinistro
+- **Anteprima Video** - Poster TMDB del file selezionato
+- **Monitor Risorse** - Utilizzo CPU, RAM, GPU, VRAM in tempo reale
+- **Stato Rete** - Download/Upload speed
+
+#### Pannello Centrale
+- **Coda Elaborazione** - Lista file video da processare
+- **Pulsanti Azione:**
+  - `➕ Aggiungi File` - Seleziona file singoli
+  - `📁 Aggiungi Cartella` - Elabora intera directory
+  - `🗑️ Svuota Coda` - Rimuovi tutti i file
+  - `▶️ Avvia` - Inizia elaborazione
+  - `⏸️ Pausa` - Pausa temporanea
+  - `⏹️ Annulla` - Termina elaborazione
+
+#### Pannello Destro
+- **Log Elaborazione** - Output dettagliato processo
+- **Progress Bar** - Avanzamento elaborazione
+
+#### Barra Inferiore
+- **Settings** - Configurazione applicazione
+- **OpenSubtitles Toggle** ⭐ **NUOVO** - Abilita/disabilita upload
+- **Network Status** - Stato connessione
 
 ---
 
-## Trascrizione
+## Workflow Elaborazione
 
-### Avvio
+### Passo 1: Aggiungere File
 
-1. Aggiungi uno o più file video alla lista
-2. Seleziona il **Profilo di Trascrizione** (vedi sezione dedicata)
-3. Clicca **"Avvia Trascrizione"**
-
-### Modelli Whisper
-
-Transcriber Pro usa **Faster-Whisper** con i seguenti modelli:
-
-| Modello | VRAM | Qualità | Velocità |
-|---------|------|---------|---------|
-| `small` | ~1 GB | Base | Molto rapida |
-| `medium` | ~3 GB | Buona | Rapida |
-| `large-v3` | ~6 GB | Eccellente | Media |
-
-Il modello viene scelto automaticamente in base al profilo selezionato.
-
-### Rilevamento Lingua
-
-La lingua del parlato viene rilevata automaticamente. Puoi forzarla manualmente in **Settings → Transcription → Language**.
-
-### File di Output
-
-La trascrizione genera un file `.srt` con lo stesso nome del video:
-
+**Metodo A: Drag & Drop**
 ```
-/percorso/video/Film.mkv   →   /percorso/video/Film.srt
+1. Trascina file/cartelle → Finestra applicazione
+2. ✅ File aggiunti automaticamente alla coda
 ```
 
----
-
-## Profili di Trascrizione
-
-I profili controllano il bilanciamento tra qualità, velocità e uso della GPU.
-
-Selezionabili in **Settings → Transcription Profile** oppure nel menu a tendina nel pannello principale.
-
-| Profilo | Modello Whisper | VAD | Beam Size | Uso consigliato |
-|---------|----------------|-----|-----------|----------------|
-| **Fast** | small | Sì | 1 | Test rapidi, contenuti brevi |
-| **Balanced** | medium | Sì | 3 | Uso quotidiano bilanciato |
-| **Quality** | large-v3 | Sì | 5 | Qualità superiore |
-| **Maximum** | large-v3 | No | 10 | Massima precisione possibile |
-| **Batch** | medium | Sì | 3 | Elaborazione in sequenza di file multipli |
-
-**VAD (Voice Activity Detection)**: filtra i silenzi prima della trascrizione, riducendo i tempi e migliorando la qualità del risultato.
-
----
-
-## Traduzione
-
-### Avvio
-
-1. Assicurati di avere file `.srt` nella lista (o che la trascrizione sia completata)
-2. Seleziona il **motore di traduzione** in **Settings → Translation Model**
-3. Clicca **"Avvia Traduzione"**
-
-### Motori di Traduzione
-
-Transcriber Pro supporta 5 motori intercambiabili:
-
-#### NLLB-200 (Locale) — Default
-
-- **Modello**: NLLB-200-3.3B (locale, gira su GPU)
-- **Qualità**: Buona per la maggior parte delle lingue
-- **Velocità**: Molto rapida (~5 min per film)
-- **Costo**: Gratuito
-- **Requisiti**: GPU NVIDIA con CUDA 12.6
-
-#### NLLB Finetuned (Locale)
-
-- **Modello**: NLLB finetuned su dati cinematografici
-- **Qualità**: Migliore di NLLB standard per dialoghi audiovisivi
-- **Velocità**: Simile a NLLB standard
-- **Costo**: Gratuito
-- **Requisiti**: GPU NVIDIA con CUDA 12.6
-
-#### Aya-23-8B (Locale)
-
-- **Modello**: Aya-23-8B (8 miliardi di parametri, locale)
-- **Qualità**: Eccellente, comprensione contestuale avanzata
-- **Velocità**: Più lenta (richiede GPU potente)
-- **Costo**: Gratuito (dopo download)
-- **Requisiti**: GPU con ≥10 GB VRAM; HuggingFace token per il download
-- **Note**: Prima esecuzione richiede download ~16 GB da HuggingFace
-
-#### Claude API (Cloud)
-
-- **Modello**: Claude Sonnet 4.6 (cloud Anthropic)
-- **Qualità**: Superiore, con comprensione del contesto e dello stile
-- **Velocità**: Rapida (non usa GPU locale)
-- **Costo**: ~$0.15–0.25 per film (richiede piano a pagamento Anthropic)
-- **Requisiti**: Connessione internet, API key Anthropic
-- **Vantaggio**: Usa automaticamente la sinossi TMDB per traduzioni più accurate
-
-#### OpenAI GPT (Cloud)
-
-- **Modello**: GPT-4o-mini (cloud OpenAI)
-- **Qualità**: Ottima
-- **Velocità**: Rapida (non usa GPU locale)
-- **Costo**: ~$0.05–0.10 per film (richiede piano a pagamento OpenAI)
-- **Requisiti**: Connessione internet, API key OpenAI
-
-### Lingua di Destinazione
-
-Selezionabile in **Settings → Translation → Target Language**.
-Default: Italiano (`it`). Supporta 50+ lingue.
-
-### File di Output
-
-La traduzione genera un file `.LINGUA.srt`:
-
+**Metodo B: Pulsante File**
 ```
-/percorso/video/Film.srt   →   /percorso/video/Film.it.srt
+1. Click [➕ Aggiungi File]
+2. Seleziona file video (MKV, MP4, AVI, etc.)
+3. ✅ File aggiunti alla coda
+```
+
+**Metodo C: Cartella Intera**
+```
+1. Click [📁 Aggiungi Cartella]
+2. Seleziona directory
+3. ✅ Tutti i video nella cartella aggiunti
 ```
 
 ---
 
-## Ricerca Metadata (TMDB/OMDB)
-
-Transcriber Pro cerca automaticamente i metadata di film e serie TV per:
-
-- Migliorare la qualità della traduzione (la sinossi viene usata come contesto)
-- Ottenere l'IMDb ID per l'upload su OpenSubtitles
-- Visualizzare poster e informazioni nel pannello laterale
-
-### Come funziona
-
-1. Seleziona un file nella lista
-2. Clicca **"Cerca Metadata"** (o avviene automaticamente dopo la trascrizione)
-3. Il titolo viene estratto dal nome del file e cercato su TMDB
-4. I risultati vengono mostrati nel pannello destro
-
-### Configurazione API Keys
-
-In **Settings → API Keys**:
-
-- **TMDB API Key**: necessaria per la ricerca metadata (prioritaria)
-- **OMDB API Key**: usata come fallback se TMDB non trova risultati
-
-### Naming Convention Consigliata
-
-Per il rilevamento automatico migliore, rinomina i file video come:
+### Passo 2: Avviare Elaborazione
 
 ```
-Film Title (2024).mkv
-Serie TV - S01E03 - Titolo Episodio.mkv
+1. Click [▶️ Avvia]
+2. ⏳ Elaborazione inizia automaticamente
+3. 👀 Monitora progress in tempo reale
+```
+
+---
+
+### Passo 3: Pipeline Automatica
+
+Per ogni video, Transcriber Pro esegue:
+
+#### **Step 1: Estrazione Audio** 🎵
+```
+🔍 Analisi tracce audio video...
+📊 Trovate 3 tracce audio
+  ✅ Traccia 1: ENG (Selezionata)
+  ℹ️ Traccia 2: ITA (Commentary)
+  ℹ️ Traccia 3: SPA
+🎵 Estrazione traccia audio...
+✅ Audio estratto: temp_audio.wav
+```
+
+#### **Step 2: Separazione Vocale** 🎤
+```
+⏳ Caricamento Demucs htdemucs...
+✅ Modello Demucs caricato
+🎵 Separazione vocale da background...
+  Pipeline: STANDARD (file 45 minuti)
+  Chunks: 135 (20s ciascuno)
+  Progress: [████████████████████] 100%
+✅ Vocali isolati: vocals.wav
+```
+
+#### **Step 3: Trascrizione Whisper** 📝
+```
+⏳ Caricamento Faster-Whisper large-v3...
+✅ Modello caricato (GPU, int8_float16)
+🎤 Trascrizione in corso...
+  Lingua rilevata: eng (confidenza: 0.98)
+  VAD: ATTIVO
+  Beam size: 7
+  Progress: [████████████████████] 100%
+  Segmenti: 1596
+✅ Trascrizione completata
+```
+
+#### **Step 4: Pulizia Sottotitoli** 🧹
+```
+🧹 Pulizia sottotitoli...
+  ✅ Rimossi duplicati
+  ✅ Fissati overlap temporali
+  ✅ Normalizzati caratteri speciali
+✅ Pulizia completata
+```
+
+#### **Step 5: Traduzione** 🌍
+```
+🌍 Traduzione ENG → ITA
+⏳ Caricamento NLLB-200 3.3B...
+✅ Modello caricato (GPU, float16)
+📊 Batch processing: 1596 segmenti
+  Batch size: 24
+  Num beams: 7
+  Progress: [████████████████████] 100%
+✅ Traduzione completata
+```
+
+#### **Step 6: Salvataggio** 💾
+```
+💾 Salvataggio sottotitoli...
+✅ File salvato: Movie.2024.1080p.it.srt
+📍 Percorso: C:\Videos\Movie.2024.1080p.it.srt
+```
+
+#### **Step 7: Upload OpenSubtitles** 📤 ⭐ **NUOVO**
+```
+========================================
+📤 UPLOAD OPENSUBTITLES
+========================================
+🔐 Autenticazione REST API...
+✅ Login riuscito
+
+🔍 Ricerca metadata...
+  → TMDB: The Matrix (1999)
+  → IMDb ID: tt0133093
+✅ Metadata completi
+
+🔍 Verifica duplicati...
+✅ Nessun duplicato trovato
+
+📤 Upload in corso...
+✅ Upload completato!
+   ID: 9876543210
+   URL: https://www.opensubtitles.org/it/subtitles/9876543210
+
+🏆 Grazie per contribuire a OpenSubtitles!
+========================================
 ```
 
 ---
 
 ## Upload OpenSubtitles
 
-Transcriber Pro può caricare automaticamente i sottotitoli generati su **OpenSubtitles.org**.
+### Configurazione (Prima Volta)
 
-### Configurazione
+**⚠️ Importante:** L'upload è **opzionale** ma raccomandato per contribuire alla community!
 
-In **Settings → OpenSubtitles**:
+#### Step 1: Crea Account OpenSubtitles
 
-1. **Username**: il tuo username o email OpenSubtitles
-2. **Password**: la tua password
-3. **API Key**: ottenibile su [opensubtitles.com/consumers](https://www.opensubtitles.com/consumers) (gratuita)
-4. **Auto Upload**: abilita per caricare automaticamente al termine dell'elaborazione
+1. Vai su https://www.opensubtitles.org/en/newuser
+2. Registrati (gratuito)
+3. **Verifica email** (obbligatorio)
+
+#### Step 2: Ottieni API Key (per REST)
+
+1. Login su https://www.opensubtitles.com
+2. Vai su https://www.opensubtitles.com/consumers
+3. Click "Create Consumer"
+4. Compila:
+   - **App Name:** Transcriber Pro
+   - **Purpose:** Personal use
+5. **Copia API Key** (salvala in luogo sicuro!)
+
+#### Step 3: Configura Credenziali
+
+**Crea file di configurazione:**
+
+**Windows:**
+```
+C:\Users\TUO_USERNAME\.transcriberpro\opensubtitles_credentials.json
+```
+
+**Linux/Mac:**
+```
+~/.transcriberpro/opensubtitles_credentials.json
+```
+
+**Contenuto:**
+```json
+{
+    "username": "tuo_username",
+    "password": "tua_password",
+    "api_key": "TUA_API_KEY_QUI",
+    "auto_upload": true
+}
+```
+
+#### Step 4: Riavvia Applicazione
+
+```
+1. Chiudi Transcriber Pro
+2. Riapri
+3. ✅ Credenziali caricate automaticamente
+```
+
+#### Step 5: Verifica Setup
+
+```bash
+# Da terminale
+python verify_opensubtitles_setup.py
+```
+
+**Output atteso:**
+```
+🎉 TUTTO OK! Sistema configurato correttamente.
+```
+
+---
+
+### Uso Upload
+
+#### Upload Automatico (Default)
+
+Se `auto_upload: true`:
+
+```
+1. ▶️ Elabora video normalmente
+2. ⏳ Pipeline completa (trascrizione + traduzione)
+3. 📤 Upload automatico a fine elaborazione
+4. ✅ Conferma in log: "Upload completato!"
+```
+
+**Non devi fare nulla!** 🎉
+
+#### Toggle Upload On/Off
+
+**Dalla GUI:**
+
+```
+1. Guarda barra inferiore
+2. Click [📤 OpenSubtitles: ON/OFF]
+3. ✅ Stato cambiato
+```
+
+**Dal Config:**
+
+Edita `~/.transcriberpro/config.json`:
+
+```json
+{
+    "opensubtitles_upload_enabled": false
+}
+```
+
+#### Disabilitare Auto-Upload
+
+Se vuoi **decidere manualmente** per ogni file:
+
+In `opensubtitles_credentials.json`:
+
+```json
+{
+    ...
+    "auto_upload": false
+}
+```
+
+**⚠️ Note:** Upload manuale disponibile in v1.1.0+
+
+---
 
 ### Verifica Duplicati
 
-Prima di ogni upload, il sistema verifica automaticamente se i sottotitoli esistono già su OpenSubtitles tramite hash del video. Se trovati, l'upload viene saltato per evitare duplicati.
+**Automatica!** Transcriber Pro verifica sempre se i sottotitoli esistono già:
 
-### Limiti Account Gratuito
+```
+🔍 Verifica duplicati...
+  Video hash: 8f7e9c2d1a3b4e5f
+  Lingua: ita
+  
+ℹ️ Sottotitoli già presenti!
+  ID esistente: 1234567890
+  → Upload saltato (evitato duplicato)
+```
 
+**Vantaggi:**
+- ✅ Risparmia banda
+- ✅ Rispetta ToS OpenSubtitles
+- ✅ Evita spam database
+
+---
+
+### Metadata Automatici
+
+Transcriber Pro arricchisce i sottotitoli con metadata:
+
+**Ricerca Automatica:**
+```
+🔍 Ricerca metadata: The Matrix (1999).mkv
+  → Query TMDB: "The Matrix 1999"
+  → Match trovato: The Matrix (1999)
+  → IMDb ID: tt0133093
+  → Rating: 8.7/10
+  → Genre: Sci-Fi, Action
+✅ Metadata completi
+```
+
+**Dati Inviati:**
+- IMDb ID
+- Lingua sottotitoli (ISO 639-2)
+- Release name
+- Video hash
+- Video size
+- Subtitle format (SRT)
+- Comments ("Generated by Transcriber Pro")
+
+**Risultato:**
+I tuoi sottotitoli saranno facilmente trovabili su OpenSubtitles!
+
+---
+
+### Limiti Upload
+
+**Account Gratuito:**
 - 10 upload/giorno
 - 200 query/giorno
 
-### Troubleshooting Upload
+**Se superi limite:**
+```
+❌ Rate limit exceeded
+   Riprova tra: 12h 34m
+```
 
-| Errore | Causa | Soluzione |
-|--------|-------|-----------|
-| Autenticazione fallita | Credenziali errate | Verifica username/password nelle Settings |
-| API Key non valida | Key errata o scaduta | Rigenera su opensubtitles.com/consumers |
-| Rate limit exceeded | Troppi upload | Attendi 24h |
-| IMDb ID not found | Metadata mancanti | Cerca metadata TMDB prima dell'upload |
-
----
-
-## Library Scanner
-
-Transcriber Pro si integra con server di gestione librerie multimediali (Plex, Jellyfin, Emby) tramite un **Library Scanner** self-hosted.
-
-### Configurazione
-
-In **Settings → Library Scanner**:
-
-- **Server URL**: indirizzo del server (es: `http://192.168.1.100:8080`)
-- **API Key**: la chiave generata dal server Library Scanner
-
-### Funzionalità
-
-- Notifica al media server di aggiornare i metadata dopo la generazione dei sottotitoli
-- Supporto per file in rete (NAS, condivisioni Samba)
+**Soluzione:**
+- Attendi 24h
+- Considera account VIP (opzionale)
 
 ---
 
-## Impostazioni
+### FAQ Upload
 
-Tutte le impostazioni si configurano da **Menu → Settings** e vengono salvate in:
+**Q: I sottotitoli sono pubblici?**
 
+Sì, OpenSubtitles è un database pubblico community-driven.
+
+**Q: Posso eliminare sottotitoli caricati?**
+
+Sì, login su OpenSubtitles → My Subtitles → Delete
+
+**Q: Devo pagare?**
+
+No, servizio completamente gratuito (VIP opzionale per limiti più alti)
+
+**Q: Cosa succede se fallisce?**
+
+Upload non blocca elaborazione. Puoi ricaricare manualmente.
+
+**Q: Posso disabilitare permanentemente?**
+
+Sì, elimina file `opensubtitles_credentials.json`
+
+📚 **Guida Completa:** [GUIDA_OPENSUBTITLES_REST_API.md](GUIDA_OPENSUBTITLES_REST_API.md)
+
+---
+
+## Configurazione Avanzata
+
+### File Configurazione
+
+**Percorso:**
 ```
 ~/.transcriberpro/config.json
 ```
 
-Windows: `C:\Users\TUO_USERNAME\.transcriberpro\config.json`
+### Opzioni Principali
 
-### Sezioni Principali
+#### Generale
 
-| Sezione | Contenuto |
-|---------|-----------|
-| **Transcription** | Profilo, lingua, modello Whisper |
-| **Translation Model** | Scelta motore, API keys (Claude/OpenAI), HuggingFace token |
-| **API Keys** | TMDB API key, OMDB API key |
-| **OpenSubtitles** | Credenziali, auto-upload, check duplicati |
-| **Library Scanner** | URL server, API key |
-| **Output** | Formato SRT, cartella output |
+```json
+{
+    "use_gpu": true,
+    "language": "auto",
+    "shutdown_after_processing": false
+}
+```
 
-### Reset Impostazioni
+#### Trascrizione
 
-Per ripristinare i default, elimina `~/.transcriberpro/config.json` e riavvia.
+```json
+{
+    "transcription_method": "faster-whisper",
+    "whisper_model": "large-v3",
+    "whisper_device": "auto",
+    "whisper_compute_type": "auto"
+}
+```
 
----
+**Modelli disponibili:**
+- `tiny` - Veloce, meno accurato (1GB VRAM)
+- `base` - Bilanciato (1GB VRAM)
+- `small` - Buono (2GB VRAM)
+- `medium` - Molto buono (5GB VRAM)
+- `large-v3` - **Migliore** (10GB VRAM) ⭐ **Raccomandato**
 
-## Output e File Generati
+#### OpenSubtitles ⭐ **NUOVO**
 
-| File | Contenuto |
-|------|-----------|
-| `Video.srt` | Trascrizione nella lingua originale |
-| `Video.it.srt` | Traduzione in italiano |
-| `Video.en.srt` | Traduzione in inglese (se richiesta) |
-
-I log vengono salvati in `~/.transcriberpro/logs/transcriber.log`.
-
----
-
-## FAQ
-
-**Q: Posso usare Transcriber Pro senza GPU?**
-A: La trascrizione e la traduzione locale richiedono GPU NVIDIA con CUDA. I motori cloud (Claude API, OpenAI) funzionano senza GPU ma richiedono connessione internet e hanno un costo per utilizzo.
-
-**Q: Quanto tempo richiede la trascrizione?**
-A: Dipende dal video e dal profilo. Con Quality su RTX 3080, un film di 2 ore richiede circa 15-20 minuti.
-
-**Q: Posso elaborare più file contemporaneamente?**
-A: Sì, aggiungi tutti i file e avvia. Vengono processati in sequenza automaticamente.
-
-**Q: Come scarico il modello Aya-23-8B?**
-A: Il download avviene automaticamente alla prima selezione del motore. Richiede un HuggingFace token (Settings → Translation Model) perché Aya-23-8B è un modello con accesso controllato.
-
-**Q: La qualità di Claude API è davvero migliore?**
-A: Sì, specialmente per dialoghi complessi, giochi di parole o terminologia specifica. Claude usa anche la sinossi TMDB come contesto aggiuntivo, migliorando nomi di personaggi e riferimenti narrativi.
-
-**Q: I file SRT mantengono i timestamp originali?**
-A: Sì, tutti i timestamp vengono preservati esattamente.
-
-**Q: Come cambio la lingua di destinazione?**
-A: Settings → Translation → Target Language. La scelta è persistente tra le sessioni.
-
-**Q: Posso usare più motori per confrontare i risultati?**
-A: Non automaticamente, ma puoi cambiare motore in Settings e ritradurre lo stesso file.
+```json
+{
+    "opensubtitles_upload_enabled": true,
+    "opensubtitles_auto_upload": true,
+    "opensubtitles_check_duplicates": true,
+    "opensubtitles_preferred_implementation": "rest",
+    "opensubtitles_api_key": "YOUR_API_KEY"
+}
+```
 
 ---
 
-*Transcriber Pro — Python 3.11 / CUDA 12.6 / PyTorch 2.8*
+## Tips & Tricks
+
+### 🚀 Massimizzare Prestazioni
+
+**1. Chiudi applicazioni GPU-intensive**
+```
+- Browser con molti tab
+- Giochi
+- Editor video
+```
+
+**2. Monitora risorse**
+```
+👀 Guarda pannello risorse
+⚠️ Se VRAM > 95% → Riduci batch size
+```
+
+**3. Usa SSD**
+```
+✅ File temporanei su SSD = +30% velocità
+```
+
+### 🎯 Migliorare Accuratezza
+
+**1. Qualità audio**
+```
+✅ Audio bitrate ≥ 128 kbps
+✅ No video over-compressi
+```
+
+**2. Lingua chiara**
+```
+✅ Audio senza musica forte funziona meglio
+✅ Demucs aiuta, ma non fa miracoli
+```
+
+**3. Nome file corretto**
+```
+✅ Movie.Title.(YEAR).1080p.mkv
+   → Metadata TMDB accurati
+
+❌ asdasd.mkv
+   → Metadata non trovati
+```
+
+### 📂 Organizzazione File
+
+**Struttura consigliata:**
+```
+Videos/
+├── Movies/
+│   ├── The.Matrix.(1999)/
+│   │   ├── The.Matrix.(1999).1080p.mkv
+│   │   └── The.Matrix.(1999).1080p.it.srt  ← Generato
+│   └── Inception.(2010)/
+│       ├── Inception.(2010).1080p.mkv
+│       └── Inception.(2010).1080p.it.srt   ← Generato
+└── TV.Shows/
+    └── Breaking.Bad/
+        └── Season.01/
+            ├── S01E01.mkv
+            ├── S01E01.it.srt  ← Generato
+            ...
+```
+
+### ⚡ Batch Processing
+
+**Per molti file:**
+
+```
+1. [📁 Aggiungi Cartella] → Seleziona directory
+2. ✅ Tutti i file aggiunti
+3. [▶️ Avvia]
+4. ☕ Vai a prendere un caffè
+5. 🎉 Tutti i sottotitoli pronti!
+```
+
+**Stima tempi:**
+- Film 2h: ~30-60 minuti
+- Episodio TV 45min: ~15-30 minuti
+- *Tempi su RTX 3060 12GB*
+
+---
+
+## Troubleshooting
+
+### Video Non Elaborato
+
+**Checklist:**
+- [ ] Formato supportato? (MKV, MP4, AVI, MOV, WMV)
+- [ ] File corrotto? (Prova con VLC)
+- [ ] Spazio disco? (Serve ~2x dimensione video liberi)
+- [ ] Permessi file? (Leggi/scrivi ok?)
+
+### Errore GPU
+
+**Sintomi:**
+```
+❌ CUDA out of memory
+```
+
+**Soluzioni:**
+1. Chiudi altre app GPU
+2. Riavvia Transcriber Pro
+3. Se persiste → Usa CPU (più lento)
+
+### Trascrizione Imprecisa
+
+**Cause comuni:**
+1. Audio di bassa qualità
+2. Musica/rumore forte
+3. Lingua non supportata bene
+
+**Soluzioni:**
+- Usa video con audio migliore
+- Demucs aiuta con audio rumoroso
+- Verifica lingua supportata da Whisper
+
+### Upload Fallito
+
+**Errore comune:**
+```
+❌ Autenticazione fallita
+```
+
+**Fix:**
+```bash
+# 1. Verifica credenziali
+cat ~/.transcriberpro/opensubtitles_credentials.json
+
+# 2. Test setup
+python verify_opensubtitles_setup.py
+
+# 3. Rigenera API Key se necessario
+https://www.opensubtitles.com/consumers
+```
+
+📚 **Troubleshooting Completo:** [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+
+---
+
+## 🆘 Supporto
+
+### Hai bisogno di aiuto?
+
+1. **Controlla questa guida**
+2. **Leggi [TROUBLESHOOTING.md](TROUBLESHOOTING.md)**
+3. **Verifica [FAQ](#faq-upload)**
+4. **Apri issue su GitHub**
+
+### Report Bug
+
+GitHub: https://github.com/chinasky71-byte/Transcriptor-Pro/issues
+
+**Includi sempre:**
+- Versione Transcriber Pro
+- Sistema operativo
+- Log completo errore
+- Steps per riprodurre
+
+---
+
+## 📚 Guide Aggiuntive
+
+- 📦 [Guida Installazione](GUIDA_INSTALLAZIONE.md)
+- 🌐 [Guida OpenSubtitles REST API](GUIDA_OPENSUBTITLES_REST_API.md) ⭐ **NUOVO**
+- 🏗️ [Architettura](ARCHITETTURA.md)
+- 🐛 [Troubleshooting](TROUBLESHOOTING.md)
+
+---
+
+<div align="center">
+
+**Buon lavoro con Transcriber Pro!** 🎬🎤🌍
+
+**Made with ❤️ for subtitle enthusiasts**
+
+[← README](../README.md) | [Installazione →](GUIDA_INSTALLAZIONE.md) | [Troubleshooting →](TROUBLESHOOTING.md)
+
+</div>

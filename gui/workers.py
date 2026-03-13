@@ -266,7 +266,9 @@ class ProcessingWorker(QThread):
             
             # Elabora (SINGOLO TENTATIVO - NO RETRY)
             self.log_message.emit(f"▶️ Avvio elaborazione...")
-            success = self.pipeline.process()
+            from utils.config import get_config
+            target_language = get_config().get_target_language()
+            success = self.pipeline.process(target_language=target_language)
             
             # Gestisci risultato
             if success and not self.is_cancelled:
