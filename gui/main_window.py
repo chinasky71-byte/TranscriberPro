@@ -300,16 +300,18 @@ class MainWindow(QMainWindow):
         text = re.sub(r'[ðâïœ™]+', '', text)
         return text.strip()
 
+    UPDATABLE_PATTERNS = ["Progresso:", "Demucs: [", "Traduzione: ["]
+
     def log_message(self, message: str):
         message = self.fix_mojibake(message)
         timestamp = datetime.now().strftime("%H:%M:%S")
         formatted = f"[{timestamp}] {message}"
 
-        if "Progresso:" in message:
+        if any(p in message for p in self.UPDATABLE_PATTERNS):
             cursor = self.log_text.textCursor()
             cursor.movePosition(QTextCursor.MoveOperation.End)
             block = cursor.block()
-            if "Progresso:" in block.text():
+            if any(p in block.text() for p in self.UPDATABLE_PATTERNS):
                 cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
                 cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock,
                                     QTextCursor.MoveMode.KeepAnchor)

@@ -378,6 +378,8 @@ class ProcessingPipeline:
             if self._audio_processor:
                 self._audio_processor.cleanup_model()
                 self._audio_processor = None
+            import gc
+            gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
                 torch.cuda.empty_cache()
@@ -709,11 +711,10 @@ class ProcessingPipeline:
                 self._audio_processor = None
                 self._log("âœ… Modello Demucs scaricato")
             
-            # 3. Cleanup Translator (Singleton - solo cleanup GPU)
+            # 3. Cleanup Translator (scarica modello dalla VRAM)
             if self._translator:
                 self._translator.cleanup()
-                # Il modello NLLB rimane in memoria per il prossimo file (efficienza)
-                self._log("âœ… Cache GPU traduttore svuotata")
+                self._log("✅ Modello traduttore scaricato dalla VRAM")
             
             # 4. Cleanup Memoria GPU (Finale)
             if torch.cuda.is_available():

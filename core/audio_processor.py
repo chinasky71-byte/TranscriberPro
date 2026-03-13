@@ -24,6 +24,7 @@ from pathlib import Path
 import logging
 import subprocess
 import os
+import time
 from typing import List, Tuple, Optional, Callable
 
 logger = logging.getLogger(__name__)
@@ -82,45 +83,45 @@ class AudioProcessor:
             Lista di (chunk_path, start_time, end_time)
         """
         try:
-            self._log("=== AUDIO PROCESSING - PIPELINE INTELLIGENTE ===")
-            self._log(f"Input: {audio_path.name}")
+            self._log(f"🎬 Audio: {audio_path.name}")
+            self._log("  🎵 Separazione vocale Demucs...")
 
-            # STEP 1: Separazione vocale (pipeline intelligente)
-            self._log("STEP 1: Separazione vocale (Demucs - Pipeline Intelligente)...")
-
+            t0 = time.time()
             vocals_path = self.separate_vocals(audio_path)
 
             if not vocals_path or not vocals_path.exists():
                 self._log("  ⚠️ Separazione vocale fallita - Uso audio originale")
                 vocals_path = audio_path
             else:
-                self._log(f"  ✅ Vocals separati: {vocals_path.name}")
+                elapsed = time.time() - t0
+                mins, secs = divmod(int(elapsed), 60)
+                time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
+                self._log(f"  ✅ Vocals separati in {time_str}: {vocals_path.name}")
 
-            # STEP 2-3: BatchedInferencePipeline mode — salta chunking
+            # BatchedInferencePipeline mode — salta chunking
             if use_batched_pipeline:
-                self._log("STEP 2-3: BatchedInferencePipeline attivo — chunking saltato")
+                self._log("  ⚡ Batched mode — chunking saltato")
                 wav_info = torchaudio.info(str(vocals_path))
                 total_duration = wav_info.num_frames / wav_info.sample_rate
                 self._log(f"✅ Audio processing completato: file unico ({total_duration:.1f}s)")
                 return [(vocals_path, 0.0, total_duration)]
 
-            # STEP 2: Chunking intelligente basato su silenzio
-            self._log("STEP 2: Chunking intelligente (target 15-20s)...")
             chunk_times = self.chunk_audio_intelligent(vocals_path)
 
             if not chunk_times:
                 self.logger.error("Chunking fallito")
                 return []
 
-            # STEP 3: Crea chunk fisici
-            self._log(f"STEP 3: Creazione {len(chunk_times)} chunk fisici...")
             chunk_files = self._create_physical_chunks(
                 vocals_path,
                 chunk_times,
                 output_dir
             )
 
-            self._log(f"✅ Audio processing completato: {len(chunk_files)} chunks pronti")
+            elapsed_total = time.time() - t0
+            mins, secs = divmod(int(elapsed_total), 60)
+            time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
+            self._log(f"✅ Audio processing completato: {len(chunk_files)} chunks pronti in {time_str}")
             return chunk_files
 
         except Exception as e:
@@ -296,22 +297,25 @@ class AudioProcessor:
             
             vocal_chunks = []
             failed_chunks = 0
-            
+            chunk_start_time = time.time()
+
+            # Barra di progresso iniziale
+            self._log(f"    📦 Demucs: [░░░░░░░░░░] 0/{num_chunks} (0%)")
+
             # Processa ogni chunk
             for i in range(num_chunks):
                 chunk_num = i + 1
-                self._log(f"    📦 Chunk {chunk_num}/{num_chunks}...")
-                
+
                 # Calcola range con overlap
                 start = max(0, i * chunk_samples - overlap_samples)
                 end = min(wav.shape[1], (i + 1) * chunk_samples + overlap_samples)
-                
+
                 chunk_wav = wav[:, start:end].clone()
-                
+
                 try:
                     # Prepare chunk
                     chunk_wav = self._prepare_audio_for_demucs(chunk_wav, sr)
-                    
+
                     # Separazione chunk
                     with torch.no_grad():
                         sources = apply_model(
@@ -319,53 +323,68 @@ class AudioProcessor:
                             chunk_wav.unsqueeze(0),
                             device=self.device
                         )[0]
-                    
+
                     chunk_vocals = sources[3].cpu()
-                    
+
                     # Rimuovi overlap (tranne primo e ultimo)
                     if i > 0:
                         overlap_demucs = int(overlap_samples * self.demucs_model.samplerate / sr)
                         chunk_vocals = chunk_vocals[:, overlap_demucs:]
-                    
+
                     if i < num_chunks - 1:
                         overlap_demucs = int(overlap_samples * self.demucs_model.samplerate / sr)
                         chunk_vocals = chunk_vocals[:, :-overlap_demucs]
-                    
+
                     vocal_chunks.append(chunk_vocals)
-                    self._log(f"      ✅ Chunk {chunk_num} OK")
-                    
+
+                    # Aggiorna barra progresso
+                    bars = int((chunk_num / num_chunks) * 10)
+                    pct = int((chunk_num / num_chunks) * 100)
+                    bar = '█' * bars + '░' * (10 - bars)
+                    self._log(f"    📦 Demucs: [{bar}] {chunk_num}/{num_chunks} ({pct}%)")
+
                     # Cleanup immediato
                     del sources, chunk_wav
                     self._cleanup_gpu_memory()
-                    
+
                 except RuntimeError as e:
                     if "out of memory" in str(e).lower():
                         self._log(f"      ⚠️ OOM chunk {chunk_num} - Fallback audio originale")
                         failed_chunks += 1
-                        
+
                         # Fallback: audio originale per questo chunk
                         chunk_start = i * chunk_samples
                         chunk_end = min(wav.shape[1], (i + 1) * chunk_samples)
                         fallback_chunk = wav[:, chunk_start:chunk_end].clone()
-                        
+
                         # Resample se necessario
                         if sr != self.demucs_model.samplerate:
                             resampler = torchaudio.transforms.Resample(sr, self.demucs_model.samplerate)
                             fallback_chunk = resampler(fallback_chunk)
-                        
+
                         vocal_chunks.append(fallback_chunk)
                         self._cleanup_gpu_memory()
+
+                        # Aggiorna barra progresso anche dopo OOM
+                        bars = int((chunk_num / num_chunks) * 10)
+                        pct = int((chunk_num / num_chunks) * 100)
+                        bar = '█' * bars + '░' * (10 - bars)
+                        self._log(f"    📦 Demucs: [{bar}] {chunk_num}/{num_chunks} ({pct}%)")
                     else:
                         raise
-            
+
+            # Riga finale con elapsed time
+            elapsed = time.time() - chunk_start_time
+            mins, secs = divmod(int(elapsed), 60)
+            time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
+            self._log(f"    ✅ Demucs completato: {num_chunks}/{num_chunks} chunks in {time_str}")
+
             # Merge chunks
             self._log("    🔗 Merge chunks...")
             vocals_full = torch.cat(vocal_chunks, dim=1)
             
             if failed_chunks > 0:
                 self._log(f"    ⚠️ {failed_chunks}/{num_chunks} chunks usano audio originale")
-            
-            self._log(f"    ✅ Robust path completato: {len(vocal_chunks)} chunks merged")
             
             return vocals_full
             
