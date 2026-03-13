@@ -44,6 +44,8 @@ fix_*.py
 speed_fix_*.py
 test_*.srt
 *.odt
+*.docx
 Gemini_Generated_Image_transcriptor.png
 QWEN_OLLAMA_INTEGRATION_SPEC.md
 *.it.srt
+requirements_utf8.txt

@@ -296,31 +296,44 @@ def _load_nllb_model(model_name: str = "facebook/nllb-200-3.3B"):
 
             try:
                 logger.info(f"-> Caricamento modello NLLB-200: {model_name}...")
+                import gc
+                gc.collect()
                 if _use_gpu:
-                    torch.cuda.empty_cache()
                     torch.cuda.synchronize()
+                    torch.cuda.empty_cache()
+                    free_vram_gb = torch.cuda.mem_get_info()[0] / 1024 ** 3
+                    logger.info(f"  VRAM libera pre-caricamento NLLB: {free_vram_gb:.1f} GB")
 
                 _nllb_tokenizer = AutoTokenizer.from_pretrained(model_name)
-                
-                if _use_gpu:
-                    logger.info("  -> ATTIVAZIONE QUANTIZZAZIONE 8-BIT (BitsAndBytesConfig)")
-                    quantization_config = BitsAndBytesConfig(
-                        load_in_8bit=True,
-                        llm_int8_threshold=6.0,
-                    )
-                    _nllb_cfg = AutoConfig.from_pretrained(model_name)
-                    _nllb_quant = {} if getattr(_nllb_cfg, 'quantization_config', None) else {'quantization_config': quantization_config}
 
-                    _nllb_model = AutoModelForSeq2SeqLM.from_pretrained(
-                        model_name,
-                        **_nllb_quant,
-                        device_map="auto",
-                        low_cpu_mem_usage=True
-                    )
+                if _use_gpu:
+                    if free_vram_gb >= 7.0:
+                        logger.info(f"  VRAM sufficiente ({free_vram_gb:.1f} GB) — caricamento fp16 (no bitsandbytes)")
+                        _nllb_model = AutoModelForSeq2SeqLM.from_pretrained(
+                            model_name,
+                            torch_dtype=torch.float16,
+                            device_map="auto",
+                            low_cpu_mem_usage=True
+                        )
+                    else:
+                        logger.info(f"  VRAM limitata ({free_vram_gb:.1f} GB) — caricamento 8-bit")
+                        quantization_config = BitsAndBytesConfig(
+                            load_in_8bit=True,
+                            llm_int8_threshold=6.0,
+                            llm_int8_enable_fp32_cpu_offload=True,
+                        )
+                        _nllb_cfg = AutoConfig.from_pretrained(model_name)
+                        _nllb_quant = {} if getattr(_nllb_cfg, 'quantization_config', None) else {'quantization_config': quantization_config}
+                        _nllb_model = AutoModelForSeq2SeqLM.from_pretrained(
+                            model_name,
+                            **_nllb_quant,
+                            device_map="auto",
+                            low_cpu_mem_usage=True
+                        )
                 else:
                     _nllb_model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
                     _nllb_model.to(_device)
-                
+
                 _nllb_model.eval()
 
                 logger.info(f"-> Modello NLLB caricato su {_device}")
@@ -336,6 +349,24 @@ def _get_nllb_translator_resources():
     if _nllb_model is None or _nllb_tokenizer is None:
         _load_nllb_model()
     return _nllb_model, _nllb_tokenizer, _device
+
+
+def _unload_nllb_singleton():
+    """Scarica il modello NLLB base dalla VRAM (thread-safe)."""
+    global _nllb_model, _nllb_tokenizer
+    with _nllb_lock:
+        if _nllb_model is not None:
+            del _nllb_model
+            _nllb_model = None
+        if _nllb_tokenizer is not None:
+            del _nllb_tokenizer
+            _nllb_tokenizer = None
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+    logger.info("-> NLLB base scaricato dalla VRAM")
 
 
 def _load_nllb_ft_model():
@@ -363,24 +394,43 @@ def _load_nllb_ft_model():
 
             try:
                 logger.info(f"-> Caricamento NLLB fine-tuned da: {model_path}")
+                import gc
+                gc.collect()
                 if _use_gpu:
+                    torch.cuda.synchronize()
                     torch.cuda.empty_cache()
+                    free_vram_gb = torch.cuda.mem_get_info()[0] / 1024 ** 3
+                    logger.info(f"  VRAM libera pre-caricamento NLLB-FT: {free_vram_gb:.1f} GB")
 
                 _nllb_ft_tokenizer = AutoTokenizer.from_pretrained(model_path)
 
                 if _use_gpu:
-                    quantization_config = BitsAndBytesConfig(
-                        load_in_8bit=True,
-                        llm_int8_threshold=6.0,
-                    )
-                    _nllb_ft_cfg = AutoConfig.from_pretrained(model_path)
-                    _nllb_ft_quant = {} if getattr(_nllb_ft_cfg, 'quantization_config', None) else {'quantization_config': quantization_config}
-                    _nllb_ft_model = AutoModelForSeq2SeqLM.from_pretrained(
-                        model_path,
-                        **_nllb_ft_quant,
-                        device_map="auto",
-                        low_cpu_mem_usage=True
-                    )
+                    # fp16: NLLB-3.3B usa ~6.6 GB VRAM, stabile senza bitsandbytes.
+                    # 8-bit: ~3.5 GB VRAM ma bitsandbytes può crashare silenziosamente su Windows
+                    # con VRAM parzialmente occupata (stesso bug di ctranslate2 ≥4.7).
+                    if free_vram_gb >= 7.0:
+                        logger.info(f"  VRAM sufficiente ({free_vram_gb:.1f} GB) — caricamento fp16 (no bitsandbytes)")
+                        _nllb_ft_model = AutoModelForSeq2SeqLM.from_pretrained(
+                            model_path,
+                            torch_dtype=torch.float16,
+                            device_map="auto",
+                            low_cpu_mem_usage=True
+                        )
+                    else:
+                        logger.info(f"  VRAM limitata ({free_vram_gb:.1f} GB) — caricamento 8-bit")
+                        _nllb_ft_cfg = AutoConfig.from_pretrained(model_path)
+                        quantization_config = BitsAndBytesConfig(
+                            load_in_8bit=True,
+                            llm_int8_threshold=6.0,
+                            llm_int8_enable_fp32_cpu_offload=True,
+                        )
+                        _nllb_ft_quant = {} if getattr(_nllb_ft_cfg, 'quantization_config', None) else {'quantization_config': quantization_config}
+                        _nllb_ft_model = AutoModelForSeq2SeqLM.from_pretrained(
+                            model_path,
+                            **_nllb_ft_quant,
+                            device_map="auto",
+                            low_cpu_mem_usage=True
+                        )
                 else:
                     _nllb_ft_model = AutoModelForSeq2SeqLM.from_pretrained(model_path)
                     _nllb_ft_model.to(_device)
@@ -399,6 +449,24 @@ def _get_nllb_ft_resources():
     if _nllb_ft_model is None or _nllb_ft_tokenizer is None:
         _load_nllb_ft_model()
     return _nllb_ft_model, _nllb_ft_tokenizer, _device
+
+
+def _unload_nllb_ft_singleton():
+    """Scarica il modello NLLB fine-tuned dalla VRAM (thread-safe)."""
+    global _nllb_ft_model, _nllb_ft_tokenizer
+    with _nllb_ft_lock:
+        if _nllb_ft_model is not None:
+            del _nllb_ft_model
+            _nllb_ft_model = None
+        if _nllb_ft_tokenizer is not None:
+            del _nllb_ft_tokenizer
+            _nllb_ft_tokenizer = None
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+    logger.info("-> NLLB fine-tuned scaricato dalla VRAM")
 
 
 class NLLBTranslator(BaseTranslator):
@@ -455,6 +523,14 @@ class NLLBTranslator(BaseTranslator):
 
         from utils.adaptive_batch_manager import AdaptiveBatchSizeManager
         cfg = get_config().get_adaptive_batch_config() if get_config else {}
+
+        # Messaggi del batch manager: solo warm-up in GUI, il resto solo nel file di log.
+        # Il progresso batch viene già mostrato nella barra "Traduzione: [...]".
+        def _batch_log(msg: str):
+            logger.debug(msg)
+            if 'Warm-up' in msg:
+                self.log(msg)
+
         self.batch_manager = AdaptiveBatchSizeManager(
             device=self.device,
             use_gpu=self.use_gpu,
@@ -464,7 +540,7 @@ class NLLBTranslator(BaseTranslator):
             warmup_batches=cfg.get('warmup_batches', 5),
             high_threshold=cfg.get('high_threshold', 0.85),
             low_threshold=cfg.get('low_threshold', 0.60),
-            log_callback=self.log,
+            log_callback=_batch_log,
         )
         # Alias per compatibilità con il loop translate_file
         self.current_batch_size = self.batch_manager.current_batch_size
@@ -551,35 +627,41 @@ class NLLBTranslator(BaseTranslator):
                 return False
 
         try:
-            self.log(f" Traduzione NLLB-200 (8-bit): {src_lang} → {tgt_lang}")
-            self.log(f"  Parametro NUM_BEAMS: {self.NUM_BEAMS} (Massima Qualità)")
-            
+            model_label = 'FT' if isinstance(self, NLLBFineTunedTranslator) else 'base'
+            load_mode = 'fp16' if (self.use_gpu and torch.cuda.mem_get_info()[0] / 1024**3 >= 7.0) else '8-bit'
+            self.log(f"  🌐 Traduzione NLLB ({model_label}, {load_mode}): {src_lang} → {tgt_lang} | beams:{self.NUM_BEAMS}")
+
             if self._prepared_context:
                 context_preview = self._prepared_context[:70].replace('\n', ' ')
-                self.log(f"  Ã°Å¸â€œâ€“ Context attivo: {context_preview}...")
-            
+                self.log(f"  📖 Context attivo: {context_preview}...")
+
             src_nllb = self._nllb_to_iso(src_lang)
             tgt_nllb = self._nllb_to_iso(tgt_lang)
-            
+
             if not src_nllb or not tgt_nllb:
-                self.log(f" Codice lingua non supportato: {src_lang} o {tgt_lang}")
+                self.log(f"  ❌ Codice lingua non supportato: {src_lang} o {tgt_lang}")
                 return False
-            
+
             parsed_subtitles = self._parse_srt(input_path)
             total = len(parsed_subtitles)
             translated_subtitles = []
-            
+
             if total == 0:
                 self.log("  File SRT vuoto o parsing fallito")
                 with open(output_path, 'w', encoding='utf-8') as f:
                     f.write("")
                 return True
-            
-            self.log(f"  Trovati {total} sottotitoli da tradurre")
+
+            self.log(f"  📋 Trovati {total} sottotitoli da tradurre")
 
             self.batch_manager.reset()
             self.current_batch_size = self.batch_manager.current_batch_size
             is_first_batch = True
+
+            import time as _time
+            t0 = _time.time()
+            # Barra iniziale (aggiornata in-place dal pattern "Traduzione: [")
+            self.log(f"  🌐 Traduzione: [░░░░░░░░░░]   0% (0/{total}) │ batch:-")
 
             i = 0
             last_progress = -1
@@ -605,7 +687,10 @@ class NLLBTranslator(BaseTranslator):
 
                 progress = int((i / total) * 100)
                 if progress != last_progress and not self.batch_manager.is_warming_up:
-                    self.log(f"   Progresso: {progress}% ({i}/{total})")
+                    bars = int(progress / 10)
+                    bar = '█' * bars + '░' * (10 - bars)
+                    bs = self.batch_manager.current_batch_size
+                    self.log(f"  🌐 Traduzione: [{bar}] {progress:3d}% ({i}/{total}) │ batch:{bs}")
                     last_progress = progress
 
                 retries = 0
@@ -695,14 +780,15 @@ class NLLBTranslator(BaseTranslator):
                     is_first_batch = False
                     i += len(batch)
 
+            elapsed = _time.time() - t0
+            mins, secs = divmod(int(elapsed), 60)
+            time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
+            self.log(f"  ✅ Traduzione: [██████████] 100% ({total}/{total}) │ {time_str}")
+
             self.batch_manager.log_summary()
-            self.log(f"   Progresso: 100% ({total}/{total})")
             srt_content = self._generate_srt(translated_subtitles)
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(srt_content)
-
-            self.log(f" Traduzione NLLB completata: {output_path.name}")
-            self.log(f"   Sottotitoli tradotti: {len(translated_subtitles)}/{total}")
             
             return True
             
@@ -713,13 +799,12 @@ class NLLBTranslator(BaseTranslator):
             return False
     
     def cleanup(self):
-        """Pulizia risorse e memoria GPU (Non scarica il modello Singleton)"""
+        """Scarica modello NLLB base dalla VRAM."""
         try:
-            if self.use_gpu:
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-            logger.info("-> Cache GPU svuotata post-traduzione NLLB")
+            _unload_nllb_singleton()
+            self.log("  ✅ Modello NLLB scaricato dalla VRAM")
         except Exception as e:
+            logger.error(f"Errore durante cleanup NLLB: {e}")
             logger.error(f" Ã¢ÂÅ’ Errore durante cleanup GPU: {e}")
 
 
@@ -820,6 +905,24 @@ def _get_aya_translator_resources():
     if _aya_model is None or _aya_tokenizer is None:
         _load_aya_model()
     return _aya_model, _aya_tokenizer, _device
+
+
+def _unload_aya_singleton():
+    """Scarica il modello Aya-23-8B dalla VRAM (thread-safe)."""
+    global _aya_model, _aya_tokenizer
+    with _aya_lock:
+        if _aya_model is not None:
+            del _aya_model
+            _aya_model = None
+        if _aya_tokenizer is not None:
+            del _aya_tokenizer
+            _aya_tokenizer = None
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+    logger.info("-> Aya-23-8B scaricato dalla VRAM")
 
 
 class AyaTranslator(BaseTranslator):
@@ -1182,13 +1285,12 @@ class AyaTranslator(BaseTranslator):
             return False
     
     def cleanup(self):
-        """Pulizia risorse e memoria GPU (Non scarica il modello Singleton)"""
+        """Scarica modello Aya dalla VRAM."""
         try:
-            if self.use_gpu:
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-            logger.info("-> Cache GPU svuotata post-traduzione Aya")
+            _unload_aya_singleton()
+            self.log("  ✅ Modello Aya scaricato dalla VRAM")
         except Exception as e:
+            logger.error(f"Errore durante cleanup Aya: {e}")
             logger.error(f" Ã¢ÂÅ’ Errore durante cleanup GPU: {e}")
 
 
@@ -1561,6 +1663,12 @@ class NLLBFineTunedTranslator(NLLBTranslator):
 
         from utils.adaptive_batch_manager import AdaptiveBatchSizeManager
         cfg = get_config().get_adaptive_batch_config() if get_config else {}
+
+        def _batch_log(msg: str):
+            logger.debug(msg)
+            if 'Warm-up' in msg:
+                self.log(msg)
+
         self.batch_manager = AdaptiveBatchSizeManager(
             device=self.device,
             use_gpu=self.use_gpu,
@@ -1570,9 +1678,17 @@ class NLLBFineTunedTranslator(NLLBTranslator):
             warmup_batches=cfg.get('warmup_batches', 5),
             high_threshold=cfg.get('high_threshold', 0.85),
             low_threshold=cfg.get('low_threshold', 0.60),
-            log_callback=self.log,
+            log_callback=_batch_log,
         )
         self.current_batch_size = self.batch_manager.current_batch_size
+
+    def cleanup(self):
+        """Scarica modello NLLB fine-tuned dalla VRAM (override: usa singleton FT, non base)."""
+        try:
+            _unload_nllb_ft_singleton()
+            self.log("  ✅ Modello NLLB fine-tuned scaricato dalla VRAM")
+        except Exception as e:
+            logger.error(f"Errore durante cleanup NLLB FT: {e}")
 
 
 # ============================================================================
@@ -1919,83 +2035,3 @@ def get_nllb_translator(log_callback: Optional[Callable] = None, context: Option
     return NLLBTranslator(log_callback=log_callback, context=context)
 
 
-if __name__ == '__main__':
-    # Esempio d'uso e test minimali (necessita di file di config)
-    print("=" * 80)
-    print("TEST TRANSLATOR v5.2 - FIX AUTENTICAZIONE AYA")
-    print("=" * 80 + "\n")
-    
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-
-    class DummyTranslator(BaseTranslator):
-        def translate_file(self, *args, **kwargs): return True
-        def cleanup(self): pass
-        
-    translator: BaseTranslator
-    try:
-        # Tenta di caricare il traduttore di default (probabilmente NLLB)
-        translator = get_translator()
-        print(f"  Traduttore di default creato: {type(translator).__name__}")
-        
-        # Prova a caricare AYA specificamente per testare il caricamento del token
-        print("\nTest caricamento Aya (potrebbe richiedere download)...")
-        translator_aya = get_translator(use_aya=True)
-        print(f"  Traduttore AYA creato con successo: {type(translator_aya).__name__}")
-        translator = translator_aya # Usa Aya per i test di logica se disponibile
-        
-    except Exception as e:
-        print(f"   Errore critico durante caricamento modello: {e}")
-        translator = DummyTranslator() 
-        
-    
-    # Test Logica di Preservazione Musicale (Simulazione)
-    print("\nTest Logica di Preservazione Musicale (Simulazione)...")
-    try:
-        nllb_translator_dummy = DummyTranslator()
-        
-        # Scenario 1: Riga SOLO nota (Test per allucinazione)
-        text_1 = "Ã¢â„¢Âª"
-        text_1_masked, ph_1, only_masked_1 = nllb_translator_dummy._mask_text(text_1, "NLLB")
-        print(f"  Origine 1 (Solo 'Ã¢â„¢Âª'): '{text_1}'")
-        print(f"    Mascherato Inviato (atteso vuoto): '{text_1_masked}'")
-        print(f"    Solo Mascherato (SKIP): {only_masked_1} (Atteso: True)")
-        if only_masked_1 or not text_1_masked.strip():
-             print("  Ã¢Å“â€¦ SUCCESS: Input vuoto bloccato in pre-processing (verrÃƒÂ  copiato l'originale 'Ã¢â„¢Âª').")
-        else:
-             print("  Ã¢ÂÅ’ FAIL: L'input vuoto non ÃƒÂ¨ stato bloccato.")
-        
-        # Scenario 2: Riga musicale e testo normale
-        text_2 = "Hello! Ã¢â„¢Âª Wake me with a kiss Ã¢â„¢Âª Please translate this."
-        text_2_masked, ph_2, only_masked_2 = nllb_translator_dummy._mask_text(text_2, "NLLB")
-        print(f"\n  Origine 2 (Misto): '{text_2}'")
-        print(f"    Mascherato Inviato (atteso tradotto): '{text_2_masked}'")
-        
-        # Post-processing simulato per Scenario 2 (Test Fallback Allucinazione)
-        sim_translated_2_masked_fail = "# non lo so #"
-        sim_translated_2_masked_success = "Ciao! <[NLLB_MUSIC_PRESERVE_0]> Per favore traduci questo."
-
-        # A) Test Fallback
-        post_processed_fail = sim_translated_2_masked_fail
-        if sim_translated_2_masked_fail.strip().lower() != "# non lo so #":
-             post_processed_fail = nllb_translator_dummy._unmask_text(sim_translated_2_masked_fail, ph_2)
-        
-        # B) Test Successo
-        post_processed_success = nllb_translator_dummy._unmask_text(sim_translated_2_masked_success, ph_2)
-
-        print("\n  Test 3.1: Post-Processing Allucinazione (Atteso: Fallback su Originale)")
-        print(f"    Testo tradotto: '{sim_translated_2_masked_fail}'. Risultato: '{text_2}'")
-        
-        print("\n  Test 3.2: Post-Processing Successo")
-        expected_success = "Ciao! Ã¢â„¢Âª Wake me with a kiss Ã¢â„¢Âª Per favore traduci questo."
-        print(f"    Testo Finale Re-iniettato: '{post_processed_success}'")
-        if post_processed_success == expected_success:
-            print("  Ã¢Å“â€¦ SUCCESS: Logica di preservazione e unmasking corretta.")
-        else:
-            print("  Ã¢ÂÅ’ FAIL: Logica di preservazione/unmasking non corretta.")
-            
-    except Exception as e:
-        print(f"  Logica di Preservazione non testata a causa di un errore: {e}")
-        
-    finally:
-        if isinstance(translator, NLLBTranslator) or isinstance(translator, AyaTranslator):
-            translator.cleanup()

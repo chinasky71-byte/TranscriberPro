@@ -50,7 +50,7 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
     Implementazione REST API v1 per upload sottotitoli su OpenSubtitles.com
     
     SPECIFICHE API:
-    - Base URL: https://api.opensubtitles.com/api/v1
+    - Base URL: https://vip-api.opensubtitles.com/api/v1
     - Autenticazione: JWT Token (via login endpoint)
     - Upload: Multipart/form-data con metadata JSON
     - Rate Limit: Rispettato tramite JWT token con scadenza
