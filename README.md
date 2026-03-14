@@ -191,7 +191,10 @@ This project is licensed under the MIT License.
 ## Acknowledgements
 
 - [Faster-Whisper](https://github.com/guillaumekln/faster-whisper) — CTranslate2-optimized Whisper
+- [WhisperX](https://github.com/m-bain/whisperX) — forced alignment and word-level timestamps pipeline
 - [NLLB-200](https://huggingface.co/facebook/nllb-200-3.3B) — Meta No Language Left Behind
 - [Aya-23-8B](https://huggingface.co/CohereForAI/aya-23-8B) — Cohere multilingual model
 - [Demucs](https://github.com/facebookresearch/demucs) — Meta source separation
 - [OpenSubtitles](https://www.opensubtitles.com) — Subtitle database and API
+- [jonatasgrosman](https://huggingface.co/jonatasgrosman) — wav2vec2-large-xlsr-53 alignment models (Italian, English, French, Spanish)
+- [facebook/wav2vec2-large-xlsr-53](https://huggingface.co/facebook/wav2vec2-large-xlsr-53) — multilingual fallback alignment model
