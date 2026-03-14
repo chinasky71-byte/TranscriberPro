@@ -2051,7 +2051,7 @@ def get_translator(model_type: Optional[str] = None, context: Optional[str] = No
                 api_key=creds['api_key'],
                 username=creds.get('username', ''),
                 password=creds.get('password', ''),
-                user_agent=creds.get('user_agent', 'TranscriberPro v1.0.0'),
+                user_agent=creds.get('user_agent', 'TranscriberPro v1.1.0'),
                 context=context,
             )
         except Exception as e:

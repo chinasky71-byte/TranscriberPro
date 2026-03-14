@@ -79,12 +79,12 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
         Args:
             username: Username OpenSubtitles
             password: Password OpenSubtitles
-            user_agent: User-Agent personalizzato (default: TranscriberPro v1.0.0)
+            user_agent: User-Agent personalizzato (default: TranscriberPro v1.1.0)
             api_key: REST API Key (OBBLIGATORIA per REST API)
         """
         self.username = username
         self.password = password
-        self.user_agent = user_agent or "TranscriberPro v1.0.0"
+        self.user_agent = user_agent or "TranscriberPro v1.1.0"
         self.api_key = api_key
         self.jwt_token: Optional[str] = None
         

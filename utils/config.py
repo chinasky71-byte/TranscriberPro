@@ -60,7 +60,7 @@ class Config:
         'opensubtitles_check_duplicates': True,
         'opensubtitles_username': '',
         'opensubtitles_password': '',
-        'opensubtitles_user_agent': 'TranscriberPro v1.0.0',
+        'opensubtitles_user_agent': 'TranscriberPro v1.1.0',
         'opensubtitles_api_key': '',  
         'opensubtitles_preferred_implementation': 'rest',  
         
@@ -220,7 +220,7 @@ class Config:
         return {
             'username': self.get('opensubtitles_username'),
             'password': self.get('opensubtitles_password'),
-            'user_agent': self.get('opensubtitles_user_agent', 'TranscriberPro v1.0.0'),
+            'user_agent': self.get('opensubtitles_user_agent', 'TranscriberPro v1.1.0'),
             'api_key': self.get('opensubtitles_api_key')
         }
     
@@ -245,7 +245,7 @@ class Config:
             'username': self.get('opensubtitles_username', ''),
             'password': self.get('opensubtitles_password', ''),
             'api_key': self.get('opensubtitles_api_key', ''),
-            'user_agent': self.get('opensubtitles_user_agent', 'TranscriberPro v1.0.0'),
+            'user_agent': self.get('opensubtitles_user_agent', 'TranscriberPro v1.1.0'),
             'preferred_implementation': self.get('opensubtitles_preferred_implementation', 'rest')
         }
     
