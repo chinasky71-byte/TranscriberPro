@@ -80,11 +80,6 @@ def setup_logger(name='TranscriberPro', log_dir=None):
         # Se fallisce, continua senza UTF-8 nel console
         pass
     
-    # Console handler con gestione errori
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(simple_formatter)
-    
     # Gestione errori di encoding
     class SafeStreamHandler(logging.StreamHandler):
         def emit(self, record):
@@ -95,10 +90,10 @@ def setup_logger(name='TranscriberPro', log_dir=None):
                 self.flush()
             except Exception:
                 self.handleError(record)
-    
-    # Usa SafeStreamHandler invece di StreamHandler normale
+
+    # Console: solo WARNING ed ERROR (INFO/DEBUG già nel file di log e nella GUI)
     safe_console = SafeStreamHandler(sys.stdout)
-    safe_console.setLevel(logging.INFO)
+    safe_console.setLevel(logging.WARNING)
     safe_console.setFormatter(simple_formatter)
     logger.addHandler(safe_console)
     

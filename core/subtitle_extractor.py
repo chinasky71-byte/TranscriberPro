@@ -19,9 +19,17 @@ logger = logging.getLogger(__name__)
 
 class SubtitleExtractor:
     """Estrae sottotitoli incorporati dai video"""
-    
+
     # PRIORITÀ LINGUE (in ordine decrescente)
     LANGUAGE_PRIORITY = ['ita', 'eng', 'spa', 'fra', 'deu', 'por', 'rus', 'jpn']
+
+    # Codec bitmap: immagini non convertibili in testo SRT
+    BITMAP_CODECS = {
+        'hdmv_pgs_subtitle', 'pgssub',   # Blu-ray PGS
+        'dvd_subtitle', 'dvdsub',         # DVD VOBSUB
+        'dvb_subtitle', 'dvbsub',         # DVB bitmap
+        'xsub',                           # DivX XSUB
+    }
     
     def __init__(self, video_path: str):
         self.video_path = Path(video_path)
@@ -130,14 +138,28 @@ class SubtitleExtractor:
         
         # ✅ STEP 1: Filtra TUTTI i forced (qualsiasi lingua)
         non_forced = [s for s in self.subtitle_streams if not s['forced']]
-        
+
         if not non_forced:
             logger.warning("  ⚠️ Tutti i sottotitoli sono forced - Nessuno selezionabile")
             return None
-        
+
         forced_count = len(self.subtitle_streams) - len(non_forced)
         if forced_count > 0:
             logger.info(f"  🚫 Scartati {forced_count} sottotitoli forced")
+
+        # ✅ STEP 1b: Filtra codec bitmap (PGS, VOBSUB, DVB...) — non convertibili in SRT
+        text_subs = [s for s in non_forced if s['codec'].lower() not in self.BITMAP_CODECS]
+
+        bitmap_count = len(non_forced) - len(text_subs)
+        if bitmap_count > 0:
+            skipped = [s['codec'] for s in non_forced if s['codec'].lower() in self.BITMAP_CODECS]
+            logger.info(f"  🚫 Scartati {bitmap_count} sottotitoli bitmap non estraibili: {skipped}")
+
+        if not text_subs:
+            logger.warning("  ⚠️ Nessun sottotitolo testo disponibile (solo bitmap)")
+            return None
+
+        non_forced = text_subs
         
         # ✅ STEP 2: Cerca seguendo la priorità LINGUA (ITA, ENG, SPA...)
         for lang_code in self.LANGUAGE_PRIORITY:

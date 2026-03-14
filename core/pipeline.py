@@ -114,10 +114,11 @@ class ProcessingPipeline:
         
         # Inizializzazione lazy/cleanup
         self._transcriber: Optional[Transcriber] = None
-        self._translator: Optional[BaseTranslator] = None 
+        self._translator: Optional[BaseTranslator] = None
         self._audio_processor: Optional[AudioProcessor] = None
         self.last_execution_time = 0.0
         self.metadata: Dict[str, Any] = {}
+        self._cleanup_done: bool = False
         
         # File paths
         self.extracted_srt: Optional[Path] = None
@@ -144,7 +145,8 @@ class ProcessingPipeline:
             True se completato con successo, False altrimenti
         """
         start_time = time.time()
-        
+        self._cleanup_done = False  # reset guard per questa elaborazione
+
         try:
             # ============================================================
             # STEP 0: Inizializzazione e Check
@@ -699,10 +701,16 @@ class ProcessingPipeline:
         3. release_ram_to_os() aggressivo (3x gc + EmptyWorkingSet)
         4. Rimozione file temporanei
         """
+        # Guard: se già eseguito non ripetere (evita doppia chiamata da finally + GUI)
+        if self._cleanup_done:
+            return
+        self._cleanup_done = True
+
         try:
-            import psutil as _psutil
-            _ram_before = _psutil.Process().memory_info().rss / 1024**3
-            self._log(f"🧹 Cleanup risorse... (RAM: {_ram_before:.1f} GB)")
+            import os as _os, psutil as _psutil
+            _proc = _psutil.Process(_os.getpid())
+            _ram_before = _proc.memory_info().rss / 1024**3
+            self._log(f"🧹 Cleanup risorse... (RAM processo: {_ram_before:.2f} GB)")
 
             # 1. Unload Whisper
             if self._transcriber:
@@ -716,7 +724,7 @@ class ProcessingPipeline:
                 self._audio_processor = None
                 self._log("  ✅ Demucs scaricato")
 
-            # 3. Unload Traduttore (+ azzera riferimento -- era mancante il None)
+            # 3. Unload Traduttore
             if self._translator:
                 self._translator.cleanup()
                 self._translator = None
@@ -731,9 +739,9 @@ class ProcessingPipeline:
             # 5. RAM: 3x gc + EmptyWorkingSet (Windows) / malloc_trim (Linux)
             release_ram_to_os()
 
-            _ram_after = _psutil.Process().memory_info().rss / 1024**3
+            _ram_after = _proc.memory_info().rss / 1024**3
             _freed = _ram_before - _ram_after
-            self._log(f"  ✅ RAM: {_ram_before:.1f} → {_ram_after:.1f} GB (liberati {_freed:.1f} GB)")
+            self._log(f"  ✅ RAM: {_ram_before:.2f} → {_ram_after:.2f} GB (liberati {_freed:.2f} GB)")
 
             # 6. File temporanei
             if self.video_path:
@@ -746,17 +754,8 @@ class ProcessingPipeline:
             logger.warning(f"❌ Errore cleanup: {e}")
 
     def cleanup(self):
-        """
-        Metodo pubblico per cleanup esterno (chiamato dalla GUI)
-        
-        Usage:
-            pipeline = ProcessingPipeline(video_path)
-            pipeline.process()
-            pipeline.cleanup()  # Cleanup manuale se necessario
-        """
-        self._log("✅ Cleanup pipeline...")
+        """Metodo pubblico per cleanup esterno (chiamato dalla GUI)."""
         self._cleanup()
-        self._log("✅ Pipeline cleanup completato")
 
 
 # ============================================================================

@@ -1,20 +1,25 @@
-﻿# Crea/aggiorna .gitignore
-@"
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+
+# Virtual environment
 venv/
 env/
 
-# Test e Debug
+# Models (too large for git)
+models/
+NLLB_Tranined/
+
+# Test, debug, fix scripts
 test_*.py
 debug_*.py
 check_*.py
 fix_*.py
 restore_*.py
+speed_*.py
 *_test.py
 
 # Backup
@@ -23,10 +28,18 @@ restore_*.py
 old_*.py
 bak_*.py
 
-# Credenziali
+# Credenziali e chiavi API
 *credentials*
 *api_key*
+*api key*
 *.env
+claude api key.txt
+omdb_api.txt
+tmdb_api.txt
+
+# Token HuggingFace
+huggingface_download_token.txt
+huggingface_write_token.txt
 
 # Log
 *.log
@@ -34,7 +47,15 @@ bak_*.py
 # Temp
 temp/
 cache/
-"@ | Out-File -FilePath .gitignore -Encoding UTF8
-# Token HuggingFace
-huggingface_download_token.txt
-huggingface_write_token.txt
+
+# Files specifici da escludere
+requirements_utf8.txt
+*.odt
+*.docx
+*.lnk
+*.srt
+
+# IDE
+.idea/
+.vscode/
+*.swp

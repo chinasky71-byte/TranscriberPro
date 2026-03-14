@@ -1,0 +1,13 @@
+data/
+*.tar.gz
+*.md
+*.txt
+!requirements.txt
+.git
+.gitignore
+__pycache__
+*.pyc
+*.pyo
+portainer-stack.yml
+docker-compose.yml
+.env
