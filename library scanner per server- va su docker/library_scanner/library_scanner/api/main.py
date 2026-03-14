@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Library Scanner API",
     description="Sistema di scansione video per rilevamento sottotitoli italiani",
-    version="1.0.0",
+    version="1.1.0",
     docs_url=None,   # Disabilita Swagger UI pubblica
     redoc_url=None,   # Disabilita ReDoc pubblica
 )

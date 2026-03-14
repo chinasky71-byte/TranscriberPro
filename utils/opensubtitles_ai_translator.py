@@ -63,7 +63,7 @@ class OpenSubtitlesAITranslator:
         api_key: str,
         username: str,
         password: str,
-        user_agent: str = "TranscriberPro v1.0.0",
+        user_agent: str = "TranscriberPro v1.1.0",
         translation_provider: str = 'DEEPL2',
         log_callback: Optional[Callable] = None,
         context: Optional[str] = None,
