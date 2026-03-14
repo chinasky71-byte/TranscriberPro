@@ -1,0 +1,22 @@
+services:
+  library-scanner:
+    image: library-scanner:latest
+    container_name: library-scanner
+    restart: unless-stopped
+    ports:
+      - "6680:6680"
+    volumes:
+      - /opt/library_scanner/data:/app/data
+      - "/srv/dev-disk-by-uuid-a0218288-3a85-4930-9335-abf1c534b9b7/DISCO 2/MOVIES:/mnt/movies:ro"
+      - "/srv/dev-disk-by-uuid-9fbd521b-2449-4c25-ad0e-dd7d6ff2503f/FILM_2:/mnt/film2:ro"
+      - "/srv/dev-disk-by-uuid-a9d66f73-20a5-489b-9906-dad2d6372758/TV SHOWS:/mnt/tvshows:ro"
+    environment:
+      - TZ=Europe/Rome
+      - SCANNER_DB_PATH=/app/data/db/library_scanner.db
+      - SCANNER_LOG_PATH=/app/data/logs
+      - SCANNER_PORT=6680
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -335,7 +335,7 @@ class MainWindow(QMainWindow):
         text = re.sub(r'[ðâïœ™]+', '', text)
         return text.strip()
 
-    UPDATABLE_PATTERNS = ["Progresso:", "Demucs: [", "Traduzione: [", "Trascrizione: ["]
+    UPDATABLE_PATTERNS = ["Progresso:", "Demucs: [", "Traduzione: [", "Trascrizione: [", "Warm-up: ["]
 
     def log_message(self, message: str):
         message = self.fix_mojibake(message)
@@ -450,6 +450,7 @@ class MainWindow(QMainWindow):
             self.file_list.takeItem(self.file_list.row(item))
             break
         self.update_remaining_files_label()
+        self.library_scanner.notify_subtitle_created(file_path)
 
     def on_queue_updated(self, total: int):
         self.update_remaining_files_label()

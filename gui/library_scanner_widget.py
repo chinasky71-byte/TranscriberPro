@@ -8,9 +8,9 @@ from PyQt6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QWidget,
     QLabel, QToolButton, QLineEdit, QComboBox,
     QTableWidget, QTableWidgetItem, QPushButton,
-    QHeaderView, QAbstractItemView
+    QHeaderView, QAbstractItemView, QSpinBox
 )
-from PyQt6.QtCore import Qt, QTimer, QMutexLocker
+from PyQt6.QtCore import Qt, QTimer, QMutexLocker, QThread, pyqtSignal
 from PyQt6.QtGui import QColor
 from pathlib import Path
 import logging
@@ -19,6 +19,39 @@ from gui.library_scanner_worker import LibraryScannerWorker
 from utils.config import get_config
 
 logger = logging.getLogger(__name__)
+
+
+class _NotifyWorker(QThread):
+    """Invia POST /api/videos/notify-subtitle in background (fire-and-forget)."""
+    done = pyqtSignal(bool)   # True = HTTP 200 OK
+
+    def __init__(self, server_url: str, api_key: str, windows_path: str):
+        super().__init__()
+        self.server_url   = server_url.rstrip('/')
+        self.api_key      = api_key
+        self.windows_path = windows_path
+
+    def run(self):
+        try:
+            import requests
+            resp = requests.post(
+                f"{self.server_url}/api/videos/notify-subtitle",
+                json={"windows_path": self.windows_path},
+                headers={"X-API-Key": self.api_key},
+                timeout=10,
+            )
+            self.done.emit(resp.status_code == 200)
+        except Exception:
+            self.done.emit(False)
+
+
+class _NumericTableWidgetItem(QTableWidgetItem):
+    """QTableWidgetItem con ordinamento numerico (intero) invece di lessicografico."""
+    def __lt__(self, other):
+        try:
+            return int(self.text()) < int(other.text())
+        except (ValueError, TypeError):
+            return super().__lt__(other)
 
 
 class LibraryScannerWidget(QFrame):
@@ -117,7 +150,7 @@ class LibraryScannerWidget(QFrame):
         self.search_bar.textChanged.connect(self._on_search_changed)
         layout.addWidget(self.search_bar)
 
-        # Filtro tipo
+        # Filtro tipo + filtro giorni
         filter_layout = QHBoxLayout()
         filter_layout.setSpacing(6)
         type_label = QLabel("Tipo:")
@@ -129,6 +162,20 @@ class LibraryScannerWidget(QFrame):
         self.type_combo.addItems(["Tutti", "Film", "Serie TV"])
         self.type_combo.currentIndexChanged.connect(self._on_type_filter_changed)
         filter_layout.addWidget(self.type_combo)
+
+        days_label = QLabel("≥ Giorni:")
+        days_label.setObjectName("scannerFilterLabel")
+        filter_layout.addWidget(days_label)
+
+        self.days_spinbox = QSpinBox()
+        self.days_spinbox.setObjectName("scannerDaysFilter")
+        self.days_spinbox.setRange(0, 9999)
+        self.days_spinbox.setValue(0)
+        self.days_spinbox.setSpecialValueText("Tutti")
+        self.days_spinbox.setFixedWidth(85)
+        self.days_spinbox.valueChanged.connect(self._on_days_filter_changed)
+        filter_layout.addWidget(self.days_spinbox)
+
         filter_layout.addStretch()
         layout.addLayout(filter_layout)
 
@@ -146,6 +193,8 @@ class LibraryScannerWidget(QFrame):
 
         header = self.video_table.horizontalHeader()
         header.setMinimumSectionSize(20)
+        header.setSortIndicatorShown(True)
+        header.setSectionsClickable(True)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
@@ -412,6 +461,7 @@ class LibraryScannerWidget(QFrame):
     # ========================================================================
 
     def _populate_table(self):
+        self.video_table.setSortingEnabled(False)
         self.video_table.setRowCount(0)
         self.video_table.setRowCount(len(self.videos_data))
 
@@ -423,10 +473,11 @@ class LibraryScannerWidget(QFrame):
         for row, video in enumerate(self.videos_data):
             windows_path = video.get('windows_path', '')
 
-            # Colonna 0: Nome file
+            # Colonna 0: Nome file — UserRole contiene windows_path per accesso post-sort
             name_item = QTableWidgetItem(video.get('filename', ''))
             name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             name_item.setToolTip(windows_path)
+            name_item.setData(Qt.ItemDataRole.UserRole, windows_path)
             self.video_table.setItem(row, 0, name_item)
 
             # Colonna 1: Tipo
@@ -436,9 +487,9 @@ class LibraryScannerWidget(QFrame):
             type_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.video_table.setItem(row, 1, type_item)
 
-            # Colonna 2: Giorni senza sub
+            # Colonna 2: Giorni senza sub (ordinamento numerico)
             days = video.get('days_without_subs', 0)
-            days_item = QTableWidgetItem(str(days))
+            days_item = _NumericTableWidgetItem(str(days))
             days_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             if days > 30:
                 days_item.setForeground(QColor("#e94560"))
@@ -451,26 +502,54 @@ class LibraryScannerWidget(QFrame):
             btn = self._create_row_button(row, already_queued)
             self.video_table.setCellWidget(row, 3, btn)
 
+        self.video_table.setSortingEnabled(True)
+        # Applica filtro giorni (se attivo nasconde le righe fuori range)
+        self._apply_days_filter()
+
+    def _on_days_filter_changed(self):
+        self._apply_days_filter()
+
+    def _apply_days_filter(self):
+        """Nasconde le righe con days_without_subs < min_days. Aggiorna badge e bottone importa."""
+        min_days = self.days_spinbox.value()
+        visible_count = 0
+        for row in range(self.video_table.rowCount()):
+            days_item = self.video_table.item(row, 2)
+            days = int(days_item.text()) if days_item else 0
+            hide = min_days > 0 and days < min_days
+            self.video_table.setRowHidden(row, hide)
+            if not hide:
+                visible_count += 1
+        self._update_badge(visible_count)
+        self.import_all_btn.setEnabled(visible_count > 0)
+
     def _create_row_button(self, row: int, already_queued: bool) -> QPushButton:
         btn = QPushButton("✓" if already_queued else "➕")
         btn.setProperty("class", "scannerAddBtn")
         btn.setFixedSize(20, 20)
         btn.setEnabled(not already_queued)
         if not already_queued:
-            btn.clicked.connect(lambda checked, r=row: self._import_single(r))
+            btn.clicked.connect(lambda checked, b=btn: self._import_single_by_btn(b))
         else:
             btn.setToolTip("Già in coda")
         return btn
+
+    def _import_single_by_btn(self, btn: QPushButton):
+        """Trova la riga corrente del bottone (dopo eventuale sort) e importa."""
+        for row in range(self.video_table.rowCount()):
+            if self.video_table.cellWidget(row, 3) is btn:
+                self._import_single(row)
+                return
 
     # ========================================================================
     # IMPORT
     # ========================================================================
 
     def _import_single(self, row: int):
-        if row < 0 or row >= len(self.videos_data):
+        item = self.video_table.item(row, 0)
+        if not item:
             return
-        video = self.videos_data[row]
-        path = video.get('windows_path', '')
+        path = item.data(Qt.ItemDataRole.UserRole)
         if not path:
             return
 
@@ -483,7 +562,15 @@ class LibraryScannerWidget(QFrame):
                 btn.setToolTip("Già in coda")
 
     def _import_all(self):
-        paths = [v.get('windows_path', '') for v in self.videos_data if v.get('windows_path')]
+        # Solo righe visibili (rispetta filtro giorni + tipo)
+        paths = []
+        for row in range(self.video_table.rowCount()):
+            if not self.video_table.isRowHidden(row):
+                item = self.video_table.item(row, 0)
+                if item:
+                    path = item.data(Qt.ItemDataRole.UserRole)
+                    if path:
+                        paths.append(path)
         if not paths:
             return
 
@@ -495,14 +582,16 @@ class LibraryScannerWidget(QFrame):
             queued_paths = set(self.main_window.processing_queue)
 
         for row in range(self.video_table.rowCount()):
-            if row < len(self.videos_data):
-                wp = self.videos_data[row].get('windows_path', '')
-                if wp in queued_paths:
-                    btn = self.video_table.cellWidget(row, 3)
-                    if btn and btn.isEnabled():
-                        btn.setText("✓")
-                        btn.setEnabled(False)
-                        btn.setToolTip("Già in coda")
+            if not self.video_table.isRowHidden(row):
+                item = self.video_table.item(row, 0)
+                if item:
+                    wp = item.data(Qt.ItemDataRole.UserRole)
+                    if wp in queued_paths:
+                        btn = self.video_table.cellWidget(row, 3)
+                        if btn and btn.isEnabled():
+                            btn.setText("✓")
+                            btn.setEnabled(False)
+                            btn.setToolTip("Già in coda")
 
         if added > 0:
             self.main_window.log_message(f"📡 Library Scanner: {added} file importati nella coda")
@@ -527,6 +616,28 @@ class LibraryScannerWidget(QFrame):
                 )
 
         return added
+
+    # ========================================================================
+    # NOTIFICA SOTTOTITOLO CREATO (chiamata da main_window)
+    # ========================================================================
+
+    def notify_subtitle_created(self, video_path: str):
+        """Chiamato da main_window al termine elaborazione di un file.
+        Notifica il server che un sottotitolo è stato creato, poi aggiorna la lista."""
+        if not self.is_loaded:
+            return
+        url     = self.config.get('library_scanner_url', '').strip()
+        api_key = self.config.get('library_scanner_api_key', '').strip()
+        if not url or not api_key:
+            return
+        self._notify_worker = _NotifyWorker(url, api_key, str(video_path))
+        self._notify_worker.done.connect(self._on_notify_done)
+        self._notify_worker.start()
+
+    def _on_notify_done(self, success: bool):
+        if success:
+            logger.debug("Library Scanner notificato — aggiorno la lista")
+            self.refresh_data()
 
     # ========================================================================
     # AUTO-REFRESH

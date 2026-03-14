@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 # Import necessario per delegare la logica dei profili
 try:
     from .transcription_profiles import ProfileConfig, TranscriptionProfile
-    print("✅ Import ProfileConfig REALE riuscito")
 except ImportError as e:
     print(f"⚠️ Import ProfileConfig fallito: {e} - uso MOCK")
     # Fallback per evitare crash se il modulo non è ancora caricato

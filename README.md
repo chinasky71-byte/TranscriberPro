@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.0.3-orange)
+![Version](https://img.shields.io/badge/Version-1.1.0-orange)
 
 AI-powered desktop application for automatic subtitle transcription and translation from video files.
 
@@ -26,11 +26,11 @@ Transcriber Pro takes any video file, extracts or transcribes its audio using Fa
 - **Intelligent chunking** — splits audio at silence points for accurate timestamp alignment
 - **TMDB/OMDB metadata** — auto-fetches film synopsis for context-aware translation
 - **OpenSubtitles upload** — REST API integration with duplicate detection
-- **Library Scanner** — integrates with self-hosted Plex/Jellyfin servers
+- **Library Scanner** — integrates with self-hosted Plex/Jellyfin servers; real-time DB update on subtitle creation; filename-based Italian detection (regex) for untagged streams
 - **Transcription profiles** — Fast / Balanced / Quality / Maximum / Batch presets
 - **Real-time resource monitor** — GPU/CPU/RAM usage during processing
 - **GPU memory management** — sequential model loading/unloading to fit 6–12 GB VRAM
-- **Embedded subtitle extraction** — skips transcription if subtitles already exist in the container
+- **Embedded subtitle extraction** — skips transcription if subtitles already exist in the container; bitmap-only (PGS/VOBSUB) streams are automatically skipped
 
 ---
 

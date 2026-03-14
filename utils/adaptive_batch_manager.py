@@ -115,12 +115,14 @@ class AdaptiveBatchSizeManager:
             if mem < self.high_threshold:
                 new_size = min(self.current_batch_size + 4, self.max_size)
                 if new_size != self.current_batch_size:
-                    self._log(
-                        f"  Warm-up [{self._warmup_count+1}/{self.warmup_batches}]: "
-                        f"batch {self.current_batch_size} → {new_size} (mem={mem:.0%})"
-                    )
                     self.current_batch_size = new_size
                     self._adjustments += 1
+            # Barra di progresso warm-up (aggiornata in-place nella GUI)
+            step = self._warmup_count + 1
+            bars = int((step / self.warmup_batches) * 10)
+            pct = int((step / self.warmup_batches) * 100)
+            bar = '█' * bars + '░' * (10 - bars)
+            self._log(f"  Warm-up: [{bar}] {pct}%  (batch={self.current_batch_size}, mem={mem:.0%})")
             self._warmup_count += 1
         else:
             # Steady-state: adatta in base alla memoria
