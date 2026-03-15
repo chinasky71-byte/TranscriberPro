@@ -39,6 +39,17 @@ class AudioTrackSelector:
     def __init__(self, video_path: str):
         self.video_path = Path(video_path)
         self.audio_streams = []
+        self._cancelled: bool = False
+        self._active_proc: Optional[subprocess.Popen] = None
+
+    def cancel(self):
+        """Segnala cancellazione e termina il sottoprocesso FFmpeg attivo."""
+        self._cancelled = True
+        if self._active_proc:
+            try:
+                self._active_proc.kill()
+            except Exception:
+                pass
     
     def detect_audio_streams(self) -> List[Dict]:
         """
@@ -194,16 +205,22 @@ class AudioTrackSelector:
                 str(output_path)
             ]
             
-            result = subprocess.run(
+            self._active_proc = subprocess.Popen(
                 cmd,
-                capture_output=True,
-                text=True,
-                timeout=600,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                encoding='utf-8',
+                errors='replace',
                 creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
             )
-            
-            if result.returncode != 0:
-                logger.error(f"Errore estrazione: {result.stderr}")
+            _stdout, _stderr = self._active_proc.communicate()
+            _rc = self._active_proc.returncode
+            self._active_proc = None
+            if self._cancelled:
+                raise InterruptedError("Operazione annullata")
+
+            if _rc != 0:
+                logger.error(f"Errore estrazione: {_stderr}")
                 return False
             
             if not output_path.exists():
@@ -213,9 +230,8 @@ class AudioTrackSelector:
             logger.info(f"Audio estratto: {output_path.name}")
             return True
             
-        except subprocess.TimeoutExpired:
-            logger.error("Timeout estrazione audio")
-            return False
+        except InterruptedError:
+            raise
         except Exception as e:
             logger.error(f"Errore estrazione: {e}", exc_info=True)
             return False
