@@ -34,6 +34,17 @@ class SubtitleExtractor:
     def __init__(self, video_path: str):
         self.video_path = Path(video_path)
         self.subtitle_streams = []
+        self._cancelled: bool = False
+        self._active_proc: Optional[subprocess.Popen] = None
+
+    def cancel(self):
+        """Segnala cancellazione e termina il sottoprocesso FFmpeg attivo."""
+        self._cancelled = True
+        if self._active_proc:
+            try:
+                self._active_proc.kill()
+            except Exception:
+                pass
     
     def detect_subtitles(self) -> List[Dict]:
         """
@@ -140,7 +151,7 @@ class SubtitleExtractor:
         non_forced = [s for s in self.subtitle_streams if not s['forced']]
 
         if not non_forced:
-            logger.warning("  ⚠️ Tutti i sottotitoli sono forced - Nessuno selezionabile")
+            logger.info("Tutti i sottotitoli sono forced - nessuno selezionabile")
             return None
 
         forced_count = len(self.subtitle_streams) - len(non_forced)
@@ -156,7 +167,7 @@ class SubtitleExtractor:
             logger.info(f"  🚫 Scartati {bitmap_count} sottotitoli bitmap non estraibili: {skipped}")
 
         if not text_subs:
-            logger.warning("  ⚠️ Nessun sottotitolo testo disponibile (solo bitmap)")
+            logger.info("Nessun sottotitolo testo disponibile (solo bitmap)")
             return None
 
         non_forced = text_subs
@@ -230,15 +241,22 @@ class SubtitleExtractor:
                 str(output_path)
             ]
             
-            result = subprocess.run(
+            self._active_proc = subprocess.Popen(
                 cmd,
-                capture_output=True,
-                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                encoding='utf-8',
+                errors='replace',
                 creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
             )
-            
-            if result.returncode != 0:
-                logger.error(f"❌ Errore estrazione: {result.stderr}")
+            _stdout, _stderr = self._active_proc.communicate()
+            _rc = self._active_proc.returncode
+            self._active_proc = None
+            if self._cancelled:
+                raise InterruptedError("Operazione annullata")
+
+            if _rc != 0:
+                logger.error(f"❌ Errore estrazione: {_stderr}")
                 return False
             
             if not output_path.exists() or output_path.stat().st_size == 0:
@@ -248,10 +266,12 @@ class SubtitleExtractor:
             logger.info(f"  ✅ Sottotitolo estratto: {output_path.stat().st_size / 1024:.1f} KB")
             return True
             
+        except InterruptedError:
+            raise
         except Exception as e:
             logger.error(f"❌ Errore estrazione sottotitolo: {e}", exc_info=True)
             return False
-    
+
     def has_subtitles(self) -> bool:
         """Verifica se il video ha sottotitoli"""
         if not self.subtitle_streams:

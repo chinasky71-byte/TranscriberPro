@@ -50,6 +50,7 @@ class Transcriber:
         self.faster_whisper_model = None
         self.vad_available = False
         self._last_segments: list = []
+        self._cancelled: bool = False
         
         # ========================================
         # ✅ NUOVO v3.2: Carica parametri profilo
@@ -114,6 +115,10 @@ class Transcriber:
         if old_beam != self.beam_size:
             logger.info(f"✅ beam_size aggiornato ({old_beam}→{self.beam_size})")
     
+    def cancel(self):
+        """Segnala cancellazione — interrompe il loop di trascrizione tra un chunk e l'altro."""
+        self._cancelled = True
+
     def set_log_callback(self, callback: Callable):
         """Imposta callback per logging GUI"""
         self.log_callback = callback
@@ -241,7 +246,7 @@ class Transcriber:
         if whisper_language is None or whisper_language.lower().strip() in invalid_language_codes:
             whisper_language = None  # None farà rilevare automaticamente la lingua
             auto_detect = True
-            logger.warning("⚠️ Codice lingua non specificato o indefinito, attivo rilevamento automatico")
+            logger.info("Codice lingua non specificato, attivo rilevamento automatico")
         else:
             # FIX: Assicuriamo che il codice lingua sia a 2 lettere (ISO 639-1)
             # Faster-Whisper accetta sia 2 che 3 lettere, ma per sicurezza usiamo 2
@@ -292,6 +297,8 @@ class Transcriber:
                 last_pct = -1
                 t0_transcribe = time.time()
                 for segment in segments:
+                    if self._cancelled:
+                        break
                     all_segments.append({
                         'start': segment.start,
                         'end': segment.end,
@@ -341,6 +348,8 @@ class Transcriber:
                 self.log(f"  🎯 Lingua: {whisper_language}")
 
             for i, (chunk_path, start_time, end_time) in enumerate(audio_chunks):
+                if self._cancelled:
+                    break
                 chunk_num = i + 1
                 try:
                     chunk_path_obj = Path(chunk_path)

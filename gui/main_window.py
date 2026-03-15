@@ -415,7 +415,21 @@ class MainWindow(QMainWindow):
         self.worker.start()
 
     def stop_processing(self):
-        if self.worker: self.worker.is_cancelled = True
+        reply = QMessageBox.question(
+            self,
+            tr('confirm_stop_title'),
+            tr('confirm_stop_text'),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self.stop_btn.setEnabled(False)
+        self.log_message(tr('stop_requested'))
+        if self.worker:
+            self.worker.is_cancelled = True
+            if self.worker.pipeline:
+                self.worker.pipeline.cancel()
 
     def on_file_completed(self, file_path: str):
         file_name = Path(file_path).name

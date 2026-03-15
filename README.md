@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.2.0-orange)
+![Version](https://img.shields.io/badge/Version-1.3.0-orange)
 
 AI-powered desktop application for automatic subtitle transcription and translation from video files.
 
@@ -32,6 +32,7 @@ Transcriber Pro takes any video file, extracts or transcribes its audio using Fa
 - **GPU memory management** — sequential model loading/unloading to fit 6–12 GB VRAM
 - **Embedded subtitle extraction** — skips transcription if subtitles already exist in the container; bitmap-only (PGS/VOBSUB) streams are automatically skipped
 - **IT/EN interface** — full Italian/English UI; language selector in General Settings (🔧); auto-detects system locale
+- **Immediate stop with confirmation** — Stop button shows a confirmation dialog; on confirm, kills active FFmpeg/Demucs/Whisper processes within seconds and cleans up temp files automatically
 
 ---
 
@@ -186,6 +187,31 @@ Please open an issue first for major changes to discuss the approach.
 ## License
 
 This project is licensed under the MIT License.
+
+---
+
+## Changelog
+
+### v1.3.0
+- **Immediate stop with confirmation** — Stop button now shows a confirmation dialog; pressing Yes kills all active FFmpeg/Demucs/Whisper subprocesses within 2–3 seconds via `pipeline.cancel()` propagation; temp files are cleaned up automatically by the existing `finally` block
+- **TMDB parser fix** — double HTML entity decoding (`&amp;#039;` → `&#039;` → `'`) for edge-case titles
+- **Log noise reduction** — demoted it-IT/en-US fallback messages from `warning`/`info` to `debug`
+
+### v1.2.0
+- Full IT/EN interface with auto locale detection and language selector in General Settings
+- Library Scanner: Italian audio tag detection (ITA, NUiTA, ENG, MULTI…); real-time DB update on subtitle creation
+- TMDB parser: HTML entity decoding, robust release-tag stripping
+- WhisperX forced alignment support (word-level timestamps)
+- Embedded subtitle extraction: bitmap-only streams (PGS/VOBSUB) auto-skipped
+
+### v1.1.0
+- Speaker diarization via pyannote.audio (optional, requires HuggingFace token)
+- Adaptive batch size manager for VRAM-aware translation
+- Subtitle formatter with professional dialogue style
+- OpenSubtitles REST API upload with duplicate detection
+
+### v1.0.0
+- Initial release: Faster-Whisper transcription, NLLB/Aya/Claude/OpenAI translation, Demucs vocal separation, TMDB metadata, OpenSubtitles upload
 
 ---
 

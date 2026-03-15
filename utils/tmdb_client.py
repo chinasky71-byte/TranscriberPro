@@ -428,8 +428,8 @@ class TMDBClient:
         """
         original = title
 
-        # 0. Decodifica HTML entities (es. &#039; → ', &amp; → &)
-        title = html.unescape(title)
+        # 0. Decodifica HTML entities (supporta anche doppio encoding: &amp;#039; → &#039; → ')
+        title = html.unescape(html.unescape(title))
 
         # 1. Rimuovi "Extras", "+ Extras", "Bonus", etc.
         title = re.sub(r'\s*[+&]\s*(Extras?|Bonus|Features?)\s*', ' ', title, flags=re.IGNORECASE)
@@ -692,9 +692,9 @@ class TMDBClient:
                             # 2. Se la sinossi italiana Ã¨ vuota o l'API fallisce, TENTA IN INGLESE
                             if not episode_overview:
                                 if ep_response_it.status_code != 200:
-                                    logger.warning(f"âš ï¸ Impossibile trovare episodio in 'it-IT' (HTTP {ep_response_it.status_code}), tento 'en-US'...")
+                                    logger.debug(f"Episodio non trovato in it-IT (HTTP {ep_response_it.status_code}), tento en-US...")
                                 else:
-                                    logger.info("â„¹ï¸ Sinossi 'it-IT' vuota. Tento fallback 'en-US'...")
+                                    logger.debug("Sinossi it-IT vuota, tento fallback en-US...")
                                 
                                 ep_params_en = {
                                     'api_key': self.api_key,
@@ -714,7 +714,7 @@ class TMDBClient:
                                 logger.info(f"âœ… Sinossi episodio trovata!")
                             else:
                                 # Questo log ora significa che non c'Ã¨ nÃ© in IT nÃ© in EN
-                                logger.warning(f"âš ï¸ Sinossi episodio vuota (anche in en-US), uso sinossi serie.")
+                                logger.debug("Sinossi episodio non trovata (it-IT e en-US), uso sinossi serie")
 
                         except Exception as e:
                             logger.error(f"âŒ Errore recupero episodio: {e}. Uso sinossi serie.")

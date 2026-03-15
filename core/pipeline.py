@@ -119,6 +119,12 @@ class ProcessingPipeline:
         self.last_execution_time = 0.0
         self.metadata: Dict[str, Any] = {}
         self._cleanup_done: bool = False
+
+        # Cancellazione
+        self._cancelled: bool = False
+        self._current_proc: Optional[subprocess.Popen] = None
+        self._track_selector = None   # AudioTrackSelector ref per cancel()
+        self._subtitle_extractor = None  # SubtitleExtractor ref per cancel()
         
         # File paths
         self.extracted_srt: Optional[Path] = None
@@ -127,6 +133,23 @@ class ProcessingPipeline:
     def set_log_callback(self, callback: Callable):
         """Imposta callback per logging GUI (chiamato dal ProcessingWorker)"""
         self._log_callback = callback
+
+    def cancel(self):
+        """Segnala cancellazione e termina immediatamente i sottoprocessi attivi."""
+        self._cancelled = True
+        if self._current_proc:
+            try:
+                self._current_proc.kill()
+            except Exception:
+                pass
+        if self._audio_processor:
+            self._audio_processor.cancel()
+        if self._transcriber:
+            self._transcriber.cancel()
+        if self._track_selector:
+            self._track_selector.cancel()
+        if self._subtitle_extractor:
+            self._subtitle_extractor.cancel()
     
     def _log(self, message: str):
         """Logga il messaggio sia a logger che a callback GUI"""
@@ -176,6 +199,7 @@ class ProcessingPipeline:
             # ============================================================
             self._log("\n1. Estrazione sottotitoli embedded...")
             extractor = SubtitleExtractor(str(self.video_path))
+            self._subtitle_extractor = extractor
             selected_stream = extractor.select_best_subtitle()
             
             if selected_stream:
@@ -192,14 +216,19 @@ class ProcessingPipeline:
             else:
                 self._log("â„¹ï¸ Nessun sottotitolo embedded. Procedo con trascrizione.")
 
+            if self._cancelled:
+                self._log("⏹ Elaborazione annullata")
+                return False
+
             # ============================================================
             # STEP 2-4: Trascrizione (se necessaria)
             # ============================================================
             if subtitle_path is None:
-                
+
                 # STEP 2: Estrazione audio
                 self._log("\n2. Estrazione traccia audio...")
                 audio_selector = AudioTrackSelector(str(self.video_path))
+                self._track_selector = audio_selector
                 audio_stream = audio_selector.select_best_track()
                 
                 if audio_stream:
@@ -212,6 +241,10 @@ class ProcessingPipeline:
                         # Usa get_selected_language() per ottenere lingua traccia
                         source_language_639_2 = audio_selector.get_selected_language()
                         self._log(f"âœ… Audio estratto. Lingua: {source_language_639_2}")
+
+                        if self._cancelled:
+                            self._log("⏹ Elaborazione annullata")
+                            return False
 
                         # ================================================
                         # STEP 2.5: Pre-carica WhisperModel PRIMA di Demucs
@@ -250,8 +283,16 @@ class ProcessingPipeline:
                             use_batched_pipeline=_use_batched
                         )
 
+                        if self._cancelled:
+                            self._log("⏹ Elaborazione annullata")
+                            return False
+
                         if chunk_list:
                             self._log(f"âœ… Audio processato: {len(chunk_list)} chunks creati")
+
+                            if self._cancelled:
+                                self._log("⏹ Elaborazione annullata")
+                                return False
 
                             # STEP 4: Trascrizione
                             self._log("\n4. Trascrizione audio (Faster-Whisper)...")
@@ -278,6 +319,10 @@ class ProcessingPipeline:
                                 self._log(f"âœ… Trascrizione completata. Lingua rilevata: {source_language_639_2}")
                             else:
                                 raise Exception("Trascrizione fallita o file SRT non creato.")
+
+                            if self._cancelled:
+                                self._log("⏹ Elaborazione annullata")
+                                return False
 
                             # ================================================
                             # STEP 4.2: Forced Alignment (opzionale)
@@ -374,7 +419,10 @@ class ProcessingPipeline:
             subtitle_path = cleaned_srt_path
             self._log("âœ… Pulizia e fix overlap completati.")
 
-            
+            if self._cancelled:
+                self._log("⏹ Elaborazione annullata")
+                return False
+
             # ============================================================
             # STEP 5.5: Scarica Whisper e Demucs prima della traduzione
             # ============================================================
@@ -435,7 +483,10 @@ class ProcessingPipeline:
                 final_language_639_1 = source_language_639_1
                 self._log("\n6. Lingua originale == Lingua target. Salto traduzione.")
 
-            
+            if self._cancelled:
+                self._log("⏹ Elaborazione annullata")
+                return False
+
             # ============================================================
             # STEP 7: Salvataggio File Finale
             # ============================================================
@@ -465,12 +516,16 @@ class ProcessingPipeline:
             
             return True
 
+        except InterruptedError:
+            self._log("⏹ Elaborazione annullata")
+            return False
+
         except Exception as e:
             error_msg = f"❌ Errore critico pipeline: {e}"
             logger.error(error_msg, exc_info=True)
             self._log(error_msg)
             return False
-            
+
         finally:
             # Esegue il cleanup in ogni caso
             self._cleanup()

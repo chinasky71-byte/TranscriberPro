@@ -17,8 +17,10 @@ CHUNKS AUDIO:
 - Minimo: 10 secondi
 - Massimo: 25 secondi (split forzato)
 """
+import warnings
 import torch
 import torchaudio
+warnings.filterwarnings('ignore', category=UserWarning, module='torchaudio')
 import numpy as np
 from pathlib import Path
 import logging
@@ -36,20 +38,31 @@ class AudioProcessor:
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.demucs_model = None
         self.log_callback: Optional[Callable] = None
-        
+        self._cancelled: bool = False
+        self._active_proc: Optional[subprocess.Popen] = None
+
         # Parametri ottimizzati per qualità
         self.CHUNK_TARGET_DURATION = 20  # Target 20 secondi
         self.CHUNK_MIN_DURATION = 10     # Minimo 10 secondi
         self.CHUNK_MAX_DURATION = 25     # Massimo 25 secondi (split forzato)
-        
+
         # Soglie pipeline intelligente
         self.FAST_PATH_THRESHOLD = 300    # 5 minuti
         self.STANDARD_PATH_THRESHOLD = 5400  # 90 minuti
-        
+
         # Parametri Demucs chunking manuale
         self.DEMUCS_CHUNK_DURATION = 300  # 5 minuti per chunk Demucs
         self.DEMUCS_OVERLAP = 10          # 10 secondi overlap
-        
+
+    def cancel(self):
+        """Segnala cancellazione e termina il sottoprocesso FFmpeg attivo."""
+        self._cancelled = True
+        if self._active_proc:
+            try:
+                self._active_proc.kill()
+            except Exception:
+                pass
+
     def set_log_callback(self, callback: Callable[[str], None]):
         """Imposta callback per logging verso GUI"""
         self.log_callback = callback
@@ -304,6 +317,8 @@ class AudioProcessor:
 
             # Processa ogni chunk
             for i in range(num_chunks):
+                if self._cancelled:
+                    raise InterruptedError("Demucs annullato")
                 chunk_num = i + 1
 
                 # Calcola range con overlap
@@ -617,6 +632,9 @@ class AudioProcessor:
             chunk_path = output_dir / chunk_filename
             
             try:
+                if self._cancelled:
+                    raise InterruptedError("Operazione annullata")
+
                 # Estrai chunk con FFmpeg
                 cmd = [
                     'ffmpeg',
@@ -628,24 +646,29 @@ class AudioProcessor:
                     '-loglevel', 'error',
                     str(chunk_path)
                 ]
-                
-                result = subprocess.run(
+
+                self._active_proc = subprocess.Popen(
                     cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    encoding='utf-8',
+                    errors='replace',
                     creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
                 )
-                
-                if result.returncode == 0 and chunk_path.exists():
+                _stdout, _stderr = self._active_proc.communicate()
+                _rc = self._active_proc.returncode
+                self._active_proc = None
+                if self._cancelled:
+                    raise InterruptedError("Operazione annullata")
+
+                if _rc == 0 and chunk_path.exists():
                     chunk_files.append((chunk_path, start_time, end_time))
                 else:
-                    self.logger.error(f"    ❌ Chunk {chunk_num} fallito: {result.stderr}")
+                    self.logger.error(f"    ❌ Chunk {chunk_num} fallito: {_stderr}")
                     failed += 1
-                    
-            except subprocess.TimeoutExpired:
-                self.logger.error(f"    ⏱️ Timeout chunk {chunk_num}")
-                failed += 1
+
+            except InterruptedError:
+                raise
             except Exception as e:
                 self.logger.error(f"    ❌ Errore chunk {chunk_num}: {e}")
                 failed += 1
