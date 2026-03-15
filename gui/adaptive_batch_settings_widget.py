@@ -14,6 +14,7 @@ from PyQt6.QtGui import QFont
 import logging
 
 from utils.config import get_config
+from utils.translations import tr
 
 logger = logging.getLogger(__name__)
 
@@ -97,13 +98,11 @@ class AdaptiveBatchSettingsWidget(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
 
         # ── Abilita/disabilita ─────────────────────────────────────────
-        enable_group = QGroupBox("Stato")
+        enable_group = QGroupBox(tr('abs_status_group'))
         enable_layout = QVBoxLayout()
 
-        self.enable_checkbox = QCheckBox("Abilita Adaptive Batch Size")
-        self.enable_checkbox.setToolTip(
-            "Se disabilitato, ogni traduttore usa il batch size fisso predefinito."
-        )
+        self.enable_checkbox = QCheckBox(tr('abs_enable'))
+        self.enable_checkbox.setToolTip(tr('abs_enable_tip'))
         self.enable_checkbox.stateChanged.connect(self._on_enable_changed)
         enable_layout.addWidget(self.enable_checkbox)
 
@@ -116,73 +115,58 @@ class AdaptiveBatchSettingsWidget(QWidget):
         layout.addWidget(enable_group)
 
         # ── Batch Size ─────────────────────────────────────────────────
-        size_group = QGroupBox("Batch Size")
+        size_group = QGroupBox(tr('abs_batch_group'))
         size_form = QFormLayout()
         size_form.setSpacing(8)
 
         self.initial_spin = QSpinBox()
         self.initial_spin.setRange(0, 64)
-        self.initial_spin.setSpecialValueText("Auto-detect")
-        self.initial_spin.setToolTip(
-            "0 = auto-detect dalla VRAM disponibile.\n"
-            ">= 24 GB → 16  |  >= 12 GB → 8  |  >= 8 GB → 4  |  < 8 GB → 2"
-        )
-        size_form.addRow("Initial size (0=auto):", self.initial_spin)
+        self.initial_spin.setSpecialValueText(tr('abs_autodetect'))
+        self.initial_spin.setToolTip(tr('abs_initial_tip'))
+        size_form.addRow(tr('abs_initial_label'), self.initial_spin)
 
         self.min_spin = QSpinBox()
         self.min_spin.setRange(1, 16)
-        self.min_spin.setToolTip("Minimo assoluto (panic fallback dopo 3 OOM consecutivi).")
-        size_form.addRow("Min size:", self.min_spin)
+        self.min_spin.setToolTip(tr('abs_min_tip'))
+        size_form.addRow(tr('abs_min_label'), self.min_spin)
 
         self.max_spin = QSpinBox()
         self.max_spin.setRange(1, 64)
-        self.max_spin.setToolTip("Massimo consentito durante la fase di crescita.")
-        size_form.addRow("Max size:", self.max_spin)
+        self.max_spin.setToolTip(tr('abs_max_tip'))
+        size_form.addRow(tr('abs_max_label'), self.max_spin)
 
         size_group.setLayout(size_form)
         layout.addWidget(size_group)
 
         # ── Warm-up e Soglie ───────────────────────────────────────────
-        tuning_group = QGroupBox("Warm-up e Soglie Memoria")
+        tuning_group = QGroupBox(tr('abs_warmup_group'))
         tuning_form = QFormLayout()
         tuning_form.setSpacing(8)
 
         self.warmup_spin = QSpinBox()
         self.warmup_spin.setRange(0, 20)
-        self.warmup_spin.setToolTip(
-            "Numero di batch iniziali in cui il sistema prova ad aumentare "
-            "il batch size se la memoria lo consente."
-        )
-        tuning_form.addRow("Warmup batches:", self.warmup_spin)
+        self.warmup_spin.setToolTip(tr('abs_warmup_tip'))
+        tuning_form.addRow(tr('abs_warmup_label'), self.warmup_spin)
 
         self.high_spin = QDoubleSpinBox()
         self.high_spin.setRange(0.50, 1.00)
         self.high_spin.setSingleStep(0.05)
         self.high_spin.setDecimals(2)
-        self.high_spin.setToolTip(
-            "Se utilizzo VRAM > soglia alta → riduci batch di 2.\n"
-            "Default: 0.85 (85%)"
-        )
-        tuning_form.addRow("Soglia alta (riduci):", self.high_spin)
+        self.high_spin.setToolTip(tr('abs_high_tip'))
+        tuning_form.addRow(tr('abs_high_thresh'), self.high_spin)
 
         self.low_spin = QDoubleSpinBox()
         self.low_spin.setRange(0.10, 0.90)
         self.low_spin.setSingleStep(0.05)
         self.low_spin.setDecimals(2)
-        self.low_spin.setToolTip(
-            "Se utilizzo VRAM < soglia bassa → aumenta batch di 1.\n"
-            "Default: 0.60 (60%)"
-        )
-        tuning_form.addRow("Soglia bassa (aumenta):", self.low_spin)
+        self.low_spin.setToolTip(tr('abs_low_tip'))
+        tuning_form.addRow(tr('abs_low_thresh'), self.low_spin)
 
         tuning_group.setLayout(tuning_form)
         layout.addWidget(tuning_group)
 
         # ── Note ───────────────────────────────────────────────────────
-        note = QLabel(
-            "Le modifiche sono applicate al prossimo avvio della traduzione.\n"
-            "Il transcriber usa questi valori solo con BatchedInferencePipeline."
-        )
+        note = QLabel(tr('abs_note'))
         note.setWordWrap(True)
         note.setStyleSheet("color: #666; font-size: 8pt; padding: 4px 0;")
         layout.addWidget(note)
@@ -190,11 +174,11 @@ class AdaptiveBatchSettingsWidget(QWidget):
         # ── Bottoni ────────────────────────────────────────────────────
         btn_layout = QHBoxLayout()
 
-        self.reset_btn = QPushButton("Ripristina Default")
+        self.reset_btn = QPushButton(tr('abs_restore_defaults'))
         self.reset_btn.setObjectName("resetBtn")
         self.reset_btn.clicked.connect(self._reset_defaults)
 
-        self.save_btn = QPushButton("Salva")
+        self.save_btn = QPushButton(tr('abs_save'))
         self.save_btn.clicked.connect(self._save)
 
         btn_layout.addWidget(self.reset_btn)
@@ -231,14 +215,17 @@ class AdaptiveBatchSettingsWidget(QWidget):
     def _update_status(self, enabled: bool):
         if enabled:
             cfg = self.config.get_adaptive_batch_config()
-            initial_txt = "auto" if not cfg['initial_size'] else str(cfg['initial_size'])
+            initial_txt = tr('abs_autodetect') if not cfg['initial_size'] else str(cfg['initial_size'])
             self.status_label.setText(
-                f"Attivo — initial={initial_txt}, "
-                f"min={cfg['min_size']}, max={cfg['max_size']}, "
-                f"warmup={cfg['warmup_batches']}"
+                tr('abs_active_status').format(
+                    initial=initial_txt,
+                    min=cfg['min_size'],
+                    max=cfg['max_size'],
+                    warmup=cfg['warmup_batches']
+                )
             )
         else:
-            self.status_label.setText("Disabilitato — usa batch size fisso dei modelli.")
+            self.status_label.setText(tr('abs_disabled_status'))
 
     def _update_controls_state(self, enabled: bool):
         for w in [self.initial_spin, self.min_spin, self.max_spin,

@@ -32,6 +32,7 @@ from typing import List, Optional
 
 from core.pipeline import ProcessingPipeline
 from utils.logger import setup_logger
+from utils.translations import tr
 
 logger = setup_logger()
 
@@ -180,7 +181,7 @@ class ProcessingWorker(QThread):
         """
         # Salva il totale iniziale per statistiche
         self.total_files_at_start = self.get_total_files()
-        self.log_message.emit(f"▶️ Avvio elaborazione di {self.total_files_at_start} file")
+        self.log_message.emit(tr('worker_start').format(n=self.total_files_at_start))
         
         # ========================================
         # LOOP DINAMICO v3.5: Prende e rimuove atomicamente
@@ -199,7 +200,7 @@ class ProcessingWorker(QThread):
             # Log progresso
             self.log_message.emit(
                 f"\n{'='*70}\n"
-                f"🎬 File {files_processed + 1}/{self.total_files_at_start}: {filename}\n"
+                f"{tr('worker_file_header').format(current=files_processed+1, total=self.total_files_at_start, filename=filename)}\n"
                 f"{'='*70}"
             )
             
@@ -224,14 +225,14 @@ class ProcessingWorker(QThread):
         
         # Log finale
         if self.is_cancelled:
-            self.log_message.emit("\nâš ï¸ Elaborazione annullata dall'utente")
+            self.log_message.emit(tr('worker_cancelled_user'))
         else:
             self.log_message.emit(
                 f"\n{'='*70}\n"
-                f"✅ ELABORAZIONE COMPLETATA\n"
-                f"🎉 Completati: {self.completed_files}\n"
-                f"⚠️ Falliti: {self.failed_files}\n"
-                f"Totale: {self.completed_files + self.failed_files}\n"
+                f"{tr('worker_done_header')}\n"
+                f"{tr('worker_stats_completed').format(n=self.completed_files)}\n"
+                f"{tr('worker_stats_failed').format(n=self.failed_files)}\n"
+                f"{tr('worker_stats_total').format(n=self.completed_files + self.failed_files)}\n"
                 f"{'='*70}"
             )
         
@@ -265,28 +266,28 @@ class ProcessingWorker(QThread):
             self.pipeline.set_log_callback(log_callback)
             
             # Elabora (SINGOLO TENTATIVO - NO RETRY)
-            self.log_message.emit(f"▶️ Avvio elaborazione...")
+            self.log_message.emit(tr('worker_start_single'))
             from utils.config import get_config
             target_language = get_config().get_target_language()
             success = self.pipeline.process(target_language=target_language)
             
             # Gestisci risultato
             if success and not self.is_cancelled:
-                self.log_message.emit(f"✅ {filename} completato con successo")
+                self.log_message.emit(tr('worker_completed').format(filename=filename))
                 return True
             
             elif self.is_cancelled:
-                self.log_message.emit(f"⚠️ {filename} annullato")
+                self.log_message.emit(tr('worker_cancelled_file').format(filename=filename))
                 return False
             
             else:
-                self.log_message.emit(f"❌ {filename} fallito")
-                self.log_message.emit(f"⚠️ Suggerimento: Controlla il log per dettagli")
+                self.log_message.emit(tr('worker_failed').format(filename=filename))
+                self.log_message.emit(tr('worker_hint'))
                 return False
             
         except Exception as e:
             # Errore critico
-            error_msg = f"❌ Errore critico elaborazione {filename}: {str(e)}"
+            error_msg = tr('worker_critical_error').format(filename=filename, error=str(e))
             self.log_message.emit(error_msg)
             logger.error(f"Critical error processing {video_path}: {e}", exc_info=True)
             

@@ -131,7 +131,7 @@ class SubtitleExtractor:
             self.detect_subtitles()
         
         if not self.subtitle_streams:
-            logger.warning("  ⚠️ Nessun sottotitolo disponibile")
+            logger.info("Nessun sottotitolo embedded")
             return None
         
         logger.info(f"  📊 Selezione automatica tra {len(self.subtitle_streams)} sottotitoli...")

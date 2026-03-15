@@ -9,6 +9,8 @@ from PyQt6.QtCore import QTimer, Qt
 import psutil
 import time
 
+from utils.translations import tr
+
 try:
     import pynvml
     NVML_AVAILABLE = True
@@ -51,7 +53,7 @@ class ResourceMonitor(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         
         # Title
-        title = QLabel("💻 Monitor Risorse")
+        title = QLabel(tr('monitor_title'))
         title.setObjectName("resourceTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
@@ -65,7 +67,7 @@ class ResourceMonitor(QWidget):
         # CPU
         cpu_layout = QHBoxLayout()
         cpu_layout.setSpacing(5)
-        self.cpu_label = QLabel("🔄 CPU:")
+        self.cpu_label = QLabel(tr('cpu_label'))
         self.cpu_label.setObjectName("metricLabel")
         self.cpu_label.setFixedWidth(self.LABEL_WIDTH)
         self.cpu_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -84,7 +86,7 @@ class ResourceMonitor(QWidget):
         # RAM
         ram_layout = QHBoxLayout()
         ram_layout.setSpacing(5)
-        self.ram_label = QLabel("🧠 RAM:")
+        self.ram_label = QLabel(tr('ram_label'))
         self.ram_label.setObjectName("metricLabel")
         self.ram_label.setFixedWidth(self.LABEL_WIDTH)
         self.ram_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -104,7 +106,7 @@ class ResourceMonitor(QWidget):
         if self.gpu_initialized:
             gpu_layout = QHBoxLayout()
             gpu_layout.setSpacing(5)
-            self.gpu_label = QLabel("🎮 GPU:")
+            self.gpu_label = QLabel(tr('gpu_label'))
             self.gpu_label.setObjectName("metricLabel")
             self.gpu_label.setFixedWidth(self.LABEL_WIDTH)
             self.gpu_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -123,7 +125,7 @@ class ResourceMonitor(QWidget):
             # VRAM
             vram_layout = QHBoxLayout()
             vram_layout.setSpacing(5)
-            self.vram_label = QLabel("💾 VRAM:")
+            self.vram_label = QLabel(tr('vram_label'))
             self.vram_label.setObjectName("metricLabel")
             self.vram_label.setFixedWidth(self.LABEL_WIDTH)
             self.vram_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -146,7 +148,7 @@ class ResourceMonitor(QWidget):
         layout.addWidget(separator2)
         
         # Network header
-        net_label = QLabel("🌐 Rete")
+        net_label = QLabel(tr('network_label'))
         net_label.setObjectName("sectionLabel")
         net_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(net_label)

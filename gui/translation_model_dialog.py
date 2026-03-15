@@ -15,6 +15,7 @@ from PyQt6.QtGui import QFont, QIcon
 import shutil
 from pathlib import Path
 
+from utils.translations import tr
 from utils.config import get_config
 
 try:
@@ -69,7 +70,7 @@ class TranslationModelDialog(QDialog):
         self.selected_model = self.config.get_translation_model()
         self.download_worker = None
         
-        self.setWindowTitle("Translation Models - Select Engine")
+        self.setWindowTitle(tr('tmd_title'))
         self.setModal(True)
         self.setMinimumWidth(800)
         self.setMinimumHeight(700)
@@ -89,7 +90,7 @@ class TranslationModelDialog(QDialog):
         main_layout.setContentsMargins(15, 15, 15, 15)
         
         error_label = QLabel(
-            "⚠️ ERRORE CRITICO\n\n"
+            tr('tmd_error_title') + "\n\n"
             "Impossibile importare 'BaseTranslator' da 'core.translator'.\n"
             "Verificare installazione del modulo."
         )
@@ -98,7 +99,7 @@ class TranslationModelDialog(QDialog):
         
         main_layout.addWidget(error_label)
         
-        close_btn = QPushButton("Close")
+        close_btn = QPushButton(tr('close_btn'))
         close_btn.clicked.connect(self.reject)
         main_layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         
@@ -168,7 +169,7 @@ class TranslationModelDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
         
-        save_btn = QPushButton("Save & Close")
+        save_btn = QPushButton(tr('save_close'))
         save_btn.setMinimumWidth(120)
         save_btn.clicked.connect(self.save_selection)
         
@@ -202,10 +203,10 @@ class TranslationModelDialog(QDialog):
         header_layout = QVBoxLayout(header_widget)
         header_layout.setContentsMargins(0, 0, 0, 15)
         
-        title = QLabel("Translation Model Selection")
+        title = QLabel(tr('tmd_header'))
         title.setStyleSheet("font-size: 20px; font-weight: bold; color: #1976d2;")
-        
-        subtitle = QLabel("Choose the translation engine for subtitle translation")
+
+        subtitle = QLabel(tr('tmd_subtitle'))
         subtitle.setStyleSheet("color: #666; font-size: 13px;")
         
         header_layout.addWidget(title)
@@ -289,7 +290,7 @@ class TranslationModelDialog(QDialog):
         layout.addWidget(features_label)
 
         # Path selector
-        path_group = QGroupBox("Cartella modello (merged_model)")
+        path_group = QGroupBox(tr('model_folder_group'))
         path_layout = QVBoxLayout()
 
         path_row = QHBoxLayout()
@@ -301,7 +302,7 @@ class TranslationModelDialog(QDialog):
         if current_path:
             self.nllb_ft_path_input.setText(current_path)
 
-        browse_btn = QPushButton("Sfoglia...")
+        browse_btn = QPushButton(tr('browse'))
         browse_btn.setFixedWidth(90)
         browse_btn.clicked.connect(self.browse_nllb_ft_path)
 
@@ -309,7 +310,7 @@ class TranslationModelDialog(QDialog):
         path_row.addWidget(browse_btn)
         path_layout.addLayout(path_row)
 
-        save_path_btn = QPushButton("Salva percorso")
+        save_path_btn = QPushButton(tr('save_path'))
         save_path_btn.clicked.connect(self.save_nllb_ft_path)
         path_layout.addWidget(save_path_btn)
 
@@ -334,7 +335,7 @@ class TranslationModelDialog(QDialog):
         """Apre dialog per selezionare la cartella del modello fine-tuned"""
         folder = QFileDialog.getExistingDirectory(
             self,
-            "Seleziona cartella merged_model",
+            tr('select_model_folder'),
             self.nllb_ft_path_input.text() or str(Path.home()),
         )
         if folder:
@@ -344,31 +345,31 @@ class TranslationModelDialog(QDialog):
         """Salva il path del modello fine-tuned"""
         path = self.nllb_ft_path_input.text().strip()
         if not path:
-            QMessageBox.warning(self, "Percorso vuoto", "Inserisci il percorso della cartella merged_model.")
+            QMessageBox.warning(self, tr('path_empty'), "Inserisci il percorso della cartella merged_model.")
             return
 
         p = Path(path)
         if not p.exists():
-            QMessageBox.warning(self, "Cartella non trovata", f"La cartella non esiste:\n{path}")
+            QMessageBox.warning(self, tr('folder_not_found'), f"La cartella non esiste:\n{path}")
             return
         if not (p / 'config.json').exists():
             QMessageBox.warning(
-                self, "Cartella non valida",
+                self, tr('folder_invalid'),
                 "La cartella non sembra contenere un modello HuggingFace valido (config.json non trovato)."
             )
             return
 
         self.config.set_nllb_finetuned_model_path(path)
         self.update_nllb_ft_status()
-        QMessageBox.information(self, "Salvato", "Percorso modello fine-tuned salvato!")
+        QMessageBox.information(self, tr('path_saved_title'), tr('path_saved_msg'))
 
     def update_nllb_ft_status(self):
         """Aggiorna indicatore stato modello fine-tuned"""
         if self.config.is_nllb_finetuned_configured():
-            self.nllb_ft_status_label.setText("✅ Modello configurato e pronto")
+            self.nllb_ft_status_label.setText(tr('tmd_configured'))
             self.nllb_ft_status_label.setStyleSheet("color: green; font-weight: bold;")
         else:
-            self.nllb_ft_status_label.setText("⚠️ Percorso non configurato")
+            self.nllb_ft_status_label.setText(tr('tmd_not_configured'))
             self.nllb_ft_status_label.setStyleSheet("color: orange;")
 
     def create_model_section_aya(self):
@@ -405,7 +406,7 @@ class TranslationModelDialog(QDialog):
         layout.addWidget(features_label)
         
         # Token HuggingFace
-        token_group = QGroupBox("HuggingFace Token (richiesto)")
+        token_group = QGroupBox(tr('hf_token_group'))
         token_layout = QVBoxLayout()
         
         self.hf_token_input = QLineEdit()
@@ -416,7 +417,7 @@ class TranslationModelDialog(QDialog):
         if current_token:
             self.hf_token_input.setText(current_token)
         
-        save_token_btn = QPushButton("Save Token")
+        save_token_btn = QPushButton(tr('save_token'))
         save_token_btn.clicked.connect(self.save_hf_token)
         
         token_layout.addWidget(self.hf_token_input)
@@ -425,7 +426,7 @@ class TranslationModelDialog(QDialog):
         layout.addWidget(token_group)
         
         # Download button
-        download_btn = QPushButton("Download Aya Model")
+        download_btn = QPushButton(tr('download_aya'))
         download_btn.clicked.connect(self.start_aya_download)
         layout.addWidget(download_btn)
         
@@ -491,15 +492,11 @@ class TranslationModelDialog(QDialog):
             self.claude_api_input.setText(current_key)
         
         # Info label
-        info_label = QLabel(
-            "⚠️ Ottieni API key da: console.anthropic.com\n"
-            "💡 Richiede acquisto crediti API ($5-10 = ~60 film)\n"
-            "💡 Separato dal piano Pro (billing diverso)"
-        )
+        info_label = QLabel(tr('api_key_info_claude'))
         info_label.setStyleSheet("color: #666; font-size: 11px; margin: 5px 0;")
         info_label.setWordWrap(True)
-        
-        save_api_btn = QPushButton("Save API Key")
+
+        save_api_btn = QPushButton(tr('save_api_key'))
         save_api_btn.clicked.connect(self.save_claude_api_key)
         
         api_layout.addWidget(self.claude_api_input)
@@ -561,10 +558,7 @@ class TranslationModelDialog(QDialog):
         self.update_os_status()
         layout.addWidget(self.os_status_label)
 
-        info_label = QLabel(
-            "Le credenziali OpenSubtitles (username / password / API key) si\n"
-            "configurano nella scheda Impostazioni > OpenSubtitles."
-        )
+        info_label = QLabel(tr('os_creds_info'))
         info_label.setStyleSheet("color: #888; font-size: 11px; margin-top: 4px;")
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
@@ -581,10 +575,10 @@ class TranslationModelDialog(QDialog):
     def update_os_status(self):
         """Aggiorna indicatore stato credenziali OpenSubtitles"""
         if self.config.is_opensubtitles_configured():
-            self.os_status_label.setText("✅ Credenziali configurate")
+            self.os_status_label.setText(tr('tmd_creds_configured'))
             self.os_status_label.setStyleSheet("color: green; font-weight: bold;")
         else:
-            self.os_status_label.setText("⚠️ Credenziali non configurate (vai in Impostazioni > OpenSubtitles)")
+            self.os_status_label.setText(tr('tmd_creds_not_configured'))
             self.os_status_label.setStyleSheet("color: orange;")
 
     def create_model_section_openai(self):
@@ -647,14 +641,11 @@ class TranslationModelDialog(QDialog):
         model_row.addWidget(self.oai_model_combo)
         model_row.addStretch()
 
-        info_label = QLabel(
-            "⚠️ Ottieni API key da: platform.openai.com\n"
-            "💡 GPT-4o-mini: economico e veloce | GPT-4o: massima qualità"
-        )
+        info_label = QLabel(tr('api_key_info_openai'))
         info_label.setStyleSheet("color: #666; font-size: 11px; margin: 5px 0;")
         info_label.setWordWrap(True)
 
-        save_api_btn = QPushButton("Save")
+        save_api_btn = QPushButton(tr('save'))
         save_api_btn.clicked.connect(self.save_openai_api_key)
 
         api_layout.addWidget(self.oai_api_input)
@@ -688,15 +679,15 @@ class TranslationModelDialog(QDialog):
         self.config.set_openai_api_key(key)
         self.config.set_openai_model(self.oai_model_combo.currentText())
         self.update_openai_status()
-        QMessageBox.information(self, "Successo", "✅ API key OpenAI salvata!")
+        QMessageBox.information(self, tr('creds_saved_title'), tr('creds_saved_msg'))
 
     def update_openai_status(self):
         """Aggiorna indicatore stato OpenAI"""
         if self.config.is_openai_api_key_set():
-            self.oai_status_label.setText("✅ API key configurata")
+            self.oai_status_label.setText(tr('tmd_creds_configured'))
             self.oai_status_label.setStyleSheet("color: green; font-weight: bold;")
         else:
-            self.oai_status_label.setText("⚠️ API key non configurata")
+            self.oai_status_label.setText(tr('tmd_not_configured'))
             self.oai_status_label.setStyleSheet("color: orange;")
 
     def save_hf_token(self):
@@ -704,43 +695,43 @@ class TranslationModelDialog(QDialog):
         token = self.hf_token_input.text().strip()
         
         if not token:
-            QMessageBox.warning(self, "Token vuoto", "Inserisci un token valido.")
+            QMessageBox.warning(self, tr('token_empty'), "Inserisci un token valido.")
             return
-        
+
         is_valid, error = self.config.validate_huggingface_token(token)
-        
+
         if not is_valid:
             QMessageBox.warning(self, "Token non valido", f"Token non valido: {error}")
             return
-        
+
         self.config.set_huggingface_token(token)
-        QMessageBox.information(self, "Successo", "Token HuggingFace salvato!")
+        QMessageBox.information(self, tr('creds_saved_title'), tr('creds_saved_msg'))
     
     def save_claude_api_key(self):
         """Salva API key Claude"""
         api_key = self.claude_api_input.text().strip()
         
         if not api_key:
-            QMessageBox.warning(self, "API key vuota", "Inserisci un'API key valida.")
+            QMessageBox.warning(self, tr('save_api_key'), "Inserisci un'API key valida.")
             return
-        
+
         is_valid, error = self.config.validate_claude_api_key(api_key)
-        
+
         if not is_valid:
             QMessageBox.warning(self, "API key non valida", f"API key non valida: {error}")
             return
-        
+
         self.config.set_claude_api_key(api_key)
         self.update_claude_status()
-        QMessageBox.information(self, "Successo", "✅ API key Claude salvata!\n\nOra puoi usare Claude per tradurre.")
+        QMessageBox.information(self, tr('creds_saved_title'), tr('creds_saved_msg'))
     
     def update_claude_status(self):
         """Aggiorna indicatore stato Claude"""
         if self.config.is_claude_api_key_set():
-            self.claude_status_label.setText("✅ API key configurata")
+            self.claude_status_label.setText(tr('tmd_creds_configured'))
             self.claude_status_label.setStyleSheet("color: green; font-weight: bold;")
         else:
-            self.claude_status_label.setText("⚠️ API key non configurata")
+            self.claude_status_label.setText(tr('tmd_not_configured'))
             self.claude_status_label.setStyleSheet("color: orange;")
     
     def start_aya_download(self):
@@ -878,9 +869,8 @@ class TranslationModelDialog(QDialog):
 
         QMessageBox.information(
             self,
-            "Modello aggiornato",
-            f"Modello traduzione: {display}\n\n"
-            f"Sarà usato per le prossime traduzioni."
+            tr('model_updated_title'),
+            tr('model_updated_msg').format(model=display)
         )
 
         self.accept()
@@ -900,20 +890,17 @@ class TranslationModelDialog(QDialog):
 
         layout = QVBoxLayout(container)
 
-        title_label = QLabel("🎭 Speaker Diarization")
+        title_label = QLabel(tr('diarization_title'))
         title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #6a1b9a;")
         layout.addWidget(title_label)
 
-        desc_label = QLabel(
-            "Identifica chi parla in ogni sottotitolo.\n"
-            "Aggiunge un trattino ( - ) al cambio di parlante, stile dialogo cinema."
-        )
+        desc_label = QLabel(tr('diarization_desc'))
         desc_label.setStyleSheet("color: #555; font-size: 12px; margin-top: 4px;")
         desc_label.setWordWrap(True)
         layout.addWidget(desc_label)
 
         # --- Token HuggingFace ---
-        token_group = QGroupBox("HuggingFace Token")
+        token_group = QGroupBox(tr('hf_token_label'))
         token_layout = QVBoxLayout()
 
         token_row = QHBoxLayout()
@@ -924,7 +911,7 @@ class TranslationModelDialog(QDialog):
         if current_token:
             self.diarization_hf_token_input.setText(current_token)
 
-        save_token_btn = QPushButton("Salva")
+        save_token_btn = QPushButton(tr('save'))
         save_token_btn.setFixedWidth(70)
         save_token_btn.clicked.connect(self.save_diarization_hf_token)
         token_row.addWidget(self.diarization_hf_token_input)
@@ -949,7 +936,7 @@ class TranslationModelDialog(QDialog):
         layout.addWidget(token_group)
 
         # --- Test connessione ---
-        test_btn = QPushButton("Testa download modello pyannote")
+        test_btn = QPushButton(tr('test_download'))
         test_btn.clicked.connect(self.test_pyannote_download)
         layout.addWidget(test_btn)
 
@@ -959,7 +946,7 @@ class TranslationModelDialog(QDialog):
         layout.addWidget(self.diarization_test_label)
 
         # --- Forced Alignment ---
-        self.forced_alignment_checkbox = QCheckBox("Forced Alignment (precisione broadcast/cinema)")
+        self.forced_alignment_checkbox = QCheckBox(tr('forced_alignment_check'))
         self.forced_alignment_checkbox.setChecked(self.config.get('enable_forced_alignment', False))
         self.forced_alignment_checkbox.setToolTip(
             "Riallinea ogni parola al millisecondo esatto in cui viene pronunciata.\n"
@@ -972,20 +959,20 @@ class TranslationModelDialog(QDialog):
         layout.addWidget(self.forced_alignment_checkbox)
 
         # --- Checkbox abilitazione diarization ---
-        self.diarization_checkbox = QCheckBox("Identifica parlanti (Speaker Diarization)")
+        self.diarization_checkbox = QCheckBox(tr('diarization_check'))
         self.diarization_checkbox.setChecked(self.config.get('enable_diarization', False))
         self.diarization_checkbox.toggled.connect(self.on_diarization_toggled)
         layout.addWidget(self.diarization_checkbox)
 
         # --- SpinBox num parlanti ---
         num_row = QHBoxLayout()
-        num_label = QLabel("N° parlanti:")
+        num_label = QLabel(tr('speakers_label'))
         num_label.setFixedWidth(100)
         self.diarization_num_speakers = QSpinBox()
         self.diarization_num_speakers.setRange(0, 10)
         self.diarization_num_speakers.setValue(self.config.get('diarization_num_speakers', 0))
-        self.diarization_num_speakers.setSpecialValueText("auto")
-        self.diarization_num_speakers.setToolTip("0 = rilevamento automatico")
+        self.diarization_num_speakers.setSpecialValueText(tr('auto_speakers'))
+        self.diarization_num_speakers.setToolTip(tr('speakers_tip'))
         self.diarization_num_speakers.valueChanged.connect(self.on_num_speakers_changed)
         num_row.addWidget(num_label)
         num_row.addWidget(self.diarization_num_speakers)
@@ -998,7 +985,7 @@ class TranslationModelDialog(QDialog):
         """Salva token HuggingFace dalla sezione diarization"""
         token = self.diarization_hf_token_input.text().strip()
         if not token:
-            QMessageBox.warning(self, "Token vuoto", "Inserisci un token valido.")
+            QMessageBox.warning(self, tr('token_empty'), "Inserisci un token valido.")
             return
         is_valid, error = self.config.validate_huggingface_token(token)
         if not is_valid:
@@ -1009,14 +996,14 @@ class TranslationModelDialog(QDialog):
         if hasattr(self, 'hf_token_input'):
             self.hf_token_input.setText(token)
         self._update_diarization_token_status()
-        QMessageBox.information(self, "Salvato", "Token HuggingFace salvato!")
+        QMessageBox.information(self, tr('path_saved_title'), tr('creds_saved_msg'))
 
     def _update_diarization_token_status(self):
         if self.config.is_huggingface_token_set():
-            self.diarization_token_status.setText("✅ Token configurato")
+            self.diarization_token_status.setText(tr('tmd_creds_configured'))
             self.diarization_token_status.setStyleSheet("color: green; font-weight: bold; font-size: 11px;")
         else:
-            self.diarization_token_status.setText("⚠️ Token non configurato")
+            self.diarization_token_status.setText(tr('tmd_not_configured'))
             self.diarization_token_status.setStyleSheet("color: orange; font-size: 11px;")
 
     def test_pyannote_download(self):

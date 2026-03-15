@@ -20,6 +20,7 @@ from PyQt6.QtCore import QTimer
 from gui.splash_screen import show_splash
 from gui.main_window import MainWindow
 from utils.logger import setup_logger
+from utils.translations import init_language
 
 def main():
     """Main application entry point"""
@@ -37,7 +38,11 @@ def main():
     
     # High DPI scaling è abilitato di default in PyQt6
     # Non serve più impostare AA_EnableHighDpiScaling
-    
+
+    # Inizializza lingua UI (deve avvenire dopo QApplication, prima di MainWindow)
+    from utils.config import get_config
+    init_language(get_config())
+
     # Mostra splash screen
     splash = show_splash(duration=2500)
     
