@@ -17,6 +17,9 @@ import os
 import struct
 import urllib.parse
 import time
+import gzip
+import base64
+import hashlib
 
 # Import corretto delle classi base dalla Factory globale
 from utils.subtitle_uploader_interface import (
@@ -87,7 +90,9 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
         self.user_agent = user_agent or "TranscriberPro v1.1.0"
         self.api_key = api_key
         self.jwt_token: Optional[str] = None
-        
+        self.base_url: Optional[str] = None
+        self._upload_url: str = self.UPLOAD_URL
+
         if not self.api_key:
             logger.error("❌ REST API Key non fornita!")
             logger.error("   Ottieni la tua API Key da: https://www.opensubtitles.com/en/consumers")
@@ -247,11 +252,14 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
                             logger.error("❌ Login retry riuscito ma non è stato possibile parseare il JSON della risposta.")
                             return False
                         self.jwt_token = data.get('token')
+                        self.base_url = data.get('base_url', 'api.opensubtitles.com')
+                        self._upload_url = f"https://{self.base_url}/api/v1/upload"
                         if self.jwt_token:
                             logger.info("=" * 80)
                             logger.info("✅ LOGIN SUCCESSFUL (after retry with percent-encoded password)")
                             logger.info("=" * 80)
                             logger.info(f"JWT Token (first 30 chars): {self.jwt_token[:30]}...")
+                            logger.info(f"Base URL: {self.base_url}")
                             return True
                         else:
                             logger.error("❌ LOGIN FAILED - No token in retry response")
@@ -285,19 +293,23 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
             logger.info(json.dumps(data, indent=2))
             
             self.jwt_token = data.get('token')
-            
+            self.base_url = data.get('base_url', 'api.opensubtitles.com')
+            self._upload_url = f"https://{self.base_url}/api/v1/upload"
+
             if self.jwt_token:
                 logger.info("=" * 80)
                 logger.info("✅ LOGIN SUCCESSFUL")
                 logger.info("=" * 80)
                 logger.info(f"JWT Token (first 30 chars): {self.jwt_token[:30]}...")
                 logger.info(f"JWT Token length: {len(self.jwt_token)} characters")
-                
+                logger.info(f"Base URL: {self.base_url}")
+                logger.info(f"Upload URL: {self._upload_url}")
+
                 # Verifica altri campi nella risposta
                 for key, value in data.items():
-                    if key != 'token':
+                    if key not in ('token',):
                         logger.info(f"Response field '{key}': {value}")
-                
+
                 return True
             else:
                 logger.error("=" * 80)
@@ -389,37 +401,50 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
             logger.info(f"✅ Movie Hash: {movie_hash}")
             logger.info(f"✅ Movie Size: {movie_size:,} bytes ({movie_size / (1024**3):.2f} GB)")
             
-            # Prepara metadata per upload
-            imdb_numeric = metadata.imdb_id.replace('tt', '')
-            upload_metadata = {
-                "cd1": [
-                    {
-                        "sublanguageid": metadata.language_code,
-                        "moviehash": movie_hash,
-                        "moviebytesize": str(movie_size),
-                        "moviefilename": video_path.name,
-                        "moviereleasename": metadata.release_name,
-                        "subfilename": subtitle_path.name
-                    }
-                ],
-                "baseinfo": {
-                    "idmovieimdb": imdb_numeric
-                }
+            # Prepara contenuto sottotitolo (gzip+base64) e hash MD5
+            logger.info("📦 Compressione e codifica sottotitolo...")
+            sub_content, sub_hash = self._prepare_subtitle(subtitle_path)
+            lang2 = self._lang3_to_lang2(metadata.language_code)
+            imdb_numeric = str(int(metadata.imdb_id.replace('tt', '')))
+
+            # Risolvi feature_id OS (più affidabile di imdb_id per gli episodi TV)
+            os_feature_id = self._resolve_feature_id(imdb_numeric)
+
+            baseinfo = {
+                "idmovieimdb": imdb_numeric,
+                "sublanguageid": metadata.language_code,
+                "moviereleasename": metadata.release_name or "",
+                "subauthorcomment": metadata.comments or "",
+                "automatictranslation": 0,
+                "hearingimpaired": 0,
+                "highDefinition": 1,
+                "foreignpartsonly": 0
             }
-            
-            # Aggiungi campi opzionali se presenti
-            if metadata.comments:
-                upload_metadata["cd1"][0]["subauthorcomment"] = metadata.comments
-            if metadata.movie_name:
-                upload_metadata["cd1"][0]["moviename"] = metadata.movie_name
-            if metadata.movie_year:
-                upload_metadata["cd1"][0]["movieyear"] = str(metadata.movie_year)
-            
-            logger.info("=" * 80)
-            logger.info("UPLOAD METADATA:")
-            logger.info("=" * 80)
-            logger.info(json.dumps(upload_metadata, indent=2))
-            
+            if os_feature_id:
+                baseinfo["feature_id"] = os_feature_id
+
+            body = {
+                "base_subtitle_id": None,
+                "subtitles": [{
+                    "sub_to_movie": {
+                        "movie_hash": movie_hash,
+                        "movie_byte_size": str(movie_size),
+                        "movie_fps": None,
+                        "movie_time_ms": None,
+                        "movie_filename": video_path.name
+                    },
+                    "sub_content": sub_content,
+                    "sub_hash": sub_hash,
+                    "sub_language_id": lang2,
+                    "sub_filename": subtitle_path.name,
+                    "comments": metadata.comments or "",
+                    "hearing_impaired": False,
+                    "foreign_parts_only": False,
+                    "high_definition": True
+                }],
+                "baseinfo": baseinfo
+            }
+
             # Informazioni file sottotitolo
             subtitle_size = os.path.getsize(subtitle_path)
             logger.info("=" * 80)
@@ -428,7 +453,9 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
             logger.info(f"Path: {subtitle_path}")
             logger.info(f"Name: {subtitle_path.name}")
             logger.info(f"Size: {subtitle_size:,} bytes ({subtitle_size / 1024:.2f} KB)")
-            
+            logger.info(f"MD5 hash: {sub_hash}")
+            logger.info(f"sub_content length (base64): {len(sub_content)} chars")
+
             # Leggi prime righe del sottotitolo per verifica
             try:
                 with open(subtitle_path, 'r', encoding='utf-8') as f:
@@ -436,44 +463,42 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
                 logger.info(f"First lines preview:\n{first_lines}")
             except Exception as e:
                 logger.warning(f"⚠️  Impossibile leggere anteprima sottotitolo: {e}")
-            
-            # Prepara richiesta multipart/form-data
+
+            logger.info("=" * 80)
+            logger.info("UPLOAD BODY:")
+            logger.info("=" * 80)
+            # Log body senza sub_content (troppo lungo)
+            log_body = json.loads(json.dumps(body))
+            log_body['subtitles'][0]['sub_content'] = f"<base64 gzip, {len(sub_content)} chars>"
+            logger.info(json.dumps(log_body, indent=2))
+
+            # Prepara richiesta JSON
             logger.info("=" * 80)
             logger.info("PREPARING HTTP REQUEST:")
             logger.info("=" * 80)
-            
-            with open(subtitle_path, 'rb') as sub_file:
-                files = {
-                    'file': (subtitle_path.name, sub_file, 'text/plain')
-                }
-                data = {
-                    'metadata': json.dumps(upload_metadata)
-                }
-                headers = self._get_headers(include_content_type=False)
-                
-                # Log headers (mascherando dati sensibili)
-                safe_headers = headers.copy()
-                if 'Api-Key' in safe_headers:
-                    safe_headers['Api-Key'] = safe_headers['Api-Key'][:8] + '...'
-                if 'Authorization' in safe_headers:
-                    safe_headers['Authorization'] = safe_headers['Authorization'][:30] + '...'
-                
-                logger.info(f"URL: {self.UPLOAD_URL}")
-                logger.info(f"Headers: {json.dumps(safe_headers, indent=2)}")
-                logger.info(f"Files: {{'file': ('{subtitle_path.name}', '<binary data>', 'text/plain')}}")
-                logger.info(f"Data: {{'metadata': '<JSON shown above>'}}")
-                
-                logger.info("=" * 80)
-                logger.info("🚀 SENDING UPLOAD REQUEST...")
-                logger.info("=" * 80)
-                
-                response = requests.post(
-                    self.UPLOAD_URL,
-                    headers=headers,
-                    files=files,
-                    data=data,
-                    timeout=120
-                )
+
+            headers = self._get_headers(include_content_type=True)
+
+            # Log headers (mascherando dati sensibili)
+            safe_headers = headers.copy()
+            if 'Api-Key' in safe_headers:
+                safe_headers['Api-Key'] = safe_headers['Api-Key'][:8] + '...'
+            if 'Authorization' in safe_headers:
+                safe_headers['Authorization'] = safe_headers['Authorization'][:30] + '...'
+
+            logger.info(f"URL: {self._upload_url}")
+            logger.info(f"Headers: {json.dumps(safe_headers, indent=2)}")
+
+            logger.info("=" * 80)
+            logger.info("🚀 SENDING UPLOAD REQUEST...")
+            logger.info("=" * 80)
+
+            response = requests.post(
+                self._upload_url,
+                headers=headers,
+                json=body,
+                timeout=120
+            )
             
             # Gestione risposta dettagliata
             logger.info("=" * 80)
@@ -492,7 +517,20 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
             logger.info(response_body if response_body else "<empty>")
             logger.info("=" * 80)
             
-            # Caso 1: Upload completato (204 No Content)
+            # Caso 1: Già presente nel database (208 Already Reported)
+            if status_code == 208:
+                try:
+                    response_json = response.json()
+                    subtitle_id = response_json.get('data', {}).get('subtitle', {}).get('subtitle_id')
+                except Exception:
+                    subtitle_id = None
+                logger.info("=" * 80)
+                logger.info("⚠️  SUBTITLE ALREADY IN DATABASE (208)")
+                logger.info("=" * 80)
+                logger.info(f"Subtitle ID: {subtitle_id}")
+                return True, f"GIÀ PRESENTE - ID: {subtitle_id}"
+
+            # Caso 2: Upload completato (204 No Content)
             if status_code == 204:
                 logger.info("=" * 80)
                 logger.info("✅ UPLOAD SUCCESSFUL - 204 NO CONTENT")
@@ -647,6 +685,115 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
         else:
             logger.debug("ℹ️  Logout chiamato senza token attivo")
     
+    def _resolve_feature_id(self, imdb_numeric: str) -> Optional[str]:
+        """
+        Interroga /api/v1/features per ottenere il feature_id OS dall'IMDB ID.
+        Utile per episodi TV dove il matching per imdb_id può essere incerto.
+        Returns None se non trovato o in caso di errore.
+        """
+        try:
+            headers = self._get_headers(include_content_type=False)
+            url = f"https://{self.base_url or 'api.opensubtitles.com'}/api/v1/features"
+            r = requests.get(url, headers=headers, params={'imdb_id': imdb_numeric}, timeout=10)
+            if r.ok:
+                data = r.json().get('data', [])
+                if data:
+                    fid = data[0].get('attributes', {}).get('feature_id')
+                    logger.info(f"✅ feature_id OS risolto: {fid} (imdb_id={imdb_numeric})")
+                    return str(fid) if fid else None
+            logger.warning(f"⚠️  feature_id non trovato per imdb_id={imdb_numeric}: HTTP {r.status_code}")
+        except Exception as e:
+            logger.warning(f"⚠️  _resolve_feature_id fallito: {e}")
+        return None
+
+    # Pattern di testo nei cue che vanno rimossi prima dell'upload
+    _CREDIT_PATTERNS = [
+        'transcriber_pro', 'transcriber pro',
+        'ai generated subtitles', 'ai-generated subtitles',
+    ]
+
+    def _strip_credit_cues(self, text: str) -> str:
+        """
+        Rimuove i cue SRT contenenti testo promozionale/credit prima dell'upload.
+        Lavora sul testo decodificato, non sul file originale.
+        """
+        import re
+        # Normalizza line endings
+        text = text.replace('\r\n', '\n').replace('\r', '\n')
+        # Rimuovi BOM se presente
+        text = text.lstrip('\ufeff')
+
+        # Splitta in blocchi separati da righe vuote
+        blocks = re.split(r'\n{2,}', text.strip())
+        kept = []
+        removed = 0
+        for block in blocks:
+            lines = block.strip().splitlines()
+            if len(lines) < 3:
+                kept.append(block)
+                continue
+            # Il testo del cue è dalla riga 3 in poi (0: numero, 1: timestamp, 2+: testo)
+            cue_text = ' '.join(lines[2:]).lower()
+            if any(pat in cue_text for pat in self._CREDIT_PATTERNS):
+                removed += 1
+                logger.info(f"🧹 Rimosso cue promozionale dall'upload: {lines[2]!r}")
+            else:
+                kept.append(block)
+
+        if removed:
+            logger.info(f"   Totale cue rimossi: {removed}")
+            # Rinumera i cue rimasti a partire da 1
+            renumbered = []
+            for i, block in enumerate(kept, start=1):
+                lines = block.strip().splitlines()
+                if len(lines) >= 2 and '-->' in lines[1]:
+                    lines[0] = str(i)
+                renumbered.append('\n'.join(lines))
+            kept = renumbered
+        return '\n\n'.join(kept) + '\n'
+
+    def _prepare_subtitle(self, subtitle_path: Path) -> Tuple[str, str]:
+        """
+        Legge il file SRT, rimuove i cue promozionali, comprime con gzip e
+        codifica in base64. Il sub_hash MD5 viene calcolato sul contenuto
+        pulito (quello effettivamente inviato), non sull'originale.
+
+        Returns:
+            (sub_content, sub_hash) dove sub_content è gzip+base64 e sub_hash è MD5 hex
+        """
+        with open(subtitle_path, 'rb') as f:
+            raw = f.read()
+
+        # Decodifica, rimuovi cue promozionali, ri-codifica
+        try:
+            text = raw.decode('utf-8-sig')  # gestisce BOM automaticamente
+        except UnicodeDecodeError:
+            text = raw.decode('latin-1')
+        cleaned = self._strip_credit_cues(text)
+        cleaned_bytes = cleaned.encode('utf-8')
+
+        # MD5 sul contenuto che viene effettivamente inviato (pulito)
+        sub_hash = hashlib.md5(cleaned_bytes).hexdigest()
+
+        compressed = gzip.compress(cleaned_bytes)
+        sub_content = base64.b64encode(compressed).decode('utf-8')
+        return sub_content, sub_hash
+
+    _LANG3_TO_LANG2 = {
+        'ita': 'it', 'eng': 'en', 'fra': 'fr', 'spa': 'es',
+        'deu': 'de', 'por': 'pt', 'pob': 'pt', 'rus': 'ru',
+        'zho': 'zh', 'jpn': 'ja', 'kor': 'ko', 'ara': 'ar',
+        'nld': 'nl', 'pol': 'pl', 'swe': 'sv', 'nor': 'no',
+        'dan': 'da', 'fin': 'fi', 'hun': 'hu', 'ces': 'cs',
+        'slk': 'sk', 'ron': 'ro', 'bul': 'bg', 'hrv': 'hr',
+        'srp': 'sr', 'tur': 'tr', 'ell': 'el', 'heb': 'he',
+        'ukr': 'uk', 'cat': 'ca', 'vie': 'vi', 'ind': 'id',
+    }
+
+    def _lang3_to_lang2(self, lang3: str) -> str:
+        """Converte codice ISO 639-2 (3 lettere) in ISO 639-1 (2 lettere)."""
+        return self._LANG3_TO_LANG2.get(lang3.lower(), lang3[:2])
+
     def _calculate_movie_hash(self, video_path: Path) -> Tuple[Optional[str], Optional[int]]:
         """
         Calcola OSDB movie hash (standard OpenSubtitles)

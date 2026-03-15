@@ -540,7 +540,11 @@ class TMDBClient:
         if not self.api_key:
             logger.error("âŒ API key non disponibile")
             return None
-        
+
+        if not title or not title.strip():
+            logger.warning("⚠️ Titolo vuoto — ricerca film saltata")
+            return None
+
         search_variants = self._generate_search_variants(title)
         
         logger.info(f"ðŸ” Ricerca film: '{title}'" + (f" ({year})" if year else ""))
@@ -618,7 +622,11 @@ class TMDBClient:
         if not self.api_key:
             logger.error("âŒ API key non disponibile")
             return None
-        
+
+        if not title or not title.strip():
+            logger.warning("⚠️ Titolo vuoto — ricerca TV saltata")
+            return None
+
         search_variants = self._generate_search_variants(title)
         
         logger.info(f"ðŸ” Ricerca serie TV: '{title}'" + (f" ({year})" if year else ""))
