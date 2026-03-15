@@ -62,7 +62,7 @@ class Config:
         'opensubtitles_password': '',
         'opensubtitles_user_agent': 'TranscriberPro v1.1.0',
         'opensubtitles_api_key': '',  
-        'opensubtitles_preferred_implementation': 'rest',  
+        'opensubtitles_preferred_implementation': 'xmlrpc',
         
         # Transcription method
         'transcription_method': 'faster-whisper',

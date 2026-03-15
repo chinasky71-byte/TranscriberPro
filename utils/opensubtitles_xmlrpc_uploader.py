@@ -13,6 +13,7 @@ import struct
 import os
 import base64
 import zlib
+import re
 import logging
 from pathlib import Path
 from typing import Dict, Optional, Tuple
@@ -38,7 +39,8 @@ class OpenSubtitlesXMLRPCUploader(SubtitleUploaderInterface):
         self,
         username: str = None,
         password: str = None,
-        user_agent: str = None
+        user_agent: str = None,
+        api_key: str = None  # ignorato, presente per compatibilità con la factory
     ):
         self.username = username
         self.password = password
@@ -77,13 +79,17 @@ class OpenSubtitlesXMLRPCUploader(SubtitleUploaderInterface):
             )
             
             status = response.get('status', '')
-            
-            if status == '200 OK':
-                self.token = response.get('token')
-                logger.info(f"✅ Autenticazione riuscita")
+            self.token = response.get('token')
+
+            # Accetta 200 OK oppure 401 con token valido (user agent parzialmente registrato)
+            if self.token and status in ('200 OK', '401 Unauthorized'):
+                if status == '401 Unauthorized':
+                    logger.warning("⚠️  Login 401 ma token ricevuto — user agent non completamente registrato, upload OK")
+                logger.info(f"✅ Autenticazione riuscita ({status})")
                 return True
             else:
                 logger.error(f"❌ Autenticazione fallita: {status}")
+                self.token = None
                 return False
         
         except xmlrpc.client.Fault as err:
@@ -188,11 +194,16 @@ class OpenSubtitlesXMLRPCUploader(SubtitleUploaderInterface):
             if not movie_hash:
                 return False, "Impossibile calcolare hash video"
 
-            sub_hash = self._calculate_subtitle_hash(subtitle_path)
-            if not sub_hash:
-                return False, "Impossibile calcolare hash sottotitolo"
-
             imdb_numeric = metadata.imdb_id.replace('tt', '')
+
+            # --- Prepara contenuto (con stripping cue promozionali) ---
+            sub_content, cleaned_bytes = self._prepare_subtitle_content(subtitle_path)
+            if not sub_content:
+                return False, "Impossibile preparare contenuto sottotitolo"
+
+            # subhash = MD5 del contenuto PULITO (quello effettivamente compresso)
+            sub_hash = hashlib.md5(cleaned_bytes).hexdigest()
+            logger.info(f"   sub_hash (cleaned): {sub_hash}")
 
             # --- Step 1: TryUploadSubtitles ---
             logger.info("   [1/2] Verifica esistenza sottotitolo (TryUploadSubtitles)...")
@@ -217,13 +228,6 @@ class OpenSubtitlesXMLRPCUploader(SubtitleUploaderInterface):
 
             # --- Step 2: UploadSubtitles ---
             logger.info("   [2/2] Upload in corso (UploadSubtitles)...")
-
-            # subcontent: raw DEFLATE (senza header zlib) codificato in Base64
-            # NON usare xmlrpc.client.Binary: il server si aspetta una stringa Base64 plain,
-            # non un tipo Binary (che causerebbe doppia codifica nel payload XML).
-            sub_content = self._prepare_subtitle_content(subtitle_path)
-            if not sub_content:
-                return False, "Impossibile preparare contenuto sottotitolo"
 
             safe_release_name = metadata.release_name.encode('ascii', errors='ignore').decode('ascii')
             safe_comments = metadata.comments.encode('ascii', errors='ignore').decode('ascii') if metadata.comments else ''
@@ -345,25 +349,57 @@ class OpenSubtitlesXMLRPCUploader(SubtitleUploaderInterface):
             logger.error(f"Errore calcolo hash sottotitolo: {e}")
             return None
     
+    _CREDIT_PATTERNS = [
+        'transcriber_pro', 'transcriber pro',
+        'ai generated subtitles', 'ai-generated subtitles',
+    ]
+
+    def _strip_credit_cues(self, text: str) -> str:
+        """Rimuove cue SRT promozionali e rinumera i cue rimanenti."""
+        text = text.replace('\r\n', '\n').replace('\r', '\n').lstrip('\ufeff')
+        blocks = re.split(r'\n{2,}', text.strip())
+        kept, removed = [], 0
+        for block in blocks:
+            lines = block.strip().splitlines()
+            if len(lines) >= 3 and any(p in ' '.join(lines[2:]).lower() for p in self._CREDIT_PATTERNS):
+                removed += 1
+                logger.info(f"🧹 Rimosso cue promozionale: {lines[2]!r}")
+            else:
+                kept.append(block)
+        if removed:
+            renumbered = []
+            for i, block in enumerate(kept, start=1):
+                lines = block.strip().splitlines()
+                if len(lines) >= 2 and '-->' in lines[1]:
+                    lines[0] = str(i)
+                renumbered.append('\n'.join(lines))
+            kept = renumbered
+        return '\n\n'.join(kept) + '\n'
+
     def _prepare_subtitle_content(self, subtitle_path: Path) -> Optional[str]:
         """
-        Prepara contenuto sottotitolo per upload (Zlib RAW + base64)
+        Prepara contenuto sottotitolo per upload (zlib completo + base64).
+        Rimuove anche il cue promozionale prima della compressione.
         """
         try:
             with open(subtitle_path, 'rb') as f:
-                content = f.read()
-            
-            # Compressione Zlib RAW (rimozione manuale di header/footer)
-            compressed_full = zlib.compress(content)
-            compressed_raw = compressed_full[2:-4] 
-            
-            # Codifica Base64
-            encoded = base64.b64encode(compressed_raw).decode('ascii')
-            return encoded
-        
+                raw = f.read()
+
+            # Rimuovi cue promozionali (stesso filtro del REST uploader)
+            try:
+                text = raw.decode('utf-8-sig')
+            except UnicodeDecodeError:
+                text = raw.decode('latin-1')
+            cleaned = self._strip_credit_cues(text)
+            content = cleaned.encode('utf-8')
+
+            # zlib completo (server accetta sia zlib che deflate raw che gzip)
+            encoded = base64.b64encode(zlib.compress(content)).decode('ascii')
+            return encoded, content
+
         except IOError as e:
             logger.error(f"Errore preparazione contenuto: {e}")
-            return None
+            return None, None
 
 
 # REGISTRA IMPLEMENTAZIONE
