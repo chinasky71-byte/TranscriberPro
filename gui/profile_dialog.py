@@ -21,6 +21,7 @@ from PyQt6.QtGui import QFont
 
 from utils.config import get_config
 from utils.transcription_profiles import ProfileConfig, TranscriptionProfile
+from utils.translations import tr
 
 
 class ProfileSelectionDialog(QDialog):
@@ -39,7 +40,7 @@ class ProfileSelectionDialog(QDialog):
         self.config = get_config()
         self.selected_profile = self.config.get_transcription_profile()
         
-        self.setWindowTitle("Profili Trascrizione")
+        self.setWindowTitle(tr('profiles_title'))
         self.setModal(True)
         
         # ✅ OTTIMIZZATO: Dimensioni iniziali più compatte
@@ -73,9 +74,7 @@ class ProfileSelectionDialog(QDialog):
         main_layout.addWidget(separator)
         
         # ✅ OTTIMIZZATO: Descrizione più concisa
-        desc_label = QLabel(
-            "Seleziona il profilo ottimale per il tuo caso d'uso."
-        )
+        desc_label = QLabel(tr('profiles_desc'))
         desc_label.setObjectName("descLabel")
         desc_label.setWordWrap(True)
         main_layout.addWidget(desc_label)
@@ -123,14 +122,14 @@ class ProfileSelectionDialog(QDialog):
         buttons_layout.setSpacing(10)
         buttons_layout.addStretch()
         
-        cancel_btn = QPushButton("❌ Annulla")
+        cancel_btn = QPushButton(tr('cancel'))
         cancel_btn.setObjectName("cancelButton")
         cancel_btn.setMinimumWidth(110)  # 120 → 110
         cancel_btn.setFixedHeight(36)  # Altezza fissa
         cancel_btn.clicked.connect(self.reject)
         buttons_layout.addWidget(cancel_btn)
         
-        ok_btn = QPushButton("✅ Conferma")
+        ok_btn = QPushButton(tr('confirm'))
         ok_btn.setObjectName("okButton")
         ok_btn.setMinimumWidth(110)
         ok_btn.setFixedHeight(36)
@@ -143,7 +142,7 @@ class ProfileSelectionDialog(QDialog):
     
     def create_header(self):
         """Crea header dialog compatto"""
-        header = QLabel("⚙️ Profili di Trascrizione")
+        header = QLabel(tr('profiles_header'))
         header.setObjectName("dialogHeader")
         
         font = QFont()
@@ -203,13 +202,13 @@ class ProfileSelectionDialog(QDialog):
         name_layout = QHBoxLayout()
         name_layout.setSpacing(8)
         
-        name_label = QLabel(f"<b>{config['name']}</b>")
+        name_label = QLabel(f"<b>{tr(f'profile_{profile.value}_name')}</b>")
         name_label.setObjectName("profileName")
         name_layout.addWidget(name_label)
         
         # Badge raccomandato per BALANCED
         if profile == TranscriptionProfile.BALANCED:
-            badge = QLabel("⭐ RACCOMANDATO")
+            badge = QLabel(tr('recommended'))
             badge.setObjectName("recommendedBadge")
             name_layout.addWidget(badge)
         
@@ -217,7 +216,7 @@ class ProfileSelectionDialog(QDialog):
         info_layout.addLayout(name_layout)
         
         # --- RIGA 2: Descrizione (compatta) ---
-        desc_label = QLabel(config['description'])
+        desc_label = QLabel(tr(f'profile_{profile.value}_desc'))
         desc_label.setObjectName("profileDesc")
         desc_label.setWordWrap(True)
         info_layout.addWidget(desc_label)
@@ -247,7 +246,7 @@ class ProfileSelectionDialog(QDialog):
         
         # --- Warning se presente (compatto) ---
         if 'warning' in config:
-            warning_label = QLabel(f"⚠️ {config['warning']}")
+            warning_label = QLabel(f"⚠️ {tr(f'profile_{profile.value}_warning')}")
             warning_label.setObjectName("profileWarning")
             warning_label.setWordWrap(True)
             info_layout.addWidget(warning_label)

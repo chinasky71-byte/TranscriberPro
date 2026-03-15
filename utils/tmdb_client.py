@@ -23,6 +23,7 @@ MODIFICHE v3.3:
 - 'search_tv' ora tenta 'it-IT', e se la sinossi è vuota,
   prova 'en-US' prima di usare la sinossi della serie.
 """
+import html
 import requests
 import re
 import logging
@@ -408,7 +409,8 @@ class TMDBClient:
         if year_match:
             year = int(year_match.group(0))
             title = title[:year_match.start()].strip()
-        
+            title = re.sub(r'[\(\[]\s*$', '', title).strip()  # rimuovi ( o [ orfano prima dell'anno
+
         title = self._clean_title(title)
         
         logger.debug(f"âœ… Movie: {title} ({year if year else 'no year'})")
@@ -425,14 +427,17 @@ class TMDBClient:
         v4.1: Fix ordine estrazione anno + release groups italiani + tag lingue
         """
         original = title
-        
+
+        # 0. Decodifica HTML entities (es. &#039; → ', &amp; → &)
+        title = html.unescape(title)
+
         # 1. Rimuovi "Extras", "+ Extras", "Bonus", etc.
         title = re.sub(r'\s*[+&]\s*(Extras?|Bonus|Features?)\s*', ' ', title, flags=re.IGNORECASE)
         title = re.sub(r'\bExtras?\b', '', title, flags=re.IGNORECASE)
         
-        # 2. Rimuovi TAG LINGUE (iTA, ENG, iTA-ENG, Ita.Eng, etc.)
-        title = re.sub(r'\b(iTA|ENG|ITA|DUAL|iTALiAN|ENGLiSH)', '', title, flags=re.IGNORECASE)
-        title = re.sub(r'\b(iTA-ENG|ITA-ENG|Ita\.Eng)', '', title, flags=re.IGNORECASE)
+        # 2. Rimuovi TAG LINGUE (iTA, ENG, NUiTA, NUEnG, iTA-ENG, Ita.Eng, etc.)
+        title = re.sub(r'\b(NUiTA|NUEnG|iTA|ENG|ITA|DUAL|iTALiAN|ENGLiSH)\b', '', title, flags=re.IGNORECASE)
+        title = re.sub(r'\b(NUiTA-NUEnG|iTA-ENG|ITA-ENG|Ita\.Eng)\b', '', title, flags=re.IGNORECASE)
         
         # 3. Rimuovi release groups comuni (INTERNAZIONALI + ITALIANI)
         release_groups = [
@@ -479,10 +484,10 @@ class TMDBClient:
         title = re.sub(r'\[\s*\d{1,3}\s*\]', '', title)  # Rimuove [1], [12], [123]
         
         # 7. Rimuovi parentesi complete ma PRESERVA anno (19xx o 20xx)
-        # Rimuove [qualcosa] se NON contiene 4 cifre
-        title = re.sub(r'\[(?!.*\d{4})[^\]]*\]', '', title)
-        # Rimuove (qualcosa) se NON contiene 4 cifre  
-        title = re.sub(r'\((?!.*\d{4})[^\)]*\)', '', title)
+        # Rimuove [qualcosa] se NON contiene 4 cifre (lookahead limitato a dentro le parentesi)
+        title = re.sub(r'\[(?![^\]]*\d{4})[^\]]*\]', '', title)
+        # Rimuove (qualcosa) se NON contiene 4 cifre
+        title = re.sub(r'\((?![^\)]*\d{4})[^\)]*\)', '', title)
         
         # 8. Pulisci spazi multipli e trim
         title = re.sub(r'\s+', ' ', title).strip()

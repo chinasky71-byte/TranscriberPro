@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.1.0-orange)
+![Version](https://img.shields.io/badge/Version-1.2.0-orange)
 
 AI-powered desktop application for automatic subtitle transcription and translation from video files.
 
@@ -24,13 +24,14 @@ Transcriber Pro takes any video file, extracts or transcribes its audio using Fa
 - **Multiple translation engines**: NLLB-200, Aya-23-8B, Claude API, OpenAI GPT-4o-mini
 - **Vocal separation** via Meta Demucs — isolates speech before transcription for better accuracy
 - **Intelligent chunking** — splits audio at silence points for accurate timestamp alignment
-- **TMDB/OMDB metadata** — auto-fetches film synopsis for context-aware translation
+- **TMDB/OMDB metadata** — auto-fetches film synopsis for context-aware translation; robust title parsing with HTML entity decoding and release-tag stripping
 - **OpenSubtitles upload** — REST API integration with duplicate detection
-- **Library Scanner** — integrates with self-hosted Plex/Jellyfin servers; real-time DB update on subtitle creation; filename-based Italian detection (regex) for untagged streams
+- **Library Scanner** — integrates with self-hosted Plex/Jellyfin servers; real-time DB update on subtitle creation; Italian audio detection via explicit filename tags (ITA, NUiTA, ENG, NUEnG, MULTI, etc.)
 - **Transcription profiles** — Fast / Balanced / Quality / Maximum / Batch presets
 - **Real-time resource monitor** — GPU/CPU/RAM usage during processing
 - **GPU memory management** — sequential model loading/unloading to fit 6–12 GB VRAM
 - **Embedded subtitle extraction** — skips transcription if subtitles already exist in the container; bitmap-only (PGS/VOBSUB) streams are automatically skipped
+- **IT/EN interface** — full Italian/English UI; language selector in General Settings (🔧); auto-detects system locale
 
 ---
 

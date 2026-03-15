@@ -24,10 +24,12 @@ from gui.translation_model_dialog import TranslationModelDialog
 from gui.library_scanner_widget import LibraryScannerWidget
 from gui.opensubtitles_settings_widget import OpenSubtitlesSettingsWidget
 from gui.adaptive_batch_settings_widget import AdaptiveBatchSettingsWidget, DIALOG_STYLE
+from gui.general_settings_widget import GeneralSettingsWidget
 from utils.file_handler import FileHandler
 from utils.logger import setup_logger
 from utils.config import get_config
 from utils.tmdb_client import get_tmdb_client
+from utils.translations import tr
 
 # Log setup
 logger = setup_logger()
@@ -49,40 +51,6 @@ SUBTITLE_LANGUAGES = [
     ("Turco",                "tur"),
 ]
 
-# Testi interfaccia
-TEXTS = {
-    'it': {
-        'title': 'Transcriber Pro',
-        'add_files': '📄 Aggiungi File',
-        'add_folder': '📂 Aggiungi Cartella',
-        'clear': '🗑️ Pulisci',
-        'start': '▶️ Avvia',
-        'stop': '⏸️ Ferma',
-        'shutdown_when_done': '💤 Spegni al completamento',
-        'files_to_process': 'Coda di elaborazione',
-        'processing_log': 'Log di elaborazione',
-        'compact_log': '📋 Log Sintetico',
-        'enable_opensubtitles_upload': '📤 Upload OpenSubtitles',
-        'select_videos': 'Seleziona file video',
-        'select_folder': 'Seleziona cartella',
-        'added': '✅ Aggiunto:',
-        'added_during_processing': '➕ Aggiunto alla coda (in elaborazione):',
-        'items_via_dragdrop': 'file tramite drag & drop',
-        'confirm_exit': 'Conferma uscita',
-        'processing_in_progress': 'Elaborazione in corso. Sei sicuro di voler uscire?',
-        'error': 'Errore',
-        'all_completed': '🎉 Elaborazione Completata',
-        'all_files_processed': 'Tutti i file sono stati elaborati correttamente!',
-        'no_preview': 'Nessuna anteprima\ndisponibile',
-        'loading_preview': 'Caricamento\nanteprima...',
-        'profile_settings': 'Impostazioni Profilo',
-        'current_profile': 'Profilo:',
-        'files_remaining': 'File rimanenti:',
-    }
-}
-
-def get_text(key):
-    return TEXTS['it'].get(key, key)
 
 class RoundedLabel(QLabel):
     def __init__(self, *args, **kwargs):
@@ -118,17 +86,16 @@ class MainWindow(QMainWindow):
         self.init_ui()
         self.apply_modern_theme()
         
-        self.log_message("🎬 Transcriber Pro avviato")
+        self.log_message(tr('app_started'))
         self.log_message(f"🎨 TMDB Client: {'✅ Attivo' if self.tmdb_client.api_key else '❌ Disattivo'}")
         
         current_profile = self.config.get_transcription_profile()
-        profile_info = self.config.get_profile_info(current_profile)
-        self.log_message(f"⚙️ Profilo attivo: {profile_info['name']}")
+        self.log_message(f"⚙️ Profilo attivo: {tr(f'profile_{current_profile}_name')}")
         
         self.resource_monitor.start_monitoring()
     
     def init_ui(self):
-        self.setWindowTitle(get_text('title'))
+        self.setWindowTitle(tr('window_title'))
         self.resize(1400, 900)
         self.setMinimumSize(QSize(1100, 700))
 
@@ -160,7 +127,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(10)
         
         header_layout = QHBoxLayout()
-        title = QLabel(get_text('files_to_process'))
+        title = QLabel(tr('processing_queue'))
         title.setObjectName("panelTitle")
         header_layout.addWidget(title)
         
@@ -178,16 +145,23 @@ class MainWindow(QMainWindow):
         self.translation_model_btn = QToolButton()
         self.translation_model_btn.setText("🌐")
         self.translation_model_btn.setFixedSize(32, 32)
-        self.translation_model_btn.setToolTip("Modello di traduzione")
+        self.translation_model_btn.setToolTip(tr('translation_model_tip'))
         self.translation_model_btn.clicked.connect(self.open_translation_model_settings)
         header_layout.addWidget(self.translation_model_btn)
 
         self.adaptive_batch_btn = QToolButton()
         self.adaptive_batch_btn.setText("🎯")
         self.adaptive_batch_btn.setFixedSize(32, 32)
-        self.adaptive_batch_btn.setToolTip("Adaptive Batch Size — impostazioni memoria")
+        self.adaptive_batch_btn.setToolTip(tr('batch_settings_tip'))
         self.adaptive_batch_btn.clicked.connect(self.open_adaptive_batch_settings)
         header_layout.addWidget(self.adaptive_batch_btn)
+
+        self.general_settings_btn = QToolButton()
+        self.general_settings_btn.setText("🔧")
+        self.general_settings_btn.setFixedSize(32, 32)
+        self.general_settings_btn.setToolTip(tr('general_settings_btn_tip'))
+        self.general_settings_btn.clicked.connect(self.open_general_settings)
+        header_layout.addWidget(self.general_settings_btn)
 
         self.settings_btn = QToolButton()
         self.settings_btn.setText("⚙️")
@@ -203,15 +177,15 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.file_list)
         
         buttons_layout = QHBoxLayout()
-        self.add_files_btn = QPushButton(get_text('add_files'))
+        self.add_files_btn = QPushButton(tr('add_files'))
         self.add_files_btn.setObjectName("primaryButton")
         self.add_files_btn.clicked.connect(self.add_files)
         
-        self.add_folder_btn = QPushButton(get_text('add_folder'))
+        self.add_folder_btn = QPushButton(tr('add_folder'))
         self.add_folder_btn.setObjectName("primaryButton")
         self.add_folder_btn.clicked.connect(self.add_folder)
         
-        self.clear_btn = QPushButton(get_text('clear'))
+        self.clear_btn = QPushButton(tr('clear_queue'))
         self.clear_btn.setObjectName("primaryButton")
         self.clear_btn.clicked.connect(self.clear_queue)
         
@@ -221,12 +195,12 @@ class MainWindow(QMainWindow):
         layout.addLayout(buttons_layout)
         
         options_layout = QVBoxLayout()
-        self.shutdown_checkbox = QCheckBox(get_text('shutdown_when_done'))
+        self.shutdown_checkbox = QCheckBox(tr('shutdown_checkbox'))
         self.shutdown_checkbox.setObjectName("modernCheckbox")
         self.shutdown_checkbox.setChecked(self.config.get('shutdown_after_processing', False))
         self.shutdown_checkbox.stateChanged.connect(self.on_shutdown_checkbox_changed)
         
-        self.opensubtitles_checkbox = QCheckBox(get_text('enable_opensubtitles_upload'))
+        self.opensubtitles_checkbox = QCheckBox(tr('upload_opensubtitles'))
         self.opensubtitles_checkbox.setObjectName("modernCheckbox")
         self.opensubtitles_checkbox.setChecked(self.config.get('opensubtitles_upload_enabled', True))
         self.opensubtitles_checkbox.stateChanged.connect(self.on_opensubtitles_checkbox_changed)
@@ -234,7 +208,7 @@ class MainWindow(QMainWindow):
         self.opensubtitles_settings_btn = QToolButton()
         self.opensubtitles_settings_btn.setText("⚙️")
         self.opensubtitles_settings_btn.setFixedSize(24, 24)
-        self.opensubtitles_settings_btn.setToolTip("Credenziali e impostazioni OpenSubtitles")
+        self.opensubtitles_settings_btn.setToolTip(tr('opensubtitles_settings'))
         self.opensubtitles_settings_btn.clicked.connect(self.open_opensubtitles_settings)
 
         os_row = QHBoxLayout()
@@ -245,7 +219,7 @@ class MainWindow(QMainWindow):
 
         lang_row = QHBoxLayout()
         lang_row.setSpacing(6)
-        lang_label = QLabel("Lingua SRT:")
+        lang_label = QLabel(tr('srt_language_label'))
         self.target_lang_combo = QComboBox()
         current_lang = self.config.get_target_language()
         for display_name, code in SUBTITLE_LANGUAGES:
@@ -269,11 +243,11 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.library_scanner)
 
         control_layout = QHBoxLayout()
-        self.start_btn = QPushButton(get_text('start'))
+        self.start_btn = QPushButton(tr('start'))
         self.start_btn.setObjectName("startButton")
         self.start_btn.clicked.connect(self.start_processing)
         
-        self.stop_btn = QPushButton(get_text('stop'))
+        self.stop_btn = QPushButton(tr('stop'))
         self.stop_btn.setObjectName("stopButton")
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self.stop_processing)
@@ -293,7 +267,7 @@ class MainWindow(QMainWindow):
         panel.setObjectName("centerPanel")
         layout = QVBoxLayout(panel)
         self.poster_label = RoundedLabel()
-        self.poster_label.setText("🎬\n\n" + get_text('no_preview'))
+        self.poster_label.setText("🎬\n\n" + tr('no_preview'))
         self.poster_label.setMinimumHeight(400)
         layout.addWidget(self.poster_label, stretch=3)
         layout.addWidget(self.resource_monitor, stretch=2)
@@ -304,11 +278,11 @@ class MainWindow(QMainWindow):
         panel.setObjectName("rightPanel")
         layout = QVBoxLayout(panel)
         header_layout = QHBoxLayout()
-        title = QLabel(get_text('processing_log'))
+        title = QLabel(tr('processing_log'))
         title.setObjectName("panelTitle")
         header_layout.addWidget(title)
         header_layout.addStretch()
-        self.compact_log_checkbox = QCheckBox(get_text('compact_log'))
+        self.compact_log_checkbox = QCheckBox(tr('compact_log'))
         self.compact_log_checkbox.setObjectName("modernCheckbox")
         self.compact_log_checkbox.stateChanged.connect(self.on_compact_log_changed)
         header_layout.addWidget(self.compact_log_checkbox)
@@ -367,7 +341,7 @@ class MainWindow(QMainWindow):
             if path: self.load_poster(path)
 
     def add_files(self):
-        files, _ = QFileDialog.getOpenFileNames(self, get_text('select_videos'), self.config.get('last_input_folder', ''), "Video Files (*.mp4 *.mkv *.avi *.mov *.wmv *.flv *.webm *.m4v)")
+        files, _ = QFileDialog.getOpenFileNames(self, tr('select_video_files'), self.config.get('last_input_folder', ''), "Video Files (*.mp4 *.mkv *.avi *.mov *.wmv *.flv *.webm *.m4v)")
         if files:
             self.config.set('last_input_folder', str(Path(files[0]).parent))
             with QMutexLocker(self.queue_mutex):
@@ -379,7 +353,7 @@ class MainWindow(QMainWindow):
             self.file_list.setCurrentRow(self.file_list.count() - 1)
 
     def add_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, get_text('select_folder'), self.config.get('last_input_folder', ''))
+        folder = QFileDialog.getExistingDirectory(self, tr('select_folder'), self.config.get('last_input_folder', ''))
         if folder:
             self.config.set('last_input_folder', folder)
             exts = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v']
@@ -412,7 +386,7 @@ class MainWindow(QMainWindow):
             self.poster_worker.cancel()
             self.poster_worker.wait(500)
         self.last_loaded_file = video_path
-        self.poster_label.setText("\n\n" + get_text('loading_preview'))
+        self.poster_label.setText("\n\n" + tr('loading_preview'))
         self.poster_worker = PosterLoaderWorker(video_path, self.tmdb_client)
         self.poster_worker.poster_loaded.connect(self._on_poster_loaded)
         self.poster_worker.poster_failed.connect(self._on_poster_failed)
@@ -424,7 +398,7 @@ class MainWindow(QMainWindow):
         else: self._on_poster_failed()
 
     def _on_poster_failed(self):
-        self.poster_label.setText("❌\n\n" + get_text('no_preview'))
+        self.poster_label.setText("❌\n\n" + tr('no_preview'))
 
     def start_processing(self):
         if not self.processing_queue: return
@@ -458,14 +432,14 @@ class MainWindow(QMainWindow):
     def update_remaining_files_label(self):
         with QMutexLocker(self.queue_mutex):
             remaining = len(self.processing_queue)
-        self.remaining_files_label.setText(f"📊 {get_text('files_remaining')} {remaining}" if self.is_processing else "")
+        self.remaining_files_label.setText(f"📊 {tr('remaining_files')} {remaining}" if self.is_processing else "")
 
     def processing_finished(self):
         self.is_processing = False
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.clear_btn.setEnabled(True)
-        self.log_message("🎉 Elaborazione Completata")
+        self.log_message(tr('processing_completed'))
         if self.shutdown_checkbox.isChecked():
             QTimer.singleShot(5000, self.shutdown_system)
 
@@ -487,7 +461,7 @@ class MainWindow(QMainWindow):
 
     def open_opensubtitles_settings(self):
         dialog = QDialog(self)
-        dialog.setWindowTitle("OpenSubtitles — Credenziali e Impostazioni")
+        dialog.setWindowTitle(tr('opensubtitles_settings'))
         dialog.setMinimumWidth(420)
         dialog.setStyleSheet("""
             QDialog, QWidget {
@@ -539,14 +513,14 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(12, 12, 12, 12)
         widget = OpenSubtitlesSettingsWidget(parent=dialog)
         layout.addWidget(widget)
-        close_btn = QPushButton("Chiudi")
+        close_btn = QPushButton(tr('close'))
         close_btn.clicked.connect(dialog.accept)
         layout.addWidget(close_btn)
         dialog.exec()
 
     def open_adaptive_batch_settings(self):
         dialog = QDialog(self)
-        dialog.setWindowTitle("Adaptive Batch Size — Impostazioni")
+        dialog.setWindowTitle(tr('batch_settings_title'))
         dialog.setMinimumWidth(400)
         dialog.setStyleSheet(DIALOG_STYLE)
         layout = QVBoxLayout(dialog)
@@ -556,7 +530,7 @@ class MainWindow(QMainWindow):
             lambda: self.log_message("🎯 Adaptive batch settings salvate.")
         )
         layout.addWidget(widget)
-        close_btn = QPushButton("Chiudi")
+        close_btn = QPushButton(tr('close'))
         close_btn.clicked.connect(dialog.accept)
         layout.addWidget(close_btn)
         dialog.exec()
@@ -567,19 +541,18 @@ class MainWindow(QMainWindow):
             selected_model = dialog.get_selected_model()
             if selected_model:
                 self.config.set_translation_model(selected_model)
-                self.log_message(f"🌐 Modello traduzione cambiato: {selected_model}")
+                self.log_message(tr('translation_model_changed').format(model=selected_model))
 
     def update_profile_indicator(self):
         current_profile = self.config.get_transcription_profile()
-        profile_info = self.config.get_profile_info(current_profile)
-        self.profile_indicator.setText(f"⚙️ {profile_info['name']}")
+        self.profile_indicator.setText(f"⚙️ {tr(f'profile_{current_profile}_name')}")
 
     def clear_queue(self):
         if self.is_processing: return
         with QMutexLocker(self.queue_mutex):
             self.processing_queue.clear()
             self.file_list.clear()
-        self.poster_label.setText("🎬\n\n" + get_text('no_preview'))
+        self.poster_label.setText("🎬\n\n" + tr('no_preview'))
 
     def on_shutdown_checkbox_changed(self, state):
         self.config.set('shutdown_after_processing', state == Qt.CheckState.Checked.value)
@@ -595,9 +568,23 @@ class MainWindow(QMainWindow):
     def on_compact_log_changed(self, state):
         self.compact_log_enabled = state == Qt.CheckState.Checked.value
 
+    def open_general_settings(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(tr('general_settings_title'))
+        dialog.setMinimumWidth(380)
+        dialog.setStyleSheet(DIALOG_STYLE)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(12, 12, 12, 12)
+        widget = GeneralSettingsWidget(parent=dialog)
+        layout.addWidget(widget)
+        close_btn = QPushButton(tr('close'))
+        close_btn.clicked.connect(dialog.accept)
+        layout.addWidget(close_btn)
+        dialog.exec()
+
     def closeEvent(self, event):
         if self.is_processing:
-            reply = QMessageBox.question(self, "Conferma", "Elaborazione in corso. Uscire?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            reply = QMessageBox.question(self, tr('confirm_exit'), tr('processing_in_progress'), QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if reply == QMessageBox.StandardButton.Yes: event.accept()
             else: event.ignore()
         else: event.accept()

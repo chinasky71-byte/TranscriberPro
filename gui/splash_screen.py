@@ -7,6 +7,8 @@ from PyQt6.QtWidgets import QSplashScreen, QApplication
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont
 
+from utils.translations import tr
+
 class SplashScreen(QSplashScreen):
     def __init__(self):
         # Crea un pixmap con sfondo personalizzato
@@ -37,8 +39,8 @@ class SplashScreen(QSplashScreen):
         painter.setFont(subtitle_font)
         painter.setPen(QColor(200, 200, 200))
         subtitle_rect = pixmap.rect().adjusted(0, 120, 0, 0)  # Posizionato sotto l'icona
-        painter.drawText(subtitle_rect, Qt.AlignmentFlag.AlignCenter, 
-                        "AI-Powered Video Transcription")
+        painter.drawText(subtitle_rect, Qt.AlignmentFlag.AlignCenter,
+                        tr('splash_subtitle'))
         
         # ✅ VERSIONE AGGIORNATA: 1.1.0
         version_font = QFont("Arial", 10)
@@ -49,9 +51,9 @@ class SplashScreen(QSplashScreen):
                         "v1.1.0")
         
         # Credits in basso a sinistra (aggiornato con NLLB e TMDB)
-        painter.drawText(pixmap.rect().adjusted(10, 0, 0, -10), 
-                        Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignLeft, 
-                        "Powered by Whisper • NLLB • TMDB")
+        painter.drawText(pixmap.rect().adjusted(10, 0, 0, -10),
+                        Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignLeft,
+                        tr('splash_credits'))
         
         painter.end()
         
@@ -61,7 +63,7 @@ class SplashScreen(QSplashScreen):
         
         # Messaggio di caricamento
         self.showMessage(
-            "Inizializzazione...",
+            tr('init_message'),
             Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignCenter,
             QColor(255, 255, 255)
         )
@@ -83,10 +85,10 @@ def show_splash(duration=2500):
     
     # Simula caricamento con messaggi
     messages = [
-        ("Inizializzazione...", 0),
-        ("Caricamento librerie AI...", 500),
-        ("Verifica GPU...", 1000),
-        ("Pronto!", 1500)
+        (tr('init_message'),  0),
+        (tr('loading_ai'),  500),
+        (tr('checking_gpu'), 1000),
+        (tr('ready'),        1500),
     ]
     
     for message, delay in messages:

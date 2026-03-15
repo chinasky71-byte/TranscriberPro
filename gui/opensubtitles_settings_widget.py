@@ -21,6 +21,7 @@ import logging
 from utils.opensubtitles_config import get_opensubtitles_config
 from utils.subtitle_uploader_interface import UploaderFactory
 from utils.config import get_config
+from utils.translations import tr
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ class OpenSubtitlesSettingsWidget(QWidget):
         # ========================================
         # GROUP: Status
         # ========================================
-        status_group = QGroupBox("📤 OpenSubtitles Upload")
+        status_group = QGroupBox(tr('os_upload_group'))
         status_layout = QVBoxLayout()
         
         # Status label
@@ -72,25 +73,25 @@ class OpenSubtitlesSettingsWidget(QWidget):
         # ========================================
         # GROUP: Credenziali
         # ========================================
-        creds_group = QGroupBox("🔑 Credenziali")
+        creds_group = QGroupBox(tr('os_credentials_group'))
         creds_form = QFormLayout()
         creds_form.setSpacing(8)
 
         self.username_input = QLineEdit()
-        self.username_input.setPlaceholderText("Username OpenSubtitles")
+        self.username_input.setPlaceholderText(tr('os_username_ph'))
         creds_form.addRow("Username:", self.username_input)
 
         self.password_input = QLineEdit()
-        self.password_input.setPlaceholderText("Password")
+        self.password_input.setPlaceholderText(tr('os_password_ph'))
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         creds_form.addRow("Password:", self.password_input)
 
         self.apikey_input = QLineEdit()
-        self.apikey_input.setPlaceholderText("REST API Key (da opensubtitles.com/consumers)")
+        self.apikey_input.setPlaceholderText(tr('os_apikey_ph'))
         self.apikey_input.setEchoMode(QLineEdit.EchoMode.Password)
         creds_form.addRow("API Key:", self.apikey_input)
 
-        self.save_creds_btn = QPushButton("💾 Salva Credenziali")
+        self.save_creds_btn = QPushButton(tr('os_save_creds'))
         self.save_creds_btn.clicked.connect(self.save_credentials)
         creds_form.addRow("", self.save_creds_btn)
 
@@ -100,24 +101,18 @@ class OpenSubtitlesSettingsWidget(QWidget):
         # ========================================
         # GROUP: Controls
         # ========================================
-        controls_group = QGroupBox("⚙️ Impostazioni")
+        controls_group = QGroupBox(tr('os_settings_group'))
         controls_layout = QVBoxLayout()
         
         # Checkbox: Auto-upload
-        self.auto_upload_checkbox = QCheckBox("Upload automatico al termine elaborazione")
-        self.auto_upload_checkbox.setToolTip(
-            "Esegui automaticamente l'upload dopo ogni trascrizione/traduzione.\n"
-            "Se disabilitato, upload solo su richiesta manuale."
-        )
+        self.auto_upload_checkbox = QCheckBox(tr('os_auto_upload'))
+        self.auto_upload_checkbox.setToolTip(tr('os_auto_upload_tip'))
         self.auto_upload_checkbox.toggled.connect(self.on_auto_upload_toggled)
         controls_layout.addWidget(self.auto_upload_checkbox)
         
         # Checkbox: Check duplicates
-        self.check_duplicates_checkbox = QCheckBox("Verifica duplicati prima dell'upload")
-        self.check_duplicates_checkbox.setToolTip(
-            "Controlla se il sottotitolo esiste già nel database\n"
-            "prima di procedere con l'upload (raccomandato)."
-        )
+        self.check_duplicates_checkbox = QCheckBox(tr('os_check_duplicates'))
+        self.check_duplicates_checkbox.setToolTip(tr('os_check_dup_tip'))
         self.check_duplicates_checkbox.setChecked(True)
         controls_layout.addWidget(self.check_duplicates_checkbox)
         
@@ -130,14 +125,14 @@ class OpenSubtitlesSettingsWidget(QWidget):
         buttons_layout = QHBoxLayout()
         
         # Test connection button
-        self.test_btn = QPushButton("🔍 Test Connessione")
-        self.test_btn.setToolTip("Verifica autenticazione con OpenSubtitles")
+        self.test_btn = QPushButton(tr('os_test_conn'))
+        self.test_btn.setToolTip(tr('os_test_conn_tip'))
         self.test_btn.clicked.connect(self.test_connection)
         buttons_layout.addWidget(self.test_btn)
         
         # Configure button
-        self.config_btn = QPushButton("⚙️ Configura Credenziali")
-        self.config_btn.setToolTip("Apri documentazione per configurare credenziali")
+        self.config_btn = QPushButton(tr('os_configure'))
+        self.config_btn.setToolTip(tr('os_configure_tip'))
         self.config_btn.clicked.connect(self.open_config_help)
         buttons_layout.addWidget(self.config_btn)
         
@@ -240,24 +235,17 @@ class OpenSubtitlesSettingsWidget(QWidget):
             credentials = self.os_config.get_credentials()
             username = credentials.get('username', 'N/A')
             
-            self.status_label.setText(
-                "✅ Sistema configurato e pronto per l'upload"
-            )
-            self.credentials_label.setText(
-                f"👤 Account: {username}"
-            )
+            self.status_label.setText(tr('os_configured'))
+            self.credentials_label.setText(tr('os_account').format(username=username))
             
             # Abilita controlli
             self.test_btn.setEnabled(True)
             
         else:
             self.status_label.setText(
-                "⚠️ Credenziali non configurate\n"
-                "L'upload su OpenSubtitles non è disponibile."
+                tr('os_not_configured') + '\n' + tr('os_not_available')
             )
-            self.credentials_label.setText(
-                "💡 Clicca 'Configura Credenziali' per iniziare"
-            )
+            self.credentials_label.setText(tr('os_configure_hint'))
             
             # Disabilita controlli
             self.auto_upload_checkbox.setEnabled(False)
@@ -292,8 +280,7 @@ class OpenSubtitlesSettingsWidget(QWidget):
         api_key  = self.apikey_input.text().strip()
 
         if not username or not password:
-            QMessageBox.warning(self, "Campi mancanti",
-                                "Username e Password sono obbligatori.")
+            QMessageBox.warning(self, tr('os_missing_fields_title'), tr('os_missing_fields_msg'))
             return
 
         self.app_config.set_opensubtitles_credentials(
@@ -308,19 +295,13 @@ class OpenSubtitlesSettingsWidget(QWidget):
         self.update_status()
         self.settings_changed.emit()
 
-        QMessageBox.information(self, "Credenziali Salvate",
-                                "✅ Credenziali salvate correttamente.")
+        QMessageBox.information(self, tr('os_creds_saved_title'), tr('os_creds_saved_msg'))
 
     def test_connection(self):
         """Test connessione e autenticazione"""
         creds = self.app_config.get_opensubtitles_credentials()
         if not creds.get('username') or not creds.get('password'):
-            QMessageBox.warning(
-                self,
-                "Credenziali Mancanti",
-                "Le credenziali OpenSubtitles non sono configurate.\n\n"
-                "Inserisci username, password e API key, poi clicca Salva."
-            )
+            QMessageBox.warning(self, tr('os_missing_creds_title'), tr('os_missing_creds_msg'))
             return
 
         try:
@@ -337,43 +318,22 @@ class OpenSubtitlesSettingsWidget(QWidget):
             
             # Test autenticazione
             self.test_btn.setEnabled(False)
-            self.test_btn.setText("⏳ Test in corso...")
+            self.test_btn.setText(tr('os_testing'))
             
             if uploader.authenticate():
                 uploader.logout()
                 
-                QMessageBox.information(
-                    self,
-                    "Test Riuscito",
-                    "✅ Connessione e autenticazione riuscite!\n\n"
-                    "Il tuo account OpenSubtitles è valido e funzionante.\n"
-                    "Puoi procedere con l'upload di sottotitoli."
-                )
+                QMessageBox.information(self, tr('os_test_ok_title'), tr('os_test_ok_msg'))
             else:
-                QMessageBox.critical(
-                    self,
-                    "Test Fallito",
-                    "❌ Autenticazione fallita.\n\n"
-                    "Possibili cause:\n"
-                    "• Username o password errati\n"
-                    "• Account non attivato (verifica email)\n"
-                    "• Problemi di rete\n\n"
-                    "Verifica le credenziali su:\n"
-                    "https://www.opensubtitles.org"
-                )
+                QMessageBox.critical(self, tr('os_test_fail_title'), tr('os_test_fail_msg'))
         
         except Exception as e:
             logger.error(f"Errore test connessione: {e}", exc_info=True)
-            QMessageBox.critical(
-                self,
-                "Errore",
-                f"❌ Errore durante il test:\n\n{str(e)}\n\n"
-                "Verifica la connessione internet e riprova."
-            )
+            QMessageBox.critical(self, tr('os_error_title'), tr('os_error_msg').format(error=str(e)))
         
         finally:
             self.test_btn.setEnabled(True)
-            self.test_btn.setText("🔍 Test Connessione")
+            self.test_btn.setText(tr('os_test_conn'))
     
     def open_config_help(self):
         """Apri guida configurazione"""
@@ -413,7 +373,7 @@ tua_password</pre>
         """
         
         msg = QMessageBox(self)
-        msg.setWindowTitle("Guida Configurazione")
+        msg.setWindowTitle(tr('os_guide_title'))
         msg.setTextFormat(Qt.TextFormat.RichText)
         msg.setText(help_text)
         msg.setIcon(QMessageBox.Icon.Information)

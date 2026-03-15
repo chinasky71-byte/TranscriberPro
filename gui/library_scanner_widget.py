@@ -14,11 +14,42 @@ from PyQt6.QtCore import Qt, QTimer, QMutexLocker, QThread, pyqtSignal
 from PyQt6.QtGui import QColor
 from pathlib import Path
 import logging
+import re
 
 from gui.library_scanner_worker import LibraryScannerWorker
 from utils.config import get_config
+from utils.translations import tr
 
 logger = logging.getLogger(__name__)
+
+# ── Italian audio detection ───────────────────────────────────────────────────
+# (?<![a-zA-Z]) / (?![a-zA-Z]) gestisce separatori come punto, trattino,
+# underscore, parentesi — più robusto di \b che tratta _ come parola
+_IT_TAGS_RE = re.compile(
+    r'(?<![a-zA-Z])(ita|nuita|italian|italiano)(?![a-zA-Z])',
+    re.IGNORECASE,
+)
+_FOREIGN_TAGS_RE = re.compile(
+    r'(?<![a-zA-Z])(eng|nueng|english|fra|french|fre|spa|spanish|ger|german|deu|'
+    r'por|portuguese|rus|russian|jpn|japanese|kor|korean|chi|chinese|nld|dutch)(?![a-zA-Z])',
+    re.IGNORECASE,
+)
+
+
+def _detect_italian(filename: str) -> str:
+    """
+    Rileva la lingua audio dal filename tramite tag espliciti.
+
+    Ritorna:
+        'ita'     – italiano confermato (tag esplicito nel filename)
+        'foreign' – lingua straniera confermata (tag esplicito, no italiano)
+        'unknown' – nessun tag lingua trovato
+    """
+    if _IT_TAGS_RE.search(filename):
+        return 'ita'
+    if _FOREIGN_TAGS_RE.search(filename):
+        return 'foreign'
+    return 'unknown'
 
 
 class _NotifyWorker(QThread):
@@ -106,7 +137,7 @@ class LibraryScannerWidget(QFrame):
         self.toggle_btn.clicked.connect(self.toggle_expanded)
         layout.addWidget(self.toggle_btn)
 
-        title = QLabel("📡 Library Scanner")
+        title = QLabel(tr('library_scanner_title'))
         title.setObjectName("scannerTitle")
         layout.addWidget(title)
 
@@ -131,7 +162,7 @@ class LibraryScannerWidget(QFrame):
         self.refresh_btn.setText("🔄")
         self.refresh_btn.setObjectName("scannerRefreshBtn")
         self.refresh_btn.setFixedSize(24, 24)
-        self.refresh_btn.setToolTip("Aggiorna")
+        self.refresh_btn.setToolTip(tr('refresh'))
         self.refresh_btn.clicked.connect(self.refresh_data)
         layout.addWidget(self.refresh_btn)
 
@@ -146,24 +177,24 @@ class LibraryScannerWidget(QFrame):
         # Barra di ricerca
         self.search_bar = QLineEdit()
         self.search_bar.setObjectName("scannerSearch")
-        self.search_bar.setPlaceholderText("Cerca...")
+        self.search_bar.setPlaceholderText(tr('search_placeholder'))
         self.search_bar.textChanged.connect(self._on_search_changed)
         layout.addWidget(self.search_bar)
 
         # Filtro tipo + filtro giorni
         filter_layout = QHBoxLayout()
         filter_layout.setSpacing(6)
-        type_label = QLabel("Tipo:")
+        type_label = QLabel(tr('type_filter'))
         type_label.setObjectName("scannerFilterLabel")
         filter_layout.addWidget(type_label)
 
         self.type_combo = QComboBox()
         self.type_combo.setObjectName("scannerFilter")
-        self.type_combo.addItems(["Tutti", "Film", "Serie TV"])
+        self.type_combo.addItems([tr('all_types'), tr('film_type'), tr('tv_series_type')])
         self.type_combo.currentIndexChanged.connect(self._on_type_filter_changed)
         filter_layout.addWidget(self.type_combo)
 
-        days_label = QLabel("≥ Giorni:")
+        days_label = QLabel(tr('days_filter'))
         days_label.setObjectName("scannerFilterLabel")
         filter_layout.addWidget(days_label)
 
@@ -171,7 +202,7 @@ class LibraryScannerWidget(QFrame):
         self.days_spinbox.setObjectName("scannerDaysFilter")
         self.days_spinbox.setRange(0, 9999)
         self.days_spinbox.setValue(0)
-        self.days_spinbox.setSpecialValueText("Tutti")
+        self.days_spinbox.setSpecialValueText(tr('all_days'))
         self.days_spinbox.setFixedWidth(85)
         self.days_spinbox.valueChanged.connect(self._on_days_filter_changed)
         filter_layout.addWidget(self.days_spinbox)
@@ -183,7 +214,7 @@ class LibraryScannerWidget(QFrame):
         self.video_table = QTableWidget()
         self.video_table.setObjectName("scannerTable")
         self.video_table.setColumnCount(4)
-        self.video_table.setHorizontalHeaderLabels(["File", "Tipo", "Giorni", ""])
+        self.video_table.setHorizontalHeaderLabels([tr('file_col'), tr('type_col'), tr('days_col'), ""])
         self.video_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.video_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.video_table.verticalHeader().setVisible(False)
@@ -211,7 +242,7 @@ class LibraryScannerWidget(QFrame):
         buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(6)
 
-        self.import_all_btn = QPushButton("Importa Tutti i Filtrati")
+        self.import_all_btn = QPushButton(tr('import_filtered'))
         self.import_all_btn.setObjectName("scannerImportAllBtn")
         self.import_all_btn.clicked.connect(self._import_all)
         self.import_all_btn.setEnabled(False)
@@ -220,7 +251,7 @@ class LibraryScannerWidget(QFrame):
         layout.addLayout(buttons_layout)
 
         # Statistiche
-        self.stats_label = QLabel("In attesa di connessione...")
+        self.stats_label = QLabel(tr('waiting_connection'))
         self.stats_label.setObjectName("scannerStats")
         self.stats_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.stats_label)
@@ -413,11 +444,11 @@ class LibraryScannerWidget(QFrame):
         api_key = self.config.get('library_scanner_api_key')
 
         if not url or not api_key:
-            self.stats_label.setText("Configurazione mancante (URL o API Key)")
+            self.stats_label.setText(tr('config_missing'))
             self._update_status_dot(False)
             return
 
-        self.stats_label.setText("Caricamento...")
+        self.stats_label.setText(tr('loading'))
 
         self.worker = LibraryScannerWorker(
             server_url=url,
@@ -441,12 +472,12 @@ class LibraryScannerWidget(QFrame):
     def _on_stats_loaded(self, stats: dict):
         without = stats.get('without_subs', 0)
         total = stats.get('total_files', 0)
-        self.stats_label.setText(f"{without} senza sub / {total} totali")
+        self.stats_label.setText(tr('files_stats').format(without=without, total=total))
         self._update_badge(without)
 
     def _on_error(self, message: str):
         logger.warning(f"Library Scanner: {message}")
-        self.stats_label.setText(f"Errore: {message}")
+        self.stats_label.setText(tr('error_status').format(message=message))
 
     def _update_status_dot(self, connected: bool):
         color = "#4CAF50" if connected else "#f44336"
@@ -472,17 +503,25 @@ class LibraryScannerWidget(QFrame):
 
         for row, video in enumerate(self.videos_data):
             windows_path = video.get('windows_path', '')
+            filename     = video.get('filename', '')
 
             # Colonna 0: Nome file — UserRole contiene windows_path per accesso post-sort
-            name_item = QTableWidgetItem(video.get('filename', ''))
+            name_item = QTableWidgetItem(filename)
             name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            name_item.setToolTip(windows_path)
             name_item.setData(Qt.ItemDataRole.UserRole, windows_path)
+
+            # Rileva lingua audio dal filename e colora di conseguenza
+            if _detect_italian(filename) == 'ita':
+                name_item.setForeground(QColor("#82aaff"))
+                name_item.setToolTip(f"🇮🇹 Audio ITA · {windows_path}")
+            else:
+                name_item.setToolTip(windows_path)
+
             self.video_table.setItem(row, 0, name_item)
 
             # Colonna 1: Tipo
             media_type = video.get('media_type', '')
-            type_text = 'Film' if media_type == 'movie' else 'Serie TV' if media_type == 'tvshow' else media_type
+            type_text = tr('film_type') if media_type == 'movie' else tr('tv_series_type') if media_type == 'tvshow' else media_type
             type_item = QTableWidgetItem(type_text)
             type_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.video_table.setItem(row, 1, type_item)
@@ -531,7 +570,7 @@ class LibraryScannerWidget(QFrame):
         if not already_queued:
             btn.clicked.connect(lambda checked, b=btn: self._import_single_by_btn(b))
         else:
-            btn.setToolTip("Già in coda")
+            btn.setToolTip(tr('already_queued'))
         return btn
 
     def _import_single_by_btn(self, btn: QPushButton):
@@ -559,7 +598,7 @@ class LibraryScannerWidget(QFrame):
             if btn:
                 btn.setText("✓")
                 btn.setEnabled(False)
-                btn.setToolTip("Già in coda")
+                btn.setToolTip(tr('already_queued'))
 
     def _import_all(self):
         # Solo righe visibili (rispetta filtro giorni + tipo)
@@ -591,10 +630,10 @@ class LibraryScannerWidget(QFrame):
                         if btn and btn.isEnabled():
                             btn.setText("✓")
                             btn.setEnabled(False)
-                            btn.setToolTip("Già in coda")
+                            btn.setToolTip(tr('already_queued'))
 
         if added > 0:
-            self.main_window.log_message(f"📡 Library Scanner: {added} file importati nella coda")
+            self.main_window.log_message(tr('files_imported_log').format(added=added))
 
     def _import_paths(self, paths: list) -> int:
         if not paths:
