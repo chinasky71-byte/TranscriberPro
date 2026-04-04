@@ -61,10 +61,20 @@ class Transcriber:
         from utils.adaptive_batch_manager import AdaptiveBatchSizeManager
         profile_config = ProfileConfig.get_profile_config(self.profile)
         batch_hint = profile_config.get('batch_size_hint', None)
+
+        # Leggi config adaptive batch (stesse chiavi usate dal translator)
+        cfg = self.config.get_adaptive_batch_config() if self.config else {}
+        # Per la trascrizione, cap high_threshold a 0.75 (OOM in ctranslate2 è fatale)
+        ht = min(cfg.get('high_threshold', 0.85), 0.75)
         self.batch_manager = AdaptiveBatchSizeManager(
             device=self.device,
             use_gpu=(self.device == 'cuda'),
-            initial_size=batch_hint,
+            initial_size=batch_hint or cfg.get('initial_size'),
+            min_size=cfg.get('min_size', 1),
+            max_size=cfg.get('max_size', 24),
+            warmup_batches=cfg.get('warmup_batches', 5),
+            high_threshold=ht,
+            low_threshold=cfg.get('low_threshold', 0.60),
             log_callback=self.log_callback,
         )
         self.batch_size_for_transcription = None  # None finché BatchedInferencePipeline non disponibile
@@ -118,6 +128,10 @@ class Transcriber:
     def cancel(self):
         """Segnala cancellazione — interrompe il loop di trascrizione tra un chunk e l'altro."""
         self._cancelled = True
+
+    def set_files_processed(self, count: int):
+        """Passa il contatore fatigue al batch_manager per riduzione preventiva batch_size."""
+        self.batch_manager.set_files_processed(count)
 
     def set_log_callback(self, callback: Callable):
         """Imposta callback per logging GUI"""
@@ -266,7 +280,28 @@ class Transcriber:
 
         if batched_mode:
             chunk_path, _, total_duration = audio_chunks[0]
-            bs = self.batch_manager.get_batch_size()
+
+            # VRAM pre-transcription logging
+            free_vram = self.batch_manager._get_free_vram_gb()
+            total_vram = self.batch_manager._get_total_vram_gb()
+            if total_vram > 0:
+                used_pct = int(((total_vram - free_vram) / total_vram) * 100)
+                self.log(
+                    f"  📊 VRAM pre-transcription: {free_vram:.1f}/{total_vram:.1f} GB free "
+                    f"({used_pct}% used)"
+                )
+
+            # Batch size: min(adaptive, safe ceiling basato su VRAM reale)
+            adaptive_bs = self.batch_manager.get_batch_size()
+            safe_bs = self.batch_manager.compute_safe_batch_size(
+                audio_duration_s=total_duration,
+                beam_size=self.beam_size,
+            )
+            bs = min(adaptive_bs, safe_bs)
+            self.log(
+                f"  📊 Batch size: adaptive={adaptive_bs}, safe_ceiling={safe_bs}, "
+                f"using={bs}"
+            )
             self.log(f"  📊 BatchedInferencePipeline — file unico ({total_duration:.0f}s), batch_size={bs}")
             self.log(f"  ⚙️ Profilo: {self.profile_name} (beam={self.beam_size})")
             if auto_detect:

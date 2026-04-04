@@ -80,6 +80,9 @@ class AdaptiveBatchSizeManager:
         self._oom_consecutive = 0
         self._batch_count = 0
 
+        # Fatigue tracking (cross-file batch processing)
+        self._files_processed = 0
+
         # Metriche
         self._oom_events = 0
         self._adjustments = 0
@@ -221,6 +224,100 @@ class AdaptiveBatchSizeManager:
             f"OOM: {m['oom_events']}, aggiustamenti: {m['adjustments']}, "
             f"batch totali: {m['total_batches']}"
         )
+
+    # ------------------------------------------------------------------
+    # VRAM-aware safe batch (OOM prevention)
+    # ------------------------------------------------------------------
+
+    def set_files_processed(self, count: int):
+        """Aggiorna il contatore file elaborati per il calcolo fatigue."""
+        self._files_processed = count
+
+    def _get_free_vram_gb(self) -> float:
+        """
+        Restituisce VRAM libera in GB a livello OS.
+        pynvml vede TUTTA la VRAM (incluso ctranslate2), torch solo la propria.
+        """
+        # 1. pynvml — fonte più affidabile (vede allocazioni ctranslate2)
+        if self._nvml_handle is not None:
+            try:
+                mem = pynvml.nvmlDeviceGetMemoryInfo(self._nvml_handle)
+                return mem.free / (1024 ** 3)
+            except Exception:
+                pass
+
+        # 2. torch.cuda.mem_get_info — buon fallback
+        if _TORCH_AVAILABLE and self.use_gpu:
+            try:
+                free, total = torch.cuda.mem_get_info(0)
+                return free / (1024 ** 3)
+            except Exception:
+                pass
+
+        return 0.0
+
+    def compute_safe_batch_size(
+        self,
+        audio_duration_s: float = 0,
+        beam_size: int = 5,
+        model_vram_gb: float = 1.5,
+    ) -> int:
+        """
+        Calcola batch size massimo sicuro basandosi sulla VRAM libera reale.
+
+        Strategia:
+        - Sottrae margine di sicurezza (1.5 GB) dalla VRAM libera
+        - Stima costo per elemento batch: beam_size × 0.15 GB (empirico large-v3 int8_float16)
+        - Penalità per audio lungo e per fatigue (file consecutivi)
+        - Ritorna max(min_size, risultato)
+        """
+        free_gb = self._get_free_vram_gb()
+        total_gb = self._get_total_vram_gb()
+
+        if free_gb <= 0 or total_gb <= 0:
+            # Nessuna info VRAM — ritorna max_size (nessun cap)
+            return self.max_size
+
+        safety_margin_gb = 1.5
+        available_gb = free_gb - model_vram_gb - safety_margin_gb
+
+        if available_gb <= 0:
+            self._log(
+                f"  ⚠️ VRAM molto bassa: {free_gb:.1f} GB liberi, "
+                f"margine={safety_margin_gb} GB → batch={self.min_size}"
+            )
+            return self.min_size
+
+        # Costo per elemento batch (empirico: large-v3 int8_float16 su RTX 3060)
+        cost_per_element_gb = beam_size * 0.15
+        if cost_per_element_gb <= 0:
+            cost_per_element_gb = 0.3
+
+        max_safe = int(available_gb / cost_per_element_gb)
+
+        # Penalità durata audio
+        if audio_duration_s > 7200:
+            max_safe -= 2
+        elif audio_duration_s > 3600:
+            max_safe -= 1
+
+        # Penalità fatigue (frammentazione VRAM dopo molti file)
+        if self._files_processed > 20:
+            max_safe = min(max_safe, self.min_size + 1)
+        elif self._files_processed > 10:
+            max_safe -= 2
+        elif self._files_processed > 5:
+            max_safe -= 1
+
+        result = max(self.min_size, min(max_safe, self.max_size))
+
+        self._log(
+            f"  🧮 Safe batch: VRAM {free_gb:.1f}/{total_gb:.1f} GB free, "
+            f"available={available_gb:.1f} GB, beam={beam_size}, "
+            f"fatigue={self._files_processed} files → safe_ceiling={result}"
+        )
+
+        return result
 
     # ------------------------------------------------------------------
     # Metodi interni

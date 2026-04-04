@@ -120,6 +120,9 @@ class ProcessingPipeline:
         self.metadata: Dict[str, Any] = {}
         self._cleanup_done: bool = False
 
+        # Batch context (fatigue tracking per OOM prevention)
+        self._files_processed_in_batch: int = 0
+
         # Cancellazione
         self._cancelled: bool = False
         self._current_proc: Optional[subprocess.Popen] = None
@@ -133,6 +136,10 @@ class ProcessingPipeline:
     def set_log_callback(self, callback: Callable):
         """Imposta callback per logging GUI (chiamato dal ProcessingWorker)"""
         self._log_callback = callback
+
+    def set_batch_context(self, files_processed: int):
+        """Inietta contatore file elaborati per fatigue tracking (OOM prevention)."""
+        self._files_processed_in_batch = files_processed
 
     def cancel(self):
         """Segnala cancellazione e termina immediatamente i sottoprocessi attivi."""
@@ -300,6 +307,11 @@ class ProcessingPipeline:
                                 # Fallback: non dovrebbe mai entrare qui dopo il pre-load 2.5
                                 self._transcriber = Transcriber(log_callback=self._log_callback)
                             
+
+                            # Inietta fatigue counter per OOM prevention
+                            if self._files_processed_in_batch > 0:
+                                self._transcriber.set_files_processed(self._files_processed_in_batch)
+
                             subtitle_path = self.file_handler.get_temp_path(
                                 self.video_path, 
                                 "transcribed.srt"
@@ -496,7 +508,13 @@ class ProcessingPipeline:
             final_name = self.video_name + f".{final_language_639_1}.srt"
             final_output_path = self.video_path.parent / final_name
             
-            shutil.copy(subtitle_path, final_output_path)
+            try:
+                shutil.copy(subtitle_path, final_output_path)
+            except PermissionError:
+                self._log(f"❌ Impossibile salvare il file: permesso negato.\n"
+                          f"   Percorso: {final_output_path}\n"
+                          f"   Verificare che la cartella di destinazione non sia in sola lettura.")
+                return False
             self._add_watermark_subtitle(final_output_path)
 
             self._log(f"✅ File salvato: {final_output_path.name}")
@@ -596,7 +614,7 @@ class ProcessingPipeline:
             # ============================================================
             # STEP 8.1: Inizializzazione Uploader
             # ============================================================
-            implementation = self.config.get('opensubtitles_preferred_implementation', 'rest')
+            implementation = self.config.get('opensubtitles_preferred_implementation', 'xmlrpc')
             
             creds = self.config.get_opensubtitles_credentials()
             if not creds:
@@ -639,9 +657,17 @@ class ProcessingPipeline:
             # ============================================================
             # STEP 8.4: Upload
             # ============================================================
+            # Se l'input era un file sottotitolo (es. .en.srt), cerchiamo
+            # il video originale nella stessa cartella per il calcolo dell'hash.
+            video_for_hash = self._resolve_video_path_for_upload()
+            if video_for_hash is None:
+                self._log("⚠️ Nessun file video trovato per il calcolo dell'hash. Upload saltato.")
+                uploader.logout()
+                return
+
             self._log(f" Avvio upload per {language_code_639_1} ({lang_639_2})...")
             success, url_or_error = uploader.upload(
-                video_path=self.video_path,
+                video_path=video_for_hash,
                 subtitle_path=subtitle_path,
                 metadata=metadata
             )
@@ -662,6 +688,42 @@ class ProcessingPipeline:
             logger.error(error_msg, exc_info=True)
             self._log(f"❌ {error_msg}")
     
+    def _resolve_video_path_for_upload(self) -> Optional[Path]:
+        """
+        Restituisce il path del file video da usare per il calcolo dell'hash.
+        Se l'input della pipeline è già un video, lo restituisce direttamente.
+        Se l'input è un sottotitolo (es. .en.srt), cerca il video corrispondente
+        nella stessa cartella (stesso nome base, estensione video).
+        """
+        _SUB_EXTS   = {'.srt', '.vtt', '.ass', '.ssa', '.sub'}
+        _VIDEO_EXTS = {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.m4v',
+                       '.mpg', '.mpeg', '.ts', '.webm'}
+
+        if self.video_path.suffix.lower() not in _SUB_EXTS:
+            return self.video_path  # già un file video
+
+        # Estrai il nome base senza il codice lingua (es. "movie.en" → "movie")
+        stem = self.video_path.stem          # "The Terrorists ...en"
+        parts = stem.rsplit('.', 1)
+        base_stem = parts[0] if len(parts) > 1 and len(parts[1]) <= 5 else stem
+
+        parent = self.video_path.parent
+
+        # 1. Cerca video con nome base identico (senza estensione lingua)
+        for f in sorted(parent.iterdir()):
+            if f.suffix.lower() in _VIDEO_EXTS and f.stem == base_stem:
+                logger.info(f"🎬 Video trovato per hash: {f.name}")
+                return f
+
+        # 2. Cerca video il cui nome inizia con il base_stem
+        for f in sorted(parent.iterdir()):
+            if f.suffix.lower() in _VIDEO_EXTS and f.name.startswith(base_stem):
+                logger.info(f"🎬 Video trovato per hash (prefisso): {f.name}")
+                return f
+
+        logger.warning(f"⚠️ Nessun video trovato in {parent} per il base_stem '{base_stem}'")
+        return None
+
     @staticmethod
     def _add_watermark_subtitle(srt_path: Path) -> None:
         """

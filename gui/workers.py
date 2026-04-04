@@ -257,13 +257,17 @@ class ProcessingWorker(QThread):
             
             # Crea pipeline
             self.pipeline = ProcessingPipeline(video_path)
-            
+
             # Log callback
             def log_callback(msg):
                 if not self.is_cancelled:
                     self.log_message.emit(msg)
-            
+
             self.pipeline.set_log_callback(log_callback)
+
+            # Inietta contesto batch per OOM prevention (fatigue tracking)
+            files_done = self.completed_files + self.failed_files
+            self.pipeline.set_batch_context(files_processed=files_done)
             
             # Elabora (SINGOLO TENTATIVO - NO RETRY)
             self.log_message.emit(tr('worker_start_single'))
@@ -307,14 +311,25 @@ class ProcessingWorker(QThread):
         """
         try:
             if self.pipeline:
-                logger.info("ðŸ§¹ Cleanup pipeline...")
+                logger.info("🧹 Cleanup pipeline...")
                 self.pipeline.cleanup()
                 self.pipeline = None
-                
-                # Garbage collection esplicito
+
+                # Garbage collection + VRAM cleanup aggressivo tra i file
                 import gc
                 gc.collect()
-                
-                logger.info("âœ… Pipeline cleanup completato")
+
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.synchronize()
+                        torch.cuda.empty_cache()
+                        gc.collect()
+                        torch.cuda.empty_cache()
+                        logger.info("🧹 VRAM cache cleared between files")
+                except Exception:
+                    pass
+
+                logger.info("✅ Pipeline cleanup completato")
         except Exception as e:
             logger.error(f"❌ Errore durante cleanup: {e}")
