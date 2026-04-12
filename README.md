@@ -199,7 +199,7 @@ This project is licensed under the MIT License.
 - **VRAM cleanup fix** — fixed 3.2 GB VRAM stuck after NLLB translator cleanup. Root cause: cuBLAS persistent workspaces prevented PyTorch caching allocator from releasing memory segments. Fix: `torch._C._cuda_clearCublasWorkspaces()` + accelerate hook removal + explicit `.to('cpu')` before model deletion
 - **Encoding fix** — fixed `UnicodeDecodeError` in subtitle extractor and audio track selector on Windows when video filenames contain non-ASCII characters (was defaulting to cp1252 instead of UTF-8)
 
-### v1.4.1
+### v1.3.1
 - **OOM prevention** — adaptive batch size ceiling based on real-time VRAM availability; fatigue tracking across batch files
 
 ### v1.3.0
