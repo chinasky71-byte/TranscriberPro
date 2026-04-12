@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.3.0-orange)
+![Version](https://img.shields.io/badge/Version-1.3.5-orange)
 
 AI-powered desktop application for automatic subtitle transcription and translation from video files.
 
@@ -33,6 +33,7 @@ Transcriber Pro takes any video file, extracts or transcribes its audio using Fa
 - **Embedded subtitle extraction** — skips transcription if subtitles already exist in the container; bitmap-only (PGS/VOBSUB) streams are automatically skipped
 - **IT/EN interface** — full Italian/English UI; language selector in General Settings (🔧); auto-detects system locale
 - **Immediate stop with confirmation** — Stop button shows a confirmation dialog; on confirm, kills active FFmpeg/Demucs/Whisper processes within seconds and cleans up temp files automatically
+- **Gender correction (experimental)** — LLM-based post-translation fix for Italian grammatical gender errors, using TMDB cast context; runs in isolated subprocess
 
 ---
 
@@ -126,6 +127,7 @@ All credentials are optional except for the translation model you choose to use.
 | Aya-23-8B | Translation (local) | 8B params | ~8 GB | ★★★★☆ | ★★★☆☆ |
 | Claude Sonnet (API) | Translation (cloud) | — | 0 GB | ★★★★★ | ★★★★☆ |
 | GPT-4o-mini (API) | Translation (cloud) | — | 0 GB | ★★★★☆ | ★★★★★ |
+| Qwen2.5-14B GGUF | Gender correction (local) | 14B params | ~8.4 GB | ★★★☆☆ | ★★★☆☆ |
 
 Models are loaded and unloaded sequentially to fit within available VRAM. Demucs, Whisper, and the translation model never run simultaneously.
 
@@ -191,6 +193,14 @@ This project is licensed under the MIT License.
 ---
 
 ## Changelog
+
+### v1.3.5
+- **Gender Correction (EXPERIMENTAL)** — new STEP 6.5: LLM-based grammatical gender correction for Italian subtitles using Qwen2.5-14B GGUF via llama-cpp-python. Runs in an isolated subprocess with fresh CUDA context for maximum VRAM availability. Integrates TMDB cast info for character gender context. Includes progress bar with ETA. *This feature is experimental — quality depends on the LLM model and corrections should be reviewed manually.*
+- **VRAM cleanup fix** — fixed 3.2 GB VRAM stuck after NLLB translator cleanup. Root cause: cuBLAS persistent workspaces prevented PyTorch caching allocator from releasing memory segments. Fix: `torch._C._cuda_clearCublasWorkspaces()` + accelerate hook removal + explicit `.to('cpu')` before model deletion
+- **Encoding fix** — fixed `UnicodeDecodeError` in subtitle extractor and audio track selector on Windows when video filenames contain non-ASCII characters (was defaulting to cp1252 instead of UTF-8)
+
+### v1.4.1
+- **OOM prevention** — adaptive batch size ceiling based on real-time VRAM availability; fatigue tracking across batch files
 
 ### v1.3.0
 - **Immediate stop with confirmation** — Stop button now shows a confirmation dialog; pressing Yes kills all active FFmpeg/Demucs/Whisper subprocesses within 2–3 seconds via `pipeline.cancel()` propagation; temp files are cleaned up automatically by the existing `finally` block
