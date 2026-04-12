@@ -161,6 +161,10 @@ class TranslationModelDialog(QDialog):
         diarization_widget = self.create_diarization_section()
         scroll_layout.addWidget(diarization_widget)
 
+        # Gender Correction
+        gender_widget = self.create_gender_correction_section()
+        scroll_layout.addWidget(gender_widget)
+
         scroll_layout.addStretch()
         scroll.setWidget(scroll_widget)
         main_layout.addWidget(scroll, stretch=1)
@@ -1079,6 +1083,148 @@ class TranslationModelDialog(QDialog):
                 msg = f"❌ Errore: {err}"
             self.diarization_test_label.setText(msg)
             self.diarization_test_label.setStyleSheet("color: red; font-size: 11px;")
+
+    # ── Gender Correction ─────────────────────────────────────────────────
+
+    def create_gender_correction_section(self) -> QWidget:
+        """Crea sezione Gender Correction (EXPERIMENTAL)."""
+        container = QFrame()
+        container.setFrameShape(QFrame.Shape.Box)
+        container.setStyleSheet("""
+            QFrame {
+                border: 1px solid #e65100;
+                border-radius: 8px;
+                padding: 15px;
+                background: #fff8e1;
+            }
+        """)
+
+        layout = QVBoxLayout(container)
+
+        title_label = QLabel("Correzione Genere (SPERIMENTALE)")
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #e65100;")
+        layout.addWidget(title_label)
+
+        desc_label = QLabel(
+            "Corregge errori di genere grammaticale nei sottotitoli italiani "
+            "usando un LLM locale (GGUF via llama-cpp-python).\n"
+            "Eseguito in un processo separato dopo la traduzione."
+        )
+        desc_label.setStyleSheet("color: #555; font-size: 12px; margin-top: 4px;")
+        desc_label.setWordWrap(True)
+        layout.addWidget(desc_label)
+
+        # --- Tabella VRAM ---
+        vram_label = QLabel(
+            "<b>Quale modello scegliere in base alla VRAM:</b>"
+            "<table style='margin-top:6px; font-size:12px;'>"
+            "<tr><td style='padding:2px 12px 2px 0;'><b>8 GB VRAM</b></td>"
+            "<td>Qwen2.5-<b>7B</b> Q4_K_M (~4.5 GB) &mdash; unica scelta possibile</td></tr>"
+            "<tr><td style='padding:2px 12px 2px 0;'><b>12 GB VRAM</b></td>"
+            "<td>Qwen2.5-<b>14B</b> Q4_K_M (~8.4 GB) &mdash; qualita' migliore, consigliato</td></tr>"
+            "<tr><td style='padding:2px 12px 2px 0;'><b>16+ GB VRAM</b></td>"
+            "<td>Qwen2.5-<b>14B</b> Q8_0 (~14 GB) oppure 32B Q4_K_M</td></tr>"
+            "</table>"
+        )
+        vram_label.setStyleSheet("color: #333; font-size: 12px; margin: 8px 0;")
+        vram_label.setWordWrap(True)
+        layout.addWidget(vram_label)
+
+        download_label = QLabel(
+            'Scarica i modelli GGUF da: '
+            '<a href="https://huggingface.co/Qwen" style="color:#1976d2;">huggingface.co/Qwen</a>'
+            ' (cerca "GGUF" nella pagina del modello)'
+        )
+        download_label.setOpenExternalLinks(True)
+        download_label.setStyleSheet("color: #555; font-size: 11px;")
+        layout.addWidget(download_label)
+
+        # --- Path modello GGUF ---
+        path_group = QGroupBox("Modello GGUF")
+        path_layout = QVBoxLayout()
+
+        path_row = QHBoxLayout()
+        self.gender_model_path_input = QLineEdit()
+        self.gender_model_path_input.setPlaceholderText("Seleziona il file .gguf del modello...")
+        current_path = self.config.get('gender_correction_model_path', '')
+        if current_path:
+            self.gender_model_path_input.setText(current_path)
+
+        browse_btn = QPushButton("Sfoglia...")
+        browse_btn.setFixedWidth(90)
+        browse_btn.clicked.connect(self._browse_gender_model)
+
+        path_row.addWidget(self.gender_model_path_input)
+        path_row.addWidget(browse_btn)
+        path_layout.addLayout(path_row)
+
+        self.gender_path_status = QLabel()
+        self._update_gender_path_status()
+        path_layout.addWidget(self.gender_path_status)
+
+        path_group.setLayout(path_layout)
+        layout.addWidget(path_group)
+
+        # --- Checkbox abilitazione ---
+        self.gender_correction_checkbox = QCheckBox(
+            "Abilita correzione genere (solo sottotitoli italiani)"
+        )
+        self.gender_correction_checkbox.setChecked(
+            self.config.get('gender_correction_enabled', False)
+        )
+        self.gender_correction_checkbox.toggled.connect(self._on_gender_correction_toggled)
+        layout.addWidget(self.gender_correction_checkbox)
+
+        warning_label = QLabel(
+            "SPERIMENTALE: la qualita' delle correzioni dipende dal modello. "
+            "Si consiglia di verificare manualmente il risultato."
+        )
+        warning_label.setStyleSheet(
+            "color: #bf360c; font-size: 11px; font-style: italic; margin-top: 4px;"
+        )
+        warning_label.setWordWrap(True)
+        layout.addWidget(warning_label)
+
+        return container
+
+    def _browse_gender_model(self):
+        """Apre file dialog per selezionare il modello GGUF."""
+        from PyQt6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Seleziona modello GGUF",
+            "",
+            "GGUF Models (*.gguf);;All Files (*)"
+        )
+        if path:
+            self.gender_model_path_input.setText(path)
+            self.config.set('gender_correction_model_path', path)
+            self._update_gender_path_status()
+
+    def _update_gender_path_status(self):
+        """Aggiorna lo stato del path modello GGUF."""
+        from pathlib import Path
+        p = self.config.get('gender_correction_model_path', '')
+        if p and Path(p).exists():
+            size_gb = Path(p).stat().st_size / (1024 ** 3)
+            self.gender_path_status.setText(
+                f"Modello trovato ({size_gb:.1f} GB)"
+            )
+            self.gender_path_status.setStyleSheet(
+                "color: green; font-weight: bold; font-size: 11px;"
+            )
+        elif p:
+            self.gender_path_status.setText("File non trovato")
+            self.gender_path_status.setStyleSheet("color: red; font-size: 11px;")
+        else:
+            self.gender_path_status.setText("Nessun modello selezionato")
+            self.gender_path_status.setStyleSheet("color: orange; font-size: 11px;")
+
+    def _on_gender_correction_toggled(self, checked: bool):
+        """Salva stato checkbox gender correction."""
+        self.config.set('gender_correction_enabled', checked)
+
+    # ── Forced Alignment / Diarization ────────────────────────────────────
 
     def on_forced_alignment_toggled(self, checked: bool):
         """Salva stato checkbox forced alignment"""
