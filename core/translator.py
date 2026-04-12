@@ -388,10 +388,27 @@ def _get_nllb_translator_resources():
 
 
 def _unload_nllb_singleton():
-    """Scarica il modello NLLB base dalla VRAM (thread-safe)."""
+    """Scarica il modello NLLB base dalla VRAM (thread-safe).
+
+    Sequenza di release deterministica:
+    1. remove_hook_from_module: rimuove gli hook di accelerate (device_map="auto")
+       che trattengono self-reference sui moduli del modello.
+    2. model.to('cpu'): forza il release dei tensor GPU spostando i pesi in RAM.
+    3. del + gc.collect() + empty_cache(): rompe le ref residue e rilascia
+       la cache del caching allocator PyTorch al driver CUDA.
+    """
     global _nllb_model, _nllb_tokenizer
     with _nllb_lock:
         if _nllb_model is not None:
+            try:
+                from accelerate.hooks import remove_hook_from_module
+                remove_hook_from_module(_nllb_model, recurse=True)
+            except Exception as e:
+                logger.debug(f"remove_hook_from_module NLLB base: {e}")
+            try:
+                _nllb_model.to('cpu')
+            except Exception as e:
+                logger.debug(f"NLLB base to('cpu') fallito: {e}")
             del _nllb_model
             _nllb_model = None
         if _nllb_tokenizer is not None:
@@ -401,6 +418,10 @@ def _unload_nllb_singleton():
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.synchronize()
+        try:
+            torch._C._cuda_clearCublasWorkspaces()
+        except Exception:
+            pass
         torch.cuda.empty_cache()
     logger.info("-> NLLB base scaricato dalla VRAM")
 
@@ -488,10 +509,25 @@ def _get_nllb_ft_resources():
 
 
 def _unload_nllb_ft_singleton():
-    """Scarica il modello NLLB fine-tuned dalla VRAM (thread-safe)."""
+    """Scarica il modello NLLB fine-tuned dalla VRAM (thread-safe).
+
+    Stessa sequenza di _unload_nllb_singleton: remove_hook_from_module,
+    to('cpu'), del, gc, empty_cache. Questo e' critico per NLLB-FT perche'
+    altrimenti i ~6 GB di pesi restano stuck in VRAM anche dopo 'cleanup',
+    bloccando lo STEP 6.5 (Gender Correction LLM).
+    """
     global _nllb_ft_model, _nllb_ft_tokenizer
     with _nllb_ft_lock:
         if _nllb_ft_model is not None:
+            try:
+                from accelerate.hooks import remove_hook_from_module
+                remove_hook_from_module(_nllb_ft_model, recurse=True)
+            except Exception as e:
+                logger.debug(f"remove_hook_from_module NLLB-FT: {e}")
+            try:
+                _nllb_ft_model.to('cpu')
+            except Exception as e:
+                logger.debug(f"NLLB-FT to('cpu') fallito: {e}")
             del _nllb_ft_model
             _nllb_ft_model = None
         if _nllb_ft_tokenizer is not None:
@@ -501,6 +537,10 @@ def _unload_nllb_ft_singleton():
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.synchronize()
+        try:
+            torch._C._cuda_clearCublasWorkspaces()
+        except Exception:
+            pass
         torch.cuda.empty_cache()
     logger.info("-> NLLB fine-tuned scaricato dalla VRAM")
 
@@ -837,8 +877,17 @@ class NLLBTranslator(BaseTranslator):
             return False
     
     def cleanup(self):
-        """Scarica modello NLLB base dalla VRAM."""
+        """Scarica modello NLLB base dalla VRAM.
+
+        Azzera prima le reference dell'istanza (self.model/tokenizer/device)
+        perche' sono copie dirette del singleton: finche' l'istanza le tiene,
+        _unload_nllb_singleton() non puo' far scendere il ref count a zero
+        e la VRAM resta stuck.
+        """
         try:
+            self.model = None
+            self.tokenizer = None
+            self.device = None
             _unload_nllb_singleton()
             self.log("  ✅ Modello NLLB scaricato dalla VRAM")
         except Exception as e:
@@ -1725,8 +1774,18 @@ class NLLBFineTunedTranslator(NLLBTranslator):
         self.current_batch_size = self.batch_manager.current_batch_size
 
     def cleanup(self):
-        """Scarica modello NLLB fine-tuned dalla VRAM (override: usa singleton FT, non base)."""
+        """Scarica modello NLLB fine-tuned dalla VRAM (override: usa singleton FT, non base).
+
+        Azzera prima le reference dell'istanza (self.model/tokenizer/device)
+        e il batch_manager: sono copie/consumer diretti del singleton. Senza
+        questo azzeramento il ref count del modello non scende a zero e
+        _unload_nllb_ft_singleton() non libera la VRAM.
+        """
         try:
+            self.model = None
+            self.tokenizer = None
+            self.device = None
+            self.batch_manager = None
             _unload_nllb_ft_singleton()
             self.log("  ✅ Modello NLLB fine-tuned scaricato dalla VRAM")
         except Exception as e:

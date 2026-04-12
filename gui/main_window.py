@@ -233,8 +233,14 @@ class MainWindow(QMainWindow):
         lang_row.addWidget(self.target_lang_combo)
         lang_row.addStretch()
 
+        self.gender_correction_checkbox = QCheckBox(tr('gender_correction_checkbox'))
+        self.gender_correction_checkbox.setObjectName("modernCheckbox")
+        self.gender_correction_checkbox.setChecked(self.config.get('gender_correction_enabled', False))
+        self.gender_correction_checkbox.stateChanged.connect(self.on_gender_correction_changed)
+
         options_layout.addWidget(self.shutdown_checkbox)
         options_layout.addLayout(os_row)
+        options_layout.addWidget(self.gender_correction_checkbox)
         options_layout.addLayout(lang_row)
         layout.addLayout(options_layout)
 
@@ -309,7 +315,7 @@ class MainWindow(QMainWindow):
         text = re.sub(r'[ðâïœ™]+', '', text)
         return text.strip()
 
-    UPDATABLE_PATTERNS = ["Progresso:", "Demucs: [", "Traduzione: [", "Trascrizione: [", "Warm-up: ["]
+    UPDATABLE_PATTERNS = ["Progresso:", "Demucs: [", "Traduzione: [", "Trascrizione: [", "Warm-up: [", "Correzione genere: ["]
 
     def log_message(self, message: str):
         message = self.fix_mojibake(message)
@@ -573,6 +579,9 @@ class MainWindow(QMainWindow):
     
     def on_opensubtitles_checkbox_changed(self, state):
         self.config.set('opensubtitles_upload_enabled', state == Qt.CheckState.Checked.value)
+
+    def on_gender_correction_changed(self, state):
+        self.config.set('gender_correction_enabled', state == Qt.CheckState.Checked.value)
 
     def on_target_language_changed(self, index: int):
         code = self.target_lang_combo.itemData(index)
