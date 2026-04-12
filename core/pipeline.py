@@ -36,8 +36,11 @@ FUNZIONALITÃ€ COMPLETE:
 âœ… Output ISO 639-1 (2 lettere)
 """
 import gc
+import json
 import logging
+import os
 import subprocess
+import sys
 import tempfile
 import torch
 import shutil
@@ -319,7 +322,7 @@ class ProcessingPipeline:
                             
                             # âœ… FIX CRITICO v3.9: Gestione corretta tupla + keyword argument
                             success, detected_lang_639_1 = self._transcriber.transcribe_chunks(
-                                audio_chunks=chunk_list, 
+                                audio_chunks=chunk_list,
                                 output_path=str(subtitle_path),
                                 whisper_language=source_language_639_2  # Keyword argument
                             )
@@ -414,7 +417,35 @@ class ProcessingPipeline:
                 else:
                     raise Exception("Nessuna traccia audio trovata nel video.")
 
-            
+            # ============================================================
+            # CLEANUP ANTICIPATO: Whisper + Demucs non servono piu' dopo
+            # trascrizione/alignment/diarization. Liberiamo VRAM il prima
+            # possibile cosi' STEP 6 (traduzione) e STEP 6.5 (LLM) trovano
+            # piu' memoria libera. Idempotente: STEP 5.5/6.5 ripeteranno
+            # questo blocco come rete di sicurezza.
+            # ============================================================
+            if self._transcriber is not None:
+                try:
+                    self._transcriber.cleanup()
+                except Exception as e:
+                    logger.warning(f"Errore cleanup transcriber (post-trascrizione): {e}")
+                try:
+                    del self._transcriber
+                except Exception:
+                    pass
+                self._transcriber = None
+            if self._audio_processor is not None:
+                try:
+                    self._audio_processor.cleanup_model()
+                except Exception as e:
+                    logger.warning(f"Errore cleanup audio_processor (post-trascrizione): {e}")
+                try:
+                    del self._audio_processor
+                except Exception:
+                    pass
+                self._audio_processor = None
+            self._clear_vram()
+
             # ============================================================
             # STEP 5: Pulizia e Normalizzazione SRT
             # ============================================================
@@ -459,8 +490,6 @@ class ProcessingPipeline:
             if source_language_639_1 != target_language_639_1:
 
                 self._log(f"\n6. Traduzione ({source_language_639_1} â†’ {target_language_639_1})...")
-                
-                
                 # âœ… FIX TRANSLATOR SELECTION: Usa il metodo corretto per leggere il modello dalla config
                 # Leggi il modello di traduzione selezionato dall'utente
                 selected_model = self.config.get_translation_model()
@@ -469,10 +498,10 @@ class ProcessingPipeline:
                 self._log(f"ðŸ“‹ Modello di traduzione selezionato: {selected_model.upper()}")
 
                 # Usa la factory intelligente passando la scelta esplicita del modello
-                self._translator = get_translator(model_type=selected_model) 
+                self._translator = get_translator(model_type=selected_model)
                 self._translator.set_log_callback(self._log_callback)
                 self._translator.set_log_callback(self._log_callback)
-                
+
                 translated_srt_path = self.file_handler.get_temp_path(
                     self.video_path, 
                     f"translated_{target_language}.srt"
@@ -498,6 +527,172 @@ class ProcessingPipeline:
             if self._cancelled:
                 self._log("⏹ Elaborazione annullata")
                 return False
+
+
+            # ============================================================
+            # STEP 6.5: Correzione Genere (solo italiano, opzionale)
+            #
+            # Eseguito in SUBPROCESS isolato per liberare l'intera VRAM al
+            # LLM. Il processo principale (Python+CUDA+ctranslate2) tiene
+            # sempre ~4 GB di contesto incollato che non si puo' rilasciare
+            # senza terminare l'interprete. Lo spawn di un child process
+            # parte da CUDA context vergine -> ~11.5 GB liberi per Qwen 14B.
+            # ============================================================
+            if (final_language_639_1 == 'it'
+                    and self.config.get('gender_correction_enabled', False)):
+                self._log("\n6.5. Correzione genere grammaticale (LLM, subprocess)...")
+                try:
+                    import importlib.util
+                    if importlib.util.find_spec('llama_cpp') is None:
+                        self._log("⚠️ llama-cpp-python non installato. Salto.")
+                    elif not self.config.is_gender_correction_available():
+                        self._log("⚠️ Modello GGUF non trovato in config. Salto.")
+                    else:
+                        # Cleanup parent: libera RAM/VRAM prima dello spawn.
+                        # Non aiuta direttamente la VRAM del child (CUDA context
+                        # parent resta), ma libera RAM e rompe ref Python locali.
+                        self._log("   Cleanup risorse parent prima dello spawn...")
+
+                        if self._transcriber is not None:
+                            try:
+                                self._transcriber.cleanup()
+                            except Exception as e:
+                                logger.warning(f"Errore cleanup transcriber (pre-LLM): {e}")
+                            try:
+                                del self._transcriber
+                            except Exception:
+                                pass
+                            self._transcriber = None
+
+                        if self._audio_processor is not None:
+                            try:
+                                self._audio_processor.cleanup_model()
+                            except Exception as e:
+                                logger.warning(f"Errore cleanup audio_processor (pre-LLM): {e}")
+                            try:
+                                del self._audio_processor
+                            except Exception:
+                                pass
+                            self._audio_processor = None
+
+                        if self._translator is not None:
+                            try:
+                                if hasattr(self._translator, 'model') and self._translator.model is not None:
+                                    try:
+                                        del self._translator.model
+                                    except Exception as e:
+                                        logger.warning(f"Errore del translator.model: {e}")
+                                self._translator.cleanup()
+                            except Exception as e:
+                                logger.warning(f"Errore cleanup translator (pre-LLM): {e}")
+                            try:
+                                del self._translator
+                            except Exception:
+                                pass
+                            self._translator = None
+
+                        for _ in range(3):
+                            self._clear_vram()
+                        release_ram_to_os()
+
+                        # Cast da TMDB (resta nel parent: API call leggera)
+                        character_context = {}
+                        if self.metadata and self.metadata.get('id'):
+                            try:
+                                character_context = self.tmdb_client.get_cast_info(
+                                    self.metadata['id'],
+                                    'tv' if self.metadata.get('season') else 'movie',
+                                    season=self.metadata.get('season'),
+                                    episode=self.metadata.get('episode'))
+                                if character_context:
+                                    self._log(f"✅ Cast: {len(character_context)} personaggi")
+                            except Exception as e:
+                                logger.warning(f"TMDB cast error: {e}")
+
+                        # Prepara args.json per il subprocess
+                        corrected_path = self.file_handler.get_temp_path(
+                            self.video_path, f"gender_corrected_{final_language_639_1}.srt")
+                        original_srt = (cleaned_srt_path
+                                        if source_language_639_1 != target_language_639_1
+                                        else None)
+                        args_path = self.file_handler.get_temp_path(
+                            self.video_path, "gender_correction_args.json")
+                        args_payload = {
+                            "input_srt": str(subtitle_path),
+                            "output_srt": str(corrected_path),
+                            "original_srt": str(original_srt) if original_srt else None,
+                            "character_context": character_context or {},
+                        }
+                        args_path.write_text(
+                            json.dumps(args_payload, ensure_ascii=False),
+                            encoding='utf-8')
+
+                        # Spawn subprocess isolato
+                        project_root = Path(__file__).resolve().parent.parent
+                        env = os.environ.copy()
+                        env['PYTHONIOENCODING'] = 'utf-8'
+                        env['PYTHONUTF8'] = '1'
+
+                        self._log("   Avvio subprocess Gender Corrector...")
+                        try:
+                            proc = subprocess.Popen(
+                                [sys.executable, "-m", "core.gender_corrector_cli",
+                                 str(args_path)],
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT,
+                                cwd=str(project_root),
+                                env=env,
+                                text=True,
+                                encoding='utf-8',
+                                errors='replace',
+                                bufsize=1,
+                            )
+                        except Exception as e:
+                            self._log(f"⚠️ Spawn subprocess fallito: {e}")
+                            proc = None
+
+                        if proc is not None:
+                            self._current_proc = proc
+                            try:
+                                # Stream stdout linea per linea -> log GUI.
+                                # Cancel: a ogni linea controlliamo _cancelled.
+                                for line in proc.stdout:
+                                    if self._cancelled:
+                                        try:
+                                            proc.terminate()
+                                            try:
+                                                proc.wait(timeout=5)
+                                            except subprocess.TimeoutExpired:
+                                                proc.kill()
+                                        except Exception:
+                                            pass
+                                        break
+                                    line = line.rstrip()
+                                    if line:
+                                        self._log(f"   [LLM] {line}")
+                                return_code = proc.wait()
+                            finally:
+                                self._current_proc = None
+
+                            if self._cancelled:
+                                self._log("⏹ Correzione genere annullata.")
+                            elif return_code == 0 and corrected_path.exists():
+                                subtitle_path = corrected_path
+                                self._log("✅ Correzione genere completata.")
+                            else:
+                                self._log(
+                                    f"⚠️ Correzione genere fallita "
+                                    f"(exit code {return_code}). Uso originale.")
+
+                        # Cleanup args temp file (best effort)
+                        try:
+                            if args_path.exists():
+                                args_path.unlink()
+                        except Exception:
+                            pass
+                except Exception as e:
+                    self._log(f"⚠️ Errore correzione genere: {e}")
+                    logger.error(f"Gender correction error: {e}", exc_info=True)
 
             # ============================================================
             # STEP 7: Salvataggio File Finale
@@ -807,6 +1002,47 @@ class ProcessingPipeline:
             logger.info(f"✅ Watermark aggiunto: 0s → {end_ms / 1000:.1f}s")
         except Exception as e:
             logger.warning(f"Watermark: errore scrittura {srt_path.name}: {e}")
+
+    def _clear_vram(self):
+        """
+        Cleanup VRAM aggressivo: gc + clearCublasWorkspaces + empty_cache + ipc_collect.
+
+        Va chiamato DOPO aver azzerato i riferimenti Python ai modelli
+        (cleanup() + del + None) cosi' che il GC possa effettivamente
+        rilasciare la memoria al driver CUDA.
+
+        Punto chiave: dopo translate_file() di NLLB, torch.alloc scende a ~0 MB
+        ma torch.reserved resta ~3 GB perche' il caching allocator non puo'
+        rilasciare segmenti che contengono ancora gli workspace persistenti di
+        cuBLAS (handle creati durante le matrix multiplications del beam search).
+        torch._C._cuda_clearCublasWorkspaces() forza il rilascio di questi
+        workspace -> i segmenti diventano vuoti -> empty_cache() puo' liberarli.
+
+        SICURO solo dopo l'unload di Whisper (ctranslate2 4.6.0). Non chiamare
+        PRIMA di WhisperModel(): pre-inizializzerebbe il contesto CUDA e farebbe
+        crashare ctranslate2 sotto PyQt6 (vedi memory/MEMORY.md - Critical
+        Dependency Constraints).
+        """
+        gc.collect()
+        if torch.cuda.is_available():
+            try:
+                torch.cuda.synchronize()
+            except Exception:
+                pass
+            try:
+                # Libera gli workspace cuBLAS persistenti — chiave per liberare
+                # i segmenti riservati del caching allocator.
+                torch._C._cuda_clearCublasWorkspaces()
+            except Exception as e:
+                logger.debug(f"_cuda_clearCublasWorkspaces: {e}")
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+            try:
+                torch.cuda.ipc_collect()
+            except Exception:
+                pass
 
     def _cleanup(self):
         """

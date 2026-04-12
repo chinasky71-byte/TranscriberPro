@@ -74,9 +74,11 @@ class AudioTrackSelector:
                 cmd,
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
             )
-            
+
             if result.returncode != 0:
                 logger.error(f"Errore ffprobe: {result.stderr}")
                 return []
