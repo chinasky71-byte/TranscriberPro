@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.3.5-orange)
+![Version](https://img.shields.io/badge/Version-1.3.6-orange)
 
 AI-powered desktop application for automatic subtitle transcription and translation from video files.
 
@@ -193,6 +193,9 @@ This project is licensed under the MIT License.
 ---
 
 ## Changelog
+
+### v1.3.6
+- **Gender correction settings UI** — GGUF model selector with VRAM guidance table (8GB/12GB/16GB+), file browser, enable/disable toggle
 
 ### v1.3.5
 - **Gender Correction (EXPERIMENTAL)** — new STEP 6.5: LLM-based grammatical gender correction for Italian subtitles using Qwen2.5-14B GGUF via llama-cpp-python. Runs in an isolated subprocess with fresh CUDA context for maximum VRAM availability. Integrates TMDB cast info for character gender context. Includes progress bar with ETA. *This feature is experimental — quality depends on the LLM model and corrections should be reviewed manually.*
