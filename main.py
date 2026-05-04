@@ -2,6 +2,10 @@
 Main Application Entry Point
 File: main.py
 """
+# Cache bootstrap: redireziona HF_HOME, TORCH_HOME nella cartella progetto.
+# DEVE stare prima di qualsiasi import che tocchi torch/transformers/HF/onnxruntime.
+import utils.cache_bootstrap  # noqa: F401
+
 import sys
 import warnings
 import logging

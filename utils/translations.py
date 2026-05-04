@@ -202,6 +202,11 @@ class Translations:
                 'Checks if the subtitle already exists in the database\n'
                 'before uploading.'
             ),
+            'os_api_method':            'API Method:',
+            'os_api_method_tip':        (
+                'XML-RPC: classic API (opensubtitles.org) — recommended.\n'
+                'REST: new API (opensubtitles.com) — requires API Key.'
+            ),
             'os_test_conn':             '🔍 Test Connection',
             'os_test_conn_tip':         'Verify authentication with OpenSubtitles',
             'os_configure':             '⚙️ Configure Credentials',
@@ -259,6 +264,14 @@ class Translations:
             'abs_active_status':        'Active — initial={initial}, min={min}, max={max}, warmup={warmup}',
             'abs_disabled_status':      'Disabled — uses fixed batch size.',
             'abs_autodetect':           'Auto-detect',
+
+            # ── gender correction ─────────────────────────────────────────
+            'gender_correction_checkbox': 'Advanced gender correction (LLM)',
+
+            # ── force audio transcription ─────────────────────────────────
+            'force_audio_title':        'Force audio transcription',
+            'force_audio_checkbox':     'Ignore embedded subtitles and always transcribe from audio',
+            'force_audio_info':         'When enabled, the pipeline ignores subtitle tracks already present in the video file and always proceeds with audio transcription. Useful when embedded subtitles are low quality.',
 
             # ── workers (pipeline log messages) ───────────────────────────
             'worker_start':             '▶️ Starting processing of {n} files',
@@ -462,6 +475,11 @@ class Translations:
                 'Controlla se il sottotitolo esiste già nel database\n'
                 'prima di effettuare l\'upload.'
             ),
+            'os_api_method':            'Metodo API:',
+            'os_api_method_tip':        (
+                'XML-RPC: API classica (opensubtitles.org) — consigliata.\n'
+                'REST: nuova API (opensubtitles.com) — richiede API Key.'
+            ),
             'os_test_conn':             '🔍 Test Connessione',
             'os_test_conn_tip':         'Verifica autenticazione con OpenSubtitles',
             'os_configure':             '⚙️ Configura Credenziali',
@@ -519,6 +537,14 @@ class Translations:
             'abs_active_status':        'Attivo — initial={initial}, min={min}, max={max}, warmup={warmup}',
             'abs_disabled_status':      'Disabilitato — usa batch size fisso dei modelli.',
             'abs_autodetect':           'Auto-detect',
+
+            # ── gender correction ─────────────────────────────────────────
+            'gender_correction_checkbox': 'Correzione genere avanzata (LLM)',
+
+            # ── force audio transcription ─────────────────────────────────
+            'force_audio_title':        'Forza trascrizione da audio',
+            'force_audio_checkbox':     'Ignora sottotitoli embedded e trascrivi sempre dall\'audio',
+            'force_audio_info':         'Se attivata, la pipeline ignora le tracce di sottotitoli già presenti nel file video e procede sempre con trascrizione dall\'audio. Utile quando i sottotitoli embedded sono di bassa qualità.',
 
             # ── workers (pipeline log messages) ───────────────────────────
             'worker_start':             '▶️ Avvio elaborazione di {n} file',
