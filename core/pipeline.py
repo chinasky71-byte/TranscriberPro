@@ -207,24 +207,28 @@ class ProcessingPipeline:
             # ============================================================
             # STEP 1: Estrazione Sottotitoli Embedded
             # ============================================================
-            self._log("\n1. Estrazione sottotitoli embedded...")
-            extractor = SubtitleExtractor(str(self.video_path))
-            self._subtitle_extractor = extractor
-            selected_stream = extractor.select_best_subtitle()
-            
-            if selected_stream:
-                temp_srt_path = self.file_handler.get_temp_path(
-                    self.video_path, 
-                    f"embedded_{selected_stream['language']}.srt"
-                )
-                if extractor.extract_subtitle(temp_srt_path, selected_stream['index']):
-                    subtitle_path = temp_srt_path
-                    source_language_639_2 = selected_stream['language']
-                    self._log(f"âœ… Sottotitoli embedded trovati ({source_language_639_2}). Salto trascrizione.")
-                else:
-                    self._log("âŒ Estrazione sottotitoli fallita. Passo a trascrizione.")
+            force_audio = self.config.get('force_audio_transcription', False)
+            if force_audio:
+                self._log("\n1. Forza trascrizione da audio attivata. Salto check sottotitoli embedded.")
             else:
-                self._log("â„¹ï¸ Nessun sottotitolo embedded. Procedo con trascrizione.")
+                self._log("\n1. Estrazione sottotitoli embedded...")
+                extractor = SubtitleExtractor(str(self.video_path))
+                self._subtitle_extractor = extractor
+                selected_stream = extractor.select_best_subtitle()
+
+                if selected_stream:
+                    temp_srt_path = self.file_handler.get_temp_path(
+                        self.video_path,
+                        f"embedded_{selected_stream['language']}.srt"
+                    )
+                    if extractor.extract_subtitle(temp_srt_path, selected_stream['index']):
+                        subtitle_path = temp_srt_path
+                        source_language_639_2 = selected_stream['language']
+                        self._log(f"✅ Sottotitoli embedded trovati ({source_language_639_2}). Salto trascrizione.")
+                    else:
+                        self._log("❌ Estrazione sottotitoli fallita. Passo a trascrizione.")
+                else:
+                    self._log("ℹ️ Nessun sottotitolo embedded. Procedo con trascrizione.")
 
             if self._cancelled:
                 self._log("⏹ Elaborazione annullata")
@@ -1100,6 +1104,17 @@ class ProcessingPipeline:
             if self.video_path:
                 self.file_handler.cleanup(self.video_path)
                 self._log("  ✅ File temporanei rimossi")
+
+            # 7. Cleanup cache modelli HF/torch (preserva modelli IT)
+            try:
+                from utils.cache_cleaner import cleanup_non_italian_caches
+                res = cleanup_non_italian_caches(log_callback=self._log)
+                if res['removed']:
+                    self._log(f"  🗑️  Cache modelli liberata: {len(res['removed'])} elementi")
+                if res['failed']:
+                    logger.warning(f"Cache cleanup parziale: {len(res['failed'])} elementi non rimossi")
+            except Exception as e:
+                logger.warning(f"Errore cache cleanup: {e}")
 
             self._log("✅ Cleanup completato")
 

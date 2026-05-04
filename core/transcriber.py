@@ -19,6 +19,7 @@ import torch
 from utils.logger import setup_logger
 from utils.config import get_config
 from utils.transcription_profiles import ProfileConfig, TranscriptionProfile
+from utils.cache_bootstrap import HF_HUB_CACHE_DIR
 
 logger = setup_logger()
 
@@ -184,7 +185,8 @@ class Transcriber:
                     device_index=device_index,
                     compute_type=compute_type,
                     num_workers=self.num_workers,
-                    cpu_threads=self.num_workers
+                    cpu_threads=self.num_workers,
+                    download_root=HF_HUB_CACHE_DIR,
                 )
                 
                 self.log(f"  ✅ Modello {model_size} caricato su CUDA con {self.num_workers} workers")
@@ -194,7 +196,8 @@ class Transcriber:
                     device="cpu",
                     compute_type="int8",
                     num_workers=self.num_workers,
-                    cpu_threads=self.num_workers
+                    cpu_threads=self.num_workers,
+                    download_root=HF_HUB_CACHE_DIR,
                 )
                 
                 self.log(f"  ✅ Modello {model_size} caricato su CPU con {self.num_workers} workers")

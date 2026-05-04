@@ -1,7 +1,7 @@
 """
 Splash Screen - Layout ottimizzato senza sovrapposizioni
 File: gui/splash_screen.py
-VERSIONE: 1.3.6
+VERSIONE: 1.3.7
 """
 from PyQt6.QtWidgets import QSplashScreen, QApplication
 from PyQt6.QtCore import Qt, QTimer
@@ -42,13 +42,13 @@ class SplashScreen(QSplashScreen):
         painter.drawText(subtitle_rect, Qt.AlignmentFlag.AlignCenter,
                         tr('splash_subtitle'))
         
-        # ✅ VERSIONE AGGIORNATA: 1.3.6
+        # ✅ VERSIONE AGGIORNATA: 1.3.7
         version_font = QFont("Arial", 10)
         painter.setFont(version_font)
         painter.setPen(QColor(150, 150, 150))
         painter.drawText(pixmap.rect().adjusted(0, 0, -10, -10),
                         Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight,
-                        "v1.3.6")
+                        "v1.3.7")
         
         # Credits in basso a sinistra (aggiornato con NLLB e TMDB)
         painter.drawText(pixmap.rect().adjusted(10, 0, 0, -10),

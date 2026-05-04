@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.3.6-orange)
+![Version](https://img.shields.io/badge/Version-1.3.7-orange)
 
 AI-powered desktop application for automatic subtitle transcription and translation from video files.
 
@@ -193,6 +193,11 @@ This project is licensed under the MIT License.
 ---
 
 ## Changelog
+
+### v1.3.7
+- **Local model cache** — all AI models (Whisper, NLLB, Aya, wav2vec2, pyannote, Demucs) now download into `models/.cache/` inside the project folder instead of `~/.cache/huggingface/`. Single bootstrap module sets `HF_HOME`, `HUGGINGFACE_HUB_CACHE`, `TRANSFORMERS_CACHE`, `TORCH_HOME` env vars before any torch/transformers/HF import; faster-whisper gets `download_root=` explicitly since it doesn't honor `HF_HOME` reliably
+- **Auto cache cleanup post-pipeline** — non-Italian models are removed from cache at the end of each file's processing to save disk space. Whitelist: wav2vec2-italian, faster-whisper-large-v3, NLLB fine-tuned (already local), Qwen GGUF (already local). Removed: NLLB-200 base, Aya-23-8B, wav2vec2 en/fr/es/generic, pyannote, Demucs htdemucs. Re-download is automatic and silent if a removed model is needed again. Windows mmap lock handled with retry+sleep
+- **Force audio transcription option** — new checkbox in Translation Model settings to bypass embedded subtitle extraction and always transcribe from audio. Useful when embedded subs are low quality
 
 ### v1.3.6
 - **Gender correction settings UI** — GGUF model selector with VRAM guidance table (8GB/12GB/16GB+), file browser, enable/disable toggle

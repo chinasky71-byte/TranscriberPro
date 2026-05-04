@@ -14,6 +14,9 @@ Esporta tutti i componenti core per elaborazione video:
 - Selezione traccia audio
 """
 
+# Cache bootstrap defensive: copre esecuzioni `python -m core.*` che bypassano main.py.
+import utils.cache_bootstrap  # noqa: F401
+
 # Pipeline principale
 from .pipeline import ProcessingPipeline
 
@@ -38,6 +41,9 @@ from .subtitle_cleaner import SubtitleCleaner
 from .audio_processor import AudioProcessor
 from .audio_track_selector import AudioTrackSelector
 
+# Gender Correction (LLM)
+from .gender_corrector import GenderCorrectionEngine
+
 # Export list
 __all__ = [
     # Pipeline
@@ -61,4 +67,7 @@ __all__ = [
     # Audio
     'AudioProcessor',
     'AudioTrackSelector',
+
+    # Gender Correction
+    'GenderCorrectionEngine',
 ]

@@ -161,6 +161,10 @@ class TranslationModelDialog(QDialog):
         diarization_widget = self.create_diarization_section()
         scroll_layout.addWidget(diarization_widget)
 
+        # Force audio transcription (ignora sottotitoli embedded)
+        force_audio_widget = self.create_force_transcription_section()
+        scroll_layout.addWidget(force_audio_widget)
+
         # Gender Correction
         gender_widget = self.create_gender_correction_section()
         scroll_layout.addWidget(gender_widget)
@@ -1223,6 +1227,45 @@ class TranslationModelDialog(QDialog):
     def _on_gender_correction_toggled(self, checked: bool):
         """Salva stato checkbox gender correction."""
         self.config.set('gender_correction_enabled', checked)
+
+    # ── Force audio transcription ─────────────────────────────────────────
+
+    def create_force_transcription_section(self) -> QWidget:
+        """Crea sezione 'Forza trascrizione da audio'."""
+        container = QFrame()
+        container.setFrameShape(QFrame.Shape.Box)
+        container.setStyleSheet("""
+            QFrame {
+                border: 1px solid #1976d2;
+                border-radius: 8px;
+                padding: 15px;
+                background: #e3f2fd;
+            }
+        """)
+
+        layout = QVBoxLayout(container)
+
+        title_label = QLabel(tr('force_audio_title'))
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #0d47a1;")
+        layout.addWidget(title_label)
+
+        self.force_audio_checkbox = QCheckBox(tr('force_audio_checkbox'))
+        self.force_audio_checkbox.setChecked(
+            self.config.get('force_audio_transcription', False)
+        )
+        self.force_audio_checkbox.toggled.connect(self._on_force_audio_toggled)
+        layout.addWidget(self.force_audio_checkbox)
+
+        info_label = QLabel(tr('force_audio_info'))
+        info_label.setStyleSheet("color: #555; font-size: 11px; margin-top: 4px;")
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+
+        return container
+
+    def _on_force_audio_toggled(self, checked: bool):
+        """Salva stato checkbox forza trascrizione da audio."""
+        self.config.set('force_audio_transcription', checked)
 
     # ── Forced Alignment / Diarization ────────────────────────────────────
 
