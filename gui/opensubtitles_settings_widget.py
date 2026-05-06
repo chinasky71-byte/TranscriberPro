@@ -12,7 +12,7 @@ FUNZIONALITÀ:
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QCheckBox, QGroupBox, QMessageBox,
-    QLineEdit, QFormLayout
+    QLineEdit, QFormLayout, QComboBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -103,7 +103,12 @@ class OpenSubtitlesSettingsWidget(QWidget):
         # ========================================
         controls_group = QGroupBox(tr('os_settings_group'))
         controls_layout = QVBoxLayout()
-        
+
+        # Checkbox: Upload abilitato (master toggle)
+        self.upload_enabled_checkbox = QCheckBox(tr('upload_opensubtitles'))
+        self.upload_enabled_checkbox.toggled.connect(self.on_upload_enabled_toggled)
+        controls_layout.addWidget(self.upload_enabled_checkbox)
+
         # Checkbox: Auto-upload
         self.auto_upload_checkbox = QCheckBox(tr('os_auto_upload'))
         self.auto_upload_checkbox.setToolTip(tr('os_auto_upload_tip'))
@@ -115,7 +120,21 @@ class OpenSubtitlesSettingsWidget(QWidget):
         self.check_duplicates_checkbox.setToolTip(tr('os_check_dup_tip'))
         self.check_duplicates_checkbox.setChecked(True)
         controls_layout.addWidget(self.check_duplicates_checkbox)
-        
+
+        # Combo: API method
+        method_layout = QHBoxLayout()
+        method_label = QLabel(tr('os_api_method'))
+        method_label.setToolTip(tr('os_api_method_tip'))
+        self.implementation_combo = QComboBox()
+        self.implementation_combo.addItem('XML-RPC (opensubtitles.org)', 'xmlrpc')
+        self.implementation_combo.addItem('REST (opensubtitles.com)', 'rest')
+        self.implementation_combo.setToolTip(tr('os_api_method_tip'))
+        self.implementation_combo.currentIndexChanged.connect(self.on_implementation_changed)
+        method_layout.addWidget(method_label)
+        method_layout.addWidget(self.implementation_combo)
+        method_layout.addStretch()
+        controls_layout.addLayout(method_layout)
+
         controls_group.setLayout(controls_layout)
         layout.addWidget(controls_group)
         
@@ -248,6 +267,7 @@ class OpenSubtitlesSettingsWidget(QWidget):
             self.credentials_label.setText(tr('os_configure_hint'))
             
             # Disabilita controlli
+            self.upload_enabled_checkbox.setEnabled(False)
             self.auto_upload_checkbox.setEnabled(False)
             self.test_btn.setEnabled(False)
         
@@ -262,15 +282,41 @@ class OpenSubtitlesSettingsWidget(QWidget):
             upload_enabled = self.app_config.get('opensubtitles_upload_enabled', True)
             auto_upload    = self.app_config.get('opensubtitles_auto_upload', True)
 
+            self.upload_enabled_checkbox.blockSignals(True)
+            self.upload_enabled_checkbox.setChecked(upload_enabled)
+            self.upload_enabled_checkbox.setEnabled(True)
+            self.upload_enabled_checkbox.blockSignals(False)
+
             self.auto_upload_checkbox.setChecked(auto_upload)
             self.auto_upload_checkbox.setEnabled(upload_enabled)
+
+        # Carica metodo API selezionato
+        impl = self.app_config.get('opensubtitles_preferred_implementation', 'xmlrpc')
+        idx = self.implementation_combo.findData(impl)
+        if idx >= 0:
+            self.implementation_combo.blockSignals(True)
+            self.implementation_combo.setCurrentIndex(idx)
+            self.implementation_combo.blockSignals(False)
     
+    def on_implementation_changed(self, index: int):
+        """Handler cambio metodo API"""
+        impl = self.implementation_combo.itemData(index)
+        self.app_config.set('opensubtitles_preferred_implementation', impl)
+        logger.info(f"Metodo API OpenSubtitles: {impl}")
+        self.settings_changed.emit()
+
+    def on_upload_enabled_toggled(self, checked: bool):
+        """Handler toggle upload abilitato (master)"""
+        self.app_config.set('opensubtitles_upload_enabled', checked)
+        self.auto_upload_checkbox.setEnabled(checked)
+        self.settings_changed.emit()
+
     def on_auto_upload_toggled(self, checked: bool):
         """Handler toggle auto-upload"""
         self.app_config.set('opensubtitles_auto_upload', checked)
-        
+
         logger.info(f"Auto-upload: {'Abilitato' if checked else 'Disabilitato'}")
-        
+
         self.settings_changed.emit()
     
     def save_credentials(self):
@@ -309,7 +355,7 @@ class OpenSubtitlesSettingsWidget(QWidget):
             import utils.opensubtitles_xmlrpc_uploader
 
             implementation = self.app_config.get(
-                'opensubtitles_preferred_implementation', 'rest'
+                'opensubtitles_preferred_implementation', 'xmlrpc'
             )
             uploader = UploaderFactory.create_uploader(
                 implementation,

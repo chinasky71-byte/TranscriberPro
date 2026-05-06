@@ -4,12 +4,13 @@ Include ResourceMonitor per monitoraggio risorse sistema
 File: gui/widgets.py - FIXED: Barre allineate perfettamente
 """
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar, QFrame
-from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar, QFrame, QSizePolicy
+from PyQt6.QtCore import QTimer, Qt, QSize
 import psutil
 import time
 
 from utils.translations import tr
+from gui.icons import svg_icon
 
 try:
     import pynvml
@@ -18,12 +19,47 @@ except ImportError:
     NVML_AVAILABLE = False
 
 
+class ElideLabel(QLabel):
+    """QLabel che elide il testo quando lo spazio è insufficiente invece di imporre un minimum width.
+
+    Sovrascrive minimumSizeHint() → (0, h) così il layout può rimpicciolire liberamente.
+    Sovrascrive sizeHint() → larghezza del testo completo così il layout espande quando ha spazio.
+    In resizeEvent applica elidedText() al testo corrente.
+    """
+
+    def __init__(self, text: str = '', parent=None, elide_mode=Qt.TextElideMode.ElideRight):
+        super().__init__(parent)
+        self._full_text = text
+        self._elide_mode = elide_mode
+        super().setText(text)
+
+    def setText(self, text: str):
+        self._full_text = text
+        self._apply_elision()
+
+    def sizeHint(self) -> QSize:
+        h = super().sizeHint().height()
+        w = self.fontMetrics().horizontalAdvance(self._full_text)
+        return QSize(w, h)
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(0, super().minimumSizeHint().height())
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply_elision()
+
+    def _apply_elision(self):
+        available = self.width()
+        if available <= 0:
+            super().setText(self._full_text)
+            return
+        elided = self.fontMetrics().elidedText(self._full_text, self._elide_mode, available)
+        super().setText(elided)
+
+
 class ResourceMonitor(QWidget):
     """Widget per monitoraggio risorse sistema (CPU, RAM, GPU, VRAM, Network)"""
-    
-    # Costanti per larghezze fisse (garantisce allineamento perfetto)
-    LABEL_WIDTH = 75
-    VALUE_WIDTH = 65
     
     def __init__(self):
         super().__init__()
@@ -47,235 +83,139 @@ class ResourceMonitor(QWidget):
         self.init_ui()
     
     def init_ui(self):
-        """Inizializza interfaccia"""
-        layout = QVBoxLayout()
+        # Nessun minimum width imposto: il pannello può essere stretto liberamente
+        self.setMinimumWidth(0)
+
+        layout = QVBoxLayout(self)
         layout.setSpacing(8)
         layout.setContentsMargins(10, 10, 10, 10)
-        
-        # Title
-        title = QLabel(tr('monitor_title'))
+
+        # Header: titolo + uptime — ElideLabel per non imporre minimum width
+        hdr = QHBoxLayout()
+        title = ElideLabel(tr('monitor_title'))
         title.setObjectName("resourceTitle")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
-        
-        # Separator
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setObjectName("separator")
-        layout.addWidget(separator)
-        
-        # CPU
-        cpu_layout = QHBoxLayout()
-        cpu_layout.setSpacing(5)
-        self.cpu_label = QLabel(tr('cpu_label'))
-        self.cpu_label.setObjectName("metricLabel")
-        self.cpu_label.setFixedWidth(self.LABEL_WIDTH)
-        self.cpu_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.cpu_bar = QProgressBar()
-        self.cpu_bar.setObjectName("cpuBar")
-        self.cpu_bar.setMaximum(100)
-        self.cpu_value_label = QLabel("0%")
-        self.cpu_value_label.setObjectName("valueLabel")
-        self.cpu_value_label.setFixedWidth(self.VALUE_WIDTH)
-        self.cpu_value_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        cpu_layout.addWidget(self.cpu_label)
-        cpu_layout.addWidget(self.cpu_bar, 1)  # stretch factor = 1
-        cpu_layout.addWidget(self.cpu_value_label)
-        layout.addLayout(cpu_layout)
-        
-        # RAM
-        ram_layout = QHBoxLayout()
-        ram_layout.setSpacing(5)
-        self.ram_label = QLabel(tr('ram_label'))
-        self.ram_label.setObjectName("metricLabel")
-        self.ram_label.setFixedWidth(self.LABEL_WIDTH)
-        self.ram_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.ram_bar = QProgressBar()
-        self.ram_bar.setObjectName("ramBar")
-        self.ram_bar.setMaximum(100)
-        self.ram_value_label = QLabel("0%")
-        self.ram_value_label.setObjectName("valueLabel")
-        self.ram_value_label.setFixedWidth(self.VALUE_WIDTH)
-        self.ram_value_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        ram_layout.addWidget(self.ram_label)
-        ram_layout.addWidget(self.ram_bar, 1)  # stretch factor = 1
-        ram_layout.addWidget(self.ram_value_label)
-        layout.addLayout(ram_layout)
-        
-        # GPU (solo se disponibile)
+        self._uptime_label = ElideLabel("UPTIME  00h 00m 00s")
+        self._uptime_label.setObjectName("uptimeLabel")
+        hdr.addWidget(title)
+        hdr.addStretch()
+        hdr.addWidget(self._uptime_label)
+        layout.addLayout(hdr)
+
+        # Riga 1: CPU | RAM
+        cpu_card, self.cpu_value_label, self.cpu_bar = self._make_metric_card(
+            "CPU", "cpuBar", "#3cc1e0", 'cpu')
+        ram_card, self.ram_value_label, self.ram_bar = self._make_metric_card(
+            "RAM", "ramBar", "#3fcf8e", 'chip')
+        row0 = QHBoxLayout()
+        row0.setSpacing(8)
+        row0.addWidget(cpu_card)
+        row0.addWidget(ram_card)
+        layout.addLayout(row0)
+
+        # Riga 2: GPU | VRAM (solo se disponibile)
         if self.gpu_initialized:
-            gpu_layout = QHBoxLayout()
-            gpu_layout.setSpacing(5)
-            self.gpu_label = QLabel(tr('gpu_label'))
-            self.gpu_label.setObjectName("metricLabel")
-            self.gpu_label.setFixedWidth(self.LABEL_WIDTH)
-            self.gpu_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            self.gpu_bar = QProgressBar()
-            self.gpu_bar.setObjectName("gpuBar")
-            self.gpu_bar.setMaximum(100)
-            self.gpu_value_label = QLabel("0%")
-            self.gpu_value_label.setObjectName("valueLabel")
-            self.gpu_value_label.setFixedWidth(self.VALUE_WIDTH)
-            self.gpu_value_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            gpu_layout.addWidget(self.gpu_label)
-            gpu_layout.addWidget(self.gpu_bar, 1)  # stretch factor = 1
-            gpu_layout.addWidget(self.gpu_value_label)
-            layout.addLayout(gpu_layout)
-            
-            # VRAM
-            vram_layout = QHBoxLayout()
-            vram_layout.setSpacing(5)
-            self.vram_label = QLabel(tr('vram_label'))
-            self.vram_label.setObjectName("metricLabel")
-            self.vram_label.setFixedWidth(self.LABEL_WIDTH)
-            self.vram_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            self.vram_bar = QProgressBar()
-            self.vram_bar.setObjectName("vramBar")
-            self.vram_bar.setMaximum(100)
-            self.vram_value_label = QLabel("0 GB")
-            self.vram_value_label.setObjectName("valueLabel")
-            self.vram_value_label.setFixedWidth(self.VALUE_WIDTH)
-            self.vram_value_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            vram_layout.addWidget(self.vram_label)
-            vram_layout.addWidget(self.vram_bar, 1)  # stretch factor = 1
-            vram_layout.addWidget(self.vram_value_label)
-            layout.addLayout(vram_layout)
-        
-        # Separator per Network
-        separator2 = QFrame()
-        separator2.setFrameShape(QFrame.Shape.HLine)
-        separator2.setObjectName("separator")
-        layout.addWidget(separator2)
-        
-        # Network header
-        net_label = QLabel(tr('network_label'))
-        net_label.setObjectName("sectionLabel")
-        net_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(net_label)
-        
-        # Download
-        dl_layout = QHBoxLayout()
-        dl_icon = QLabel("📥")
-        dl_icon.setObjectName("netIcon")
-        dl_icon.setFixedWidth(25)
-        self.download_label = QLabel("0.0 KB/s")
-        self.download_label.setObjectName("netSpeedLabel")
-        dl_layout.addWidget(dl_icon)
-        dl_layout.addWidget(self.download_label)
-        dl_layout.addStretch()
-        layout.addLayout(dl_layout)
-        
-        # Upload
-        ul_layout = QHBoxLayout()
-        ul_icon = QLabel("📤")
-        ul_icon.setObjectName("netIcon")
-        ul_icon.setFixedWidth(25)
-        self.upload_label = QLabel("0.0 KB/s")
-        self.upload_label.setObjectName("netSpeedLabel")
-        ul_layout.addWidget(ul_icon)
-        ul_layout.addWidget(self.upload_label)
-        ul_layout.addStretch()
-        layout.addLayout(ul_layout)
-        
+            gpu_card, self.gpu_value_label, self.gpu_bar = self._make_metric_card(
+                "GPU", "gpuBar", "#a855f7", 'gpu')
+            vram_card, self.vram_value_label, self.vram_bar = self._make_metric_card(
+                "VRAM", "vramBar", "#f5b450", 'hardDrive')
+            row1 = QHBoxLayout()
+            row1.setSpacing(8)
+            row1.addWidget(gpu_card)
+            row1.addWidget(vram_card)
+            layout.addLayout(row1)
+
+        # Riga rete: Download | Upload
+        dl_card, self.download_label = self._make_net_card('arrowDown', "#3cc1e0", "Download")
+        ul_card, self.upload_label   = self._make_net_card('arrowUp',   "#f5b450", "Upload")
+        row_net = QHBoxLayout()
+        row_net.setSpacing(8)
+        row_net.addWidget(dl_card)
+        row_net.addWidget(ul_card)
+        layout.addLayout(row_net)
+
         layout.addStretch()
-        self.setLayout(layout)
-        
-        # Apply styles
-        self.apply_styles()
+
+        # Uptime timer
+        self._uptime_seconds = 0
+        self._uptime_timer = QTimer(self)
+        self._uptime_timer.timeout.connect(self._tick_uptime)
+        self._uptime_timer.start(1000)
     
     def apply_styles(self):
-        """Applica stili moderni"""
-        self.setStyleSheet("""
-            QWidget {
-                background-color: transparent;
-            }
-            
-            QLabel#resourceTitle {
-                color: #ffffff;
-                font-size: 11pt;
-                font-weight: bold;
-                padding: 5px;
-            }
-            
-            QLabel#sectionLabel {
-                color: #ffffff;
-                font-size: 10pt;
-                font-weight: bold;
-                padding: 3px;
-            }
-            
-            QLabel#metricLabel {
-                color: #cccccc;
-                font-size: 9pt;
-                font-weight: bold;
-            }
-            
-            QLabel#valueLabel {
-                color: #ffffff;
-                font-size: 9pt;
-                font-family: 'Consolas', monospace;
-            }
-            
-            QLabel#netIcon {
-                font-size: 12pt;
-            }
-            
-            QLabel#netSpeedLabel {
-                color: #ffffff;
-                font-size: 10pt;
-                font-family: 'Consolas', monospace;
-                font-weight: bold;
-            }
-            
-            QFrame#separator {
-                background-color: rgba(255, 255, 255, 0.1);
-                max-height: 1px;
-            }
-            
-            QProgressBar {
-                background-color: rgba(40, 40, 40, 180);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 4px;
-                height: 20px;
-                text-align: center;
-            }
-            
-            QProgressBar::chunk {
-                border-radius: 3px;
-            }
-            
-            QProgressBar#cpuBar::chunk {
-                background: qlineargradient(
-                    x1: 0, y1: 0, x2: 1, y2: 0,
-                    stop: 0 rgba(0, 120, 212, 180),
-                    stop: 1 rgba(0, 180, 255, 200)
-                );
-            }
-            
-            QProgressBar#ramBar::chunk {
-                background: qlineargradient(
-                    x1: 0, y1: 0, x2: 1, y2: 0,
-                    stop: 0 rgba(16, 124, 16, 180),
-                    stop: 1 rgba(50, 200, 50, 200)
-                );
-            }
-            
-            QProgressBar#gpuBar::chunk {
-                background: qlineargradient(
-                    x1: 0, y1: 0, x2: 1, y2: 0,
-                    stop: 0 rgba(156, 39, 176, 180),
-                    stop: 1 rgba(200, 100, 255, 200)
-                );
-            }
-            
-            QProgressBar#vramBar::chunk {
-                background: qlineargradient(
-                    x1: 0, y1: 0, x2: 1, y2: 0,
-                    stop: 0 rgba(255, 152, 0, 180),
-                    stop: 1 rgba(255, 200, 100, 200)
-                );
-            }
-        """)
+        pass  # Stili gestiti da theme.qss
+
+    # ------------------------------------------------------------------
+    # Metric card helpers
+    # ------------------------------------------------------------------
+
+    def _make_metric_card(self, name: str, bar_id: str, color: str, icon: str = ''):
+        card = QFrame()
+        card.setObjectName("metricCard")
+        card.setMinimumWidth(0)
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(4)
+
+        top = QHBoxLayout()
+        top.setSpacing(5)
+        if icon:
+            icon_lbl = QLabel()
+            icon_lbl.setPixmap(svg_icon(icon, 13, color).pixmap(13, 13))
+            icon_lbl.setFixedSize(13, 13)
+            top.addWidget(icon_lbl)
+        name_lbl = QLabel(name)
+        name_lbl.setObjectName("metricName")
+        name_lbl.setMinimumWidth(0)
+        val_lbl = QLabel("–")
+        val_lbl.setObjectName("metricValue")
+        val_lbl.setMinimumWidth(0)
+        top.addWidget(name_lbl)
+        top.addStretch()
+        top.addWidget(val_lbl)
+        lay.addLayout(top)
+
+        bar = QProgressBar()
+        bar.setObjectName(bar_id)
+        bar.setMaximum(100)
+        bar.setTextVisible(False)
+        bar.setFixedHeight(4)
+        bar.setStyleSheet(
+            "QProgressBar { background: #353841; border: none; border-radius: 2px; }"
+            f"QProgressBar::chunk {{ background: {color}; border-radius: 2px; }}"
+        )
+        lay.addWidget(bar)
+
+        return card, val_lbl, bar
+
+    def _make_net_card(self, icon: str, icon_color: str, name: str):
+        card = QFrame()
+        card.setObjectName("netCard")
+        card.setMinimumWidth(0)
+        lay = QHBoxLayout(card)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(6)
+
+        icon_lbl = QLabel()
+        icon_lbl.setObjectName("netIcon")
+        icon_lbl.setPixmap(svg_icon(icon, 14, icon_color).pixmap(14, 14))
+        icon_lbl.setFixedSize(14, 14)
+        name_lbl = ElideLabel(name)
+        name_lbl.setObjectName("metricName")
+        val_lbl = ElideLabel("0.0 KB/s")
+        val_lbl.setObjectName("netSpeedLabel")
+
+        lay.addWidget(icon_lbl)
+        lay.addWidget(name_lbl)
+        lay.addStretch()
+        lay.addWidget(val_lbl)
+
+        return card, val_lbl
+
+    def _tick_uptime(self):
+        self._uptime_seconds += 1
+        h, r = divmod(self._uptime_seconds, 3600)
+        m, s = divmod(r, 60)
+        self._uptime_label.setText(f"UPTIME  {h:02d}h {m:02d}m {s:02d}s")
     
     def start_monitoring(self):
         """Avvia monitoraggio"""
@@ -354,23 +294,23 @@ class ResourceMonitor(QWidget):
                     # Format e aggiorna labels
                     if download_speed_kbs >= 1024:
                         self.download_label.setText(f"{download_speed_kbs / 1024:.2f} MB/s")
-                        self.download_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
+                        self.download_label.setStyleSheet("color: #3fcf8e;")
                     elif download_speed_kbs > 0.1:
                         self.download_label.setText(f"{download_speed_kbs:.1f} KB/s")
-                        self.download_label.setStyleSheet("color: #8BC34A; font-weight: bold;")
+                        self.download_label.setStyleSheet("color: #3fcf8e;")
                     else:
                         self.download_label.setText("0.0 KB/s")
-                        self.download_label.setStyleSheet("color: #888888;")
-                    
+                        self.download_label.setStyleSheet("color: #6b7280;")
+
                     if upload_speed_kbs >= 1024:
                         self.upload_label.setText(f"{upload_speed_kbs / 1024:.2f} MB/s")
-                        self.upload_label.setStyleSheet("color: #FF9800; font-weight: bold;")
+                        self.upload_label.setStyleSheet("color: #f5b450;")
                     elif upload_speed_kbs > 0.1:
                         self.upload_label.setText(f"{upload_speed_kbs:.1f} KB/s")
-                        self.upload_label.setStyleSheet("color: #FFC107; font-weight: bold;")
+                        self.upload_label.setStyleSheet("color: #f5b450;")
                     else:
                         self.upload_label.setText("0.0 KB/s")
-                        self.upload_label.setStyleSheet("color: #888888;")
+                        self.upload_label.setStyleSheet("color: #6b7280;")
             
             # Aggiorna valori per prossimo ciclo
             self.last_net_io = current_net_io
