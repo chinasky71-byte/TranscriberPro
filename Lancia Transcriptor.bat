@@ -45,7 +45,7 @@ REM Esecuzione dello script principale dell'applicazione.
 ECHO Avvio di Transcriber Pro...
 ECHO (Questa finestra del terminale rimarra' aperta per i log)
 ECHO.
-python main.py
+pythonw main.py
 
 ECHO.
 ECHO ===================================================

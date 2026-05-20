@@ -50,6 +50,7 @@ _SVG_CONTENT: dict[str, str] = {
     'cloud':     '<path d="M7 18a5 5 0 1 1 .8-9.94 6 6 0 0 1 11.4 2.5A4.5 4.5 0 0 1 18 18z"/>',
     'female':    '<circle cx="12" cy="9" r="5"/><path d="M12 14v7M9 18h6"/>',
     'volume':    '<path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14"/>',
+    'sync':      '<path d="M4 12a8 8 0 0 1 14.9-4M4 8V4M4 4h4M20 12a8 8 0 0 1-14.9 4M20 16v4M20 20h-4"/>',
 }
 
 _icon_cache: dict[tuple, QIcon] = {}

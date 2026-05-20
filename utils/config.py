@@ -123,6 +123,15 @@ class Config:
         'library_scanner_url': 'http://192.168.1.18:6680',
         'library_scanner_api_key': '',
         'library_scanner_enabled': True,
+
+        # Gender Correction (LLM post-traduzione)
+        'gender_correction_enabled': False,
+        'gender_correction_model_path': '',
+
+        # Subtitle Synchronization ("Anchor & Match" pipeline)
+        'sync_src_language':           'en',   # lingua embedded anchor (ISO 639-1)
+        'sync_llm_window_size':        20,     # anchor per finestra Qwen
+        'sync_allow_whisper_fallback': True,   # fallback Whisper se no embedded subs
     }
     
     # Profili validi
@@ -611,6 +620,16 @@ class Config:
             return False
         p = Path(path)
         return p.exists() and (p / 'config.json').exists()
+
+    # ========================================================================
+    # METODI HELPER per Gender Correction
+    # ========================================================================
+
+    def is_gender_correction_available(self) -> bool:
+        if not self.get('gender_correction_enabled', False):
+            return False
+        p = self.get('gender_correction_model_path', '')
+        return bool(p) and Path(p).exists()
 
     # ========================================================================
     # METODI HELPER per Adaptive Batch Size

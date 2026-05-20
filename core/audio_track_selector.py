@@ -185,6 +185,8 @@ class AudioTrackSelector:
         Returns:
             True se estrazione riuscita
         """
+        output_path = Path(output_path)
+
         # Auto-select se non specificato
         if track_index is None:
             best_track = self.select_best_track()
