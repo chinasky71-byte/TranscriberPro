@@ -332,6 +332,18 @@ class MainWindow(QMainWindow):
 
         self.profile_indicator = self.profile_button  # backward-compat alias
 
+        self.sync_btn = QToolButton()
+        self.sync_btn.setObjectName("titleBarSyncBtn")
+        self.sync_btn.setText('')
+        self.sync_btn.setIcon(svg_icon('sync', 18, '#9095a0'))
+        self.sync_btn.setIconSize(QSize(18, 18))
+        self.sync_btn.setFixedSize(32, 32)
+        self.sync_btn.setToolTip(tr('sync_dialog_title'))
+        self.sync_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.sync_btn.clicked.connect(self._open_sync_dialog)
+
+        layout.addWidget(self.sync_btn)
+
         self.settings_btn = QToolButton()
         self.settings_btn.setObjectName("titleBarSettingsBtn")
         self.settings_btn.setText('')
@@ -1172,6 +1184,20 @@ class MainWindow(QMainWindow):
 
     def open_general_settings(self):
         self.open_settings_dialog(initial_tab=TAB_GENERAL)
+
+    def _open_sync_dialog(self):
+        """Apre il dialog di sincronizzazione SRT."""
+        from gui.sync_dialog import SyncDialog
+        current_video = None
+        selected = self.file_list.currentItem()
+        if selected:
+            data = selected.data(Qt.ItemDataRole.UserRole)
+            if isinstance(data, dict):
+                current_video = data.get('path')
+            elif isinstance(data, str):
+                current_video = data
+        dlg = SyncDialog(video_path=current_video, parent=self)
+        dlg.exec()
 
     def closeEvent(self, event):
         if self.is_processing:
