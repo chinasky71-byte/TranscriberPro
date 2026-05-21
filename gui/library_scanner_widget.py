@@ -88,6 +88,8 @@ class _NumericTableWidgetItem(QTableWidgetItem):
 class LibraryScannerWidget(QFrame):
     """Widget collassabile che mostra i video senza sottotitoli italiani dal server Library Scanner."""
 
+    status_changed = pyqtSignal(str)   # "Attivo" / "Inattivo" — per summary CollapsibleCard
+
     def __init__(self, main_window, parent=None):
         super().__init__(parent)
         self.main_window = main_window
@@ -114,11 +116,23 @@ class LibraryScannerWidget(QFrame):
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
-        main_layout.addWidget(self._build_header())
+        self._internal_header = self._build_header()
+        main_layout.addWidget(self._internal_header)
 
         self.body_widget = self._build_body()
         self.body_widget.setVisible(False)
         main_layout.addWidget(self.body_widget)
+
+    def set_embedded(self, embedded: bool = True):
+        """Nasconde l'header interno (usato dentro CollapsibleCard).
+        refresh_btn e status_dot vengono esposti al chiamante via addHeaderWidget()."""
+        self._internal_header.setVisible(not embedded)
+        if embedded:
+            self.body_widget.setVisible(True)
+            self.is_expanded = True
+            if not self.is_loaded:
+                self.is_loaded = True
+                self.refresh_data()
 
     def _build_header(self) -> QFrame:
         header = QFrame()
@@ -137,9 +151,9 @@ class LibraryScannerWidget(QFrame):
         self.toggle_btn.clicked.connect(self.toggle_expanded)
         layout.addWidget(self.toggle_btn)
 
-        title = QLabel(tr('library_scanner_title'))
-        title.setObjectName("scannerTitle")
-        layout.addWidget(title)
+        self._header_title = QLabel(tr('library_scanner_title'))
+        self._header_title.setObjectName("scannerTitle")
+        layout.addWidget(self._header_title)
 
         self.badge_label = QLabel("0")
         self.badge_label.setObjectName("scannerBadge")
@@ -151,6 +165,7 @@ class LibraryScannerWidget(QFrame):
 
         self.status_dot = QLabel()
         self.status_dot.setFixedSize(10, 10)
+        self.status_dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_dot.setStyleSheet(
             "background-color: #888888; border-radius: 5px;"
             "min-width: 10px; max-width: 10px;"
@@ -486,6 +501,7 @@ class LibraryScannerWidget(QFrame):
             f"min-width: 10px; max-width: 10px;"
             f"min-height: 10px; max-height: 10px;"
         )
+        self.status_changed.emit("Attivo" if connected else "Inattivo")
 
     # ========================================================================
     # TABELLA
@@ -644,7 +660,7 @@ class LibraryScannerWidget(QFrame):
             for path in paths:
                 if path and path not in self.main_window.processing_queue:
                     self.main_window.processing_queue.append(path)
-                    self.main_window.file_list.addItem(Path(path).name)
+                    self.main_window.file_list.addItem(self.main_window._make_file_item(path))
                     added += 1
 
         if added > 0:
