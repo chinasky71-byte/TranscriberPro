@@ -712,6 +712,10 @@ class LibraryScannerWidget(QFrame):
         self._ocr_kind = kind
         self._ocr_name = Path(windows_path).name
         self._log(f"🔤 OCR avviato ({kind}, {strategy}): {self._ocr_name}")
+        # Mostra il job nella coda di processamento (display; non in trascrizione)
+        kind_label = 'VOBSUB' if kind == 'vobsub' else 'PGS'
+        self._ocr_add_job(windows_path, kind_label)
+        self._ocr_set_status(windows_path, 'processing', 0)
 
         self._ocr_worker = OcrWorker(windows_path, config, strategy, mode="ocr", kind=kind)
         self._ocr_worker.events_ready.connect(self._on_ocr_events_ready)
@@ -734,6 +738,7 @@ class LibraryScannerWidget(QFrame):
             prefix = "OCR · "
         self.ocr_progress_label.setText(f"{prefix}{name} — {label} {percent}%")
         self.ocr_progress_label.setVisible(True)
+        self._ocr_set_status(getattr(self, '_ocr_video_path', ''), 'processing', percent)
 
     def _log(self, msg: str):
         """Inoltra un messaggio al log della main window, se disponibile."""
@@ -741,6 +746,18 @@ class LibraryScannerWidget(QFrame):
             self.main_window.log_message(msg)
         except Exception:
             logger.info(msg)
+
+    def _ocr_add_job(self, path: str, kind_label: str):
+        try:
+            self.main_window.add_ocr_jobs([(path, kind_label)])
+        except Exception:
+            pass
+
+    def _ocr_set_status(self, path: str, status: str, progress: int = 0):
+        try:
+            self.main_window.set_ocr_job_status(path, status, progress)
+        except Exception:
+            pass
 
     def _on_ocr_events_ready(self, events, language):
         """Ramo review: apri la UI di revisione mirata, poi scrivi il risultato."""
@@ -753,6 +770,8 @@ class LibraryScannerWidget(QFrame):
             self._run_ocr_writeback(srt_text, language)
         else:
             self._log(f"OCR annullato in revisione: {self._ocr_name}")
+            self.ocr_progress_label.setVisible(False)
+            self._ocr_set_status(getattr(self, '_ocr_video_path', ''), 'failed', 0)
 
     def _run_ocr_writeback(self, srt_text: str, language: str):
         from gui.ocr_worker import OcrWorker
@@ -770,6 +789,8 @@ class LibraryScannerWidget(QFrame):
         self._ocr_worker.start()
 
     def _on_ocr_auto_done(self, ok: bool):
+        self._ocr_set_status(getattr(self, '_ocr_video_path', ''),
+                             'completed' if ok else 'failed', 100)
         if ok:
             self._mark_row_done(getattr(self, '_ocr_video_path', ''))
         if getattr(self, '_ocr_batch_active', False):
@@ -787,6 +808,8 @@ class LibraryScannerWidget(QFrame):
 
     def _on_ocr_writeback_done(self, ok: bool):
         self.ocr_progress_label.setVisible(False)
+        self._ocr_set_status(getattr(self, '_ocr_video_path', ''),
+                             'completed' if ok else 'failed', 100)
         if ok:
             self._mark_row_done(getattr(self, '_ocr_video_path', ''))
             QMessageBox.information(self, tr('ocr_section_title'),
@@ -810,6 +833,7 @@ class LibraryScannerWidget(QFrame):
                 return
 
     def _on_ocr_unsupported(self, msg: str):
+        self._ocr_set_status(getattr(self, '_ocr_video_path', ''), 'failed', 0)
         if getattr(self, '_ocr_batch_active', False):
             self._ocr_batch_fail += 1
             return
@@ -817,6 +841,7 @@ class LibraryScannerWidget(QFrame):
                                f"{self._ocr_name}\n\n{msg}")
 
     def _on_ocr_error(self, msg: str):
+        self._ocr_set_status(getattr(self, '_ocr_video_path', ''), 'failed', 0)
         if getattr(self, '_ocr_batch_active', False):
             self._ocr_batch_fail += 1
             return
@@ -850,6 +875,9 @@ class LibraryScannerWidget(QFrame):
         self._ocr_batch_total = len(items)
         self._ocr_batch_ok = 0
         self._ocr_batch_fail = 0
+        # Pre-popola la coda di processamento con tutti i job (stato "in coda").
+        for path, kind in items:
+            self._ocr_add_job(path, 'VOBSUB' if kind == 'vobsub' else 'PGS')
         self._log(f"🔤 Batch OCR avviato: {self._ocr_batch_total} file (automatico)")
         self._ocr_batch_advance()
 
