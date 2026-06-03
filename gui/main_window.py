@@ -142,7 +142,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.config = get_config()
         self.processing_queue = []
-        self.queue_mutex = QMutex() 
+        self.queue_mutex = QMutex()
         self.is_processing = False
         self.worker = None
         self.file_handler = FileHandler()
@@ -161,13 +161,13 @@ class MainWindow(QMainWindow):
 
         self.init_ui()
         self.apply_modern_theme()
-        
+
         self.log_message(tr('app_started'))
         self.log_message(f"🎨 TMDB Client: {'✅ Attivo' if self.tmdb_client.api_key else '❌ Disattivo'}")
-        
+
         current_profile = self.config.get_transcription_profile()
         self.log_message(f"⚙️ Profilo attivo: {tr(f'profile_{current_profile}_name')}")
-        
+
         self.resource_monitor.start_monitoring()
     
     def init_ui(self):
@@ -830,6 +830,46 @@ class MainWindow(QMainWindow):
             data = item.data(Qt.ItemDataRole.UserRole) or {}
             status = data.get('status', 'queued')
             item.setHidden(key != 'all' and status != key)
+
+    # ------------------------------------------------------------------
+    # Job OCR (conversione sottotitoli bitmap dal Library Scanner)
+    # Compaiono nella coda con stato/avanzamento ma NON entrano in
+    # processing_queue: il pulsante "Avvia" (trascrizione audio) li ignora.
+    # ------------------------------------------------------------------
+    def _make_ocr_item(self, path: str, kind_label: str):
+        from PyQt6.QtWidgets import QListWidgetItem
+        item = QListWidgetItem(Path(path).name)
+        item.setData(Qt.ItemDataRole.UserRole, {
+            'path':     path,
+            'filename': Path(path).name,
+            'status':   'queued',
+            'progress': 0,
+            'size':     f'OCR · {kind_label}',
+            'kind':     'ocr',
+        })
+        return item
+
+    def add_ocr_jobs(self, items: list):
+        """items: lista di (windows_path, kind_label). Aggiunge job OCR alla coda
+        (solo visualizzazione; NON in processing_queue)."""
+        for path, kind_label in items:
+            if self._find_item_by_path(path) is None:
+                self.file_list.addItem(self._make_ocr_item(path, kind_label))
+        self._update_filter_badges()
+
+    def set_ocr_job_status(self, path: str, status: str, progress: int = 0):
+        """Aggiorna stato/avanzamento di un job OCR nella coda."""
+        item = self._find_item_by_path(path)
+        if not item:
+            return
+        data = item.data(Qt.ItemDataRole.UserRole) or {}
+        if data.get('kind') != 'ocr':
+            return
+        data['status'] = status
+        data['progress'] = int(progress)
+        item.setData(Qt.ItemDataRole.UserRole, data)
+        self.file_list.update()
+        self._update_filter_badges()
 
     # ------------------------------------------------------------------
 
