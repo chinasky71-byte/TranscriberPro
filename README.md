@@ -4,15 +4,23 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.3.7-orange)
+![Version](https://img.shields.io/badge/Version-1.4.0-orange)
 
-AI-powered desktop application for automatic subtitle transcription and translation from video files.
+AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
+
+---
+
+> 🇮🇹 **[Versione italiana](#versione-italiana)** più in basso.
 
 ---
 
 ## What It Does
 
-Transcriber Pro takes any video file, extracts or transcribes its audio using Faster-Whisper (OpenAI speech recognition), then translates the resulting subtitles into Italian (or other languages) using local AI models or cloud APIs. The output is a clean `.srt` subtitle file, optionally uploaded to OpenSubtitles automatically.
+Transcriber Pro takes any video file and produces clean `.srt` subtitle files through two complementary pipelines:
+
+**Audio → SRT pipeline**: extracts or transcribes audio with Faster-Whisper, then translates into Italian (or other languages) using local AI models or cloud APIs. Output is optionally uploaded to OpenSubtitles automatically.
+
+**Bitmap OCR pipeline**: converts PGS (Blu-ray) and VOBSUB (DVD) image-based subtitle tracks directly to text SRT — entirely local, no cloud, verbatim faithful to the source bitmap. Non-Italian tracks are OCR'd and automatically translated to Italian.
 
 **No subscription. No cloud dependency for local models. Runs entirely on your GPU.**
 
@@ -20,20 +28,48 @@ Transcriber Pro takes any video file, extracts or transcribes its audio using Fa
 
 ## Features
 
+### Transcription & Translation
 - **Automatic transcription** via Faster-Whisper `large-v3` (99 languages, VAD filter)
-- **Multiple translation engines**: NLLB-200, Aya-23-8B, Claude API, OpenAI GPT-4o-mini
+- **Multiple translation engines**: NLLB-200-3.3B, NLLB fine-tuned, Aya-23-8B, Claude Sonnet API, OpenAI GPT-4o-mini
 - **Vocal separation** via Meta Demucs — isolates speech before transcription for better accuracy
-- **Intelligent chunking** — splits audio at silence points for accurate timestamp alignment
-- **TMDB/OMDB metadata** — auto-fetches film synopsis for context-aware translation; robust title parsing with HTML entity decoding and release-tag stripping
-- **OpenSubtitles upload** — REST API integration with duplicate detection
-- **Library Scanner** — integrates with self-hosted Plex/Jellyfin servers; real-time DB update on subtitle creation; Italian audio detection via explicit filename tags (ITA, NUiTA, ENG, NUEnG, MULTI, etc.)
+- **Intelligent audio chunking** — splits at silence points for accurate timestamp alignment
 - **Transcription profiles** — Fast / Balanced / Quality / Maximum / Batch presets
-- **Real-time resource monitor** — GPU/CPU/RAM usage during processing
-- **GPU memory management** — sequential model loading/unloading to fit 6–12 GB VRAM
-- **Embedded subtitle extraction** — skips transcription if subtitles already exist in the container; bitmap-only (PGS/VOBSUB) streams are automatically skipped
-- **IT/EN interface** — full Italian/English UI; language selector in General Settings (🔧); auto-detects system locale
-- **Immediate stop with confirmation** — Stop button shows a confirmation dialog; on confirm, kills active FFmpeg/Demucs/Whisper processes within seconds and cleans up temp files automatically
-- **Gender correction (experimental)** — LLM-based post-translation fix for Italian grammatical gender errors, using TMDB cast context; runs in isolated subprocess
+- **Force audio transcription** — bypass embedded subtitle extraction and always transcribe from audio
+- **Gender correction (experimental)** — LLM-based post-translation fix for Italian grammatical gender errors using Qwen2.5-14B GGUF via llama-cpp-python; runs in isolated subprocess with TMDB cast context
+
+### Bitmap OCR (PGS / VOBSUB → SRT)
+- **PGS (Blu-ray) and VOBSUB (DVD)** bitmap subtitle tracks converted to text SRT — verbatim, no AI hallucination
+- **Parallel multi-core OCR** — Tesseract runs on multiple CPU cores simultaneously (~8× faster vs single-core; ~1 min for a full film vs ~3 min before)
+- **Per-track language detection** — Tesseract model selected automatically from the track's language tag; supported: Italian, English, Spanish, French, German, Portuguese, Dutch (tessdata_best)
+- **Automatic translation to Italian** — non-Italian tracks are OCR'd in their source language, saved as `<stem>.<lang>.srt`, then translated to Italian and saved as `<stem>.it.srt` (both files kept)
+- **Configurable strategy** — *Targeted review* (OCR + human review UI showing uncertain lines side-by-side with the original bitmap image) or *Automatic* (no review, direct output)
+- **Configurable parallel workers** — slider in Settings → Subtitle OCR; default auto = `min(CPU cores, 8)`
+- **Write-back modes** — remux SRT as new track inside the MKV in-place, or save as sidecar `.srt` next to the video (VOBSUB always sidecar)
+
+### Library Scanner Integration
+- **Self-hosted media server integration** (Plex / Jellyfin) — scans the library, shows files without Italian subtitles
+- **Format filter** — filter by All / PGS / VOBSUB to target bitmap-only files for OCR conversion
+- **Bitmap badges** — PGS / VOB / MIX clickable badge on each row; click launches OCR for that file
+- **Batch OCR** — "Convert all (OCR)" button converts all visible bitmap files automatically
+- **Live progress in processing queue** — OCR jobs appear in the main processing queue with status dot, progress bar, and OCR·PGS/VOBSUB tag; do not interfere with the audio transcription queue
+- **Automatic DB sync** — after each successful OCR the scanner database is notified (`notify-subtitle` endpoint) so the file exits the "no subtitles" list; a widget sync refreshes the view
+- **ASS/SSA → SRT conversion** — server-side remux of text-based embedded subtitles (handled by Library Scanner container, not Transcriber Pro)
+- **Italian audio detection** — filename tag detection (ITA, NUiTA, MULTI, etc.)
+- **Real-time DB update** on subtitle creation
+
+### Metadata & Upload
+- **TMDB / OMDB metadata** — auto-fetches film synopsis for context-aware translation; robust title parsing
+- **OpenSubtitles upload** — REST API integration with duplicate detection
+
+### Interface & Infrastructure
+- **IT / EN interface** — full bilingual UI; auto-detects system locale; language selector in General Settings
+- **Unified Settings dialog** — sidebar + stacked content: General, Transcription, Translation, Adaptive Batch, OpenSubtitles, **Subtitle OCR** (new)
+- **SVG icon system** — 38 vector icons, theme-aware
+- **Real-time resource monitor** — GPU / CPU / RAM usage during processing
+- **GPU memory management** — sequential model loading/unloading; Demucs, Whisper, and translation model never run simultaneously; cuBLAS workspace cleanup
+- **Embedded subtitle extraction** — skips transcription when clean text subtitles already exist; bitmap-only streams trigger the OCR pipeline instead
+- **Immediate stop** — confirmation dialog; kills FFmpeg / Demucs / Whisper within seconds; cleans temp files automatically
+- **Processing queue** — Queued / Active / Completed / Failed filters with live badges
 
 ---
 
@@ -46,7 +82,7 @@ Transcriber Pro takes any video file, extracts or transcribes its audio using Fa
 | **Storage** | SSD (models + temp files) | NVMe SSD |
 | **OS** | Windows 10/11 | Windows 11 |
 
-> CPU-only mode is supported but ~10x slower. GPU is strongly recommended.
+> CPU-only mode is supported but ~10× slower. GPU is strongly recommended.
 
 ---
 
@@ -55,6 +91,8 @@ Transcriber Pro takes any video file, extracts or transcribes its audio using Fa
 - **Python** 3.11
 - **CUDA** 12.6 + cuDNN
 - **FFmpeg** 6.0+ (must be in PATH)
+- **Tesseract OCR 5+** with `ita` and `eng` traineddata from [tessdata_best](https://github.com/tesseract-ocr/tessdata_best) (required for the OCR pipeline)
+- **MKVToolNix** (`mkvextract`) — required for VOBSUB extraction only
 - **Git** (for cloning)
 
 ---
@@ -63,22 +101,24 @@ Transcriber Pro takes any video file, extracts or transcribes its audio using Fa
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/YOUR_USERNAME/TranscriberPro.git
+git clone https://github.com/chinasky71-byte/TranscriberPro.git
 cd TranscriberPro
 
 # 2. Create virtual environment
 python -m venv venv
-venv\Scripts\activate      # Windows
-# source venv/bin/activate  # Linux/macOS
+venv\Scripts\activate
 
-# 3. Install dependencies
+# 3. Install PyTorch with CUDA first (adjust CUDA version if needed)
+pip install torch==2.8.0+cu126 torchaudio==2.8.0+cu126 --index-url https://download.pytorch.org/whl/cu126
+
+# 4. Install remaining dependencies
 pip install -r requirements.txt
 
-# 4. Run
+# 5. Run
 python main.py
 ```
 
-> PyTorch with CUDA is listed in `requirements.txt`. If you need a different CUDA version, install PyTorch manually from https://pytorch.org/get-started/locally/
+> For Tesseract OCR: install via [scoop](https://scoop.sh) (`scoop install tesseract`) or the Windows installer, then download `ita.traineddata` and `eng.traineddata` from [tessdata_best](https://github.com/tesseract-ocr/tessdata_best/tree/main) into the Tesseract `tessdata/` folder.
 
 ---
 
@@ -86,34 +126,34 @@ python main.py
 
 All credentials are entered through the application GUI — no config files to edit manually.
 
-| Credential | Where to enter in the app | How to obtain | Enables |
+| Credential | Where to enter | How to obtain | Enables |
 |---|---|---|---|
-| **Claude API Key** | Settings → Translation Model → Claude | [console.anthropic.com](https://console.anthropic.com) → API Keys | Claude Sonnet translation (best quality) |
-| **OpenAI API Key** | Settings → Translation Model → OpenAI | [platform.openai.com](https://platform.openai.com) → API Keys | GPT-4o-mini translation |
-| **HuggingFace Token** | Settings → Models → HuggingFace Token | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) | Download Aya-23-8B (gated model) |
-| **OpenSubtitles Username** | Settings → OpenSubtitles | [opensubtitles.com](https://www.opensubtitles.com) (free) | Subtitle upload |
-| **OpenSubtitles Password** | Settings → OpenSubtitles | opensubtitles.com | Subtitle upload |
-| **OpenSubtitles API Key** | Settings → OpenSubtitles | [opensubtitles.com/en/api](https://www.opensubtitles.com/en/api) | REST API upload |
-| **TMDB API Key** | Settings → Metadata → TMDB | [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api) (free) | Film/series metadata for translation context |
-| **OMDB API Key** | Settings → Metadata → OMDB | [omdbapi.com/apikey](http://www.omdbapi.com/apikey.aspx) (free tier) | IMDb metadata fallback |
-| **Library Scanner API Key** | Settings → Library → API Key | Your self-hosted server | Plex/Jellyfin library scanning |
+| **Claude API Key** | Settings → Translation → Claude | [console.anthropic.com](https://console.anthropic.com) | Claude Sonnet translation |
+| **OpenAI API Key** | Settings → Translation → OpenAI | [platform.openai.com](https://platform.openai.com) | GPT-4o-mini translation |
+| **HuggingFace Token** | Settings → Translation → HuggingFace | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) | Aya-23-8B (gated model) |
+| **OpenSubtitles credentials** | Settings → OpenSubtitles | [opensubtitles.com](https://www.opensubtitles.com) | Subtitle upload |
+| **TMDB API Key** | Settings → General → TMDB | [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api) | Film metadata |
+| **OMDB API Key** | Settings → General → OMDB | [omdbapi.com/apikey](http://www.omdbapi.com/apikey.aspx) | IMDb metadata fallback |
+| **Library Scanner API Key** | Settings → Library Scanner | Your self-hosted server | Library integration |
 
-All credentials are optional except for the translation model you choose to use. Local models (NLLB, Aya) require no API keys.
+All credentials are optional except for the translation model you choose to use. Local models (NLLB, Aya) and the OCR pipeline require no API keys.
 
 ---
 
 ## Basic Usage
 
-1. **Add video files** — drag and drop or use the file picker
-2. **Select transcription profile** — Balanced is recommended for most cases
-3. **Choose translation engine** — NLLB (fast, local) or Claude (best quality, cloud API)
-4. **Click Start** — the pipeline runs automatically:
-   - Vocal separation (Demucs)
-   - Audio chunking at silence points
-   - Transcription (Faster-Whisper)
-   - Translation
-   - SRT file saved next to the video
-   - Optional upload to OpenSubtitles
+### Audio transcription
+1. Add video files — drag and drop or use the file picker
+2. Select a transcription profile (Balanced recommended)
+3. Choose a translation engine
+4. Click **Start** — Demucs → chunking → Whisper → translation → SRT saved next to the video
+
+### Bitmap OCR (PGS / VOBSUB)
+1. Open the **Library Scanner** panel (requires a configured self-hosted media server)
+2. Set the **Format** filter to PGS or VOBSUB
+3. Click the badge on a single row, or **Convert all (OCR)** for the entire filtered list
+4. The OCR pipeline runs automatically; progress appears in the main processing queue
+5. Italian tracks → `.it.srt`; non-Italian tracks → `.<lang>.srt` + `.it.srt` (translated)
 
 ---
 
@@ -121,57 +161,77 @@ All credentials are optional except for the translation model you choose to use.
 
 | Model | Type | Size | VRAM | Quality | Speed |
 |-------|------|------|------|---------|-------|
-| Faster-Whisper large-v3 | Transcription | 1.5B params | ~4 GB | ★★★★★ | ★★★★☆ |
-| NLLB-200-3.3B | Translation (local) | 3.3B params | ~5 GB | ★★★☆☆ | ★★★★★ |
-| NLLB-200 fine-tuned | Translation (local) | 3.3B params | ~5 GB | ★★★★☆ | ★★★★★ |
-| Aya-23-8B | Translation (local) | 8B params | ~8 GB | ★★★★☆ | ★★★☆☆ |
+| Faster-Whisper large-v3 | Transcription | 1.5 B params | ~4 GB | ★★★★★ | ★★★★☆ |
+| NLLB-200-3.3B | Translation (local) | 3.3 B params | ~5 GB | ★★★☆☆ | ★★★★★ |
+| NLLB-200 fine-tuned | Translation (local) | 3.3 B params | ~5 GB | ★★★★☆ | ★★★★★ |
+| Aya-23-8B | Translation (local) | 8 B params | ~8 GB | ★★★★☆ | ★★★☆☆ |
 | Claude Sonnet (API) | Translation (cloud) | — | 0 GB | ★★★★★ | ★★★★☆ |
 | GPT-4o-mini (API) | Translation (cloud) | — | 0 GB | ★★★★☆ | ★★★★★ |
-| Qwen2.5-14B GGUF | Gender correction (local) | 14B params | ~8.4 GB | ★★★☆☆ | ★★★☆☆ |
+| Qwen2.5-14B GGUF | Gender correction | 14 B params | ~8.4 GB | ★★★☆☆ | ★★★☆☆ |
+| Tesseract 5 (ita/eng/…) | Bitmap OCR | — | 0 GB | ★★★★☆ | ★★★★★ |
 
-Models are loaded and unloaded sequentially to fit within available VRAM. Demucs, Whisper, and the translation model never run simultaneously.
+Models are loaded and unloaded sequentially to fit within available VRAM.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                   PRESENTATION LAYER                     │
-│                      (PyQt6 GUI)                         │
-│   MainWindow · ResourceMonitor · ProfileDialog           │
-└────────────────────────┬────────────────────────────────┘
-                         │ Qt Signals/Slots
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│                   CORE PROCESSING LAYER                  │
-│             ProcessingPipeline (orchestrator)            │
-│   SubtitleExtractor · AudioProcessor · Transcriber       │
-│   Translator (NLLB / Aya / Claude / OpenAI)              │
-└────────────────────────┬────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│                   UTILS / DATA LAYER                     │
-│   Config · TMDBClient · IMDbClient · OpenSubtitles       │
-│   FileHandler · Logger · ResourceMonitor                 │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                     PRESENTATION LAYER                        │
+│                        (PyQt6 GUI)                            │
+│  MainWindow · LibraryScannerWidget · OcrReviewDialog          │
+│  SettingsDialog · ResourceMonitor · ProfileDialog             │
+└───────────────────────────┬──────────────────────────────────┘
+                            │ Qt Signals / Slots
+                            ▼
+┌──────────────────────────────────────────────────────────────┐
+│                   CORE PROCESSING LAYER                       │
+│          ProcessingPipeline (audio transcription)             │
+│  SubtitleExtractor · AudioProcessor · Transcriber             │
+│  Translator (NLLB / Aya / Claude / OpenAI)                    │
+│  GenderCorrector                                              │
+│                                                               │
+│          PgsOcr · VobSubOcr · BitmapOcrCommon                 │
+│  pgsreader (vendored) · vobsub parser (vendored)              │
+│  Tesseract (parallel ThreadPool)                              │
+└───────────────────────────┬──────────────────────────────────┘
+                            │
+                            ▼
+┌──────────────────────────────────────────────────────────────┐
+│                    UTILS / DATA LAYER                         │
+│  Config · TMDBClient · IMDbClient · OpenSubtitles             │
+│  FileHandler · Logger · ResourceMonitor                       │
+│  LibraryScanner API client (notify-subtitle)                  │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## Performance Benchmarks
 
-Tested on: i7-12700KF · 12 GB RAM · RTX 3060 12 GB · NVMe SSD
+Tested on: i7-12700KF · 32 GB RAM · RTX 3060 12 GB · NVMe SSD
+
+### Audio transcription (GPU vs CPU)
 
 | Content | Duration | GPU | CPU | Speedup |
 |---------|----------|-----|-----|---------|
-| Short clip | 5 min | 45 sec | 7 min | 9.3x |
-| TV episode | 45 min | 7 min | 67 min | 9.5x |
-| Movie | 2h 15min | 20 min | 3h 22min | 10.1x |
-| Long documentary | 4h | 38 min | 6h 12min | 9.8x |
+| Short clip | 5 min | 45 sec | 7 min | 9.3× |
+| TV episode | 45 min | 7 min | 67 min | 9.5× |
+| Movie | 2 h 15 min | 20 min | 3 h 22 min | 10.1× |
+| Long documentary | 4 h | 38 min | 6 h 12 min | 9.8× |
 
-**Average: ~10x speedup with GPU vs CPU-only mode.**
+**Average: ~10× speedup with GPU.**
+
+### Bitmap OCR (parallel multi-core, RTX 3060)
+
+| File | Events | Single-core | 8-core parallel | Speedup |
+|------|--------|-------------|-----------------|---------|
+| Prospect (2018) PGS | 767 | ~195 s | ~17 s | ~11× |
+| The Aviator (2004) PGS | 1833 | ~329 s | ~40 s | ~8× |
+| Duplex (2003) VOBSUB | 934 | ~150 s | ~20 s | ~7.5× |
+
+**Average OCR speedup: ~8× with 8 parallel workers.**
 
 ---
 
@@ -182,7 +242,7 @@ Tested on: i7-12700KF · 12 GB RAM · RTX 3060 12 GB · NVMe SSD
 3. Commit your changes: `git commit -m 'Add my feature'`
 4. Push and open a Pull Request
 
-Please open an issue first for major changes to discuss the approach.
+Please open an issue first for major changes.
 
 ---
 
@@ -194,52 +254,307 @@ This project is licensed under the MIT License.
 
 ## Changelog
 
+### v1.4.0
+- **Bitmap OCR pipeline** (PGS / VOBSUB → SRT) — verbatim, parallel multi-core Tesseract; ~8× faster than single-core
+- **Per-track language OCR** — model selected from stream language tag; non-Italian tracks auto-translated to Italian
+- **Library Scanner: Format filter** — filter queue by PGS / VOBSUB; clickable badges; "Convert all (OCR)" batch button
+- **OCR jobs in processing queue** — live progress, status dot, progress bar; do not interfere with audio transcription
+- **Automatic DB sync** — `notify-subtitle` API endpoint updates scanner DB after each OCR; widget auto-refreshes
+- **Unified Settings → Subtitle OCR** — strategy, language, confidence threshold, parallel workers, Tesseract path, write-back mode
+- **OCR review dialog** — side-by-side bitmap image + editable OCR text; jump to flagged low-confidence lines
+- **Fix**: PGS auto mode now uses the validated pgsreader+Tesseract engine (pgsrip removed — was failing when PATH did not include scoop shims in GUI context)
+- **Fix**: extension now follows track language (was always `.ita.srt` regardless of track language)
+
+### v1.3.8
+- Queue tab badge update fix
+
 ### v1.3.7
-- **Local model cache** — all AI models (Whisper, NLLB, Aya, wav2vec2, pyannote, Demucs) now download into `models/.cache/` inside the project folder instead of `~/.cache/huggingface/`. Single bootstrap module sets `HF_HOME`, `HUGGINGFACE_HUB_CACHE`, `TRANSFORMERS_CACHE`, `TORCH_HOME` env vars before any torch/transformers/HF import; faster-whisper gets `download_root=` explicitly since it doesn't honor `HF_HOME` reliably
-- **Auto cache cleanup post-pipeline** — non-Italian models are removed from cache at the end of each file's processing to save disk space. Whitelist: wav2vec2-italian, faster-whisper-large-v3, NLLB fine-tuned (already local), Qwen GGUF (already local). Removed: NLLB-200 base, Aya-23-8B, wav2vec2 en/fr/es/generic, pyannote, Demucs htdemucs. Re-download is automatic and silent if a removed model is needed again. Windows mmap lock handled with retry+sleep
-- **Force audio transcription option** — new checkbox in Translation Model settings to bypass embedded subtitle extraction and always transcribe from audio. Useful when embedded subs are low quality
+- **Local model cache** — all AI models download into `models/.cache/` inside the project folder
+- **Auto cache cleanup** — non-Italian models removed from cache after each file; re-download is automatic
+- **Force audio transcription** — new option to bypass embedded subtitle extraction
 
 ### v1.3.6
-- **Gender correction settings UI** — GGUF model selector with VRAM guidance table (8GB/12GB/16GB+), file browser, enable/disable toggle
+- **Gender correction settings UI** — GGUF model selector with VRAM guidance, file browser, enable/disable toggle
 
 ### v1.3.5
-- **Gender Correction (EXPERIMENTAL)** — new STEP 6.5: LLM-based grammatical gender correction for Italian subtitles using Qwen2.5-14B GGUF via llama-cpp-python. Runs in an isolated subprocess with fresh CUDA context for maximum VRAM availability. Integrates TMDB cast info for character gender context. Includes progress bar with ETA. *This feature is experimental — quality depends on the LLM model and corrections should be reviewed manually.*
-- **VRAM cleanup fix** — fixed 3.2 GB VRAM stuck after NLLB translator cleanup. Root cause: cuBLAS persistent workspaces prevented PyTorch caching allocator from releasing memory segments. Fix: `torch._C._cuda_clearCublasWorkspaces()` + accelerate hook removal + explicit `.to('cpu')` before model deletion
-- **Encoding fix** — fixed `UnicodeDecodeError` in subtitle extractor and audio track selector on Windows when video filenames contain non-ASCII characters (was defaulting to cp1252 instead of UTF-8)
+- **Gender Correction (EXPERIMENTAL)** — LLM-based Italian grammatical gender fix via Qwen2.5-14B GGUF; isolated subprocess; TMDB cast context
+- **VRAM cleanup fix** — fixed 3.2 GB VRAM stuck after NLLB cleanup (cuBLAS persistent workspaces)
+- **Encoding fix** — UnicodeDecodeError on Windows with non-ASCII filenames
 
 ### v1.3.1
-- **OOM prevention** — adaptive batch size ceiling based on real-time VRAM availability; fatigue tracking across batch files
+- **OOM prevention** — adaptive batch size ceiling based on real-time VRAM; fatigue tracking
 
 ### v1.3.0
-- **Immediate stop with confirmation** — Stop button now shows a confirmation dialog; pressing Yes kills all active FFmpeg/Demucs/Whisper subprocesses within 2–3 seconds via `pipeline.cancel()` propagation; temp files are cleaned up automatically by the existing `finally` block
-- **TMDB parser fix** — double HTML entity decoding (`&amp;#039;` → `&#039;` → `'`) for edge-case titles
-- **Log noise reduction** — demoted it-IT/en-US fallback messages from `warning`/`info` to `debug`
+- **Immediate stop** — confirmation dialog; kills all subprocesses within 2–3 seconds; temp cleanup
+- **TMDB parser fix** — double HTML entity decoding for edge-case titles
 
 ### v1.2.0
-- Full IT/EN interface with auto locale detection and language selector in General Settings
-- Library Scanner: Italian audio tag detection (ITA, NUiTA, ENG, MULTI…); real-time DB update on subtitle creation
-- TMDB parser: HTML entity decoding, robust release-tag stripping
-- WhisperX forced alignment support (word-level timestamps)
-- Embedded subtitle extraction: bitmap-only streams (PGS/VOBSUB) auto-skipped
+- Full IT/EN interface with auto locale detection
+- Library Scanner: Italian audio tag detection; real-time DB update
+- WhisperX forced alignment (word-level timestamps)
+- Embedded subtitle extraction with bitmap auto-skip
 
 ### v1.1.0
-- Speaker diarization via pyannote.audio (optional, requires HuggingFace token)
-- Adaptive batch size manager for VRAM-aware translation
+- Speaker diarization via pyannote.audio
+- Adaptive batch size manager
 - Subtitle formatter with professional dialogue style
 - OpenSubtitles REST API upload with duplicate detection
 
 ### v1.0.0
-- Initial release: Faster-Whisper transcription, NLLB/Aya/Claude/OpenAI translation, Demucs vocal separation, TMDB metadata, OpenSubtitles upload
+- Initial release: Faster-Whisper, NLLB/Aya/Claude/OpenAI, Demucs, TMDB, OpenSubtitles
 
 ---
 
 ## Acknowledgements
 
 - [Faster-Whisper](https://github.com/guillaumekln/faster-whisper) — CTranslate2-optimized Whisper
-- [WhisperX](https://github.com/m-bain/whisperX) — forced alignment and word-level timestamps pipeline
+- [WhisperX](https://github.com/m-bain/whisperX) — forced alignment and word-level timestamps
 - [NLLB-200](https://huggingface.co/facebook/nllb-200-3.3B) — Meta No Language Left Behind
 - [Aya-23-8B](https://huggingface.co/CohereForAI/aya-23-8B) — Cohere multilingual model
 - [Demucs](https://github.com/facebookresearch/demucs) — Meta source separation
-- [OpenSubtitles](https://www.opensubtitles.com) — Subtitle database and API
-- [jonatasgrosman](https://huggingface.co/jonatasgrosman) — wav2vec2-large-xlsr-53 alignment models (Italian, English, French, Spanish)
-- [facebook/wav2vec2-large-xlsr-53](https://huggingface.co/facebook/wav2vec2-large-xlsr-53) — multilingual fallback alignment model
+- [pgsreader](https://github.com/EzraBC/pgsreader) — PGS subtitle parser (vendored, patched)
+- [VobSub-ML-OCR](https://github.com/vincrichard/VobSub-ML-OCR) — VOBSUB parser ported from Subtitle Edit (vendored)
+- [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) — OCR engine
+- [tessdata_best](https://github.com/tesseract-ocr/tessdata_best) — high-accuracy Tesseract traineddata
+- [OpenSubtitles](https://www.opensubtitles.com) — subtitle database and API
+- [jonatasgrosman](https://huggingface.co/jonatasgrosman) — wav2vec2 alignment models
+
+---
+
+---
+
+# Versione Italiana
+
+## Cos'è Transcriber Pro
+
+Applicazione desktop AI per la trascrizione, traduzione e conversione OCR automatica di sottotitoli da file video.
+
+Transcriber Pro produce file `.srt` attraverso due pipeline complementari:
+
+**Pipeline audio → SRT**: estrae o trascrive l'audio con Faster-Whisper, poi traduce in italiano (o altre lingue) con modelli AI locali o API cloud. L'output può essere caricato automaticamente su OpenSubtitles.
+
+**Pipeline OCR bitmap**: converte le tracce sottotitolo PGS (Blu-ray) e VOBSUB (DVD) direttamente in testo SRT — tutto in locale, nessun cloud, fedele verbatim al bitmap originale. Le tracce non italiane vengono OCR'd e tradotte automaticamente in italiano.
+
+**Nessun abbonamento. Nessuna dipendenza cloud per i modelli locali. Gira interamente sulla GPU.**
+
+---
+
+## Funzionalità
+
+### Trascrizione e Traduzione
+- **Trascrizione automatica** via Faster-Whisper `large-v3` (99 lingue, filtro VAD)
+- **Motori di traduzione multipli**: NLLB-200-3.3B, NLLB finetuned, Aya-23-8B, Claude Sonnet API, OpenAI GPT-4o-mini
+- **Separazione vocale** via Meta Demucs — isola la voce prima della trascrizione per maggiore accuratezza
+- **Chunking audio intelligente** — divide ai punti di silenzio per timestamp precisi
+- **Profili di trascrizione** — Fast / Balanced / Quality / Maximum / Batch
+- **Forza trascrizione audio** — ignora i sottotitoli embedded e trascrive sempre dall'audio
+- **Correzione grammaticale genere (sperimentale)** — correzione post-traduzione degli errori di genere in italiano con Qwen2.5-14B GGUF via llama-cpp-python; subprocess isolato con contesto cast TMDB
+
+### OCR Bitmap (PGS / VOBSUB → SRT)
+- **Tracce PGS (Blu-ray) e VOBSUB (DVD)** convertite in SRT testuale — verbatim, nessuna allucinazione AI
+- **OCR parallelo multi-core** — Tesseract gira su più core CPU in contemporanea (~8× più veloce; ~1 min per un film intero)
+- **Rilevamento lingua per traccia** — il modello Tesseract viene scelto automaticamente dal tag lingua della traccia; supportate: italiano, inglese, spagnolo, francese, tedesco, portoghese, olandese (tessdata_best)
+- **Traduzione automatica in italiano** — le tracce non italiane vengono salvate come `<nome>.<lingua>.srt` e tradotte in `<nome>.it.srt` (entrambi i file conservati)
+- **Strategia configurabile** — *Revisione mirata* (UI di revisione che mostra le righe incerte affiancate all'immagine bitmap originale) o *Solo automatico* (nessuna revisione, output diretto)
+- **Worker paralleli configurabili** — slider in Impostazioni → OCR Sottotitoli; default auto = `min(core CPU, 8)`
+- **Modalità write-back** — rimuxa l'SRT come nuova traccia nell'MKV in-place, oppure sidecar `.srt` accanto al video (VOBSUB sempre sidecar)
+
+### Integrazione Library Scanner
+- **Integrazione server multimediale self-hosted** (Plex / Jellyfin) — scansiona la libreria, mostra i file senza sottotitoli italiani
+- **Filtro Formato** — filtra per Tutti / PGS / VOBSUB per individuare i file solo-bitmap da convertire
+- **Badge bitmap** — PGS / VOB / MIX cliccabile su ogni riga; clic avvia l'OCR per quel file
+- **Batch OCR** — "Converti tutti (OCR)" converte automaticamente tutti i file bitmap visibili
+- **Avanzamento in tempo reale nella coda** — i job OCR appaiono nella coda di processamento principale con dot di stato, barra di avanzamento e tag OCR·PGS/VOBSUB; non interferiscono con la coda di trascrizione audio
+- **Sync automatico DB** — dopo ogni OCR riuscito il database dello scanner viene notificato; il file esce dalla lista "senza sub"; un sync del widget aggiorna la vista
+- **Conversione ASS/SSA → SRT** — remux server-side dei sottotitoli testo embedded (gestito dal container Library Scanner)
+- **Rilevamento audio italiano** — dai tag nel nome file (ITA, NUiTA, MULTI, ecc.)
+
+### Metadati e Upload
+- **Metadati TMDB / OMDB** — recupera la sinossi del film per traduzioni contestuali
+- **Upload OpenSubtitles** — integrazione REST API con rilevamento duplicati
+
+### Interfaccia e Infrastruttura
+- **Interfaccia IT / EN** — UI completamente bilingue; rileva automaticamente la lingua del sistema
+- **Dialog Impostazioni unificato** — sidebar + contenuto: Generale, Trascrizione, Traduzione, Batch Adattivo, OpenSubtitles, **OCR Sottotitoli** (nuovo)
+- **Sistema icone SVG** — 38 icone vettoriali, adattive al tema
+- **Monitor risorse in tempo reale** — GPU / CPU / RAM durante l'elaborazione
+- **Gestione memoria GPU** — caricamento/scaricamento sequenziale; Demucs, Whisper e traduttore non girano mai contemporaneamente
+- **Estrazione sottotitoli embedded** — salta la trascrizione se esistono sub testo; le tracce solo-bitmap avviano la pipeline OCR
+- **Stop immediato** — dialog di conferma; termina FFmpeg / Demucs / Whisper in pochi secondi; pulizia temp automatica
+- **Coda di processamento** — filtri In coda / Attivi / Completati / Errori con badge live
+
+---
+
+## Requisiti Hardware
+
+| Componente | Minimo | Consigliato |
+|-----------|---------|-------------|
+| **GPU** | NVIDIA 6 GB VRAM | NVIDIA RTX 3060 12 GB |
+| **RAM** | 12 GB | 16 GB+ |
+| **Storage** | SSD (modelli + temp) | NVMe SSD |
+| **OS** | Windows 10/11 | Windows 11 |
+
+> La modalità solo-CPU è supportata ma ~10× più lenta. GPU fortemente consigliata.
+
+---
+
+## Requisiti Software
+
+- **Python** 3.11
+- **CUDA** 12.6 + cuDNN
+- **FFmpeg** 6.0+ (nel PATH)
+- **Tesseract OCR 5+** con traineddata `ita` e `eng` da [tessdata_best](https://github.com/tesseract-ocr/tessdata_best) (richiesto per la pipeline OCR)
+- **MKVToolNix** (`mkvextract`) — solo per l'estrazione VOBSUB
+- **Git**
+
+---
+
+## Installazione
+
+```bash
+# 1. Clona il repository
+git clone https://github.com/chinasky71-byte/TranscriberPro.git
+cd TranscriberPro
+
+# 2. Crea l'ambiente virtuale
+python -m venv venv
+venv\Scripts\activate
+
+# 3. Installa PyTorch con CUDA (adatta la versione CUDA se necessario)
+pip install torch==2.8.0+cu126 torchaudio==2.8.0+cu126 --index-url https://download.pytorch.org/whl/cu126
+
+# 4. Installa le dipendenze
+pip install -r requirements.txt
+
+# 5. Avvia
+python main.py
+```
+
+> Per Tesseract OCR: installa via [scoop](https://scoop.sh) (`scoop install tesseract`) o con l'installer Windows, poi scarica `ita.traineddata` e `eng.traineddata` da [tessdata_best](https://github.com/tesseract-ocr/tessdata_best/tree/main) nella cartella `tessdata/` di Tesseract.
+
+---
+
+## Configurazione Credenziali
+
+Tutte le credenziali si inseriscono dall'interfaccia — nessun file di configurazione da modificare manualmente.
+
+| Credenziale | Dove inserire | Come ottenere | Abilita |
+|---|---|---|---|
+| **Claude API Key** | Impostazioni → Traduzione → Claude | [console.anthropic.com](https://console.anthropic.com) | Traduzione Claude Sonnet |
+| **OpenAI API Key** | Impostazioni → Traduzione → OpenAI | [platform.openai.com](https://platform.openai.com) | Traduzione GPT-4o-mini |
+| **Token HuggingFace** | Impostazioni → Traduzione → HuggingFace | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) | Aya-23-8B (modello gated) |
+| **Credenziali OpenSubtitles** | Impostazioni → OpenSubtitles | [opensubtitles.com](https://www.opensubtitles.com) | Upload sottotitoli |
+| **TMDB API Key** | Impostazioni → Generale → TMDB | [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api) | Metadati film |
+| **OMDB API Key** | Impostazioni → Generale → OMDB | [omdbapi.com/apikey](http://www.omdbapi.com/apikey.aspx) | Fallback metadati IMDb |
+| **Library Scanner API Key** | Impostazioni → Library Scanner | Il tuo server self-hosted | Integrazione libreria |
+
+Tutte le credenziali sono opzionali tranne quella del motore di traduzione scelto. I modelli locali (NLLB, Aya) e la pipeline OCR non richiedono API key.
+
+---
+
+## Utilizzo Base
+
+### Trascrizione audio
+1. Aggiungi file video — trascina o usa il selettore file
+2. Scegli un profilo di trascrizione (Balanced consigliato)
+3. Scegli il motore di traduzione
+4. Clicca **Avvia** — Demucs → chunking → Whisper → traduzione → SRT salvato accanto al video
+
+### OCR Bitmap (PGS / VOBSUB)
+1. Apri il pannello **Library Scanner** (richiede un server media self-hosted configurato)
+2. Imposta il filtro **Formato** su PGS o VOBSUB
+3. Clicca il badge su una singola riga, o **Converti tutti (OCR)** per l'intera lista filtrata
+4. La pipeline OCR parte automaticamente; l'avanzamento appare nella coda di processamento principale
+5. Tracce italiane → `.it.srt`; tracce non italiane → `.<lingua>.srt` + `.it.srt` (tradotto)
+
+---
+
+## Modelli Supportati
+
+| Modello | Tipo | Dimensione | VRAM | Qualità | Velocità |
+|---------|------|-----------|------|---------|---------|
+| Faster-Whisper large-v3 | Trascrizione | 1,5 B params | ~4 GB | ★★★★★ | ★★★★☆ |
+| NLLB-200-3.3B | Traduzione (locale) | 3,3 B params | ~5 GB | ★★★☆☆ | ★★★★★ |
+| NLLB-200 finetuned | Traduzione (locale) | 3,3 B params | ~5 GB | ★★★★☆ | ★★★★★ |
+| Aya-23-8B | Traduzione (locale) | 8 B params | ~8 GB | ★★★★☆ | ★★★☆☆ |
+| Claude Sonnet (API) | Traduzione (cloud) | — | 0 GB | ★★★★★ | ★★★★☆ |
+| GPT-4o-mini (API) | Traduzione (cloud) | — | 0 GB | ★★★★☆ | ★★★★★ |
+| Qwen2.5-14B GGUF | Correzione genere | 14 B params | ~8,4 GB | ★★★☆☆ | ★★★☆☆ |
+| Tesseract 5 (ita/eng/…) | OCR bitmap | — | 0 GB | ★★★★☆ | ★★★★★ |
+
+I modelli vengono caricati e scaricati sequenzialmente per rientrare nella VRAM disponibile.
+
+---
+
+## Licenza
+
+Questo progetto è distribuito con licenza MIT.
+
+---
+
+## Changelog
+
+### v1.4.0
+- **Pipeline OCR bitmap** (PGS / VOBSUB → SRT) — verbatim, Tesseract parallelo multi-core; ~8× più veloce del single-core
+- **OCR per lingua della traccia** — modello scelto automaticamente dal tag lingua; tracce non italiane tradotte automaticamente in italiano
+- **Library Scanner: filtro Formato** — filtra per PGS / VOBSUB; badge cliccabili; pulsante "Converti tutti (OCR)"
+- **Job OCR nella coda di processamento** — avanzamento live, dot di stato, barra progress; non interferiscono con la coda audio
+- **Sync automatico DB** — endpoint `notify-subtitle` aggiorna il DB scanner dopo ogni OCR; widget si aggiorna col sync
+- **Impostazioni → OCR Sottotitoli** — strategia, lingua, soglia confidenza, worker paralleli, path Tesseract, modalità write-back
+- **Dialog di revisione OCR** — immagine bitmap affiancata al testo OCR editabile; salto automatico alle righe a bassa confidenza
+- **Fix**: modalità automatica PGS usa ora il motore validato pgsreader+Tesseract (rimosso pgsrip — falliva quando il PATH non includeva gli shim nel contesto GUI)
+- **Fix**: estensione file segue la lingua della traccia (era sempre `.ita.srt` indipendentemente dalla lingua)
+
+### v1.3.8
+- Fix aggiornamento badge tab coda
+
+### v1.3.7
+- **Cache modelli locale** — tutti i modelli AI scaricano in `models/.cache/` dentro il progetto
+- **Pulizia cache automatica** — modelli non italiani rimossi dopo ogni file; re-download automatico
+- **Forza trascrizione audio** — nuova opzione per ignorare i sottotitoli embedded
+
+### v1.3.6
+- **UI impostazioni correzione genere** — selettore modello GGUF con tabella VRAM, browser file, toggle
+
+### v1.3.5
+- **Correzione Genere (SPERIMENTALE)** — fix grammaticale italiano via Qwen2.5-14B GGUF; subprocess isolato; contesto cast TMDB
+- **Fix VRAM** — risolti 3,2 GB VRAM bloccati dopo cleanup NLLB (cuBLAS persistent workspaces)
+- **Fix encoding** — UnicodeDecodeError su Windows con nomi file non-ASCII
+
+### v1.3.1
+- **Prevenzione OOM** — ceiling adattivo batch size basato su VRAM disponibile in tempo reale
+
+### v1.3.0
+- **Stop immediato** — dialog di conferma; termina tutti i sottoprocessi in 2–3 secondi; pulizia temp
+- **Fix parser TMDB** — doppia decodifica entity HTML per titoli edge-case
+
+### v1.2.0
+- Interfaccia IT/EN completa con rilevamento locale automatico
+- Library Scanner: rilevamento audio italiano; aggiornamento DB in tempo reale
+- Allineamento forzato WhisperX (timestamp a livello parola)
+- Estrazione sottotitoli embedded con skip automatico bitmap
+
+### v1.1.0
+- Diarizzazione speaker via pyannote.audio
+- Gestore batch adattivo per VRAM
+- Formattatore sottotitoli professionale
+- Upload OpenSubtitles REST API con rilevamento duplicati
+
+### v1.0.0
+- Release iniziale: Faster-Whisper, NLLB/Aya/Claude/OpenAI, Demucs, TMDB, OpenSubtitles
+
+---
+
+## Ringraziamenti
+
+- [Faster-Whisper](https://github.com/guillaumekln/faster-whisper) — Whisper ottimizzato con CTranslate2
+- [WhisperX](https://github.com/m-bain/whisperX) — allineamento forzato e timestamp a livello parola
+- [NLLB-200](https://huggingface.co/facebook/nllb-200-3.3B) — Meta No Language Left Behind
+- [Aya-23-8B](https://huggingface.co/CohereForAI/aya-23-8B) — modello multilingua Cohere
+- [Demucs](https://github.com/facebookresearch/demucs) — separazione sorgenti Meta
+- [pgsreader](https://github.com/EzraBC/pgsreader) — parser PGS (vendorizzato, con patch)
+- [VobSub-ML-OCR](https://github.com/vincrichard/VobSub-ML-OCR) — parser VOBSUB portato da Subtitle Edit (vendorizzato)
+- [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) — motore OCR
+- [tessdata_best](https://github.com/tesseract-ocr/tessdata_best) — traineddata ad alta precisione
+- [OpenSubtitles](https://www.opensubtitles.com) — database sottotitoli e API
+- [jonatasgrosman](https://huggingface.co/jonatasgrosman) — modelli wav2vec2 per allineamento
