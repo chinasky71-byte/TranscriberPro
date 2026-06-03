@@ -793,6 +793,7 @@ class LibraryScannerWidget(QFrame):
                              'completed' if ok else 'failed', 100)
         if ok:
             self._mark_row_done(getattr(self, '_ocr_video_path', ''))
+            self.notify_subtitle_created(getattr(self, '_ocr_video_path', ''))
         if getattr(self, '_ocr_batch_active', False):
             self._ocr_batch_ok += 1 if ok else 0
             self._ocr_batch_fail += 0 if ok else 1
@@ -812,6 +813,7 @@ class LibraryScannerWidget(QFrame):
                              'completed' if ok else 'failed', 100)
         if ok:
             self._mark_row_done(getattr(self, '_ocr_video_path', ''))
+            self.notify_subtitle_created(getattr(self, '_ocr_video_path', ''))
             QMessageBox.information(self, tr('ocr_section_title'),
                                    f"SRT scritto:\n{self._ocr_name}")
             self._auto_refresh()
@@ -1026,12 +1028,19 @@ class LibraryScannerWidget(QFrame):
         api_key = self.config.get('library_scanner_api_key', '').strip()
         if not url or not api_key:
             return
-        self._notify_worker = _NotifyWorker(url, api_key, str(video_path))
-        self._notify_worker.done.connect(self._on_notify_done)
-        self._notify_worker.start()
+        # Tieni vivi i worker (più notifiche concorrenti durante un batch).
+        if not hasattr(self, '_notify_workers'):
+            self._notify_workers = []
+        w = _NotifyWorker(url, api_key, str(video_path))
+        w.done.connect(self._on_notify_done)
+        w.finished.connect(lambda w=w: self._notify_workers.remove(w)
+                           if w in self._notify_workers else None)
+        self._notify_workers.append(w)
+        w.start()
 
     def _on_notify_done(self, success: bool):
-        if success:
+        # Durante un batch NON ricaricare per ogni file: il refresh avviene a fine batch.
+        if success and not getattr(self, '_ocr_batch_active', False):
             logger.debug("Library Scanner notificato — aggiorno la lista")
             self.refresh_data()
 
