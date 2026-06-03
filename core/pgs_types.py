@@ -31,7 +31,7 @@ CFG_TESSERACT_PATH = "ocr_tesseract_path"   # path al binario tesseract (opz., '
 
 # Valori della strategia
 STRATEGY_REVIEW = "review"   # OCR pgsreader + Tesseract nostro → UI revisione mirata
-STRATEGY_AUTO = "auto"       # pgsrip turnkey, nessuna revisione
+STRATEGY_AUTO = "auto"       # stesso motore del review, senza UI di revisione
 
 # Valori write-back
 WRITEBACK_MUX = "mux"        # rimuxa l'SRT come nuova traccia nell'MKV (in-place)
