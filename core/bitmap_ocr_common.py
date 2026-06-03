@@ -40,6 +40,48 @@ def preprocess_for_ocr(img, upscale: int = 2, auto_polarity: bool = False):
     return cv2.copyMakeBorder(th, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
 
 
+def ocr_images_parallel(images, language: str, upscale: int, auto_polarity: bool,
+                        max_workers: int, cancel_check=None, progress_cb=None):
+    """
+    Esegue preprocess + OCR verbatim su una lista di immagini IN PARALLELO
+    (ThreadPool: ogni chiamata Tesseract è un subprocess che rilascia il GIL →
+    usa più core). L'OCR è il collo di bottiglia, l'estrazione no.
+
+    images:      lista di PIL.Image (ordine preservato nel risultato).
+    Ritorna:     lista di (text, confidence) nello stesso ordine di `images`.
+    cancel_check: callable() -> bool; se True interrompe.
+    progress_cb:  callable(percent:int, label:str).
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    n = len(images)
+    results = [("", 0.0)] * n
+    if n == 0:
+        return results
+    workers = max(1, int(max_workers))
+
+    def _work(i, img):
+        pre = preprocess_for_ocr(img, upscale=upscale, auto_polarity=auto_polarity)
+        return i, ocr_image_verbatim(pre, language)
+
+    ex = ThreadPoolExecutor(max_workers=workers)
+    try:
+        futures = [ex.submit(_work, i, img) for i, img in enumerate(images)]
+        done = 0
+        for fut in as_completed(futures):
+            if cancel_check and cancel_check():
+                ex.shutdown(wait=False, cancel_futures=True)
+                raise InterruptedError("Operazione annullata")
+            i, res = fut.result()
+            results[i] = res
+            done += 1
+            if progress_cb and (done % 5 == 0 or done == n):
+                progress_cb(int(done / n * 100), "OCR")
+    finally:
+        ex.shutdown(wait=False)
+    return results
+
+
 def ocr_image_verbatim(pre, language: str) -> Tuple[str, float]:
     """
     Una passata `image_to_data`: ricostruisce il testo (con '\\n' per riga) e la
