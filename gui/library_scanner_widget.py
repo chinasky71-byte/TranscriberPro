@@ -225,9 +225,16 @@ class LibraryScannerWidget(QFrame):
         self.days_spinbox.valueChanged.connect(self._on_days_filter_changed)
         filter_layout.addWidget(self.days_spinbox)
 
+        filter_layout.addStretch()
+        layout.addLayout(filter_layout)
+
+        # Filtro formato bitmap su riga propria (così la riga non allarga il
+        # pannello sinistro impedendo allo splitter di restringerlo).
+        format_layout = QHBoxLayout()
+        format_layout.setSpacing(6)
         format_label = QLabel(tr('format_filter'))
         format_label.setObjectName("scannerFilterLabel")
-        filter_layout.addWidget(format_label)
+        format_layout.addWidget(format_label)
 
         self.format_combo = QComboBox()
         self.format_combo.setObjectName("scannerFilter")
@@ -236,10 +243,10 @@ class LibraryScannerWidget(QFrame):
         self.format_combo.addItem("PGS", "pgs")
         self.format_combo.addItem("VOBSUB", "vobsub")
         self.format_combo.currentIndexChanged.connect(self._on_format_filter_changed)
-        filter_layout.addWidget(self.format_combo)
+        format_layout.addWidget(self.format_combo)
 
-        filter_layout.addStretch()
-        layout.addLayout(filter_layout)
+        format_layout.addStretch()
+        layout.addLayout(format_layout)
 
         # Tabella video
         self.video_table = QTableWidget()
