@@ -102,6 +102,9 @@ xmltodict==1.0.4
 pytesseract==0.3.13
 opencv-python==4.13.0.92
 pgsrip==0.1.12
+# VOBSUB (DVD .idx/.sub): parser vendorizzato in core/vendor/vobsub (port di Subtitle Edit).
+# Estrazione via MKVToolNix (mkvextract). 'colour' serve al parser per le palette.
+colour==0.1.5
 
 # --- Infrastructure ---
 requests==2.32.5

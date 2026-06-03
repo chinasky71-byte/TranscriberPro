@@ -7,6 +7,7 @@ Protegge tutti gli endpoint con:
   - Rate limiting su login
   - Health check pubblico (per Docker healthcheck)
 """
+import json
 import logging
 import threading
 from datetime import datetime, timezone
@@ -20,11 +21,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, func, desc
 
 from library_scanner.config import Config
-from library_scanner.database import init_db, get_db
-from library_scanner.models import ScanDirectory, VideoFile, ScanLog, SystemConfig
+from library_scanner.database import init_db, get_db, run_migrations
+from library_scanner.models import ScanDirectory, VideoFile, ScanLog, SystemConfig, ConversionLog
 from library_scanner.scanner import get_scanner
 from library_scanner.scheduler import start_scheduler, stop_scheduler, get_scheduler_status
-from library_scanner.subtitle_checker import check_all_subtitles
+from library_scanner.subtitle_converter import get_converter
 
 # -- Logging --
 logging.basicConfig(
@@ -33,11 +34,67 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# -- Helper: campo derivato bitmap_format --
+_PGS_CODECS = {"hdmv_pgs_subtitle", "pgssub"}
+_VOBSUB_CODECS = {"dvd_subtitle", "dvdsub"}
+_ITALIAN_LANG_CODES = {"ita", "it", "italian", "italiano"}
+
+
+def _derive_bitmap_format(sub_formats_json: Optional[str]) -> Optional[str]:
+    """
+    Deriva il formato bitmap dei sottotitoli da sub_formats_json.
+
+    sub_formats_json: stringa JSON con lista [{index, codec, language/lang, title, convertible}].
+    Robusto a None/JSON malformato → ritorna None.
+
+    Considera gli stream bitmap (PGS o VOBSUB). Se l'informazione lingua è
+    presente filtra sui bitmap italiani; altrimenti considera tutti i bitmap.
+
+    Ritorna: 'pgs' (tutti PGS) | 'vobsub' (tutti VOBSUB) | 'mixed' | None (nessun bitmap).
+    """
+    try:
+        streams = json.loads(sub_formats_json) if sub_formats_json else None
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(streams, list):
+        return None
+
+    bitmap = []  # lista di ('pgs'|'vobsub', is_italian)
+    for s in streams:
+        if not isinstance(s, dict):
+            continue
+        codec = str(s.get("codec", "")).lower().strip()
+        if codec in _PGS_CODECS:
+            kind = "pgs"
+        elif codec in _VOBSUB_CODECS:
+            kind = "vobsub"
+        else:
+            continue
+        lang = str(s.get("language", s.get("lang", "")) or "").lower().strip()
+        bitmap.append((kind, lang in _ITALIAN_LANG_CODES))
+
+    if not bitmap:
+        return None
+
+    # Se almeno un bitmap ha lingua italiana, restringi agli italiani.
+    italian = [k for k, is_it in bitmap if is_it]
+    selected = italian if italian else [k for k, _ in bitmap]
+
+    kinds = set(selected)
+    if not kinds:
+        return None
+    if kinds == {"pgs"}:
+        return "pgs"
+    if kinds == {"vobsub"}:
+        return "vobsub"
+    return "mixed"
+
+
 # -- FastAPI App --
 app = FastAPI(
     title="Library Scanner API",
     description="Sistema di scansione video per rilevamento sottotitoli italiani",
-    version="1.1.0",
+    version="1.0.0",
     docs_url=None,   # Disabilita Swagger UI pubblica
     redoc_url=None,   # Disabilita ReDoc pubblica
 )
@@ -120,6 +177,7 @@ async def on_startup():
     logger.info("=" * 60)
 
     init_db()
+    run_migrations()
     _init_default_directories()
 
     # Inizializza auth DOPO il database
@@ -146,9 +204,9 @@ def _init_default_directories():
         if count > 0:
             return
         defaults = [
-            {"label": "Movies", "linux_path": "/mnt/movies", "windows_path": "\\\\192.168.1.18\\film", "media_type": "movie"},
-            {"label": "Film 2", "linux_path": "/mnt/film2", "windows_path": "\\\\192.168.1.18\\film_2", "media_type": "movie"},
-            {"label": "TV Shows", "linux_path": "/mnt/tvshows", "windows_path": "\\\\192.168.1.18\\tv", "media_type": "tvshow"},
+            {"label": "Movies", "linux_path": "/mnt/movies", "windows_path": "\\\\192.168.1.12\\film", "media_type": "movie"},
+            {"label": "Film 2", "linux_path": "/mnt/film2", "windows_path": "\\\\192.168.1.12\\film_2", "media_type": "movie"},
+            {"label": "TV Shows", "linux_path": "/mnt/tvshows", "windows_path": "\\\\192.168.1.12\\tv", "media_type": "tvshow"},
         ]
         for d in defaults:
             db.add(ScanDirectory(**d, enabled=True, recursive=True))
@@ -407,6 +465,10 @@ async def list_videos(
                 "has_italian_srt": v.has_italian_srt,
                 "has_italian_embedded": v.has_italian_embedded,
                 "has_any_italian_sub": v.has_any_italian_sub,
+                "has_only_bitmap_subs": getattr(v, "has_only_bitmap_subs", False),
+                "has_convertible_subs": getattr(v, "has_convertible_subs", False),
+                "bitmap_format": _derive_bitmap_format(v.sub_formats_json),
+                "conversion_status": getattr(v, "conversion_status", None),
                 "days_without_subs": days if not v.has_any_italian_sub else 0,
                 "first_seen": v.first_seen.isoformat() if v.first_seen else None,
                 "last_scanned": v.last_scanned.isoformat() if v.last_scanned else None,
@@ -442,39 +504,125 @@ async def get_stats():
 
 
 # ============================================================================
-# PROTECTED: TRANSCRIBER PRO NOTIFICATION
+# PROTECTED: SUBTITLE CONVERSION
 # ============================================================================
 
-class SubtitleNotification(BaseModel):
-    windows_path: str
+class ConvertStartRequest(BaseModel):
+    video_ids: Optional[list] = None  # None = tutti i file eleggibili
 
-@app.post("/api/videos/notify-subtitle", dependencies=[Depends(require_auth)])
-async def notify_subtitle_created(notification: SubtitleNotification):
-    """Transcriber Pro ha creato un sottotitolo: ri-controlla il file e aggiorna il DB."""
+
+@app.get("/api/subtitles/list", dependencies=[Depends(require_auth)])
+async def list_subtitle_issues(
+    issue_type: Optional[str] = Query(default=None, pattern="^(convertible|bitmap|done)$"),
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+):
+    """
+    Elenco file con problemi subtitle che causano transcoding Plex.
+    issue_type:
+      'convertible' — hanno ASS/SSA convertibili in SRT (questo tool)
+      'bitmap'      — hanno solo PGS/VOBSUB (richiedono Transcriber Pro)
+      'done'        — già convertiti
+      None          — tutti
+    """
     with get_db() as db:
-        vf = db.query(VideoFile).filter(
-            VideoFile.windows_path == notification.windows_path
-        ).first()
+        q = select(VideoFile)
+        if issue_type == "convertible":
+            q = q.where(VideoFile.has_convertible_subs == True)
+        elif issue_type == "bitmap":
+            q = q.where(
+                VideoFile.has_italian_bitmap_sub == True,
+                VideoFile.has_italian_text_sub == False,
+            )
+        elif issue_type == "done":
+            q = q.where(VideoFile.conversion_status == "done")
 
-        if not vf:
-            raise HTTPException(status_code=404, detail="File not found in database")
+        total = db.execute(
+            select(func.count()).select_from(q.subquery())
+        ).scalar()
+        videos = db.execute(q.offset(offset).limit(limit)).scalars().all()
 
-        sub_result = check_all_subtitles(Path(vf.linux_path))
-
-        vf.has_italian_srt      = sub_result["has_external"]
-        vf.has_italian_embedded = sub_result["has_embedded"]
-        vf.has_any_italian_sub  = sub_result["has_any"]
-        vf.last_scanned         = datetime.now(timezone.utc)
-        db.commit()
-
-        logger.info(
-            f"notify-subtitle: {vf.filename} → has_any_italian_sub={vf.has_any_italian_sub}"
-        )
         return {
-            "updated":             True,
-            "has_any_italian_sub": vf.has_any_italian_sub,
-            "has_italian_srt":     vf.has_italian_srt,
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "count": len(videos),
+            "videos": [
+                {
+                    "id": v.id,
+                    "filename": v.filename,
+                    "windows_path": v.windows_path,
+                    "linux_path": v.linux_path,
+                    "file_size_mb": round(v.file_size / (1024 * 1024), 1) if v.file_size else 0,
+                    "media_type": v.media_type,
+                    "has_convertible_subs": getattr(v, "has_convertible_subs", False),
+                    "has_only_bitmap_subs": getattr(v, "has_only_bitmap_subs", False),
+                    "bitmap_format": _derive_bitmap_format(v.sub_formats_json),
+                    "conversion_status": getattr(v, "conversion_status", None),
+                    "conversion_error": getattr(v, "conversion_error", None),
+                    "conversion_done_at": (
+                        v.conversion_done_at.isoformat()
+                        if getattr(v, "conversion_done_at", None) else None
+                    ),
+                    "directory_label": v.scan_directory.label if v.scan_directory else None,
+                }
+                for v in videos
+            ],
         }
+
+
+@app.post("/api/subtitles/convert/start", dependencies=[Depends(require_auth)])
+async def start_conversion(data: ConvertStartRequest = None):
+    """Avvia la conversione ASS→SRT in background."""
+    converter = get_converter()
+    if converter.is_running:
+        raise HTTPException(409, "Conversione già in corso")
+    video_ids = data.video_ids if data else None
+    thread = threading.Thread(
+        target=converter.run_conversion,
+        kwargs={"video_ids": video_ids},
+        daemon=True,
+    )
+    thread.start()
+    return {"message": "Conversione avviata", "status": "running"}
+
+
+@app.post("/api/subtitles/convert/cancel", dependencies=[Depends(require_auth)])
+async def cancel_conversion():
+    converter = get_converter()
+    if not converter.is_running:
+        raise HTTPException(400, "Nessuna conversione in corso")
+    converter.cancel()
+    return {"message": "Cancellazione richiesta"}
+
+
+@app.get("/api/subtitles/convert/status", dependencies=[Depends(require_auth)])
+async def conversion_status():
+    converter = get_converter()
+    return converter.progress
+
+
+@app.get("/api/subtitles/convert/history", dependencies=[Depends(require_auth)])
+async def conversion_history(limit: int = Query(default=50, ge=1, le=500)):
+    with get_db() as db:
+        logs = db.execute(
+            select(ConversionLog, VideoFile.filename)
+            .join(VideoFile, ConversionLog.video_id == VideoFile.id, isouter=True)
+            .order_by(desc(ConversionLog.started_at))
+            .limit(limit)
+        ).all()
+        return [
+            {
+                "id": log.id,
+                "filename": filename,
+                "started_at": log.started_at.isoformat() if log.started_at else None,
+                "finished_at": log.finished_at.isoformat() if log.finished_at else None,
+                "status": log.status,
+                "error": log.error,
+                "duration_seconds": log.duration_seconds,
+            }
+            for log, filename in logs
+        ]
 
 
 # ============================================================================
@@ -713,7 +861,7 @@ def _render_web_ui() -> str:
         <div class="form-row">
             <input id="new-label" placeholder="Nome (es. Movies)">
             <input id="new-linux" placeholder="Path Linux (es. /mnt/movies)">
-            <input id="new-windows" placeholder="Path Windows (es. \\\\192.168.1.18\\film)">
+            <input id="new-windows" placeholder="Path Windows (es. \\\\192.168.1.12\\film)">
             <select id="new-type"><option value="movie">Film</option><option value="tvshow">Serie TV</option></select>
             <button class="btn btn-primary" onclick="addDirectory()">Aggiungi</button>
         </div>
@@ -732,6 +880,37 @@ def _render_web_ui() -> str:
         <h2>Cronologia Scansioni</h2>
         <table><thead><tr><th>Data</th><th>Stato</th><th>Trovati</th><th>Nuovi</th><th>Rimossi</th><th>Con Sub</th><th>Senza Sub</th><th>Durata</th></tr></thead>
         <tbody id="history-body"></tbody></table>
+    </div>
+
+    <!-- CONVERSIONE SOTTOTITOLI -->
+    <div class="section">
+        <h2>Conversione Sottotitoli (ASS/SSA → SRT)</h2>
+        <p style="color:#888;font-size:0.85em;margin-bottom:12px">
+            Converte i sottotitoli embedded in formato ASS/SSA in SRT per evitare il transcoding Plex.
+            Opera solo su file .mkv. I file PGS/VOBSUB (immagini) devono essere elaborati con Transcriber Pro.
+        </p>
+        <div class="grid" style="margin-bottom:12px">
+            <div class="card"><h3>Da Convertire (ASS/SSA)</h3><div class="stat-big" id="conv-stat-todo" style="color:#ffd43b">-</div></div>
+            <div class="card"><h3>Solo PGS/VOBSUB</h3><div class="stat-big" id="conv-stat-bitmap" style="color:#ff9800">-</div></div>
+            <div class="card"><h3>Già Convertiti</h3><div class="stat-big" id="conv-stat-done" style="color:#52b788">-</div></div>
+        </div>
+        <div class="actions">
+            <button class="btn btn-primary" id="btn-conv-start" onclick="startConversion()">Avvia Conversione</button>
+            <button class="btn btn-danger" id="btn-conv-cancel" onclick="cancelConversion()" disabled>Annulla</button>
+            <button class="btn btn-secondary" onclick="loadConversionData()">Aggiorna</button>
+        </div>
+        <div id="conv-progress-wrap" style="display:none;margin:10px 0">
+            <div style="background:#2a2a4a;border-radius:6px;height:8px;overflow:hidden">
+                <div id="conv-progress-bar" style="background:#e94560;height:100%;width:0%;transition:width 0.3s"></div>
+            </div>
+            <div id="conv-progress-text" style="color:#aaa;font-size:0.8em;margin-top:4px"></div>
+        </div>
+        <h3 style="margin-top:16px;color:#888;font-size:0.9em">File con ASS/SSA (convertibili)</h3>
+        <table><thead><tr><th>Nome File</th><th>Directory</th><th>Dimensione</th><th>Stato</th><th></th></tr></thead>
+        <tbody id="conv-body-convertible"></tbody></table>
+        <h3 style="margin-top:16px;color:#888;font-size:0.9em">File con solo PGS/VOBSUB (richiede Transcriber Pro)</h3>
+        <table><thead><tr><th>Nome File</th><th>Directory</th><th>Dimensione</th></tr></thead>
+        <tbody id="conv-body-bitmap"></tbody></table>
     </div>
 
     <!-- SICUREZZA -->
@@ -916,7 +1095,105 @@ async function changePassword() {
     } catch(e) { document.getElementById('pw-msg').innerHTML='<span class="msg-err">'+e.message+'</span>'; }
 }
 
-function loadAll() { loadStats(); loadDirectories(); loadVideos(); loadHistory(); loadScanStatus(); loadApiKey(); }
+// ── Conversione Sottotitoli ──────────────────────────────────────────────────
+async function loadConversionData() {
+    try {
+        const [todoData, bitmapData, doneData] = await Promise.all([
+            api('/api/subtitles/list?issue_type=convertible&limit=500'),
+            api('/api/subtitles/list?issue_type=bitmap&limit=500'),
+            api('/api/subtitles/list?issue_type=done&limit=10'),
+        ]);
+        if (!todoData || !bitmapData || !doneData) return;
+
+        document.getElementById('conv-stat-todo').textContent = todoData.total;
+        document.getElementById('conv-stat-bitmap').textContent = bitmapData.total;
+        document.getElementById('conv-stat-done').textContent = doneData.total;
+
+        const statusBadge = s => {
+            if (!s) return '<span class="badge badge-warn">—</span>';
+            if (s === 'done') return '<span class="badge badge-ok">done</span>';
+            if (s === 'failed') return '<span class="badge badge-no">errore</span>';
+            if (s === 'converting') return '<span class="badge badge-warn">in corso</span>';
+            return `<span class="badge badge-warn">${s}</span>`;
+        };
+        document.getElementById('conv-body-convertible').innerHTML =
+            todoData.videos.map(v => `<tr>
+                <td title="${v.linux_path}">${v.filename}</td>
+                <td>${v.directory_label||'-'}</td>
+                <td>${v.file_size_mb} MB</td>
+                <td>${statusBadge(v.conversion_status)}</td>
+                <td><button class="btn btn-secondary" style="padding:2px 8px;font-size:0.8em" onclick="startConversionSingle(${v.id})" ${v.conversion_status==='done'?'disabled':''}>Converti</button></td>
+            </tr>`).join('') || '<tr><td colspan="5" style="color:#666">Nessun file</td></tr>';
+
+        document.getElementById('conv-body-bitmap').innerHTML =
+            bitmapData.videos.map(v => `<tr>
+                <td title="${v.linux_path}">${v.filename}</td>
+                <td>${v.directory_label||'-'}</td>
+                <td>${v.file_size_mb} MB</td>
+            </tr>`).join('') || '<tr><td colspan="3" style="color:#666">Nessun file</td></tr>';
+
+    } catch(e) { log('Errore conversione: ' + e.message); }
+}
+
+async function loadConversionStatus() {
+    try {
+        const s = await api('/api/subtitles/convert/status');
+        if (!s) return;
+        document.getElementById('btn-conv-start').disabled = s.running;
+        document.getElementById('btn-conv-cancel').disabled = !s.running;
+        const wrap = document.getElementById('conv-progress-wrap');
+        if (s.running) {
+            wrap.style.display = 'block';
+            const pct = s.total > 0 ? Math.round(s.done / s.total * 100) : 0;
+            document.getElementById('conv-progress-bar').style.width = pct + '%';
+            document.getElementById('conv-progress-text').textContent =
+                `${s.done}/${s.total} — ${s.current_file||''}`;
+        } else {
+            wrap.style.display = s.done > 0 ? 'block' : 'none';
+        }
+    } catch(e) {}
+}
+
+async function startConversionSingle(videoId) {
+    if (!confirm('Convertire questo file? Il .mkv verrà modificato in-place.')) return;
+    try {
+        await api('/api/subtitles/convert/start', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({video_ids:[videoId]})});
+        log('Conversione singola avviata');
+        pollConversion();
+    } catch(e) { log('Errore: ' + e.message); }
+}
+
+async function startConversion() {
+    try {
+        await api('/api/subtitles/convert/start', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+        log('Conversione avviata');
+        pollConversion();
+    } catch(e) { log('Errore avvio conversione: ' + e.message); }
+}
+async function cancelConversion() {
+    try { await api('/api/subtitles/convert/cancel', {method:'POST'}); log('Cancellazione conversione richiesta'); } catch(e) { log('Errore: '+e.message); }
+}
+
+let convPollTimer = null;
+function pollConversion() {
+    document.getElementById('btn-conv-start').disabled = true;
+    document.getElementById('btn-conv-cancel').disabled = false;
+    if (convPollTimer) clearInterval(convPollTimer);
+    convPollTimer = setInterval(async () => {
+        const s = await api('/api/subtitles/convert/status');
+        if (!s || !s.running) {
+            clearInterval(convPollTimer);
+            convPollTimer = null;
+            log('Conversione terminata');
+            loadConversionData();
+            loadConversionStatus();
+        } else {
+            loadConversionStatus();
+        }
+    }, 3000);
+}
+
+function loadAll() { loadStats(); loadDirectories(); loadVideos(); loadHistory(); loadScanStatus(); loadApiKey(); loadConversionData(); loadConversionStatus(); }
 loadAll();
 setInterval(loadAll, 30000);
 </script>

@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Optional, Callable, List, Tuple
 
 from core.subtitle_extractor import SubtitleExtractor
+from core.bitmap_ocr_common import preprocess_for_ocr, ocr_image_verbatim
 from core.pgs_types import (
     OcrEvent, events_to_srt,
     CFG_LANGUAGE, CFG_CONF_THRESHOLD, CFG_TESSERACT_PATH, CFG_WRITEBACK,
@@ -260,43 +261,13 @@ class PgsOcr:
 
     @staticmethod
     def _preprocess(img, np, cv2, Image):
-        """Composito su nero → grigio → Otsu → invert (testo scuro su chiaro) → upscale 2× → border."""
-        rgba = img.convert("RGBA")
-        bg = Image.new("RGBA", rgba.size, (0, 0, 0, 255))
-        comp = Image.alpha_composite(bg, rgba).convert("L")
-        arr = np.array(comp)
-        _, th = cv2.threshold(arr, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        th = 255 - th
-        th = cv2.resize(th, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-        th = cv2.copyMakeBorder(th, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
-        return th
+        """Wrapper: preprocess PGS (composito nero, inversione fissa, upscale 2×)."""
+        return preprocess_for_ocr(img, upscale=2, auto_polarity=False)
 
     @staticmethod
     def _ocr_image(pre, language, pytesseract) -> Tuple[str, float]:
-        """
-        Una passata image_to_data: ricostruisce testo (con \n per riga) e confidenza media.
-        VERBATIM: nessuna modifica al testo riconosciuto.
-        """
-        data = pytesseract.image_to_data(
-            pre, lang=language, config="--psm 6",
-            output_type=pytesseract.Output.DICT)
-        lines = {}
-        confs = []
-        for i in range(len(data["text"])):
-            w = data["text"][i].strip()
-            if not w:
-                continue
-            key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
-            lines.setdefault(key, []).append(w)
-            try:
-                c = float(data["conf"][i])
-            except (ValueError, TypeError):
-                c = -1
-            if c >= 0:
-                confs.append(c)
-        text = "\n".join(" ".join(ws) for _, ws in sorted(lines.items()))
-        mean = sum(confs) / len(confs) if confs else 0.0
-        return text, mean
+        """Wrapper: OCR verbatim condiviso (single-pass image_to_data)."""
+        return ocr_image_verbatim(pre, language)
 
     # ── Ramo AUTO: pgsrip ─────────────────────────────────────────────────
     def run_auto(self) -> bool:
