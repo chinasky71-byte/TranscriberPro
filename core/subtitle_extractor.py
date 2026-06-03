@@ -211,6 +211,65 @@ class SubtitleExtractor:
         )
         return selected
     
+    def select_best_bitmap_subtitle(self) -> Optional[Dict]:
+        """
+        Seleziona il miglior sottotitolo BITMAP (PGS/VOBSUB/DVB) per l'OCR.
+
+        Specularmente a select_best_subtitle() (che scarta i bitmap), qui si
+        considerano SOLO i codec in BITMAP_CODECS, applicando la stessa priorità:
+        forced scartati → priorità lingua (ita > eng > ...) → regular prima di HI.
+
+        Returns:
+            Dict con info sul sottotitolo bitmap selezionato o None.
+        """
+        if not self.subtitle_streams:
+            self.detect_subtitles()
+
+        if not self.subtitle_streams:
+            return None
+
+        # Scarta i forced
+        non_forced = [s for s in self.subtitle_streams if not s['forced']]
+        if not non_forced:
+            logger.info("Tutti i sottotitoli bitmap sono forced - nessuno selezionabile")
+            return None
+
+        # Tieni SOLO i bitmap
+        bitmap_subs = [s for s in non_forced if s['codec'].lower() in self.BITMAP_CODECS]
+        if not bitmap_subs:
+            logger.info("Nessun sottotitolo bitmap disponibile")
+            return None
+
+        # Priorità lingua, regular prima di HI
+        for lang_code in self.LANGUAGE_PRIORITY:
+            lang_subs = [s for s in bitmap_subs if s['language'].lower().startswith(lang_code[:2])]
+            if not lang_subs:
+                continue
+            regular = [s for s in lang_subs if not s['hearing_impaired']]
+            if regular:
+                selected = regular[0]
+                logger.info(
+                    f"  ✅ Bitmap selezionato: {selected['language'].upper()} regular "
+                    f"({selected['codec']}, Stream {selected['index']})"
+                )
+                return selected
+            hi = [s for s in lang_subs if s['hearing_impaired']]
+            if hi:
+                selected = hi[0]
+                logger.info(
+                    f"  ✅ Bitmap selezionato: {selected['language'].upper()} HI "
+                    f"({selected['codec']}, Stream {selected['index']})"
+                )
+                return selected
+
+        # Fallback: primo bitmap non-forced
+        selected = bitmap_subs[0]
+        logger.warning(
+            f"  ⚠️ Nessuna lingua prioritaria tra i bitmap, uso il primo: "
+            f"{selected['language'].upper()} ({selected['codec']}, Stream {selected['index']})"
+        )
+        return selected
+
     def extract_subtitle(self, output_path: Path, stream_index: Optional[int] = None) -> bool:
         """
         Estrae sottotitolo in formato SRT

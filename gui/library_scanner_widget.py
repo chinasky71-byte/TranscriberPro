@@ -8,7 +8,8 @@ from PyQt6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QWidget,
     QLabel, QToolButton, QLineEdit, QComboBox,
     QTableWidget, QTableWidgetItem, QPushButton,
-    QHeaderView, QAbstractItemView, QSpinBox
+    QHeaderView, QAbstractItemView, QSpinBox,
+    QMessageBox, QApplication
 )
 from PyQt6.QtCore import Qt, QTimer, QMutexLocker, QThread, pyqtSignal
 from PyQt6.QtGui import QColor
@@ -132,7 +133,9 @@ class LibraryScannerWidget(QFrame):
             self.is_expanded = True
             if not self.is_loaded:
                 self.is_loaded = True
-                self.refresh_data()
+                # Ritarda il primo tentativo così lo splash si chiude prima di
+                # qualsiasi chiamata di rete (evita blocco su IP non raggiungibile).
+                QTimer.singleShot(2500, self.refresh_data)
 
     def _build_header(self) -> QFrame:
         header = QFrame()
@@ -228,8 +231,10 @@ class LibraryScannerWidget(QFrame):
         # Tabella video
         self.video_table = QTableWidget()
         self.video_table.setObjectName("scannerTable")
-        self.video_table.setColumnCount(4)
-        self.video_table.setHorizontalHeaderLabels([tr('file_col'), tr('type_col'), tr('days_col'), ""])
+        self.video_table.setColumnCount(5)
+        self.video_table.setHorizontalHeaderLabels(
+            [tr('file_col'), tr('type_col'), tr('days_col'), "Sub", ""]
+        )
         self.video_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.video_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.video_table.verticalHeader().setVisible(False)
@@ -245,10 +250,12 @@ class LibraryScannerWidget(QFrame):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
         header.setStretchLastSection(False)
         self.video_table.setColumnWidth(1, 60)
         self.video_table.setColumnWidth(2, 50)
-        self.video_table.setColumnWidth(3, 24)
+        self.video_table.setColumnWidth(3, 38)
+        self.video_table.setColumnWidth(4, 24)
         self.video_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         layout.addWidget(self.video_table)
@@ -552,10 +559,15 @@ class LibraryScannerWidget(QFrame):
                 days_item.setForeground(QColor("#FFC107"))
             self.video_table.setItem(row, 2, days_item)
 
-            # Colonna 3: Bottone import singolo
+            # Colonna 3: badge formato subtitle problematico
+            has_bitmap = video.get('has_only_bitmap_subs', False)
+            badge_widget = self._create_sub_badge(video) if has_bitmap else QWidget()
+            self.video_table.setCellWidget(row, 3, badge_widget)
+
+            # Colonna 4: Bottone import singolo
             already_queued = windows_path in queued_paths
             btn = self._create_row_button(row, already_queued)
-            self.video_table.setCellWidget(row, 3, btn)
+            self.video_table.setCellWidget(row, 4, btn)
 
         self.video_table.setSortingEnabled(True)
         # Applica filtro giorni (se attivo nasconde le righe fuori range)
@@ -578,6 +590,152 @@ class LibraryScannerWidget(QFrame):
         self._update_badge(visible_count)
         self.import_all_btn.setEnabled(visible_count > 0)
 
+    def _create_sub_badge(self, video: dict) -> QWidget:
+        """
+        Badge arancione 'PGS' per file con solo sottotitoli bitmap italiani.
+        Il tooltip spiega il problema e l'azione consigliata.
+        """
+        container = QWidget()
+        lay = QHBoxLayout(container)
+        lay.setContentsMargins(2, 2, 2, 2)
+        lay.setSpacing(0)
+
+        windows_path = video.get('windows_path', '')
+        btn = QPushButton("PGS")
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setStyleSheet(
+            "QPushButton {"
+            "background-color: #E65100;"
+            "color: #ffffff;"
+            "border: none;"
+            "border-radius: 3px;"
+            "font-size: 7pt;"
+            "font-weight: bold;"
+            "padding: 1px 4px;"
+            "}"
+            "QPushButton:hover { background-color: #FB8C00; }"
+        )
+        btn.setToolTip(
+            "Sottotitoli immagine (PGS/VOBSUB).\n"
+            "Clicca per convertirli in SRT testuale tramite OCR\n"
+            "(strategia configurabile in Opzioni → OCR Sottotitoli)."
+        )
+        btn.clicked.connect(lambda _checked, p=windows_path: self._start_pgs_ocr(p))
+        lay.addWidget(btn)
+        return container
+
+    # ========================================================================
+    # OCR PGS → SRT
+    # ========================================================================
+
+    def _start_pgs_ocr(self, windows_path: str):
+        """Avvia la conversione OCR dei sottotitoli bitmap del file indicato."""
+        if not windows_path:
+            return
+        if getattr(self, '_ocr_worker', None) is not None:
+            QMessageBox.information(self, tr('ocr_section_title'),
+                                    "Un'altra conversione OCR è già in corso.")
+            return
+
+        from gui.ocr_worker import OcrWorker
+        from core.pgs_types import (CFG_STRATEGY, DEFAULT_STRATEGY, STRATEGY_AUTO)
+
+        config = get_config()
+        strategy = config.get(CFG_STRATEGY, DEFAULT_STRATEGY)
+
+        self._ocr_video_path = windows_path
+        self._ocr_name = Path(windows_path).name
+        self._log(f"🔤 OCR avviato ({strategy}): {self._ocr_name}")
+        QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
+
+        self._ocr_worker = OcrWorker(windows_path, config, strategy, mode="ocr")
+        self._ocr_worker.events_ready.connect(self._on_ocr_events_ready)
+        self._ocr_worker.auto_done.connect(self._on_ocr_auto_done)
+        self._ocr_worker.unsupported.connect(self._on_ocr_unsupported)
+        self._ocr_worker.error.connect(self._on_ocr_error)
+        self._ocr_worker.log_message.connect(self._log)
+        self._ocr_worker.finished.connect(self._on_ocr_phase_finished)
+        self._ocr_worker.start()
+
+    def _log(self, msg: str):
+        """Inoltra un messaggio al log della main window, se disponibile."""
+        try:
+            self.main_window.log_message(msg)
+        except Exception:
+            logger.info(msg)
+
+    def _on_ocr_events_ready(self, events, language):
+        """Ramo review: apri la UI di revisione mirata, poi scrivi il risultato."""
+        QApplication.restoreOverrideCursor()
+        from gui.ocr_review_dialog import OcrReviewDialog
+        from PyQt6.QtWidgets import QDialog
+
+        dlg = OcrReviewDialog(events, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            srt_text = dlg.get_srt()
+            self._run_ocr_writeback(srt_text, language)
+        else:
+            self._log(f"OCR annullato in revisione: {self._ocr_name}")
+
+    def _run_ocr_writeback(self, srt_text: str, language: str):
+        from gui.ocr_worker import OcrWorker
+        from core.pgs_types import CFG_STRATEGY, DEFAULT_STRATEGY
+        config = get_config()
+        strategy = config.get(CFG_STRATEGY, DEFAULT_STRATEGY)
+        QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
+        self._log(f"Scrittura SRT: {self._ocr_name}")
+        self._ocr_worker = OcrWorker(
+            self._ocr_video_path, config, strategy, mode="writeback",
+            srt_text=srt_text, language=language)
+        self._ocr_worker.writeback_done.connect(self._on_ocr_writeback_done)
+        self._ocr_worker.error.connect(self._on_ocr_error)
+        self._ocr_worker.log_message.connect(self._log)
+        self._ocr_worker.finished.connect(self._on_ocr_phase_finished)
+        self._ocr_worker.start()
+
+    def _on_ocr_auto_done(self, ok: bool):
+        QApplication.restoreOverrideCursor()
+        if ok:
+            QMessageBox.information(self, tr('ocr_section_title'),
+                                   f"Conversione completata:\n{self._ocr_name}")
+            self._auto_refresh()
+        else:
+            QMessageBox.warning(self, tr('ocr_section_title'),
+                                f"Conversione fallita:\n{self._ocr_name}")
+
+    def _on_ocr_writeback_done(self, ok: bool):
+        QApplication.restoreOverrideCursor()
+        if ok:
+            QMessageBox.information(self, tr('ocr_section_title'),
+                                   f"SRT scritto:\n{self._ocr_name}")
+            self._auto_refresh()
+        else:
+            QMessageBox.warning(self, tr('ocr_section_title'),
+                                f"Scrittura SRT fallita:\n{self._ocr_name}")
+
+    def _on_ocr_unsupported(self, msg: str):
+        QApplication.restoreOverrideCursor()
+        QMessageBox.information(
+            self, tr('ocr_section_title'),
+            f"{self._ocr_name}\n\n{msg}\n\n"
+            "Il ramo di revisione gestisce solo PGS. VOBSUB (DVD) sarà supportato "
+            "in una fase successiva.")
+
+    def _on_ocr_error(self, msg: str):
+        QApplication.restoreOverrideCursor()
+        QMessageBox.warning(self, tr('ocr_section_title'),
+                            f"Errore OCR:\n{self._ocr_name}\n\n{msg}")
+
+    def _on_ocr_phase_finished(self):
+        # Cleanup legato al sender (non all'attributo condiviso): il write-back
+        # riassegna self._ocr_worker a un nuovo worker, quindi azzeriamo solo se
+        # il worker che ha terminato è ancora quello corrente.
+        worker = self.sender()
+        if worker is not None:
+            worker.deleteLater()
+        if worker is getattr(self, '_ocr_worker', None):
+            self._ocr_worker = None
+
     def _create_row_button(self, row: int, already_queued: bool) -> QPushButton:
         btn = QPushButton("✓" if already_queued else "➕")
         btn.setProperty("class", "scannerAddBtn")
@@ -592,7 +750,7 @@ class LibraryScannerWidget(QFrame):
     def _import_single_by_btn(self, btn: QPushButton):
         """Trova la riga corrente del bottone (dopo eventuale sort) e importa."""
         for row in range(self.video_table.rowCount()):
-            if self.video_table.cellWidget(row, 3) is btn:
+            if self.video_table.cellWidget(row, 4) is btn:
                 self._import_single(row)
                 return
 
@@ -610,7 +768,7 @@ class LibraryScannerWidget(QFrame):
 
         added = self._import_paths([path])
         if added > 0:
-            btn = self.video_table.cellWidget(row, 3)
+            btn = self.video_table.cellWidget(row, 4)
             if btn:
                 btn.setText("✓")
                 btn.setEnabled(False)
@@ -642,7 +800,7 @@ class LibraryScannerWidget(QFrame):
                 if item:
                     wp = item.data(Qt.ItemDataRole.UserRole)
                     if wp in queued_paths:
-                        btn = self.video_table.cellWidget(row, 3)
+                        btn = self.video_table.cellWidget(row, 4)
                         if btn and btn.isEnabled():
                             btn.setText("✓")
                             btn.setEnabled(False)
@@ -743,9 +901,10 @@ class LibraryScannerWidget(QFrame):
         """Calcola la larghezza della colonna File per riempire lo spazio disponibile."""
         self.video_table.setColumnWidth(1, 60)
         self.video_table.setColumnWidth(2, 50)
-        self.video_table.setColumnWidth(3, 24)
+        self.video_table.setColumnWidth(3, 38)
+        self.video_table.setColumnWidth(4, 24)
         table_width = self.video_table.viewport().width()
-        fixed_cols = 60 + 50 + 24
+        fixed_cols = 60 + 50 + 38 + 24
         file_width = max(120, table_width - fixed_cols)
         self.video_table.setColumnWidth(0, file_width)
 

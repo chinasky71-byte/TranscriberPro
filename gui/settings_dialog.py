@@ -34,6 +34,7 @@ TAB_TRANSCRIPTION = 'transcription'
 TAB_TRANSLATION = 'translation'
 TAB_BATCH = 'batch'
 TAB_OPENSUBTITLES = 'opensubtitles'
+TAB_OCR = 'ocr'
 
 _TAB_ORDER = (
     TAB_GENERAL,
@@ -41,6 +42,7 @@ _TAB_ORDER = (
     TAB_TRANSLATION,
     TAB_BATCH,
     TAB_OPENSUBTITLES,
+    TAB_OCR,
 )
 
 _TAB_ICON = {
@@ -49,6 +51,7 @@ _TAB_ICON = {
     TAB_TRANSLATION:   'globe',
     TAB_BATCH:         'target',
     TAB_OPENSUBTITLES: 'cloud',
+    TAB_OCR:           'caption',
 }
 
 
@@ -159,6 +162,7 @@ class SettingsDialog(QDialog):
             TAB_TRANSLATION: tr('settings_tab_translation'),
             TAB_BATCH: tr('settings_tab_batch'),
             TAB_OPENSUBTITLES: tr('settings_tab_opensubtitles'),
+            TAB_OCR: tr('ocr_section_title'),
         }
 
         for tab_id in _TAB_ORDER:
@@ -197,6 +201,10 @@ class SettingsDialog(QDialog):
         if tab_id == TAB_OPENSUBTITLES:
             from gui.opensubtitles_settings_widget import OpenSubtitlesSettingsWidget
             return OpenSubtitlesSettingsWidget(parent=self)
+
+        if tab_id == TAB_OCR:
+            from gui.ocr_settings_widget import OcrSettingsWidget
+            return OcrSettingsWidget(parent=self)
 
         raise ValueError(f"Unknown settings tab: {tab_id}")
 

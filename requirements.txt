@@ -93,6 +93,16 @@ huggingface_hub==0.36.2
 cinemagoer==2023.5.1
 xmltodict==1.0.4
 
+# --- OCR sottotitoli bitmap (PGS → SRT) ---
+# Ramo review: pytesseract + opencv (pgsreader è vendorizzato in core/vendor/pgsreader,
+#   non è su PyPI). Ramo auto: pgsrip.
+# Dipendenze ESTERNE non-pip richieste:
+#   - Tesseract-OCR (binario) + traineddata 'ita'/'eng' (consigliato tessdata_best)
+#   - MKVToolNix (binario) — solo per il ramo auto (pgsrip)
+pytesseract==0.3.13
+opencv-python==4.13.0.92
+pgsrip==0.1.12
+
 # --- Infrastructure ---
 requests==2.32.5
 httpx==0.28.1
@@ -135,6 +145,13 @@ opentelemetry-sdk==1.40.0
 opentelemetry-exporter-otlp==1.40.0
 opentelemetry-exporter-otlp-proto-grpc==1.40.0
 opentelemetry-exporter-otlp-proto-http==1.40.0
+
+# --- Gender Correction (LLM) ---
+# Richiede wheel CUDA pre-built (443 MB):
+#   pip install llama-cpp-python==0.3.4 --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+# NOTA: solo 0.3.4 ha wheel pre-built CUDA per Windows cp311
+llama-cpp-python==0.3.4
+diskcache>=5.6.1
 
 # --- Misc ---
 antlr4-python3-runtime==4.9.3
