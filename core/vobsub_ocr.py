@@ -70,14 +70,24 @@ class VobSubOcr:
     """
 
     def __init__(self, video_path: str, config=None,
-                 log_callback: Optional[Callable] = None):
+                 log_callback: Optional[Callable] = None,
+                 progress_callback: Optional[Callable] = None):
         self.video_path = Path(video_path)
         self.config = config
         self.log_callback = log_callback
+        # progress_callback(percent: int, label: str)
+        self.progress_callback = progress_callback
         self.extractor = SubtitleExtractor(str(video_path))
         self._cancelled = False
         self._active_proc: Optional[subprocess.Popen] = None
         self._configure_tesseract()
+
+    def _progress(self, percent: int, label: str):
+        if self.progress_callback:
+            try:
+                self.progress_callback(int(percent), label)
+            except Exception:
+                pass
 
     # ── Config helpers ────────────────────────────────────────────────────
     def _cfg(self, key, default):
@@ -139,14 +149,28 @@ class VobSubOcr:
         # mkvextract scrive out_base.idx e out_base.sub
         cmd = [mkvextract, "tracks", str(self.video_path),
                f"{stream_index}:{out_base}"]
+        import re as _re
         self._active_proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             encoding="utf-8", errors="replace", creationflags=_CREATE_NO_WINDOW)
-        _, err = self._active_proc.communicate()
+        tail = []
+        self._progress(0, "Estrazione")
+        for line in self._active_proc.stdout:
+            if self._cancelled:
+                break
+            tail.append(line)
+            if len(tail) > 20:
+                tail.pop(0)
+            m = _re.search(r'(\d+)\s*%', line)
+            if m:
+                self._progress(int(m.group(1)), "Estrazione")
+        self._active_proc.wait()
         rc = self._active_proc.returncode
+        err = "".join(tail)
         self._active_proc = None
         if self._cancelled:
             raise InterruptedError("Operazione annullata")
+        self._progress(100, "Estrazione")
         idx = Path(str(out_base) + ".idx")
         sub = Path(str(out_base) + ".sub")
         if rc != 0 or not idx.exists() or not sub.exists():
@@ -206,9 +230,12 @@ class VobSubOcr:
         palette = parser.idx_palette
 
         events: List[OcrEvent] = []
+        total = len(packs)
         for i, pack in enumerate(packs, start=1):
             if self._cancelled:
                 raise InterruptedError("Operazione annullata")
+            if total and (i % 5 == 0 or i == total):
+                self._progress(int(i / total * 100), "OCR")
             try:
                 pack.palette = palette
                 arr = pack.get_bitmap()
