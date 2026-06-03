@@ -477,6 +477,39 @@ async def list_videos(
         return {"total": total, "offset": offset, "limit": limit, "count": len(results), "videos": results}
 
 
+class NotifySubtitleRequest(BaseModel):
+    windows_path: Optional[str] = None
+    linux_path: Optional[str] = None
+
+
+@app.post("/api/videos/notify-subtitle", dependencies=[Depends(require_auth)])
+async def notify_subtitle(req: NotifySubtitleRequest):
+    """
+    Notifica che per un video è stato creato un sottotitolo italiano testuale
+    (es. OCR PGS/VOBSUB → .srt da Transcriber Pro). Aggiorna i flag nel DB così il
+    file esce dalla lista 'senza sub'/'solo bitmap' e il widget si allinea col sync.
+    """
+    if not req.windows_path and not req.linux_path:
+        raise HTTPException(status_code=400, detail="windows_path o linux_path richiesto")
+    with get_db() as db:
+        q = select(VideoFile)
+        if req.windows_path:
+            q = q.where(VideoFile.windows_path == req.windows_path)
+        else:
+            q = q.where(VideoFile.linux_path == req.linux_path)
+        vf = db.execute(q).scalars().first()
+        if not vf:
+            raise HTTPException(status_code=404, detail="File non trovato nel database")
+        vf.has_italian_srt = True
+        vf.has_italian_text_sub = True
+        vf.has_any_italian_sub = True
+        vf.has_italian_bitmap_sub = False           # ora ha un sub testo → non più solo-bitmap
+        vf.conversion_status = "done"
+        vf.conversion_done_at = datetime.now(timezone.utc)
+        fname = vf.filename
+    return {"message": "Aggiornato", "filename": fname}
+
+
 @app.get("/api/stats", dependencies=[Depends(require_auth)])
 async def get_stats():
     with get_db() as db:
