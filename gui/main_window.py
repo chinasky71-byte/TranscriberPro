@@ -865,11 +865,17 @@ class MainWindow(QMainWindow):
         data = item.data(Qt.ItemDataRole.UserRole) or {}
         if data.get('kind') != 'ocr':
             return
+        prev_status = data.get('status')
         data['status'] = status
         data['progress'] = int(progress)
         item.setData(Qt.ItemDataRole.UserRole, data)
         self.file_list.update()
-        self._update_filter_badges()
+        # _update_filter_badges ricalcola le label dei contatori e può causare
+        # un micro-ricalcolo del layout (jitter della finestra). Lo chiamiamo
+        # SOLO quando lo status cambia (queued→processing, processing→completed…),
+        # mai sui semplici aggiornamenti di percentuale a status invariato.
+        if status != prev_status:
+            self._update_filter_badges()
 
     # ------------------------------------------------------------------
 
