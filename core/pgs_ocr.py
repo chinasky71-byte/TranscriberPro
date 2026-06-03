@@ -6,7 +6,7 @@ File: core/pgs_ocr.py
 Due rami, selezionati dalla strategia in Opzioni (vedi core/pgs_types.py):
   - STRATEGY_REVIEW: pgsreader (vendor) + Tesseract pilotato da noi → produce OcrEvent
     con immagine + testo VERBATIM + confidenza per la UI di revisione mirata.
-  - STRATEGY_AUTO:   pgsrip (turnkey MKVToolNix+Tesseract) → SRT, nessuna revisione.
+  - STRATEGY_AUTO:   stesso motore del review (pgsreader+Tesseract via ffmpeg), senza dialog.
 
 Pipeline ramo review validata dallo spike 2026-06-03 (vedi memory/project_pgs_ocr_module.md):
   estrai .sup → parse display set → preprocess (composito nero, Otsu, invert, upscale 2×,
@@ -60,7 +60,7 @@ class PgsOcr:
 
     Uso (ramo auto):
         ocr = PgsOcr(video_path, config)
-        ocr.run_auto()                          # pgsrip end-to-end + write-back
+        ocr.run_auto()                          # OCR senza dialog + write-back
     """
 
     def __init__(self, video_path: str, config=None,
@@ -282,48 +282,20 @@ class PgsOcr:
         """Wrapper: OCR verbatim condiviso (single-pass image_to_data)."""
         return ocr_image_verbatim(pre, language)
 
-    # ── Ramo AUTO: pgsrip ─────────────────────────────────────────────────
+    # ── Ramo AUTO ─────────────────────────────────────────────────────────
     def run_auto(self) -> bool:
         """
-        Conversione turnkey via pgsrip (richiede MKVToolNix + Tesseract).
-        pgsrip scrive l'SRT accanto; poi applichiamo il write-back configurato.
+        Conversione automatica: usa lo STESSO motore validato del ramo review
+        (pgsreader + Tesseract via ffmpeg), saltando solo la UI di revisione.
+        Più affidabile e coerente di pgsrip (che dipende da mkvextract/tesseract
+        nel PATH del processo, fragile in un'app GUI).
         """
-        language = self._cfg(CFG_LANGUAGE, DEFAULT_LANGUAGE)
-        try:
-            from pgsrip import pgsrip, Mkv, Options
-            from babelfish import Language
-        except Exception as e:
-            logger.error(f"pgsrip non disponibile: {e}")
+        events, language = self.ocr_to_events()
+        srt = events_to_srt(events)
+        if not srt.strip():
+            self._log("Nessun testo OCR prodotto")
             return False
-
-        self._log("Conversione automatica con pgsrip...")
-        try:
-            media = Mkv(str(self.video_path))
-            options = Options(languages={Language(language)}, overwrite=True)
-            pgsrip.rip(media, options)
-        except Exception as e:
-            logger.error(f"pgsrip fallito: {e}", exc_info=True)
-            return False
-
-        # pgsrip crea <video>.<lang>.srt accanto al file.
-        produced = self.video_path.with_suffix("")  # base
-        candidates = list(self.video_path.parent.glob(f"{self.video_path.stem}*.srt"))
-        if not candidates:
-            logger.error("pgsrip non ha prodotto alcun SRT")
-            return False
-        srt_file = max(candidates, key=lambda p: p.stat().st_mtime)
-
-        writeback = self._cfg(CFG_WRITEBACK, DEFAULT_WRITEBACK)
-        if writeback == WRITEBACK_MUX:
-            ok = self._writeback_mux(srt_file, language)
-            if ok:
-                try:
-                    srt_file.unlink(missing_ok=True)  # rimosso dopo il mux
-                except Exception:
-                    pass
-            return ok
-        # sidecar: l'SRT prodotto da pgsrip è già accanto al video
-        return True
+        return self.writeback(srt, language)
 
     # ── Write-back ────────────────────────────────────────────────────────
     def writeback(self, srt_text: str, language: str) -> bool:

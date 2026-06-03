@@ -93,17 +93,15 @@ huggingface_hub==0.36.2
 cinemagoer==2023.5.1
 xmltodict==1.0.4
 
-# --- OCR sottotitoli bitmap (PGS → SRT) ---
-# Ramo review: pytesseract + opencv (pgsreader è vendorizzato in core/vendor/pgsreader,
-#   non è su PyPI). Ramo auto: pgsrip.
+# --- OCR sottotitoli bitmap (PGS / VOBSUB → SRT) ---
+# Motore unico pgsreader/vobsub + Tesseract (sia review che auto). pgsreader e il parser
+# vobsub sono vendorizzati in core/vendor/ (non su PyPI).
 # Dipendenze ESTERNE non-pip richieste:
 #   - Tesseract-OCR (binario) + traineddata 'ita'/'eng' (consigliato tessdata_best)
-#   - MKVToolNix (binario) — solo per il ramo auto (pgsrip)
+#   - MKVToolNix (binario, mkvextract) — per estrarre i VOBSUB (.idx/.sub); i PGS usano ffmpeg
+# 'colour' serve al parser VOBSUB per le palette.
 pytesseract==0.3.13
 opencv-python==4.13.0.92
-pgsrip==0.1.12
-# VOBSUB (DVD .idx/.sub): parser vendorizzato in core/vendor/vobsub (port di Subtitle Edit).
-# Estrazione via MKVToolNix (mkvextract). 'colour' serve al parser per le palette.
 colour==0.1.5
 
 # --- Infrastructure ---
