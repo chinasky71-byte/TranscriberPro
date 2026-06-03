@@ -69,6 +69,44 @@ def init_db():
     logger.info("Database inizializzato con successo")
 
 
+def run_migrations():
+    """
+    Migrazione additive-only: aggiunge le colonne mancanti a video_files
+    e crea le nuove tabelle. Sicuro su DB esistente — non rimuove mai dati.
+    """
+    from sqlalchemy import text
+
+    engine = get_engine()
+
+    new_video_cols = [
+        ("has_italian_text_sub",   "BOOLEAN NOT NULL DEFAULT 0"),
+        ("has_italian_bitmap_sub", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("has_convertible_subs",   "BOOLEAN NOT NULL DEFAULT 0"),
+        ("sub_formats_json",       "TEXT"),
+        ("conversion_status",      "VARCHAR(20)"),
+        ("conversion_error",       "TEXT"),
+        ("conversion_done_at",     "DATETIME"),
+    ]
+
+    with engine.connect() as conn:
+        result = conn.execute(text("PRAGMA table_info(video_files)"))
+        existing = {row[1] for row in result}
+
+        for col_name, col_def in new_video_cols:
+            if col_name not in existing:
+                conn.execute(text(
+                    f"ALTER TABLE video_files ADD COLUMN {col_name} {col_def}"
+                ))
+                logger.info(f"Migrazione: aggiunta colonna video_files.{col_name}")
+
+        conn.commit()
+
+    # Crea nuove tabelle (no-op se già esistono)
+    from library_scanner import models  # noqa: F401
+    Base.metadata.create_all(bind=engine)
+    logger.info("Migrazione database completata")
+
+
 @contextmanager
 def get_db() -> Session:
     """Context manager per ottenere una sessione database."""

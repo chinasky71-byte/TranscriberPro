@@ -4,6 +4,7 @@ Library Scanner - Scanner Filesystem
 Scansiona le directory configurate, trova file video, verifica sottotitoli
 e aggiorna il database.
 """
+import json
 import logging
 import time
 from datetime import datetime, timezone
@@ -16,7 +17,7 @@ from sqlalchemy.orm import Session
 from library_scanner.config import Config
 from library_scanner.database import get_db
 from library_scanner.models import ScanDirectory, VideoFile, ScanLog
-from library_scanner.subtitle_checker import check_all_subtitles
+from library_scanner.subtitle_checker import check_all_subtitles, detect_subtitle_streams_full
 
 logger = logging.getLogger(__name__)
 
@@ -270,8 +271,26 @@ class LibraryScanner:
             select(VideoFile).where(VideoFile.linux_path == linux_path_str)
         ).scalar_one_or_none()
 
-        # Verifica sottotitoli
-        sub_result = check_all_subtitles(video_path)
+        # Verifica sottotitoli (presenza) + analisi formato codec
+        sub_result    = check_all_subtitles(video_path)
+        stream_result = detect_subtitle_streams_full(video_path)
+
+        # has_any_italian_sub CORRETTO: solo sottotitoli testo (esclude bitmap PGS/VOBSUB)
+        has_italian_text_sub = (
+            sub_result["has_external"]
+            or stream_result["has_italian_text_embedded"]
+        )
+        has_any_italian_sub = has_italian_text_sub
+
+        # JSON stream info (solo se ci sono stream da segnalare)
+        sub_formats_json = (
+            json.dumps(stream_result["streams"], ensure_ascii=False)
+            if stream_result["streams"] else None
+        )
+
+        # Errore combinato
+        errors = [e for e in (sub_result["error"], stream_result["error"]) if e]
+        combined_error = "; ".join(errors) or None
 
         file_stat = video_path.stat()
         file_modified = datetime.fromtimestamp(file_stat.st_mtime, tz=timezone.utc)
@@ -289,18 +308,27 @@ class LibraryScanner:
                 file_modified=file_modified,
                 has_italian_srt=sub_result["has_external"],
                 has_italian_embedded=sub_result["has_embedded"],
-                has_any_italian_sub=sub_result["has_any"],
-                subtitle_check_error=sub_result["error"] or None,
+                has_any_italian_sub=has_any_italian_sub,
+                has_italian_text_sub=has_italian_text_sub,
+                has_italian_bitmap_sub=stream_result["has_italian_bitmap_sub"],
+                has_convertible_subs=stream_result["has_convertible_subs"],
+                sub_formats_json=sub_formats_json,
+                subtitle_check_error=combined_error,
                 media_type=scan_dir.media_type,
                 first_seen=now,
-                last_scanned=now
+                last_scanned=now,
             )
             db.add(vf)
             db.flush()
-            logger.debug(f"  Nuovo: {video_path.name} (sub_ita={sub_result['has_any']})")
+            logger.debug(
+                f"  Nuovo: {video_path.name} "
+                f"(sub_testo={has_italian_text_sub}, "
+                f"bitmap={stream_result['has_italian_bitmap_sub']}, "
+                f"convertibile={stream_result['has_convertible_subs']})"
+            )
             return "new"
         else:
-            # File esistente - aggiorna
+            # File esistente — aggiorna (non tocca conversion_status/error/done_at)
             existing.last_scanned = now
             existing.file_size = file_stat.st_size
             existing.file_modified = file_modified
@@ -308,8 +336,16 @@ class LibraryScanner:
             existing.relative_path = relative_path
             existing.has_italian_srt = sub_result["has_external"]
             existing.has_italian_embedded = sub_result["has_embedded"]
-            existing.has_any_italian_sub = sub_result["has_any"]
-            existing.subtitle_check_error = sub_result["error"] or None
+            existing.has_any_italian_sub = has_any_italian_sub
+            existing.has_italian_text_sub = has_italian_text_sub
+            existing.has_italian_bitmap_sub = stream_result["has_italian_bitmap_sub"]
+            existing.has_convertible_subs = stream_result["has_convertible_subs"]
+            existing.sub_formats_json = sub_formats_json
+            existing.subtitle_check_error = combined_error
+            # Reset conversion_status solo se la sorgente non ha più ASS/SSA
+            if not stream_result["has_convertible_subs"]:
+                existing.conversion_status = None
+                existing.conversion_error = None
             db.flush()
             return "updated"
 

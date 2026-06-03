@@ -225,6 +225,19 @@ class LibraryScannerWidget(QFrame):
         self.days_spinbox.valueChanged.connect(self._on_days_filter_changed)
         filter_layout.addWidget(self.days_spinbox)
 
+        format_label = QLabel(tr('format_filter'))
+        format_label.setObjectName("scannerFilterLabel")
+        filter_layout.addWidget(format_label)
+
+        self.format_combo = QComboBox()
+        self.format_combo.setObjectName("scannerFilter")
+        # userData: None=tutti, 'pgs', 'vobsub'
+        self.format_combo.addItem(tr('all_formats'), None)
+        self.format_combo.addItem("PGS", "pgs")
+        self.format_combo.addItem("VOBSUB", "vobsub")
+        self.format_combo.currentIndexChanged.connect(self._on_format_filter_changed)
+        filter_layout.addWidget(self.format_combo)
+
         filter_layout.addStretch()
         layout.addLayout(filter_layout)
 
@@ -532,6 +545,8 @@ class LibraryScannerWidget(QFrame):
             name_item = QTableWidgetItem(filename)
             name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             name_item.setData(Qt.ItemDataRole.UserRole, windows_path)
+            # UserRole+1: bitmap_format ('pgs'|'vobsub'|'mixed'|None) per il filtro Formato
+            name_item.setData(Qt.ItemDataRole.UserRole + 1, video.get('bitmap_format'))
 
             # Rileva lingua audio dal filename e colora di conseguenza
             if _detect_italian(filename) == 'ita':
@@ -576,24 +591,44 @@ class LibraryScannerWidget(QFrame):
     def _on_days_filter_changed(self):
         self._apply_days_filter()
 
+    def _on_format_filter_changed(self):
+        # Filtro client-side: bitmap_format è già in videos_data.
+        self._apply_days_filter()
+
+    def _get_selected_format(self):
+        """Ritorna None (tutti) | 'pgs' | 'vobsub'."""
+        return self.format_combo.currentData() if hasattr(self, 'format_combo') else None
+
     def _apply_days_filter(self):
-        """Nasconde le righe con days_without_subs < min_days. Aggiorna badge e bottone importa."""
+        """Nasconde righe per filtro giorni E filtro formato. Aggiorna badge/bottone."""
         min_days = self.days_spinbox.value()
+        fmt = self._get_selected_format()
         visible_count = 0
         for row in range(self.video_table.rowCount()):
             days_item = self.video_table.item(row, 2)
             days = int(days_item.text()) if days_item else 0
             hide = min_days > 0 and days < min_days
+            if not hide and fmt:
+                name_item = self.video_table.item(row, 0)
+                row_fmt = name_item.data(Qt.ItemDataRole.UserRole + 1) if name_item else None
+                # 'mixed' soddisfa sia PGS sia VOBSUB
+                if not (row_fmt == fmt or row_fmt == 'mixed'):
+                    hide = True
             self.video_table.setRowHidden(row, hide)
             if not hide:
                 visible_count += 1
         self._update_badge(visible_count)
         self.import_all_btn.setEnabled(visible_count > 0)
+        # Etichetta del bottone: OCR se filtro formato attivo, altrimenti import coda
+        if fmt:
+            self.import_all_btn.setText(tr('ocr_convert_all'))
+        else:
+            self.import_all_btn.setText(tr('import_filtered'))
 
     def _create_sub_badge(self, video: dict) -> QWidget:
         """
-        Badge arancione 'PGS' per file con solo sottotitoli bitmap italiani.
-        Il tooltip spiega il problema e l'azione consigliata.
+        Badge cliccabile per file con solo sottotitoli bitmap italiani.
+        Etichetta in base al formato (PGS/VOB/MIX); clic = conversione OCR.
         """
         container = QWidget()
         lay = QHBoxLayout(container)
@@ -601,7 +636,10 @@ class LibraryScannerWidget(QFrame):
         lay.setSpacing(0)
 
         windows_path = video.get('windows_path', '')
-        btn = QPushButton("PGS")
+        fmt = video.get('bitmap_format')  # 'pgs' | 'vobsub' | 'mixed' | None
+        label, kind = self._badge_label_kind(fmt)
+
+        btn = QPushButton(label)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setStyleSheet(
             "QPushButton {"
@@ -620,16 +658,29 @@ class LibraryScannerWidget(QFrame):
             "Clicca per convertirli in SRT testuale tramite OCR\n"
             "(strategia configurabile in Opzioni → OCR Sottotitoli)."
         )
-        btn.clicked.connect(lambda _checked, p=windows_path: self._start_pgs_ocr(p))
+        btn.clicked.connect(lambda _checked, p=windows_path, k=kind: self._start_bitmap_ocr(p, k))
         lay.addWidget(btn)
         return container
+
+    @staticmethod
+    def _badge_label_kind(fmt):
+        """Mappa bitmap_format → (etichetta badge, kind per il motore OCR)."""
+        if fmt == 'vobsub':
+            return "VOB", "vobsub"
+        if fmt == 'mixed':
+            return "MIX", "pgs"   # default PGS per i misti (la traccia PGS è preferibile)
+        return "PGS", "pgs"
 
     # ========================================================================
     # OCR PGS → SRT
     # ========================================================================
 
-    def _start_pgs_ocr(self, windows_path: str):
-        """Avvia la conversione OCR dei sottotitoli bitmap del file indicato."""
+    def _start_bitmap_ocr(self, windows_path: str, kind: str, force_auto: bool = False):
+        """
+        Avvia la conversione OCR dei sottotitoli bitmap del file indicato.
+        kind: 'pgs' | 'vobsub'. force_auto=True forza la strategia automatica
+        (usato dal batch, per evitare decine di dialog di revisione a catena).
+        """
         if not windows_path:
             return
         if getattr(self, '_ocr_worker', None) is not None:
@@ -638,17 +689,18 @@ class LibraryScannerWidget(QFrame):
             return
 
         from gui.ocr_worker import OcrWorker
-        from core.pgs_types import (CFG_STRATEGY, DEFAULT_STRATEGY, STRATEGY_AUTO)
+        from core.pgs_types import CFG_STRATEGY, DEFAULT_STRATEGY, STRATEGY_AUTO
 
         config = get_config()
-        strategy = config.get(CFG_STRATEGY, DEFAULT_STRATEGY)
+        strategy = STRATEGY_AUTO if force_auto else config.get(CFG_STRATEGY, DEFAULT_STRATEGY)
 
         self._ocr_video_path = windows_path
+        self._ocr_kind = kind
         self._ocr_name = Path(windows_path).name
-        self._log(f"🔤 OCR avviato ({strategy}): {self._ocr_name}")
+        self._log(f"🔤 OCR avviato ({kind}, {strategy}): {self._ocr_name}")
         QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
 
-        self._ocr_worker = OcrWorker(windows_path, config, strategy, mode="ocr")
+        self._ocr_worker = OcrWorker(windows_path, config, strategy, mode="ocr", kind=kind)
         self._ocr_worker.events_ready.connect(self._on_ocr_events_ready)
         self._ocr_worker.auto_done.connect(self._on_ocr_auto_done)
         self._ocr_worker.unsupported.connect(self._on_ocr_unsupported)
@@ -686,7 +738,7 @@ class LibraryScannerWidget(QFrame):
         self._log(f"Scrittura SRT: {self._ocr_name}")
         self._ocr_worker = OcrWorker(
             self._ocr_video_path, config, strategy, mode="writeback",
-            srt_text=srt_text, language=language)
+            srt_text=srt_text, language=language, kind=getattr(self, '_ocr_kind', 'pgs'))
         self._ocr_worker.writeback_done.connect(self._on_ocr_writeback_done)
         self._ocr_worker.error.connect(self._on_ocr_error)
         self._ocr_worker.log_message.connect(self._log)
@@ -695,6 +747,10 @@ class LibraryScannerWidget(QFrame):
 
     def _on_ocr_auto_done(self, ok: bool):
         QApplication.restoreOverrideCursor()
+        if getattr(self, '_ocr_batch_active', False):
+            self._ocr_batch_ok += 1 if ok else 0
+            self._ocr_batch_fail += 0 if ok else 1
+            return
         if ok:
             QMessageBox.information(self, tr('ocr_section_title'),
                                    f"Conversione completata:\n{self._ocr_name}")
@@ -715,14 +771,17 @@ class LibraryScannerWidget(QFrame):
 
     def _on_ocr_unsupported(self, msg: str):
         QApplication.restoreOverrideCursor()
-        QMessageBox.information(
-            self, tr('ocr_section_title'),
-            f"{self._ocr_name}\n\n{msg}\n\n"
-            "Il ramo di revisione gestisce solo PGS. VOBSUB (DVD) sarà supportato "
-            "in una fase successiva.")
+        if getattr(self, '_ocr_batch_active', False):
+            self._ocr_batch_fail += 1
+            return
+        QMessageBox.information(self, tr('ocr_section_title'),
+                               f"{self._ocr_name}\n\n{msg}")
 
     def _on_ocr_error(self, msg: str):
         QApplication.restoreOverrideCursor()
+        if getattr(self, '_ocr_batch_active', False):
+            self._ocr_batch_fail += 1
+            return
         QMessageBox.warning(self, tr('ocr_section_title'),
                             f"Errore OCR:\n{self._ocr_name}\n\n{msg}")
 
@@ -735,6 +794,41 @@ class LibraryScannerWidget(QFrame):
             worker.deleteLater()
         if worker is getattr(self, '_ocr_worker', None):
             self._ocr_worker = None
+        # In modalità batch, avanza al file successivo quando il worker è concluso.
+        if getattr(self, '_ocr_batch_active', False) and self._ocr_worker is None:
+            self._ocr_batch_advance()
+
+    # ── Batch OCR (Importa tutti con filtro formato attivo) ────────────────
+    def _start_ocr_batch(self, items: list):
+        """items: lista di (windows_path, kind). Converte tutti in AUTO, in sequenza."""
+        if getattr(self, '_ocr_worker', None) is not None:
+            QMessageBox.information(self, tr('ocr_section_title'),
+                                    "Un'altra conversione OCR è già in corso.")
+            return
+        if not items:
+            return
+        self._ocr_batch_active = True
+        self._ocr_batch_queue = list(items)
+        self._ocr_batch_total = len(items)
+        self._ocr_batch_ok = 0
+        self._ocr_batch_fail = 0
+        self._log(f"🔤 Batch OCR avviato: {self._ocr_batch_total} file (automatico)")
+        self._ocr_batch_advance()
+
+    def _ocr_batch_advance(self):
+        queue = getattr(self, '_ocr_batch_queue', [])
+        if not queue:
+            # batch concluso
+            self._ocr_batch_active = False
+            QApplication.restoreOverrideCursor()
+            QMessageBox.information(
+                self, tr('ocr_section_title'),
+                f"Batch OCR completato.\nConvertiti: {self._ocr_batch_ok} · "
+                f"Falliti: {self._ocr_batch_fail} (su {self._ocr_batch_total})")
+            self._auto_refresh()
+            return
+        path, kind = queue.pop(0)
+        self._start_bitmap_ocr(path, kind, force_auto=True)
 
     def _create_row_button(self, row: int, already_queued: bool) -> QPushButton:
         btn = QPushButton("✓" if already_queued else "➕")
@@ -766,6 +860,13 @@ class LibraryScannerWidget(QFrame):
         if not path:
             return
 
+        # Se il filtro Formato è attivo, il bottone esegue l'OCR (non la coda).
+        if self._get_selected_format():
+            row_fmt = item.data(Qt.ItemDataRole.UserRole + 1)
+            _, kind = self._badge_label_kind(row_fmt)
+            self._start_bitmap_ocr(path, kind)
+            return
+
         added = self._import_paths([path])
         if added > 0:
             btn = self.video_table.cellWidget(row, 4)
@@ -775,6 +876,22 @@ class LibraryScannerWidget(QFrame):
                 btn.setToolTip(tr('already_queued'))
 
     def _import_all(self):
+        # Se il filtro Formato è attivo → batch OCR (automatico) di tutti i visibili.
+        if self._get_selected_format():
+            items = []
+            for row in range(self.video_table.rowCount()):
+                if not self.video_table.isRowHidden(row):
+                    item = self.video_table.item(row, 0)
+                    if item:
+                        path = item.data(Qt.ItemDataRole.UserRole)
+                        row_fmt = item.data(Qt.ItemDataRole.UserRole + 1)
+                        if path:
+                            _, kind = self._badge_label_kind(row_fmt)
+                            items.append((path, kind))
+            if items:
+                self._start_ocr_batch(items)
+            return
+
         # Solo righe visibili (rispetta filtro giorni + tipo)
         paths = []
         for row in range(self.video_table.rowCount()):

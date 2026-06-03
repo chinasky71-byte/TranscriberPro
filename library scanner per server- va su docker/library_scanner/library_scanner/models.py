@@ -53,11 +53,27 @@ class VideoFile(Base):
     file_size = Column(BigInteger, default=0)                        # Dimensione in bytes
     file_modified = Column(DateTime, nullable=True)                  # Data modifica file
 
-    # Stato sottotitoli
+    # Stato sottotitoli (legacy + corretti)
     has_italian_srt = Column(Boolean, default=False, nullable=False)      # Sottotitolo esterno .srt italiano
-    has_italian_embedded = Column(Boolean, default=False, nullable=False)  # Sottotitolo embedded italiano
-    has_any_italian_sub = Column(Boolean, default=False, nullable=False)   # Qualsiasi sottotitolo italiano
-    subtitle_check_error = Column(Text, nullable=True)                     # Errore durante verifica ffprobe
+    has_italian_embedded = Column(Boolean, default=False, nullable=False)  # Sottotitolo embedded italiano (qualsiasi codec)
+    has_any_italian_sub = Column(Boolean, default=False, nullable=False)   # CORRETTO: solo sub testo (no bitmap)
+    subtitle_check_error = Column(Text, nullable=True)
+
+    # Analisi formato sottotitoli (popolati da detect_subtitle_streams_full)
+    has_italian_text_sub   = Column(Boolean, default=False, nullable=False)  # .srt esterno OR embedded testo
+    has_italian_bitmap_sub = Column(Boolean, default=False, nullable=False)  # PGS/VOBSUB italiano
+    has_convertible_subs   = Column(Boolean, default=False, nullable=False)  # ASS/SSA embedded (qualsiasi lingua)
+    sub_formats_json       = Column(Text, nullable=True)                     # JSON: [{index,codec,lang,title,convertible}]
+
+    # Stato conversione ASS→SRT
+    conversion_status   = Column(String(20), nullable=True)   # pending/converting/done/failed/skipped
+    conversion_error    = Column(Text, nullable=True)
+    conversion_done_at  = Column(DateTime, nullable=True)
+
+    @property
+    def has_only_bitmap_subs(self) -> bool:
+        """True se ha SOLO sottotitoli bitmap italiani (nessun testo)."""
+        return bool(self.has_italian_bitmap_sub and not self.has_italian_text_sub)
 
     # Metadati
     media_type = Column(String(20), default="movie")  # "movie" o "tvshow"
@@ -89,6 +105,22 @@ class VideoFile(Base):
 
     def __repr__(self):
         return f"<VideoFile(id={self.id}, name='{self.filename}', ita_sub={self.has_any_italian_sub})>"
+
+
+class ConversionLog(Base):
+    """Log delle conversioni ASS→SRT effettuate."""
+    __tablename__ = "conversion_logs"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    video_id    = Column(Integer, ForeignKey("video_files.id", ondelete="CASCADE"), nullable=False)
+    started_at  = Column(DateTime, default=_utcnow, nullable=False)
+    finished_at = Column(DateTime, nullable=True)
+    status      = Column(String(20), default="running")  # running/done/failed/cancelled
+    error       = Column(Text, nullable=True)
+    duration_seconds = Column(Float, nullable=True)
+
+    def __repr__(self):
+        return f"<ConversionLog(id={self.id}, video_id={self.video_id}, status='{self.status}')>"
 
 
 class ScanLog(Base):

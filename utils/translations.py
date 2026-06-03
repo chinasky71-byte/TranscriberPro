@@ -317,6 +317,11 @@ class Translations:
             'sync_done_msg':            '✅ File saved:\n{output}',
             'warning':                  'Warning',
 
+            # ── Library Scanner: filtro formato bitmap ────────────────────
+            'format_filter':            'Format:',
+            'all_formats':              'All',
+            'ocr_convert_all':          'Convert all (OCR)',
+
             # ── OCR Sottotitoli (settings + review) ───────────────────────
             'ocr_section_title':        'Subtitle OCR',
             'ocr_strategy_group':       'Strategy',
@@ -658,6 +663,11 @@ class Translations:
             'sync_done_title':          'Sincronizzazione Completata',
             'sync_done_msg':            '✅ File salvato:\n{output}',
             'warning':                  'Avviso',
+
+            # ── Library Scanner: filtro formato bitmap ────────────────────
+            'format_filter':            'Formato:',
+            'all_formats':              'Tutti',
+            'ocr_convert_all':          'Converti tutti (OCR)',
 
             # ── OCR Sottotitoli (settings + review) ───────────────────────
             'ocr_section_title':        'OCR Sottotitoli',

@@ -29,7 +29,7 @@ class OcrWorker(QThread):
 
     def __init__(self, video_path: str, config, strategy: str,
                  mode: str = "ocr", srt_text: str = "", language: str = "ita",
-                 parent=None):
+                 kind: str = "pgs", parent=None):
         super().__init__(parent)
         self.video_path = video_path
         self.config = config
@@ -37,14 +37,26 @@ class OcrWorker(QThread):
         self.mode = mode
         self.srt_text = srt_text
         self.language = language
+        self.kind = kind  # 'pgs' | 'vobsub'
         self._ocr = None
         self.is_cancelled = False
 
+    def _make_ocr(self):
+        """Istanzia il motore giusto in base al tipo di bitmap."""
+        if self.kind == "vobsub":
+            from core.vobsub_ocr import VobSubOcr
+            return VobSubOcr(self.video_path, self.config, log_callback=self._on_log)
+        from core.pgs_ocr import PgsOcr
+        return PgsOcr(self.video_path, self.config, log_callback=self._on_log)
+
     def run(self):
-        from core.pgs_ocr import PgsOcr, BitmapNotSupported
+        # BitmapNotSupported è definita in entrambi i moduli (classi distinte): catturale entrambe.
+        from core.pgs_ocr import BitmapNotSupported as PgsNotSupported
+        from core.vobsub_ocr import BitmapNotSupported as VobNotSupported
         from core.pgs_types import STRATEGY_AUTO
+        _not_supported = (PgsNotSupported, VobNotSupported)
         try:
-            self._ocr = PgsOcr(self.video_path, self.config, log_callback=self._on_log)
+            self._ocr = self._make_ocr()
 
             if self.mode == "writeback":
                 ok = self._ocr.writeback(self.srt_text, self.language)
@@ -58,7 +70,7 @@ class OcrWorker(QThread):
                 events, lang = self._ocr.ocr_to_events()
                 self.events_ready.emit(events, lang)
 
-        except BitmapNotSupported as exc:
+        except _not_supported as exc:
             self.unsupported.emit(str(exc))
         except InterruptedError:
             self.log_message.emit("OCR annullato")

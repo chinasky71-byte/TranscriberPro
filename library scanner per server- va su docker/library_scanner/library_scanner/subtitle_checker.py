@@ -97,13 +97,14 @@ def check_external_subtitles(video_path: Path) -> bool:
                     )
                     return True
 
-            # ===== STRATEGIA 2: Regex match nel nome del file sottotitolo =====
-            # Copre pattern con spazi, parentesi quadre e varianti non-Bazarr
-            if Config.ITALIAN_FILENAME_RE.search(item.name):
-                logger.debug(
-                    f"  Sottotitolo italiano esterno (regex match): {item.name}"
-                )
-                return True
+            # ===== STRATEGIA 2: Tag match nel nome completo =====
+            item_name_lower = item.name.lower()
+            for tag in Config.ITALIAN_FILENAME_TAGS:
+                if tag in item_name_lower:
+                    logger.debug(
+                        f"  Sottotitolo italiano esterno (tag match): {item.name}"
+                    )
+                    return True
 
     except PermissionError:
         logger.warning(f"  Permesso negato leggendo directory: {video_dir}")
@@ -163,16 +164,6 @@ def check_embedded_subtitles(video_path: Path) -> Tuple[bool, str]:
                     logger.debug(f"  Sottotitolo italiano embedded trovato (title={title})")
                     return True, ""
 
-        # Fallback: stream presenti ma nessuno con tag di lingua riconoscibile.
-        # Se il nome del video contiene indicatori italiani, è probabile che
-        # i sottotitoli embedded siano italiani ma privi di metadati.
-        if streams and Config.ITALIAN_FILENAME_RE.search(video_path.name):
-            logger.debug(
-                f"  Sottotitolo embedded senza tag, nome video suggerisce ITA: "
-                f"{video_path.name}"
-            )
-            return True, ""
-
         return False, ""
 
     except subprocess.TimeoutExpired:
@@ -183,6 +174,82 @@ def check_embedded_subtitles(video_path: Path) -> Tuple[bool, str]:
         return False, "ffprobe non trovato nel sistema"
     except Exception as e:
         return False, f"Errore ffprobe: {e}"
+
+
+def detect_subtitle_streams_full(video_path: Path) -> dict:
+    """
+    Analisi completa di tutti gli stream sottotitoli: codec, lingua, convertibilità.
+    Usata durante la scansione per popolare i campi di formato/conversione.
+
+    Returns:
+        dict con chiavi:
+          streams              – lista [{index, codec, language, title, convertible, is_bitmap}]
+          has_italian_text_embedded  – True se c'è almeno un sub testo italiano embedded
+          has_italian_bitmap_sub     – True se c'è almeno un sub bitmap italiano
+          has_convertible_subs       – True se c'è almeno un sub ASS/SSA (qualsiasi lingua)
+          error                      – stringa errore se ffprobe fallisce
+    """
+    result = {
+        "streams": [],
+        "has_italian_text_embedded": False,
+        "has_italian_bitmap_sub": False,
+        "has_convertible_subs": False,
+        "error": "",
+    }
+
+    try:
+        cmd = [
+            "ffprobe", "-v", "quiet",
+            "-print_format", "json",
+            "-show_streams", "-select_streams", "s",
+            str(video_path),
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+        if proc.returncode != 0:
+            result["error"] = (proc.stderr.strip()[:200] if proc.stderr else "ffprobe error")
+            return result
+
+        data = json.loads(proc.stdout)
+
+        for stream in data.get("streams", []):
+            codec = stream.get("codec_name", "unknown").lower()
+            tags = stream.get("tags", {})
+            lang = tags.get("language", "und").lower().strip()
+            title = tags.get("title", "")
+
+            is_bitmap = codec in Config.BITMAP_SUB_CODECS
+            is_convertible = codec in Config.CONVERTIBLE_SUB_CODECS
+            is_italian = lang in Config.ITALIAN_LANG_CODES
+
+            result["streams"].append({
+                "index": stream.get("index"),
+                "codec": codec,
+                "language": lang,
+                "title": title,
+                "convertible": is_convertible,
+                "is_bitmap": is_bitmap,
+            })
+
+            if is_italian:
+                if is_bitmap:
+                    result["has_italian_bitmap_sub"] = True
+                else:
+                    result["has_italian_text_embedded"] = True
+
+            if is_convertible:
+                result["has_convertible_subs"] = True
+
+    except subprocess.TimeoutExpired:
+        result["error"] = "ffprobe timeout (30s)"
+    except json.JSONDecodeError as e:
+        result["error"] = f"ffprobe output non valido: {e}"
+    except FileNotFoundError:
+        result["error"] = "ffprobe non trovato nel sistema"
+    except Exception as e:
+        result["error"] = f"Errore: {e}"
+
+    return result
 
 
 def check_all_subtitles(video_path: Path) -> dict:

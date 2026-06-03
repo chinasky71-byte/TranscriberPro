@@ -4,7 +4,6 @@ Library Scanner - Configurazione
 Gestisce configurazioni da variabili d'ambiente e valori di default.
 """
 import os
-import re
 from pathlib import Path
 
 
@@ -39,6 +38,25 @@ class Config:
     QUIET_HOURS_START = int(os.getenv("SCANNER_QUIET_START", "-1"))
     QUIET_HOURS_END = int(os.getenv("SCANNER_QUIET_END", "-1"))
 
+    # -- Codec sottotitoli: testo (estraibili/convertibili) --
+    TEXT_SUB_CODECS = {
+        'srt', 'subrip', 'ass', 'ssa', 'webvtt', 'mov_text', 'tx3g', 'ttml', 'dfxp'
+    }
+
+    # -- Codec sottotitoli: bitmap (immagini, non convertibili senza OCR) --
+    BITMAP_SUB_CODECS = {
+        'hdmv_pgs_subtitle', 'pgssub',
+        'dvd_subtitle', 'dvdsub',
+        'dvb_subtitle', 'dvbsub',
+        'xsub',
+    }
+
+    # -- Subset di TEXT_SUB_CODECS convertibili automaticamente in SRT via FFmpeg --
+    CONVERTIBLE_SUB_CODECS = {'ass', 'ssa'}
+
+    # -- Timeout FFmpeg per conversione singolo file (secondi) --
+    CONVERSION_TIMEOUT_S = int(os.getenv("SCANNER_CONVERSION_TIMEOUT", "600"))
+
     # -- Estensioni video supportate --
     VIDEO_EXTENSIONS = {
         ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv",
@@ -53,14 +71,6 @@ class Config:
         ".ita.", ".it.", "_ita.", "_it.", ".italian.", "_italian.",
         ".ita_", ".it_", "-ita.", "-it."
     }
-
-    # Regex per individuare indicatori di lingua italiana in nomi file arbitrari.
-    # Copre: [ITA], (ITA), Sub ITA, sub.ita, Sub_Ita, italiano, etc.
-    # \b garantisce il word-boundary → non matcha "citation", "vitale", ecc.
-    ITALIAN_FILENAME_RE = re.compile(
-        r'\b(?:sub[.\s_-])?ita(?:liano|lian)?\b',
-        re.IGNORECASE
-    )
 
     # -- Codici lingua italiana per ffprobe (sottotitoli embedded) --
     ITALIAN_LANG_CODES = {"ita", "it", "italian", "italiano"}
