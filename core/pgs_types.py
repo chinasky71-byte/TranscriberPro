@@ -46,6 +46,33 @@ DEFAULT_WRITEBACK = WRITEBACK_MUX
 DEFAULT_OCR_WORKERS = 0      # 0 = auto: min(os.cpu_count(), 8)
 
 
+# Mappa ISO 639-2 (3 lettere, da ffprobe) → ISO 639-1 (2 lettere, per estensione/traduzione)
+LANG_3_TO_2 = {
+    'ita': 'it', 'eng': 'en', 'spa': 'es', 'fra': 'fr', 'fre': 'fr',
+    'deu': 'de', 'ger': 'de', 'por': 'pt', 'rus': 'ru', 'jpn': 'ja',
+    'kor': 'ko', 'chi': 'zh', 'zho': 'zh', 'ara': 'ar', 'hin': 'hi',
+    'pol': 'pl', 'tur': 'tr', 'nld': 'nl', 'dut': 'nl', 'swe': 'sv',
+    'dan': 'da', 'nor': 'no', 'fin': 'fi', 'ces': 'cs', 'cze': 'cs',
+    'hun': 'hu', 'ron': 'ro', 'rum': 'ro', 'ukr': 'uk', 'ell': 'el',
+    'gre': 'el', 'heb': 'he', 'vie': 'vi', 'tha': 'th', 'und': 'und',
+}
+_ITALIAN_CODES = {'it', 'ita', 'italian', 'italiano'}
+
+
+def lang_to_2(code) -> str:
+    """Normalizza un codice lingua a ISO 639-1 (2 lettere)."""
+    if not code:
+        return 'und'
+    c = str(code).lower().strip()
+    if len(c) == 2:
+        return c
+    return LANG_3_TO_2.get(c, c[:2])
+
+
+def is_italian(code) -> bool:
+    return str(code or '').lower() in _ITALIAN_CODES
+
+
 def resolve_ocr_workers(value) -> int:
     """Risolve il numero di worker OCR: 0/None/invalid → auto = min(cpu, 8)."""
     import os

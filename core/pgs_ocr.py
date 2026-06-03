@@ -22,9 +22,10 @@ from pathlib import Path
 from typing import Optional, Callable, List, Tuple
 
 from core.subtitle_extractor import SubtitleExtractor
-from core.bitmap_ocr_common import preprocess_for_ocr, ocr_image_verbatim, ocr_images_parallel
+from core.bitmap_ocr_common import (
+    preprocess_for_ocr, ocr_image_verbatim, ocr_images_parallel, pick_tesseract_lang)
 from core.pgs_types import (
-    OcrEvent, events_to_srt, resolve_ocr_workers,
+    OcrEvent, events_to_srt, resolve_ocr_workers, lang_to_2, is_italian,
     CFG_LANGUAGE, CFG_CONF_THRESHOLD, CFG_TESSERACT_PATH, CFG_WRITEBACK, CFG_OCR_WORKERS,
     DEFAULT_LANGUAGE, DEFAULT_CONF_THRESHOLD, DEFAULT_WRITEBACK, DEFAULT_OCR_WORKERS,
     WRITEBACK_MUX, WRITEBACK_SIDECAR,
@@ -154,11 +155,14 @@ class PgsOcr:
     # ── Ramo REVIEW: pgsreader + Tesseract ────────────────────────────────
     def ocr_to_events(self) -> Tuple[List[OcrEvent], str]:
         """
-        Esegue l'OCR PGS e ritorna (lista di OcrEvent, lingua).
+        Esegue l'OCR PGS e ritorna (lista di OcrEvent, lingua_contenuto 2-lettere).
+        L'OCR usa il modello Tesseract della lingua della TRACCIA (non della config).
         VERBATIM: nessuna correzione del testo.
         """
         sub = self.select_pgs_stream()
-        language = self._cfg(CFG_LANGUAGE, DEFAULT_LANGUAGE)
+        stream_lang3 = (sub.get("language") or "und").lower()
+        ocr_lang = pick_tesseract_lang(stream_lang3, fallback=self._cfg(CFG_LANGUAGE, DEFAULT_LANGUAGE))
+        content_lang = lang_to_2(stream_lang3)
 
         from utils.file_handler import FileHandler  # lazy
         try:
@@ -168,12 +172,12 @@ class PgsOcr:
             import tempfile
             sup_path = Path(tempfile.gettempdir()) / f"{self.video_path.stem}_pgs_ocr.sup"
 
-        self._log(f"Estrazione PGS (stream {sub['index']}, {sub['language']})...")
+        self._log(f"Estrazione PGS (stream {sub['index']}, {stream_lang3}; OCR={ocr_lang})...")
         if not self.extract_sup(sub["index"], sup_path):
             raise RuntimeError("Estrazione .sup fallita")
 
         self._log("Parsing PGS + OCR Tesseract...")
-        events = self._sup_to_events(sup_path, language)
+        events = self._sup_to_events(sup_path, ocr_lang)
 
         try:
             sup_path.unlink(missing_ok=True)
@@ -182,7 +186,7 @@ class PgsOcr:
 
         n_flag = sum(1 for e in events if e.is_flagged)
         self._log(f"OCR completato: {len(events)} eventi, {n_flag} da rivedere")
-        return events, language
+        return events, content_lang
 
     def _sup_to_events(self, sup_path: Path, language: str) -> List[OcrEvent]:
         import numpy as np
@@ -300,6 +304,13 @@ class PgsOcr:
         return self.writeback(srt, language)
 
     # ── Write-back ────────────────────────────────────────────────────────
+    def write_sidecar(self, srt_text: str, lang2: str) -> Path:
+        """Scrive sempre un sidecar <stem>.<lang2>.srt e ritorna il Path."""
+        out = self.video_path.with_name(f"{self.video_path.stem}.{lang2}.srt")
+        out.write_text(srt_text, encoding="utf-8")
+        self._log(f"SRT sidecar scritto: {out.name}")
+        return out
+
     def writeback(self, srt_text: str, language: str) -> bool:
         """Applica l'SRT (testo) secondo la strategia di write-back configurata."""
         writeback = self._cfg(CFG_WRITEBACK, DEFAULT_WRITEBACK)

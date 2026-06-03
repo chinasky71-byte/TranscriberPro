@@ -22,9 +22,10 @@ from pathlib import Path
 from typing import Optional, Callable, List, Tuple
 
 from core.subtitle_extractor import SubtitleExtractor
-from core.bitmap_ocr_common import preprocess_for_ocr, ocr_image_verbatim, ocr_images_parallel
+from core.bitmap_ocr_common import (
+    preprocess_for_ocr, ocr_image_verbatim, ocr_images_parallel, pick_tesseract_lang)
 from core.pgs_types import (
-    OcrEvent, events_to_srt, resolve_ocr_workers,
+    OcrEvent, events_to_srt, resolve_ocr_workers, lang_to_2,
     CFG_LANGUAGE, CFG_CONF_THRESHOLD, CFG_TESSERACT_PATH, CFG_OCR_WORKERS,
     DEFAULT_LANGUAGE, DEFAULT_CONF_THRESHOLD, DEFAULT_OCR_WORKERS,
     FLAG_LOW_CONF, FLAG_EMPTY,
@@ -191,7 +192,9 @@ class VobSubOcr:
     # ── Ramo REVIEW ───────────────────────────────────────────────────────
     def ocr_to_events(self) -> Tuple[List[OcrEvent], str]:
         sub_info = self.select_vobsub_stream()
-        language = self._cfg(CFG_LANGUAGE, DEFAULT_LANGUAGE)
+        stream_lang3 = (sub_info.get("language") or "und").lower()
+        ocr_lang = pick_tesseract_lang(stream_lang3, fallback=self._cfg(CFG_LANGUAGE, DEFAULT_LANGUAGE))
+        content_lang = lang_to_2(stream_lang3)
 
         from utils.file_handler import FileHandler  # lazy
         try:
@@ -201,11 +204,11 @@ class VobSubOcr:
             import tempfile
             out_base = Path(tempfile.gettempdir()) / f"{self.video_path.stem}_vobsub_ocr"
 
-        self._log(f"Estrazione VOBSUB (stream {sub_info['index']}, {sub_info['language']})...")
+        self._log(f"Estrazione VOBSUB (stream {sub_info['index']}, {stream_lang3}; OCR={ocr_lang})...")
         idx, sub = self.extract_idx_sub(sub_info["index"], out_base)
 
         self._log("Parsing VOBSUB + OCR Tesseract...")
-        events = self._idxsub_to_events(idx, sub, language)
+        events = self._idxsub_to_events(idx, sub, ocr_lang)
 
         for p in (idx, sub):
             try:
@@ -215,7 +218,7 @@ class VobSubOcr:
 
         n_flag = sum(1 for e in events if e.is_flagged)
         self._log(f"OCR completato: {len(events)} eventi, {n_flag} da rivedere")
-        return events, language
+        return events, content_lang
 
     def _idxsub_to_events(self, idx: Path, sub: Path, language: str) -> List[OcrEvent]:
         import numpy as np
@@ -284,6 +287,13 @@ class VobSubOcr:
         return self.writeback(srt, language)
 
     # ── Write-back: SEMPRE sidecar per VOBSUB ─────────────────────────────
+    def write_sidecar(self, srt_text: str, lang2: str) -> Path:
+        """Scrive sempre un sidecar <stem>.<lang2>.srt e ritorna il Path."""
+        out = self.video_path.with_name(f"{self.video_path.stem}.{lang2}.srt")
+        out.write_text(srt_text, encoding="utf-8")
+        self._log(f"SRT sidecar scritto: {out.name}")
+        return out
+
     def writeback(self, srt_text: str, language: str) -> bool:
         out = self.video_path.with_name(f"{self.video_path.stem}.{language}.srt")
         try:

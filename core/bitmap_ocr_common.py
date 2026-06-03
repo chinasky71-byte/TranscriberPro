@@ -10,6 +10,35 @@ Validati dagli spike PGS (2026-06-03) e VOBSUB (2026-06-03).
 from typing import Tuple
 
 
+_AVAILABLE_LANGS = None
+
+
+def available_tesseract_langs():
+    """Lingue Tesseract installate (cache). Es. {'eng','ita','spa',...}."""
+    global _AVAILABLE_LANGS
+    if _AVAILABLE_LANGS is None:
+        try:
+            import pytesseract
+            _AVAILABLE_LANGS = set(pytesseract.get_languages(config=''))
+        except Exception:
+            _AVAILABLE_LANGS = {'eng'}
+    return _AVAILABLE_LANGS
+
+
+def pick_tesseract_lang(stream_lang3: str, fallback: str = 'eng') -> str:
+    """
+    Sceglie il modello Tesseract per la lingua della traccia (ISO 639-2, 3 lettere).
+    Se il traineddata di quella lingua non è installato, ripiega su `fallback` poi 'eng'.
+    """
+    avail = available_tesseract_langs()
+    s = (stream_lang3 or '').lower()
+    if s in avail:
+        return s
+    if fallback and fallback in avail:
+        return fallback
+    return 'eng' if 'eng' in avail else (next(iter(avail)) if avail else 'eng')
+
+
 def preprocess_for_ocr(img, upscale: int = 2, auto_polarity: bool = False):
     """
     Prepara un'immagine bitmap di sottotitolo per Tesseract.
