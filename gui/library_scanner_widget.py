@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QLabel, QToolButton, QLineEdit, QComboBox,
     QTableWidget, QTableWidgetItem, QPushButton,
     QHeaderView, QAbstractItemView, QSpinBox,
-    QMessageBox, QApplication
+    QMessageBox
 )
 from PyQt6.QtCore import Qt, QTimer, QMutexLocker, QThread, pyqtSignal
 from PyQt6.QtGui import QColor
@@ -284,6 +284,13 @@ class LibraryScannerWidget(QFrame):
         buttons_layout.addWidget(self.import_all_btn)
 
         layout.addLayout(buttons_layout)
+
+        # Avanzamento OCR (visibile solo durante la conversione)
+        self.ocr_progress_label = QLabel("")
+        self.ocr_progress_label.setObjectName("scannerStats")
+        self.ocr_progress_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.ocr_progress_label.setVisible(False)
+        layout.addWidget(self.ocr_progress_label)
 
         # Statistiche
         self.stats_label = QLabel(tr('waiting_connection'))
@@ -698,7 +705,6 @@ class LibraryScannerWidget(QFrame):
         self._ocr_kind = kind
         self._ocr_name = Path(windows_path).name
         self._log(f"🔤 OCR avviato ({kind}, {strategy}): {self._ocr_name}")
-        QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
 
         self._ocr_worker = OcrWorker(windows_path, config, strategy, mode="ocr", kind=kind)
         self._ocr_worker.events_ready.connect(self._on_ocr_events_ready)
@@ -706,8 +712,21 @@ class LibraryScannerWidget(QFrame):
         self._ocr_worker.unsupported.connect(self._on_ocr_unsupported)
         self._ocr_worker.error.connect(self._on_ocr_error)
         self._ocr_worker.log_message.connect(self._log)
+        self._ocr_worker.progress.connect(self._on_ocr_progress)
         self._ocr_worker.finished.connect(self._on_ocr_phase_finished)
         self._ocr_worker.start()
+
+    def _on_ocr_progress(self, percent: int, label: str):
+        """Mostra l'avanzamento dello step corrente (estrazione / OCR)."""
+        name = getattr(self, '_ocr_name', '')
+        if getattr(self, '_ocr_batch_active', False):
+            done = getattr(self, '_ocr_batch_ok', 0) + getattr(self, '_ocr_batch_fail', 0)
+            total = getattr(self, '_ocr_batch_total', 0)
+            prefix = f"OCR batch {min(done + 1, total)}/{total} · "
+        else:
+            prefix = "OCR · "
+        self.ocr_progress_label.setText(f"{prefix}{name} — {label} {percent}%")
+        self.ocr_progress_label.setVisible(True)
 
     def _log(self, msg: str):
         """Inoltra un messaggio al log della main window, se disponibile."""
@@ -718,7 +737,6 @@ class LibraryScannerWidget(QFrame):
 
     def _on_ocr_events_ready(self, events, language):
         """Ramo review: apri la UI di revisione mirata, poi scrivi il risultato."""
-        QApplication.restoreOverrideCursor()
         from gui.ocr_review_dialog import OcrReviewDialog
         from PyQt6.QtWidgets import QDialog
 
@@ -734,7 +752,6 @@ class LibraryScannerWidget(QFrame):
         from core.pgs_types import CFG_STRATEGY, DEFAULT_STRATEGY
         config = get_config()
         strategy = config.get(CFG_STRATEGY, DEFAULT_STRATEGY)
-        QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
         self._log(f"Scrittura SRT: {self._ocr_name}")
         self._ocr_worker = OcrWorker(
             self._ocr_video_path, config, strategy, mode="writeback",
@@ -746,11 +763,13 @@ class LibraryScannerWidget(QFrame):
         self._ocr_worker.start()
 
     def _on_ocr_auto_done(self, ok: bool):
-        QApplication.restoreOverrideCursor()
+        if ok:
+            self._mark_row_done(getattr(self, '_ocr_video_path', ''))
         if getattr(self, '_ocr_batch_active', False):
             self._ocr_batch_ok += 1 if ok else 0
             self._ocr_batch_fail += 0 if ok else 1
             return
+        self.ocr_progress_label.setVisible(False)
         if ok:
             QMessageBox.information(self, tr('ocr_section_title'),
                                    f"Conversione completata:\n{self._ocr_name}")
@@ -760,8 +779,9 @@ class LibraryScannerWidget(QFrame):
                                 f"Conversione fallita:\n{self._ocr_name}")
 
     def _on_ocr_writeback_done(self, ok: bool):
-        QApplication.restoreOverrideCursor()
+        self.ocr_progress_label.setVisible(False)
         if ok:
+            self._mark_row_done(getattr(self, '_ocr_video_path', ''))
             QMessageBox.information(self, tr('ocr_section_title'),
                                    f"SRT scritto:\n{self._ocr_name}")
             self._auto_refresh()
@@ -769,8 +789,20 @@ class LibraryScannerWidget(QFrame):
             QMessageBox.warning(self, tr('ocr_section_title'),
                                 f"Scrittura SRT fallita:\n{self._ocr_name}")
 
+    def _mark_row_done(self, windows_path: str):
+        """Marca la riga del file convertito (bottone ✓ disabilitato)."""
+        if not windows_path:
+            return
+        for row in range(self.video_table.rowCount()):
+            item = self.video_table.item(row, 0)
+            if item and item.data(Qt.ItemDataRole.UserRole) == windows_path:
+                btn = self.video_table.cellWidget(row, 4)
+                if btn:
+                    btn.setText("✓")
+                    btn.setEnabled(False)
+                return
+
     def _on_ocr_unsupported(self, msg: str):
-        QApplication.restoreOverrideCursor()
         if getattr(self, '_ocr_batch_active', False):
             self._ocr_batch_fail += 1
             return
@@ -778,7 +810,6 @@ class LibraryScannerWidget(QFrame):
                                f"{self._ocr_name}\n\n{msg}")
 
     def _on_ocr_error(self, msg: str):
-        QApplication.restoreOverrideCursor()
         if getattr(self, '_ocr_batch_active', False):
             self._ocr_batch_fail += 1
             return
@@ -820,7 +851,7 @@ class LibraryScannerWidget(QFrame):
         if not queue:
             # batch concluso
             self._ocr_batch_active = False
-            QApplication.restoreOverrideCursor()
+            self.ocr_progress_label.setVisible(False)
             QMessageBox.information(
                 self, tr('ocr_section_title'),
                 f"Batch OCR completato.\nConvertiti: {self._ocr_batch_ok} · "

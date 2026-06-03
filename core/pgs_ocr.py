@@ -64,14 +64,24 @@ class PgsOcr:
     """
 
     def __init__(self, video_path: str, config=None,
-                 log_callback: Optional[Callable] = None):
+                 log_callback: Optional[Callable] = None,
+                 progress_callback: Optional[Callable] = None):
         self.video_path = Path(video_path)
         self.config = config
         self.log_callback = log_callback
+        # progress_callback(percent: int, label: str)
+        self.progress_callback = progress_callback
         self.extractor = SubtitleExtractor(str(video_path))
         self._cancelled = False
         self._active_proc: Optional[subprocess.Popen] = None
         self._configure_tesseract()
+
+    def _progress(self, percent: int, label: str):
+        if self.progress_callback:
+            try:
+                self.progress_callback(int(percent), label)
+            except Exception:
+                pass
 
     # ── Config helpers ────────────────────────────────────────────────────
     def _cfg(self, key, default):
@@ -211,9 +221,12 @@ class PgsOcr:
 
         # 2) OCR di ogni immagine (un'unica passata image_to_data → testo+confidenza).
         events: List[OcrEvent] = []
+        total = len(raw)
         for i, (start_ms, end_ms, img, multi) in enumerate(raw, start=1):
             if self._cancelled:
                 raise InterruptedError("Operazione annullata")
+            if total and (i % 5 == 0 or i == total):
+                self._progress(int(i / total * 100), "OCR")
             pre = self._preprocess(img, np, cv2, Image)
             text, conf = self._ocr_image(pre, language, pytesseract)
             flags = set()

@@ -26,6 +26,7 @@ class OcrWorker(QThread):
     auto_done    = pyqtSignal(bool)          # ramo auto completato (ok?)
     writeback_done = pyqtSignal(bool)        # write-back completato (ok?)
     unsupported  = pyqtSignal(str)           # bitmap non supportato (es. VOBSUB)
+    progress     = pyqtSignal(int, str)      # (percentuale 0-100, etichetta step)
 
     def __init__(self, video_path: str, config, strategy: str,
                  mode: str = "ocr", srt_text: str = "", language: str = "ita",
@@ -45,9 +46,11 @@ class OcrWorker(QThread):
         """Istanzia il motore giusto in base al tipo di bitmap."""
         if self.kind == "vobsub":
             from core.vobsub_ocr import VobSubOcr
-            return VobSubOcr(self.video_path, self.config, log_callback=self._on_log)
+            return VobSubOcr(self.video_path, self.config,
+                             log_callback=self._on_log, progress_callback=self._on_progress)
         from core.pgs_ocr import PgsOcr
-        return PgsOcr(self.video_path, self.config, log_callback=self._on_log)
+        return PgsOcr(self.video_path, self.config,
+                      log_callback=self._on_log, progress_callback=self._on_progress)
 
     def run(self):
         # BitmapNotSupported è definita in entrambi i moduli (classi distinte): catturale entrambe.
@@ -87,3 +90,6 @@ class OcrWorker(QThread):
 
     def _on_log(self, msg: str):
         self.log_message.emit(msg)
+
+    def _on_progress(self, percent: int, label: str):
+        self.progress.emit(percent, label)
