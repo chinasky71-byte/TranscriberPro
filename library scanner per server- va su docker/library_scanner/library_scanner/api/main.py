@@ -500,10 +500,12 @@ async def notify_subtitle(req: NotifySubtitleRequest):
         vf = db.execute(q).scalars().first()
         if not vf:
             raise HTTPException(status_code=404, detail="File non trovato nel database")
+        # has_italian_text_sub=True fa già diventare has_only_bitmap_subs=False
+        # (= bitmap AND NOT text). La traccia PGS/VOBSUB esiste ancora nel file,
+        # quindi NON falsifichiamo has_italian_bitmap_sub.
         vf.has_italian_srt = True
         vf.has_italian_text_sub = True
         vf.has_any_italian_sub = True
-        vf.has_italian_bitmap_sub = False           # ora ha un sub testo → non più solo-bitmap
         vf.conversion_status = "done"
         vf.conversion_done_at = datetime.now(timezone.utc)
         fname = vf.filename

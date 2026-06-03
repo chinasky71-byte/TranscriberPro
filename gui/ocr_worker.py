@@ -119,8 +119,10 @@ class OcrWorker(QThread):
             except Exception:
                 pass
         except Exception as exc:
+            # NON emettere error qui: run() emette già auto_done(False) → eviti doppio
+            # popup (singolo) e doppio conteggio fail (batch).
             logger.exception("Traduzione OCR fallita")
-            self.error.emit(f"Traduzione fallita: {exc}")
+            self._on_log(f"Traduzione fallita: {exc}")
             return False
 
         if ok:
