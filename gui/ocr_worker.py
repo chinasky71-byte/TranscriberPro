@@ -56,7 +56,7 @@ class OcrWorker(QThread):
         # BitmapNotSupported è definita in entrambi i moduli (classi distinte): catturale entrambe.
         from core.pgs_ocr import BitmapNotSupported as PgsNotSupported
         from core.vobsub_ocr import BitmapNotSupported as VobNotSupported
-        from core.pgs_types import STRATEGY_AUTO
+        from core.pgs_types import STRATEGY_AUTO, is_italian, events_to_srt
         _not_supported = (PgsNotSupported, VobNotSupported)
         try:
             self._ocr = self._make_ocr()
@@ -66,12 +66,20 @@ class OcrWorker(QThread):
                 self.writeback_done.emit(ok)
                 return
 
-            if self.strategy == STRATEGY_AUTO:
-                ok = self._ocr.run_auto()
-                self.auto_done.emit(ok)
+            events, content_lang = self._ocr.ocr_to_events()
+
+            if is_italian(content_lang):
+                # Traccia già italiana → flusso normale (review o auto).
+                if self.strategy == STRATEGY_AUTO:
+                    srt = events_to_srt(events)
+                    ok = self._ocr.writeback(srt, 'it') if srt.strip() else False
+                    self.auto_done.emit(ok)
+                else:
+                    self.events_ready.emit(events, 'it')
             else:
-                events, lang = self._ocr.ocr_to_events()
-                self.events_ready.emit(events, lang)
+                # Traccia NON italiana → SEMPRE automatico: OCR sorgente + traduzione → .it.srt.
+                ok = self._convert_and_translate(events, content_lang)
+                self.auto_done.emit(ok)
 
         except _not_supported as exc:
             self.unsupported.emit(str(exc))
@@ -82,6 +90,42 @@ class OcrWorker(QThread):
             self.error.emit(str(exc))
         finally:
             self.finished.emit()
+
+    def _convert_and_translate(self, events, content_lang: str) -> bool:
+        """
+        Traccia non italiana: scrive il sidecar nella lingua sorgente, poi traduce
+        verso l'italiano e salva <stem>.it.srt (si tengono ENTRAMBI i file).
+        """
+        from core.pgs_types import events_to_srt
+        from pathlib import Path
+
+        src_text = events_to_srt(events)
+        if not src_text.strip():
+            self._on_log("Nessun testo OCR prodotto")
+            return False
+
+        src_path = self._ocr.write_sidecar(src_text, content_lang)   # <stem>.<lang>.srt
+        video = self._ocr.video_path
+        it_path = video.with_name(f"{video.stem}.it.srt")
+
+        self._on_log(f"Traduzione {content_lang}→it in corso...")
+        try:
+            from core.translator import get_translator
+            translator = get_translator()
+            ok = translator.translate_file(
+                Path(src_path), it_path, src_lang=content_lang, tgt_lang='it')
+            try:
+                translator.unload()
+            except Exception:
+                pass
+        except Exception as exc:
+            logger.exception("Traduzione OCR fallita")
+            self.error.emit(f"Traduzione fallita: {exc}")
+            return False
+
+        if ok:
+            self._on_log(f"SRT italiano scritto: {it_path.name}")
+        return bool(ok)
 
     def cancel(self):
         self.is_cancelled = True
