@@ -22,11 +22,11 @@ from pathlib import Path
 from typing import Optional, Callable, List, Tuple
 
 from core.subtitle_extractor import SubtitleExtractor
-from core.bitmap_ocr_common import preprocess_for_ocr, ocr_image_verbatim
+from core.bitmap_ocr_common import preprocess_for_ocr, ocr_image_verbatim, ocr_images_parallel
 from core.pgs_types import (
-    OcrEvent, events_to_srt,
-    CFG_LANGUAGE, CFG_CONF_THRESHOLD, CFG_TESSERACT_PATH, CFG_WRITEBACK,
-    DEFAULT_LANGUAGE, DEFAULT_CONF_THRESHOLD, DEFAULT_WRITEBACK,
+    OcrEvent, events_to_srt, resolve_ocr_workers,
+    CFG_LANGUAGE, CFG_CONF_THRESHOLD, CFG_TESSERACT_PATH, CFG_WRITEBACK, CFG_OCR_WORKERS,
+    DEFAULT_LANGUAGE, DEFAULT_CONF_THRESHOLD, DEFAULT_WRITEBACK, DEFAULT_OCR_WORKERS,
     WRITEBACK_MUX, WRITEBACK_SIDECAR,
     FLAG_LOW_CONF, FLAG_EMPTY, FLAG_MULTI_ODS,
 )
@@ -219,16 +219,18 @@ class PgsOcr:
         if pending is not None:
             raw.append((pending[0], pending[0] + 2000, pending[1], pending[2]))
 
-        # 2) OCR di ogni immagine (un'unica passata image_to_data → testo+confidenza).
+        # 2) OCR in PARALLELO (preprocess + Tesseract su più core).
+        workers = resolve_ocr_workers(self._cfg(CFG_OCR_WORKERS, DEFAULT_OCR_WORKERS))
+        images = [r[2] for r in raw]
+        ocr_results = ocr_images_parallel(
+            images, language, upscale=2, auto_polarity=False,
+            max_workers=workers, cancel_check=lambda: self._cancelled,
+            progress_cb=self._progress)
+
+        # 3) Assembla gli OcrEvent (ordine preservato).
         events: List[OcrEvent] = []
-        total = len(raw)
         for i, (start_ms, end_ms, img, multi) in enumerate(raw, start=1):
-            if self._cancelled:
-                raise InterruptedError("Operazione annullata")
-            if total and (i % 5 == 0 or i == total):
-                self._progress(int(i / total * 100), "OCR")
-            pre = self._preprocess(img, np, cv2, Image)
-            text, conf = self._ocr_image(pre, language, pytesseract)
+            text, conf = ocr_results[i - 1]
             flags = set()
             if multi:
                 flags.add(FLAG_MULTI_ODS)

@@ -28,6 +28,7 @@ CFG_LANGUAGE = "ocr_language"                 # codice Tesseract, default 'ita'
 CFG_CONF_THRESHOLD = "ocr_confidence_threshold"  # int 0-100, default 75
 CFG_WRITEBACK = "ocr_writeback"              # 'mux' | 'sidecar'
 CFG_TESSERACT_PATH = "ocr_tesseract_path"   # path al binario tesseract (opz., '' = auto)
+CFG_OCR_WORKERS = "ocr_workers"             # n. thread OCR paralleli (0 = auto)
 
 # Valori della strategia
 STRATEGY_REVIEW = "review"   # OCR pgsreader + Tesseract nostro → UI revisione mirata
@@ -42,6 +43,19 @@ DEFAULT_STRATEGY = STRATEGY_REVIEW
 DEFAULT_LANGUAGE = "ita"
 DEFAULT_CONF_THRESHOLD = 75
 DEFAULT_WRITEBACK = WRITEBACK_MUX
+DEFAULT_OCR_WORKERS = 0      # 0 = auto: min(os.cpu_count(), 8)
+
+
+def resolve_ocr_workers(value) -> int:
+    """Risolve il numero di worker OCR: 0/None/invalid → auto = min(cpu, 8)."""
+    import os
+    try:
+        v = int(value)
+    except (TypeError, ValueError):
+        v = 0
+    if v > 0:
+        return v
+    return max(1, min(os.cpu_count() or 4, 8))
 
 # ============================================================================
 # Flag eventi (campo OcrEvent.flags)

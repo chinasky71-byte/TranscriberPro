@@ -22,11 +22,11 @@ from pathlib import Path
 from typing import Optional, Callable, List, Tuple
 
 from core.subtitle_extractor import SubtitleExtractor
-from core.bitmap_ocr_common import preprocess_for_ocr, ocr_image_verbatim
+from core.bitmap_ocr_common import preprocess_for_ocr, ocr_image_verbatim, ocr_images_parallel
 from core.pgs_types import (
-    OcrEvent, events_to_srt,
-    CFG_LANGUAGE, CFG_CONF_THRESHOLD, CFG_TESSERACT_PATH,
-    DEFAULT_LANGUAGE, DEFAULT_CONF_THRESHOLD,
+    OcrEvent, events_to_srt, resolve_ocr_workers,
+    CFG_LANGUAGE, CFG_CONF_THRESHOLD, CFG_TESSERACT_PATH, CFG_OCR_WORKERS,
+    DEFAULT_LANGUAGE, DEFAULT_CONF_THRESHOLD, DEFAULT_OCR_WORKERS,
     FLAG_LOW_CONF, FLAG_EMPTY,
 )
 
@@ -229,13 +229,11 @@ class VobSubOcr:
         packs = parser.merge_vob_sub_packs()
         palette = parser.idx_palette
 
-        events: List[OcrEvent] = []
-        total = len(packs)
+        # 1) Decodifica i bitmap + timing (ordine preservato).
+        decoded = []  # (start_ms, end_ms, pil)
         for i, pack in enumerate(packs, start=1):
             if self._cancelled:
                 raise InterruptedError("Operazione annullata")
-            if total and (i % 5 == 0 or i == total):
-                self._progress(int(i / total * 100), "OCR")
             try:
                 pack.palette = palette
                 arr = pack.get_bitmap()
@@ -248,21 +246,28 @@ class VobSubOcr:
             except Exception as e:
                 logger.warning(f"get_bitmap fallito pack {i}: {e}")
                 continue
-
             start_ms = int(pack.start_time.total_seconds() * 1000)
             end_ms = int(pack.end_time.total_seconds() * 1000)
             if end_ms <= start_ms:
                 end_ms = start_ms + 2000
+            decoded.append((start_ms, end_ms, pil))
 
-            pre = preprocess_for_ocr(pil, upscale=3, auto_polarity=True)
-            text, conf = ocr_image_verbatim(pre, language)
+        # 2) OCR in PARALLELO.
+        workers = resolve_ocr_workers(self._cfg(CFG_OCR_WORKERS, DEFAULT_OCR_WORKERS))
+        ocr_results = ocr_images_parallel(
+            [d[2] for d in decoded], language, upscale=3, auto_polarity=True,
+            max_workers=workers, cancel_check=lambda: self._cancelled,
+            progress_cb=self._progress)
 
+        # 3) Assembla gli eventi.
+        events: List[OcrEvent] = []
+        for i, (start_ms, end_ms, pil) in enumerate(decoded, start=1):
+            text, conf = ocr_results[i - 1]
             flags = set()
             if not text.strip():
                 flags.add(FLAG_EMPTY)
             elif conf < threshold:
                 flags.add(FLAG_LOW_CONF)
-
             events.append(OcrEvent(
                 index=i, start_ms=start_ms, end_ms=end_ms,
                 text=text, confidence=conf, image=pil, flags=flags,

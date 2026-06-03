@@ -26,8 +26,10 @@ from utils.translations import tr
 
 from core.pgs_types import (
     CFG_STRATEGY, CFG_LANGUAGE, CFG_CONF_THRESHOLD, CFG_WRITEBACK, CFG_TESSERACT_PATH,
+    CFG_OCR_WORKERS,
     STRATEGY_REVIEW, STRATEGY_AUTO, WRITEBACK_MUX, WRITEBACK_SIDECAR,
-    DEFAULT_STRATEGY, DEFAULT_LANGUAGE, DEFAULT_CONF_THRESHOLD, DEFAULT_WRITEBACK
+    DEFAULT_STRATEGY, DEFAULT_LANGUAGE, DEFAULT_CONF_THRESHOLD, DEFAULT_WRITEBACK,
+    DEFAULT_OCR_WORKERS
 )
 
 logger = logging.getLogger(__name__)
@@ -111,6 +113,14 @@ class OcrSettingsWidget(QWidget):
         self.conf_spin.setToolTip(tr('ocr_conf_threshold_tip'))
         self.conf_spin.valueChanged.connect(self.on_conf_threshold_changed)
         ocr_form.addRow(tr('ocr_conf_threshold_label'), self.conf_spin)
+
+        # Worker OCR paralleli (0 = automatico)
+        self.workers_spin = QSpinBox()
+        self.workers_spin.setRange(0, 32)
+        self.workers_spin.setSpecialValueText(tr('ocr_workers_auto'))
+        self.workers_spin.setToolTip(tr('ocr_workers_tip'))
+        self.workers_spin.valueChanged.connect(self.on_workers_changed)
+        ocr_form.addRow(tr('ocr_workers_label'), self.workers_spin)
 
         # Path Tesseract (opzionale)
         self.tesseract_input = QLineEdit()
@@ -221,6 +231,16 @@ class OcrSettingsWidget(QWidget):
         self.conf_spin.setValue(max(0, min(100, threshold)))
         self.conf_spin.blockSignals(False)
 
+        # Worker OCR
+        workers = self.config.get(CFG_OCR_WORKERS, DEFAULT_OCR_WORKERS)
+        try:
+            workers = int(workers)
+        except (TypeError, ValueError):
+            workers = DEFAULT_OCR_WORKERS
+        self.workers_spin.blockSignals(True)
+        self.workers_spin.setValue(max(0, min(32, workers)))
+        self.workers_spin.blockSignals(False)
+
         # Write-back
         writeback = self.config.get(CFG_WRITEBACK, DEFAULT_WRITEBACK)
         idx = self.writeback_combo.findData(writeback)
@@ -253,6 +273,11 @@ class OcrSettingsWidget(QWidget):
     def on_conf_threshold_changed(self, value: int):
         """Handler cambio soglia confidenza."""
         self.config.set(CFG_CONF_THRESHOLD, int(value))
+        self.settings_changed.emit()
+
+    def on_workers_changed(self, value: int):
+        """Handler cambio numero worker OCR."""
+        self.config.set(CFG_OCR_WORKERS, int(value))
         self.settings_changed.emit()
 
     def on_writeback_changed(self, index: int):
