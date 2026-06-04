@@ -57,6 +57,11 @@ class Config:
     # -- Timeout FFmpeg per conversione singolo file (secondi) --
     CONVERSION_TIMEOUT_S = int(os.getenv("SCANNER_CONVERSION_TIMEOUT", "600"))
 
+    # -- OCR bitmap→SRT (pgsrip + vobsub2srt) --
+    OCR_TIMEOUT_S    = int(os.getenv("SCANNER_OCR_TIMEOUT", "300"))   # per file
+    OCR_LANGUAGE     = os.getenv("SCANNER_OCR_LANGUAGE", "ita")        # lingua Tesseract
+    OCR_INTERVAL_HOURS = int(os.getenv("SCANNER_OCR_INTERVAL_HOURS", "24"))  # 0 = disabilitato
+
     # -- Estensioni video supportate --
     VIDEO_EXTENSIONS = {
         ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv",

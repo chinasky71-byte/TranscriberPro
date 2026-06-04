@@ -11,6 +11,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from library_scanner.config import Config
 from library_scanner.scanner import get_scanner
+from library_scanner.subtitle_ocr import get_ocr
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,21 @@ def _scheduled_scan():
     scanner.run_full_scan()
 
 
+def _scheduled_ocr():
+    """Esegue OCR bitmap→SRT schedulato (dopo la scansione)."""
+    if _is_quiet_hour():
+        logger.info("OCR schedulato saltato: orario silenzioso")
+        return
+
+    ocr = get_ocr()
+    if ocr.is_running:
+        logger.info("OCR schedulato saltato: OCR gia' in corso")
+        return
+
+    logger.info("Avvio OCR bitmap schedulato automatico")
+    ocr.run_ocr()
+
+
 def start_scheduler():
     """Avvia lo scheduler per scansioni automatiche."""
     global _scheduler
@@ -67,8 +83,21 @@ def start_scheduler():
         id="library_scan",
         name="Scansione libreria automatica",
         replace_existing=True,
-        max_instances=1
+        max_instances=1,
     )
+
+    ocr_interval = Config.OCR_INTERVAL_HOURS
+    if ocr_interval > 0:
+        _scheduler.add_job(
+            _scheduled_ocr,
+            trigger=IntervalTrigger(hours=ocr_interval),
+            id="bitmap_ocr",
+            name="OCR bitmap automatico",
+            replace_existing=True,
+            max_instances=1,
+        )
+        logger.info(f"Scheduler OCR avviato: ogni {ocr_interval} ore")
+
     _scheduler.start()
     logger.info(f"Scheduler avviato: scansione ogni {interval_hours} ore")
 
@@ -87,18 +116,21 @@ def get_scheduler_status() -> dict:
     if _scheduler is None:
         return {"running": False, "interval_hours": Config.SCAN_INTERVAL_HOURS}
 
-    jobs = _scheduler.get_jobs()
-    next_run = None
-    if jobs:
-        next_run = jobs[0].next_run_time.isoformat() if jobs[0].next_run_time else None
+    jobs = {j.id: j for j in _scheduler.get_jobs()}
+
+    def _next(job_id):
+        j = jobs.get(job_id)
+        return j.next_run_time.isoformat() if j and j.next_run_time else None
 
     return {
         "running": _scheduler.running,
         "interval_hours": Config.SCAN_INTERVAL_HOURS,
-        "next_scan": next_run,
+        "next_scan": _next("library_scan"),
+        "ocr_interval_hours": Config.OCR_INTERVAL_HOURS,
+        "next_ocr": _next("bitmap_ocr"),
         "quiet_hours": {
             "enabled": Config.QUIET_HOURS_START >= 0,
             "start": Config.QUIET_HOURS_START,
-            "end": Config.QUIET_HOURS_END
-        }
+            "end": Config.QUIET_HOURS_END,
+        },
     }
