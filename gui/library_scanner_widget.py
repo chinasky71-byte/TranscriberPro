@@ -721,6 +721,7 @@ class LibraryScannerWidget(QFrame):
         self._ocr_worker.events_ready.connect(self._on_ocr_events_ready)
         self._ocr_worker.auto_done.connect(self._on_ocr_auto_done)
         self._ocr_worker.unsupported.connect(self._on_ocr_unsupported)
+        self._ocr_worker.lang_unsupported.connect(self._on_ocr_lang_unsupported)
         self._ocr_worker.error.connect(self._on_ocr_error)
         self._ocr_worker.log_message.connect(self._log)
         self._ocr_worker.progress.connect(self._on_ocr_progress)
@@ -841,6 +842,16 @@ class LibraryScannerWidget(QFrame):
             return
         QMessageBox.information(self, tr('ocr_section_title'),
                                f"{self._ocr_name}\n\n{msg}")
+
+    def _on_ocr_lang_unsupported(self, msg: str):
+        """Lingua della traccia senza traineddata Tesseract: file saltato, marcato completato."""
+        self._ocr_set_status(getattr(self, '_ocr_video_path', ''), 'completed', 100)
+        if getattr(self, '_ocr_batch_active', False):
+            # Non conta come fallimento: il file era OK, la lingua non è gestita.
+            return
+        self.ocr_progress_label.setVisible(False)
+        QMessageBox.information(self, tr('ocr_section_title'),
+                               f"{getattr(self, '_ocr_name', '')}\n\nLingua non supportata — file saltato.\n{msg}")
 
     def _on_ocr_error(self, msg: str):
         self._ocr_set_status(getattr(self, '_ocr_video_path', ''), 'failed', 0)
