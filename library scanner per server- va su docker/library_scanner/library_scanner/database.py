@@ -86,6 +86,9 @@ def run_migrations():
         ("conversion_status",      "VARCHAR(20)"),
         ("conversion_error",       "TEXT"),
         ("conversion_done_at",     "DATETIME"),
+        ("ocr_status",             "VARCHAR(20)"),
+        ("ocr_error",              "TEXT"),
+        ("ocr_done_at",            "DATETIME"),
     ]
 
     with engine.connect() as conn:

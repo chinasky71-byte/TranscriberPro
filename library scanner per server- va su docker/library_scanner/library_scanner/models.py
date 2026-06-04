@@ -70,6 +70,11 @@ class VideoFile(Base):
     conversion_error    = Column(Text, nullable=True)
     conversion_done_at  = Column(DateTime, nullable=True)
 
+    # Stato OCR bitmap→SRT
+    ocr_status   = Column(String(20), nullable=True)   # pending/ocring/done/failed/skipped
+    ocr_error    = Column(Text, nullable=True)
+    ocr_done_at  = Column(DateTime, nullable=True)
+
     @property
     def has_only_bitmap_subs(self) -> bool:
         """True se ha SOLO sottotitoli bitmap italiani (nessun testo)."""
@@ -144,6 +149,23 @@ class ScanLog(Base):
 
     def __repr__(self):
         return f"<ScanLog(id={self.id}, status='{self.status}', files={self.files_found})>"
+
+
+class OcrLog(Base):
+    """Log delle conversioni bitmap→SRT via OCR."""
+    __tablename__ = "ocr_logs"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    video_id    = Column(Integer, ForeignKey("video_files.id", ondelete="CASCADE"), nullable=False)
+    codec_type  = Column(String(20), nullable=True)   # 'pgs' | 'vobsub'
+    started_at  = Column(DateTime, default=_utcnow, nullable=False)
+    finished_at = Column(DateTime, nullable=True)
+    status      = Column(String(20), default="running")  # running/done/failed/skipped
+    error       = Column(Text, nullable=True)
+    duration_seconds = Column(Float, nullable=True)
+
+    def __repr__(self):
+        return f"<OcrLog(id={self.id}, video_id={self.video_id}, status='{self.status}')>"
 
 
 class SystemConfig(Base):

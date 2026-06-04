@@ -22,10 +22,11 @@ from sqlalchemy import select, func, desc
 
 from library_scanner.config import Config
 from library_scanner.database import init_db, get_db, run_migrations
-from library_scanner.models import ScanDirectory, VideoFile, ScanLog, SystemConfig, ConversionLog
+from library_scanner.models import ScanDirectory, VideoFile, ScanLog, SystemConfig, ConversionLog, OcrLog
 from library_scanner.scanner import get_scanner
 from library_scanner.scheduler import start_scheduler, stop_scheduler, get_scheduler_status
 from library_scanner.subtitle_converter import get_converter
+from library_scanner.subtitle_ocr import get_ocr
 
 # -- Logging --
 logging.basicConfig(
@@ -650,6 +651,69 @@ async def conversion_history(limit: int = Query(default=50, ge=1, le=500)):
             {
                 "id": log.id,
                 "filename": filename,
+                "started_at": log.started_at.isoformat() if log.started_at else None,
+                "finished_at": log.finished_at.isoformat() if log.finished_at else None,
+                "status": log.status,
+                "error": log.error,
+                "duration_seconds": log.duration_seconds,
+            }
+            for log, filename in logs
+        ]
+
+
+# ============================================================================
+# PROTECTED: BITMAP OCR (PGS/VOBSUB → SRT)
+# ============================================================================
+
+class OcrStartRequest(BaseModel):
+    video_ids: Optional[list] = None  # None = tutti i file eleggibili
+
+
+@app.post("/api/subtitles/ocr/start", dependencies=[Depends(require_auth)])
+async def start_ocr(data: OcrStartRequest = None):
+    """Avvia OCR bitmap→SRT in background."""
+    ocr = get_ocr()
+    if ocr.is_running:
+        raise HTTPException(409, "OCR già in corso")
+    video_ids = data.video_ids if data else None
+    thread = threading.Thread(
+        target=ocr.run_ocr,
+        kwargs={"video_ids": video_ids},
+        daemon=True,
+    )
+    thread.start()
+    return {"message": "OCR avviato", "status": "running"}
+
+
+@app.post("/api/subtitles/ocr/cancel", dependencies=[Depends(require_auth)])
+async def cancel_ocr():
+    ocr = get_ocr()
+    if not ocr.is_running:
+        raise HTTPException(400, "Nessun OCR in corso")
+    ocr.cancel()
+    return {"message": "Cancellazione OCR richiesta"}
+
+
+@app.get("/api/subtitles/ocr/status", dependencies=[Depends(require_auth)])
+async def ocr_status():
+    ocr = get_ocr()
+    return ocr.progress
+
+
+@app.get("/api/subtitles/ocr/history", dependencies=[Depends(require_auth)])
+async def ocr_history(limit: int = Query(default=50, ge=1, le=500)):
+    with get_db() as db:
+        logs = db.execute(
+            select(OcrLog, VideoFile.filename)
+            .join(VideoFile, OcrLog.video_id == VideoFile.id, isouter=True)
+            .order_by(desc(OcrLog.started_at))
+            .limit(limit)
+        ).all()
+        return [
+            {
+                "id": log.id,
+                "filename": filename,
+                "codec_type": log.codec_type,
                 "started_at": log.started_at.isoformat() if log.started_at else None,
                 "finished_at": log.finished_at.isoformat() if log.finished_at else None,
                 "status": log.status,

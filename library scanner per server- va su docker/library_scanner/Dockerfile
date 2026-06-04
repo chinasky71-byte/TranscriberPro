@@ -6,6 +6,11 @@ ENV PYTHONDONTWRITEBYTECODE=1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     tzdata \
+    tesseract-ocr \
+    tesseract-ocr-ita \
+    tesseract-ocr-eng \
+    mkvtoolnix \
+    && (apt-get install -y --no-install-recommends vobsub2srt 2>/dev/null || echo "vobsub2srt non disponibile — VOBSUB OCR disabilitato") \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
