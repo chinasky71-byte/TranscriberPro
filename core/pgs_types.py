@@ -47,6 +47,10 @@ DEFAULT_OCR_WORKERS = 0      # 0 = auto: min(os.cpu_count(), 8)
 
 
 # Mappa ISO 639-2 (3 lettere, da ffprobe) → ISO 639-1 (2 lettere, per estensione/traduzione)
+class UnsupportedLanguage(Exception):
+    """Sollevata quando la lingua della traccia non ha traineddata Tesseract installato."""
+
+
 LANG_3_TO_2 = {
     'ita': 'it', 'eng': 'en', 'spa': 'es', 'fra': 'fr', 'fre': 'fr',
     'deu': 'de', 'ger': 'de', 'por': 'pt', 'rus': 'ru', 'jpn': 'ja',

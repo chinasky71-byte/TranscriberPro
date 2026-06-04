@@ -30,6 +30,7 @@ from core.pgs_types import (
     DEFAULT_LANGUAGE, DEFAULT_CONF_THRESHOLD, DEFAULT_WRITEBACK, DEFAULT_OCR_WORKERS,
     WRITEBACK_MUX, WRITEBACK_SIDECAR,
     FLAG_LOW_CONF, FLAG_EMPTY, FLAG_MULTI_ODS,
+    UnsupportedLanguage,
 )
 
 logger = logging.getLogger(__name__)
@@ -162,6 +163,13 @@ class PgsOcr:
         sub = self.select_pgs_stream()
         stream_lang3 = (sub.get("language") or "und").lower()
         ocr_lang = pick_tesseract_lang(stream_lang3, fallback=self._cfg(CFG_LANGUAGE, DEFAULT_LANGUAGE))
+        # Se la lingua della traccia non ha tessdata e non è "sconosciuta", interrompi
+        # (il caller la gestirà come file saltato, marcato completato).
+        if stream_lang3 not in ('und', 'unk', '') and ocr_lang != stream_lang3:
+            from core.bitmap_ocr_common import available_tesseract_langs
+            if stream_lang3 not in available_tesseract_langs():
+                raise UnsupportedLanguage(
+                    f"Lingua '{stream_lang3}' non supportata da Tesseract (traineddata mancante)")
         content_lang = lang_to_2(stream_lang3)
 
         from utils.file_handler import FileHandler  # lazy

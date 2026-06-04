@@ -420,6 +420,10 @@ class MainWindow(QMainWindow):
         self.file_list.setObjectName("fileList")
         self.file_list.setItemDelegate(FileRowDelegate(self.file_list))
         self.file_list.itemSelectionChanged.connect(self.on_file_selected)
+        # Il testo è già eliso dal delegato: la scrollbar orizzontale non serve
+        # e nasconderla evita jitter da apparizione/scomparsa nel layout.
+        self.file_list.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         layout.addWidget(self.file_list)
         
         buttons_layout = QHBoxLayout()
