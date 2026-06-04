@@ -1,20 +1,27 @@
 # -*- coding: utf-8 -*-
 """
 Library Scanner - Subtitle OCR
-Converte sottotitoli bitmap PGS embedded nei file MKV in SRT testuale via pgsrip.
-Richiede: tesseract-ocr, tesseract-ocr-ita, mkvtoolnix in PATH (installati nel Dockerfile).
-Opera solo su file con has_italian_bitmap_sub=True AND has_italian_text_sub=False.
-Output: sidecar <stem>.it.srt accanto al video (nessun remux).
+Converte sottotitoli bitmap PGS/VOBSUB → SRT via Tesseract.
+
+PGS:    estrazione .sup (mkvextract) → pgsreader → OCR parallelo (ThreadPoolExecutor)
+VOBSUB: mkvextract → vobsub2srt CLI (se disponibile)
+
+Priorità bassa garantita: i worker OCR chiamano os.nice(19) per thread + ionice
+idle class per il processo all'avvio del batch — non interferisce con gli altri
+container anche sotto carico.
 """
 import json
 import logging
+import os
 import shutil
 import subprocess
-import time
+import sys
 import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Optional, Callable, List, Tuple
 
 from sqlalchemy import select, or_
 
@@ -24,16 +31,131 @@ from library_scanner.models import VideoFile, OcrLog
 
 logger = logging.getLogger(__name__)
 
-_PGS_CODECS   = {'hdmv_pgs_subtitle', 'pgssub'}
+_PGS_CODECS    = {'hdmv_pgs_subtitle', 'pgssub'}
 _VOBSUB_CODECS = {'dvd_subtitle', 'dvdsub'}
 _ITALIAN_CODES = {'ita', 'it', 'italian', 'italiano'}
 _LANG_PRIORITY = ['ita', 'eng', 'spa', 'fra', 'deu', 'por', 'rus', 'jpn']
 
+# Vendor pgsreader nel package locale
+_VENDOR_DIR = Path(__file__).parent / "vendor" / "pgsreader"
+if str(_VENDOR_DIR) not in sys.path:
+    sys.path.insert(0, str(_VENDOR_DIR))
+
+
+# ── Priorità processo ─────────────────────────────────────────────────────────
+
+def _set_low_priority():
+    """
+    Abbassa la priorità CPU e I/O per il thread/processo chiamante.
+    Chiamato all'avvio di ogni batch OCR e dentro i worker Tesseract.
+
+    - os.nice(19): su Linux/NPTL agisce per thread; CPU priority minima.
+    - ionice -c 3: I/O idle class — il disco viene usato solo se nessun altro lo
+      richiede. Applicato al processo (os.getpid()) una volta sola per batch.
+    """
+    try:
+        os.nice(19)
+    except (PermissionError, OSError):
+        pass  # potrebbe già essere al massimo
+    try:
+        subprocess.run(
+            ["ionice", "-c", "3", "-p", str(os.getpid())],
+            check=False, capture_output=True,
+        )
+    except FileNotFoundError:
+        pass  # ionice non disponibile (ignora silenziosamente)
+
+
+# ── OCR helpers (inlined da bitmap_ocr_common) ────────────────────────────────
+
+def _preprocess(img, upscale: int = 2):
+    """Prepara immagine PGS per Tesseract: composito nero → Otsu → invert → upscale → bordo."""
+    import cv2
+    import numpy as np
+    from PIL import Image
+
+    rgba = img.convert("RGBA")
+    bg = Image.new("RGBA", rgba.size, (0, 0, 0, 255))
+    comp = Image.alpha_composite(bg, rgba).convert("L")
+    arr = np.array(comp)
+    _, th = cv2.threshold(arr, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    th = 255 - th  # testo chiaro su nero → inverti
+    th = cv2.resize(th, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
+    return cv2.copyMakeBorder(th, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
+
+
+def _ocr_image(pre, language: str) -> str:
+    """OCR verbatim single-pass: image_to_data TSV → testo ricostruito."""
+    import pytesseract
+
+    data = pytesseract.image_to_data(
+        pre, lang=language, config="--psm 6",
+        output_type=pytesseract.Output.DICT,
+    )
+    lines = {}
+    for i in range(len(data["text"])):
+        w = data["text"][i].strip()
+        if not w:
+            continue
+        key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
+        lines.setdefault(key, []).append(w)
+    return "\n".join(" ".join(ws) for _, ws in sorted(lines.items()))
+
+
+def _ms_to_srt_ts(ms: int) -> str:
+    h, rem = divmod(ms, 3_600_000)
+    m, rem = divmod(rem, 60_000)
+    s, ms_ = divmod(rem, 1_000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms_:03d}"
+
+
+def _events_to_srt(events: List[Tuple[int, int, str]]) -> str:
+    """events = [(start_ms, end_ms, text), ...]"""
+    parts = []
+    for idx, (start, end, text) in enumerate(events, 1):
+        if text.strip():
+            parts.append(f"{idx}\n{_ms_to_srt_ts(start)} --> {_ms_to_srt_ts(end)}\n{text}\n")
+    return "\n".join(parts)
+
+
+def _ocr_images_parallel(
+    images: list,
+    language: str,
+    workers: int,
+    cancel_check=None,
+) -> List[str]:
+    """OCR in parallelo su lista di PIL.Image. Ogni worker abbassa la propria priorità."""
+    n = len(images)
+    results = [""] * n
+    if n == 0:
+        return results
+
+    def _work(i, img):
+        _set_low_priority()          # priorità minima per questo worker thread
+        pre = _preprocess(img)
+        return i, _ocr_image(pre, language)
+
+    ex = ThreadPoolExecutor(max_workers=max(1, workers))
+    try:
+        futures = [ex.submit(_work, i, img) for i, img in enumerate(images)]
+        for fut in as_completed(futures):
+            if cancel_check and cancel_check():
+                ex.shutdown(wait=False, cancel_futures=True)
+                raise InterruptedError("OCR annullato")
+            i, text = fut.result()
+            results[i] = text
+    finally:
+        ex.shutdown(wait=False)
+    return results
+
+
+# ── SubtitleOcr ───────────────────────────────────────────────────────────────
 
 class SubtitleOcr:
     """
-    Converte sottotitoli bitmap PGS → SRT testuale via pgsrip + Tesseract.
-    Stessa interfaccia di SubtitleConverter per facile integrazione con API e scheduler.
+    Converte sottotitoli bitmap PGS → SRT via pgsreader + Tesseract (parallelo).
+    VOBSUB: mkvextract + vobsub2srt (se disponibile in apt, altrimenti skip).
+    Stessa interfaccia di SubtitleConverter per integrazione con API e scheduler.
     """
 
     def __init__(self):
@@ -72,9 +194,8 @@ class SubtitleOcr:
     def run_ocr(self, video_ids: Optional[list] = None,
                 progress_callback: Optional[Callable] = None) -> dict:
         """
-        Avvia OCR in batch.
-        Se video_ids è None elabora tutti i file con has_italian_bitmap_sub=True
-        e has_italian_text_sub=False e ocr_status non 'done'/'skipped'.
+        Avvia OCR in batch. Abbassa subito priorità CPU e I/O del processo per
+        non interferire con gli altri container durante l'elaborazione.
         """
         if self._running:
             return {"status": "already_running"}
@@ -84,6 +205,9 @@ class SubtitleOcr:
         self._progress_callback = progress_callback
         self._done_count = 0
         self._error_count = 0
+
+        # ── Abbassa priorità per l'intero batch ─────────────────────────────
+        _set_low_priority()
 
         stats = {"status": "running", "total": 0, "done": 0, "failed": 0, "skipped": 0}
 
@@ -108,7 +232,10 @@ class SubtitleOcr:
 
             self._total_count = len(files)
             stats["total"] = self._total_count
-            logger.info(f"SubtitleOcr: {self._total_count} file da elaborare")
+            logger.info(
+                f"SubtitleOcr: {self._total_count} file da elaborare "
+                f"(nice=19, ionice=idle, workers={_ocr_workers()})"
+            )
 
             for i, vf in enumerate(files):
                 if self._cancelled:
@@ -148,50 +275,35 @@ class SubtitleOcr:
     # ── File singolo ──────────────────────────────────────────────────────────
 
     def _ocr_file(self, vf: VideoFile) -> str:
-        """
-        Elabora un singolo file.
-        Returns: 'done' | 'skipped' | 'failed'
-        """
         video_path = Path(vf.linux_path)
 
         if video_path.suffix.lower() != ".mkv":
-            logger.info(f"  Skip {vf.filename}: non è MKV")
             self._update_status(vf.id, "skipped", "Non è un file MKV")
             return "skipped"
 
         if not video_path.exists():
-            logger.warning(f"  File non trovato: {video_path}")
             self._update_status(vf.id, "failed", "File non trovato su disco")
             return "failed"
 
         stream = self._find_best_bitmap_stream(vf.sub_formats_json)
         if not stream:
-            logger.info(f"  {vf.filename}: nessun bitmap italiano trovato nel JSON, skip")
             self._update_status(vf.id, "skipped", "Nessun bitmap italiano in sub_formats_json")
             return "skipped"
 
         codec = stream.get("codec", "").lower()
         if codec in _PGS_CODECS:
-            return self._ocr_pgs(vf, video_path)
+            return self._ocr_pgs(vf, video_path, stream["index"])
         elif codec in _VOBSUB_CODECS:
             return self._ocr_vobsub(vf, video_path, stream["index"])
         else:
-            msg = f"Codec bitmap non supportato: {codec}"
-            logger.warning(f"  {vf.filename}: {msg}")
-            self._update_status(vf.id, "skipped", msg)
+            self._update_status(vf.id, "skipped", f"Codec non supportato: {codec}")
             return "skipped"
 
     def _find_best_bitmap_stream(self, sub_formats_json: Optional[str]) -> Optional[dict]:
-        """
-        Restituisce il miglior stream bitmap italiano, o None.
-        Priorità lingua: ita > eng > spa > ...
-        Preferisce PGS su VOBSUB a parità di lingua.
-        """
         try:
             streams = json.loads(sub_formats_json or "[]")
         except Exception:
             return None
-
         bitmap = [
             s for s in streams
             if isinstance(s, dict) and
@@ -203,140 +315,33 @@ class SubtitleOcr:
         def _lang(s):
             return str(s.get("language", s.get("lang", "")) or "").lower()
 
-        # Cerca prima ita, poi per priorità
         for target in _LANG_PRIORITY:
             for s in bitmap:
-                if _lang(s) in _ITALIAN_CODES if target == "ita" else _lang(s) == target:
+                lang = _lang(s)
+                match = lang in _ITALIAN_CODES if target == "ita" else lang == target
+                if match:
                     return s
+        return bitmap[0]
 
-        return bitmap[0]  # fallback: primo bitmap disponibile
+    # ── PGS: mkvextract + pgsreader + Tesseract parallelo ────────────────────
 
-    # ── PGS via pgsrip ───────────────────────────────────────────────────────
-
-    def _ocr_pgs(self, vf: VideoFile, video_path: Path) -> str:
-        """
-        OCR sottotitoli PGS italiani via pgsrip.
-        pgsrip usa mkvextract + Tesseract e produce <stem>.ita.srt accanto al video.
-        """
+    def _ocr_pgs(self, vf: VideoFile, video_path: Path, stream_idx: int) -> str:
         log_id = self._create_log(vf.id, "pgs")
-        self._update_status(vf.id, "ocring")
-        start = time.time()
-
-        # pgsrip output: <video_stem>.ita.srt nella stessa directory del video
-        pgsrip_out = video_path.with_name(f"{video_path.stem}.ita.srt")
-        it_srt     = video_path.with_name(f"{video_path.stem}.it.srt")
-
-        # Rimuovi output precedente se esiste (--overwrite non sempre sufficiente)
-        if pgsrip_out.exists():
-            pgsrip_out.unlink()
-
-        cmd = [
-            "python", "-m", "pgsrip",
-            "-l", Config.OCR_LANGUAGE,
-            "--overwrite",
-            str(video_path),
-        ]
-
-        logger.info(f"  pgsrip PGS: {vf.filename}")
-        try:
-            self._current_proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                encoding="utf-8",
-                errors="replace",
-            )
-            stdout, stderr = self._current_proc.communicate(timeout=Config.OCR_TIMEOUT_S)
-            rc = self._current_proc.returncode
-            self._current_proc = None
-
-            if self._cancelled:
-                if pgsrip_out.exists():
-                    pgsrip_out.unlink()
-                return "failed"
-
-            if rc != 0:
-                msg = (stderr.strip()[-400:] or f"pgsrip exit {rc}")
-                logger.error(f"  pgsrip fallito (rc={rc}): {msg}")
-                self._update_status(vf.id, "failed", msg)
-                self._finish_log(log_id, "failed", msg, time.time() - start)
-                return "failed"
-
-            # Verifica output
-            if not pgsrip_out.exists() or pgsrip_out.stat().st_size < 10:
-                if pgsrip_out.exists():
-                    pgsrip_out.unlink()
-                msg = "pgsrip non ha prodotto output (nessuna traccia ita?)"
-                logger.warning(f"  {vf.filename}: {msg}")
-                self._update_status(vf.id, "skipped", msg)
-                self._finish_log(log_id, "skipped", msg, time.time() - start)
-                return "skipped"
-
-            # Rinomina .ita.srt → .it.srt
-            pgsrip_out.replace(it_srt)
-            duration = time.time() - start
-            logger.info(f"  ✓ PGS OCR in {duration:.1f}s: {it_srt.name}")
-
-            self._update_status(vf.id, "done", conversion_done_at=datetime.now(timezone.utc))
-            self._finish_log(log_id, "done", None, duration)
-            self._post_ocr_update(vf.id)
-            return "done"
-
-        except subprocess.TimeoutExpired:
-            if self._current_proc:
-                self._current_proc.kill()
-            self._current_proc = None
-            if pgsrip_out.exists():
-                pgsrip_out.unlink()
-            msg = f"Timeout pgsrip ({Config.OCR_TIMEOUT_S}s)"
-            self._update_status(vf.id, "failed", msg)
-            self._finish_log(log_id, "failed", msg, time.time() - start)
-            return "failed"
-
-        except Exception as e:
-            self._current_proc = None
-            if pgsrip_out.exists():
-                pgsrip_out.unlink()
-            msg = str(e)
-            self._update_status(vf.id, "failed", msg)
-            self._finish_log(log_id, "failed", msg, time.time() - start)
-            logger.error(f"  Errore PGS OCR: {e}", exc_info=True)
-            return "failed"
-
-    # ── VOBSUB via mkvextract + vobsub2srt ───────────────────────────────────
-
-    def _ocr_vobsub(self, vf: VideoFile, video_path: Path, stream_idx: int) -> str:
-        """
-        OCR sottotitoli VOBSUB italiani: mkvextract → .idx/.sub → vobsub2srt.
-        Richiede 'vobsub2srt' installato (apt).
-        """
-        log_id = self._create_log(vf.id, "vobsub")
         self._update_status(vf.id, "ocring")
         start = time.time()
 
         it_srt = video_path.with_name(f"{video_path.stem}.it.srt")
 
-        # vobsub2srt è opzionale (non disponibile in tutti i repo Debian)
-        if not shutil.which("vobsub2srt"):
-            msg = "vobsub2srt non trovato nel PATH — installa il pacchetto sul server"
-            logger.warning(f"  {vf.filename}: {msg}")
-            self._update_status(vf.id, "skipped", msg)
-            self._finish_log(log_id, "skipped", msg, time.time() - start)
-            return "skipped"
-
         with tempfile.TemporaryDirectory() as tmpdir:
-            tmp_base = Path(tmpdir) / "vobsub"
+            sup_path = Path(tmpdir) / "track.sup"
 
-            # Step 1: estrazione .idx/.sub con mkvextract
-            extract_cmd = [
-                "mkvextract", "tracks", str(video_path),
-                f"{stream_idx}:{tmp_base}",
-            ]
-            logger.info(f"  mkvextract VOBSUB stream {stream_idx}: {vf.filename}")
+            # Step 1: estrai .sup con mkvextract
+            cmd = ["mkvextract", "tracks", str(video_path),
+                   f"{stream_idx}:{sup_path}"]
+            logger.info(f"  mkvextract PGS stream {stream_idx}: {vf.filename}")
             try:
                 self._current_proc = subprocess.Popen(
-                    extract_cmd,
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                     encoding="utf-8", errors="replace",
                 )
                 _, stderr = self._current_proc.communicate(timeout=Config.OCR_TIMEOUT_S)
@@ -349,8 +354,157 @@ class SubtitleOcr:
                     self._finish_log(log_id, "failed", msg, time.time() - start)
                     return "failed"
 
-                idx_file = tmp_base.with_suffix(".idx")
-                if not idx_file.exists():
+                if not sup_path.exists() or sup_path.stat().st_size < 100:
+                    msg = "mkvextract non ha prodotto il file .sup"
+                    self._update_status(vf.id, "failed", msg)
+                    self._finish_log(log_id, "failed", msg, time.time() - start)
+                    return "failed"
+
+            except subprocess.TimeoutExpired:
+                if self._current_proc:
+                    self._current_proc.kill()
+                self._current_proc = None
+                msg = f"Timeout mkvextract ({Config.OCR_TIMEOUT_S}s)"
+                self._update_status(vf.id, "failed", msg)
+                self._finish_log(log_id, "failed", msg, time.time() - start)
+                return "failed"
+
+            # Step 2: parsing PGS + OCR parallelo
+            logger.info(f"  pgsreader + Tesseract parallelo ({_ocr_workers()} worker): {vf.filename}")
+            try:
+                srt_text = self._sup_to_srt(sup_path, Config.OCR_LANGUAGE)
+            except Exception as e:
+                msg = f"OCR PGS fallito: {e}"
+                logger.error(f"  {vf.filename}: {msg}", exc_info=True)
+                self._update_status(vf.id, "failed", msg)
+                self._finish_log(log_id, "failed", msg, time.time() - start)
+                return "failed"
+
+        if not srt_text.strip():
+            msg = "OCR non ha prodotto testo"
+            self._update_status(vf.id, "skipped", msg)
+            self._finish_log(log_id, "skipped", msg, time.time() - start)
+            return "skipped"
+
+        it_srt.write_text(srt_text, encoding="utf-8")
+        duration = time.time() - start
+        logger.info(f"  ✓ PGS OCR in {duration:.1f}s: {it_srt.name}")
+
+        self._update_status(vf.id, "done", conversion_done_at=datetime.now(timezone.utc))
+        self._finish_log(log_id, "done", None, duration)
+        self._post_ocr_update(vf.id)
+        return "done"
+
+    def _sup_to_srt(self, sup_path: Path, language: str) -> str:
+        """Parsifica .sup con pgsreader, esegue OCR in parallelo, costruisce SRT."""
+        from pgsreader import PGSReader
+        from imagemaker import make_image
+
+        pgs = PGSReader(str(sup_path))
+        raw: List[Tuple[int, int, object, bool]] = []  # (start_ms, end_ms, image, multi_ods)
+
+        pending = None
+        for ds in pgs.displaysets:
+            if self._cancelled:
+                raise InterruptedError("Annullato")
+            pts = ds.pcs[0].pts if ds.pcs else (
+                ds.segments[0].pts if ds.segments else 0)
+            if ds.has_image:
+                if pending is not None:
+                    raw.append((pending[0], int(pts), pending[1], pending[2]))
+                img, multi = self._build_pgs_image(ds, make_image)
+                if img is None:
+                    pending = None
+                    continue
+                pending = (int(pts), img, multi)
+            else:
+                if pending is not None:
+                    raw.append((pending[0], int(pts), pending[1], pending[2]))
+                    pending = None
+        if pending is not None:
+            raw.append((pending[0], pending[0] + 2000, pending[1], pending[2]))
+
+        if not raw:
+            return ""
+
+        images = [r[2] for r in raw]
+        texts = _ocr_images_parallel(
+            images, language, _ocr_workers(),
+            cancel_check=lambda: self._cancelled,
+        )
+
+        events = [
+            (start, end, txt)
+            for (start, end, _img, _multi), txt in zip(raw, texts)
+            if txt.strip()
+        ]
+        return _events_to_srt(events)
+
+    @staticmethod
+    def _build_pgs_image(ds, make_image):
+        """Costruisce PIL.Image da un PGS display set (con patch multi-ODS)."""
+        ods_list = ds.ods
+        pds_list = ds.pds
+        if not ods_list or not pds_list:
+            return None, False
+        multi = len(ods_list) > 1
+        try:
+            if multi:
+                first = ods_list[0]
+                combined = b"".join(o.img_data for o in ods_list)
+
+                class _ODSShim:
+                    pass
+                shim = _ODSShim()
+                shim.width = first.width
+                shim.height = first.height
+                shim.img_data = combined
+                img = make_image(shim, pds_list[0])
+            else:
+                img = make_image(ods_list[0], pds_list[0])
+            return img.convert("RGBA"), multi
+        except Exception as e:
+            logger.debug(f"_build_pgs_image: {e}")
+            return None, multi
+
+    # ── VOBSUB: mkvextract + vobsub2srt ─────────────────────────────────────
+
+    def _ocr_vobsub(self, vf: VideoFile, video_path: Path, stream_idx: int) -> str:
+        log_id = self._create_log(vf.id, "vobsub")
+        self._update_status(vf.id, "ocring")
+        start = time.time()
+
+        if not shutil.which("vobsub2srt"):
+            msg = "vobsub2srt non trovato nel PATH — installa il pacchetto sul server"
+            logger.warning(f"  {vf.filename}: {msg}")
+            self._update_status(vf.id, "skipped", msg)
+            self._finish_log(log_id, "skipped", msg, time.time() - start)
+            return "skipped"
+
+        it_srt = video_path.with_name(f"{video_path.stem}.it.srt")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_base = Path(tmpdir) / "vobsub"
+
+            extract_cmd = ["mkvextract", "tracks", str(video_path),
+                           f"{stream_idx}:{tmp_base}"]
+            logger.info(f"  mkvextract VOBSUB stream {stream_idx}: {vf.filename}")
+            try:
+                self._current_proc = subprocess.Popen(
+                    extract_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    encoding="utf-8", errors="replace",
+                )
+                _, _ = self._current_proc.communicate(timeout=Config.OCR_TIMEOUT_S)
+                rc = self._current_proc.returncode
+                self._current_proc = None
+
+                if rc != 0 or self._cancelled:
+                    msg = f"mkvextract fallito (rc={rc})" if rc != 0 else "Annullato"
+                    self._update_status(vf.id, "failed", msg)
+                    self._finish_log(log_id, "failed", msg, time.time() - start)
+                    return "failed"
+
+                if not tmp_base.with_suffix(".idx").exists():
                     msg = "mkvextract non ha prodotto .idx"
                     self._update_status(vf.id, "failed", msg)
                     self._finish_log(log_id, "failed", msg, time.time() - start)
@@ -365,17 +519,10 @@ class SubtitleOcr:
                 self._finish_log(log_id, "failed", msg, time.time() - start)
                 return "failed"
 
-            # Step 2: OCR con vobsub2srt
-            vobsub2srt_cmd = [
-                "vobsub2srt",
-                "--language", Config.OCR_LANGUAGE,
-                str(tmp_base),
-            ]
-            logger.info(f"  vobsub2srt: {vf.filename}")
+            vobsub2srt_cmd = ["vobsub2srt", "--language", Config.OCR_LANGUAGE, str(tmp_base)]
             try:
                 self._current_proc = subprocess.Popen(
-                    vobsub2srt_cmd,
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    vobsub2srt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                     encoding="utf-8", errors="replace",
                 )
                 _, stderr = self._current_proc.communicate(timeout=Config.OCR_TIMEOUT_S)
@@ -387,14 +534,12 @@ class SubtitleOcr:
 
                 out_srt = tmp_base.with_suffix(".srt")
                 if rc != 0 or not out_srt.exists() or out_srt.stat().st_size < 10:
-                    msg = (stderr.strip()[-400:] or f"vobsub2srt exit {rc}") if rc != 0 else \
+                    msg = stderr.strip()[-400:] if (rc != 0 and stderr) else \
                           "vobsub2srt non ha prodotto output"
-                    logger.warning(f"  {vf.filename}: {msg}")
                     self._update_status(vf.id, "failed", msg)
                     self._finish_log(log_id, "failed", msg, time.time() - start)
                     return "failed"
 
-                # Copia in destinazione finale
                 shutil.copy2(out_srt, it_srt)
 
             except subprocess.TimeoutExpired:
@@ -405,13 +550,11 @@ class SubtitleOcr:
                 self._update_status(vf.id, "failed", msg)
                 self._finish_log(log_id, "failed", msg, time.time() - start)
                 return "failed"
-
             except Exception as e:
                 self._current_proc = None
                 msg = str(e)
                 self._update_status(vf.id, "failed", msg)
                 self._finish_log(log_id, "failed", msg, time.time() - start)
-                logger.error(f"  Errore VOBSUB OCR: {e}", exc_info=True)
                 return "failed"
 
         duration = time.time() - start
@@ -421,7 +564,7 @@ class SubtitleOcr:
         self._post_ocr_update(vf.id)
         return "done"
 
-    # ── Helpers DB ─────────────────────────────────────────────────────────────
+    # ── Helpers DB ────────────────────────────────────────────────────────────
 
     def _update_status(self, video_id: int, status: str,
                        error: str = None,
@@ -470,7 +613,6 @@ class SubtitleOcr:
             logger.error(f"_finish_log OCR error: {e}")
 
     def _post_ocr_update(self, video_id: int):
-        """Dopo OCR riuscito: segna il file come avente sottotitolo testo italiano."""
         try:
             with get_db() as db:
                 vf = db.get(VideoFile, video_id)
@@ -487,6 +629,11 @@ class SubtitleOcr:
                 self._progress_callback(message, percent)
             except Exception:
                 pass
+
+
+def _ocr_workers() -> int:
+    """Numero di thread OCR paralleli: min(cpu_count, 8), stesso di Transcriber Pro."""
+    return min(os.cpu_count() or 4, 8)
 
 
 # Singleton
