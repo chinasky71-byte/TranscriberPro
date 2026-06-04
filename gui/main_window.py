@@ -401,6 +401,7 @@ class MainWindow(QMainWindow):
     def create_left_panel(self):
         panel = QFrame()
         panel.setObjectName("leftPanel")
+        panel.setMinimumWidth(0)  # lo splitter può stringerlo liberamente
         layout = QVBoxLayout(panel)
         layout.setSpacing(10)
 

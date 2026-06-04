@@ -277,6 +277,7 @@ class LibraryScannerWidget(QFrame):
         self.video_table.setColumnWidth(3, 38)
         self.video_table.setColumnWidth(4, 24)
         self.video_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.video_table.setMinimumWidth(0)  # non vincola la larghezza minima del pannello
 
         layout.addWidget(self.video_table)
 
