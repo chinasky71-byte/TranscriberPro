@@ -35,14 +35,16 @@ _VOBSUB_CODECS = {'dvd_subtitle', 'dvdsub'}
 _ITALIAN_CODES = {'ita', 'it', 'italian', 'italiano'}
 _LANG_PRIORITY = ['ita', 'eng', 'spa', 'fra', 'deu', 'por', 'rus', 'jpn']
 
-# Vendor pgsreader e vobsub nel package locale
-_VENDOR_DIR = Path(__file__).parent / "vendor" / "pgsreader"
-if str(_VENDOR_DIR) not in sys.path:
-    sys.path.insert(0, str(_VENDOR_DIR))
-
+# Vendor pgsreader e vobsub nel package locale.
+# ORDINE CRITICO: inserire vendor/ prima (pos 0), poi vendor/pgsreader/ (pos 0, spinge vendor a 1).
+# Così vendor/pgsreader/ ha priorità → `import pgsreader` trova pgsreader.py, non il package vuoto.
 _VOBSUB_VENDOR = Path(__file__).parent / "vendor"
 if str(_VOBSUB_VENDOR) not in sys.path:
     sys.path.insert(0, str(_VOBSUB_VENDOR))
+
+_VENDOR_DIR = Path(__file__).parent / "vendor" / "pgsreader"
+if str(_VENDOR_DIR) not in sys.path:
+    sys.path.insert(0, str(_VENDOR_DIR))
 
 
 # ── Priorità processo ─────────────────────────────────────────────────────────
