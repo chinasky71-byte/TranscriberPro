@@ -171,6 +171,7 @@ class SubtitleOcr:
         self._done_count: int = 0
         self._total_count: int = 0
         self._error_count: int = 0
+        self._skipped_count: int = 0
 
     @property
     def is_running(self) -> bool:
@@ -184,6 +185,7 @@ class SubtitleOcr:
             "done": self._done_count,
             "total": self._total_count,
             "errors": self._error_count,
+            "skipped": self._skipped_count,
         }
 
     def cancel(self):
@@ -209,6 +211,7 @@ class SubtitleOcr:
         self._progress_callback = progress_callback
         self._done_count = 0
         self._error_count = 0
+        self._skipped_count = 0
 
         # ── Abbassa priorità per l'intero batch ─────────────────────────────
         _set_low_priority()
@@ -258,6 +261,7 @@ class SubtitleOcr:
                     self._done_count += 1
                 elif result == "skipped":
                     stats["skipped"] += 1
+                    self._skipped_count += 1
                 else:
                     stats["failed"] += 1
                     self._error_count += 1

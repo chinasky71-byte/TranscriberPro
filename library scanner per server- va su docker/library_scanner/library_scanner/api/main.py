@@ -18,7 +18,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response, Depends, F
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, or_
 
 from library_scanner.config import Config
 from library_scanner.database import init_db, get_db, run_migrations
@@ -569,6 +569,7 @@ async def list_subtitle_issues(
             q = q.where(
                 VideoFile.has_italian_bitmap_sub == True,
                 VideoFile.has_italian_text_sub == False,
+                or_(VideoFile.ocr_status.is_(None), VideoFile.ocr_status != 'skipped'),
             )
         elif issue_type == "done":
             q = q.where(VideoFile.conversion_status == "done")
@@ -600,6 +601,8 @@ async def list_subtitle_issues(
                         v.conversion_done_at.isoformat()
                         if getattr(v, "conversion_done_at", None) else None
                     ),
+                    "ocr_status": getattr(v, "ocr_status", None),
+                    "ocr_error": getattr(v, "ocr_error", None),
                     "directory_label": v.scan_directory.label if v.scan_directory else None,
                 }
                 for v in videos
@@ -1226,10 +1229,12 @@ async function loadConversionData() {
         };
         const ocrBadge = v => {
             const s = v.ocr_status;
-            if (!s) return '<span class="badge badge-warn">—</span>';
-            if (s === 'done') return '<span class="badge badge-ok">done</span>';
-            if (s === 'failed') return '<span class="badge badge-no">errore</span>';
-            if (s === 'running') return '<span class="badge badge-warn">in corso</span>';
+            if (!s) return '<span class="badge badge-warn">in attesa</span>';
+            if (s === 'done')    return '<span class="badge badge-ok">completato</span>';
+            if (s === 'failed')  return `<span class="badge badge-no" title="${v.ocr_error||''}">errore</span>`;
+            if (s === 'skipped') return '<span class="badge badge-warn">nessun testo</span>';
+            if (s === 'ocring')  return '<span class="badge badge-warn">in corso</span>';
+            if (s === 'pending') return '<span class="badge badge-warn">in attesa</span>';
             return `<span class="badge badge-warn">${s}</span>`;
         };
         document.getElementById('conv-body-convertible').innerHTML =
@@ -1277,14 +1282,24 @@ async function loadOcrStatus() {
         if (!s) return;
         document.getElementById('btn-ocr-cancel').disabled = !s.running;
         const wrap = document.getElementById('ocr-progress-wrap');
+        const hadActivity = s.done > 0 || s.errors > 0 || s.skipped > 0;
         if (s.running) {
             wrap.style.display = 'block';
-            const pct = s.total > 0 ? Math.round(s.done / s.total * 100) : 0;
+            const processed = s.done + s.errors + (s.skipped || 0);
+            const pct = s.total > 0 ? Math.round(processed / s.total * 100) : 0;
             document.getElementById('ocr-progress-bar').style.width = pct + '%';
-            document.getElementById('ocr-progress-text').textContent =
-                `${s.done}/${s.total} — ${s.current_file||''}`;
+            let txt = `${processed}/${s.total} — ${s.current_file||'elaborazione...'}`;
+            if (s.errors > 0) txt += ` (${s.errors} errori)`;
+            document.getElementById('ocr-progress-text').textContent = txt;
+        } else if (hadActivity) {
+            wrap.style.display = 'block';
+            document.getElementById('ocr-progress-bar').style.width = '100%';
+            let txt = `Completato: ${s.done} ok`;
+            if ((s.skipped||0) > 0) txt += `, ${s.skipped} saltati`;
+            if (s.errors > 0) txt += `, ${s.errors} errori`;
+            document.getElementById('ocr-progress-text').textContent = txt;
         } else {
-            wrap.style.display = s.done > 0 ? 'block' : 'none';
+            wrap.style.display = 'none';
         }
         _updateStartBtn();
     } catch(e) {}
@@ -1349,6 +1364,11 @@ let ocrPollTimer = null;
 function pollOcr() {
     document.getElementById('btn-conv-start').disabled = true;
     document.getElementById('btn-ocr-cancel').disabled = false;
+    // Mostra subito il wrap senza aspettare il primo tick
+    const wrap = document.getElementById('ocr-progress-wrap');
+    wrap.style.display = 'block';
+    document.getElementById('ocr-progress-bar').style.width = '0%';
+    document.getElementById('ocr-progress-text').textContent = 'Avvio OCR...';
     if (ocrPollTimer) clearInterval(ocrPollTimer);
     ocrPollTimer = setInterval(async () => {
         const s = await api('/api/subtitles/ocr/status');
