@@ -361,12 +361,14 @@ class PgsOcr:
                 self._bitmap_stream_abs_idx = self.select_pgs_stream().get("index")
             except Exception:
                 pass
+        orig = next((s for s in subs if s.get("index") == self._bitmap_stream_abs_idx), {})
         bitmap_rel_idx = next(
             (i for i, s in enumerate(subs) if s.get("index") == self._bitmap_stream_abs_idx),
             None,
         )
         # Se rimuoviamo 1 e aggiungiamo 1 il conteggio resta invariato → indice = n_subs-1
         new_sub_idx = n_subs - 1 if bitmap_rel_idx is not None else n_subs
+        orig_title = (orig.get("title") or "").strip()
 
         temp = Path(str(self.video_path) + ".converting")
         cmd = ["ffmpeg", "-y", "-loglevel", "error",
@@ -375,8 +377,10 @@ class PgsOcr:
         if bitmap_rel_idx is not None:
             cmd += ["-map", f"-0:s:{bitmap_rel_idx}"]
         cmd += ["-map", "1:0", "-c", "copy",
-                f"-metadata:s:s:{new_sub_idx}", f"language={language}",
-                f"-disposition:s:{new_sub_idx}", "0",
+                f"-metadata:s:s:{new_sub_idx}", f"language={language}"]
+        if orig_title:
+            cmd += [f"-metadata:s:s:{new_sub_idx}", f"title={orig_title}"]
+        cmd += [f"-disposition:s:{new_sub_idx}", "0",
                 "-f", "matroska", str(temp)]
         self._active_proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,

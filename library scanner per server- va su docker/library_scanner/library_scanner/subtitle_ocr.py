@@ -687,11 +687,13 @@ class SubtitleOcr:
             all_subs = []
 
         n_subs = len(all_subs)
+        orig = next((s for s in all_subs if s.get("index") == bitmap_abs_idx), {})
         bitmap_rel_idx = next(
             (i for i, s in enumerate(all_subs) if s.get("index") == bitmap_abs_idx),
             None,
         )
         new_sub_idx = n_subs - 1 if bitmap_rel_idx is not None else n_subs
+        orig_title = (orig.get("title") or "").strip()
 
         tmp_srt = video_path.with_suffix(".ocr_tmp.srt")
         temp    = Path(str(video_path) + ".converting")
@@ -707,8 +709,10 @@ class SubtitleOcr:
         if bitmap_rel_idx is not None:
             cmd += ["-map", f"-0:s:{bitmap_rel_idx}"]
         cmd += ["-map", "1:0", "-c", "copy",
-                f"-metadata:s:s:{new_sub_idx}", f"language={language}",
-                f"-disposition:s:{new_sub_idx}", "0",
+                f"-metadata:s:s:{new_sub_idx}", f"language={language}"]
+        if orig_title:
+            cmd += [f"-metadata:s:s:{new_sub_idx}", f"title={orig_title}"]
+        cmd += [f"-disposition:s:{new_sub_idx}", "0",
                 "-f", "matroska", str(temp)]
 
         try:
