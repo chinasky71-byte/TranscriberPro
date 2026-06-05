@@ -216,6 +216,18 @@ class SubtitleOcr:
         # ── Abbassa priorità per l'intero batch ─────────────────────────────
         _set_low_priority()
 
+        # ── Recovery: file rimasti in 'ocring' per riavvio container → pending ─
+        try:
+            with get_db() as db:
+                stuck = db.execute(
+                    select(VideoFile).where(VideoFile.ocr_status == "ocring")
+                ).scalars().all()
+                for vf in stuck:
+                    vf.ocr_status = "pending"
+                    logger.info(f"  Recovery 'ocring'→'pending': {vf.filename}")
+        except Exception as e:
+            logger.warning(f"Recovery ocring fallito: {e}")
+
         stats = {"status": "running", "total": 0, "done": 0, "failed": 0, "skipped": 0}
 
         try:
