@@ -12,7 +12,7 @@ import hashlib
 import struct
 import os
 import base64
-import zlib
+import gzip
 import re
 import logging
 from pathlib import Path
@@ -231,6 +231,7 @@ class OpenSubtitlesXMLRPCUploader(SubtitleUploaderInterface):
 
             safe_release_name = metadata.release_name.encode('ascii', errors='ignore').decode('ascii')
             safe_comments = metadata.comments.encode('ascii', errors='ignore').decode('ascii') if metadata.comments else ''
+            safe_username = (self.username or '').encode('ascii', errors='ignore').decode('ascii')
 
             # Struttura corretta per UploadSubtitles: baseinfo + cd1
             upload_struct = {
@@ -239,8 +240,9 @@ class OpenSubtitlesXMLRPCUploader(SubtitleUploaderInterface):
                     'sublanguageid': metadata.language_code,
                     'moviereleasename': safe_release_name,
                     'movieaka': '',
-                    'subauthorcomment': safe_comments,
-                    'subtranslator': '',
+                    'subauthorcomment': safe_comments or 'Uploaded via TranscriberPro',
+                    'subtranslator': safe_username,
+                    'automatictranslation': '1',  # sottotitoli generati da AI
                 },
                 'cd1': {
                     'subhash': sub_hash,
@@ -248,7 +250,7 @@ class OpenSubtitlesXMLRPCUploader(SubtitleUploaderInterface):
                     'moviehash': movie_hash,
                     'moviebytesize': str(movie_size),
                     'moviefilename': video_path.name,
-                    'subcontent': sub_content,  # stringa Base64 plain
+                    'subcontent': sub_content,
                 },
             }
 
@@ -378,7 +380,7 @@ class OpenSubtitlesXMLRPCUploader(SubtitleUploaderInterface):
 
     def _prepare_subtitle_content(self, subtitle_path: Path) -> Optional[str]:
         """
-        Prepara contenuto sottotitolo per upload (zlib completo + base64).
+        Prepara contenuto sottotitolo per upload (gzip + base64).
         Rimuove anche il cue promozionale prima della compressione.
         """
         try:
@@ -393,8 +395,8 @@ class OpenSubtitlesXMLRPCUploader(SubtitleUploaderInterface):
             cleaned = self._strip_credit_cues(text)
             content = cleaned.encode('utf-8')
 
-            # zlib completo (server accetta sia zlib che deflate raw che gzip)
-            encoded = base64.b64encode(zlib.compress(content)).decode('ascii')
+            # gzip + base64 — formato richiesto dall'API XML-RPC OpenSubtitles
+            encoded = base64.b64encode(gzip.compress(content)).decode('ascii')
             return encoded, content
 
         except IOError as e:

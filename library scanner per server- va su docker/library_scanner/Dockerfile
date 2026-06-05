@@ -13,7 +13,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
     util-linux \
-    && (apt-get install -y --no-install-recommends vobsub2srt 2>/dev/null || echo "vobsub2srt non disponibile") \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

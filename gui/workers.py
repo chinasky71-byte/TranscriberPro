@@ -29,6 +29,9 @@ FUNZIONALITÃ€ MANTENUTE:
 from PyQt6.QtCore import QThread, pyqtSignal, QMutex, QMutexLocker
 from pathlib import Path
 from typing import List, Optional
+from datetime import datetime
+import time
+import re
 
 from core.pipeline import ProcessingPipeline
 from utils.logger import setup_logger
@@ -115,9 +118,12 @@ class ProcessingWorker(QThread):
     progress = pyqtSignal(int)
     log_message = pyqtSignal(str)
     finished = pyqtSignal()
-    file_completed = pyqtSignal(str)  # Emesso dopo ogni file completato (per aggiornare UI)
-    error = pyqtSignal(str)  # Emesso in caso di errore critico
-    queue_updated = pyqtSignal(int)  # Emesso quando coda cambia (nuovo total)
+    file_completed = pyqtSignal(str)
+    file_started = pyqtSignal(str)         # (file_path)
+    file_progress = pyqtSignal(str, int)   # (file_path, percent 0-100)
+    file_history_entry = pyqtSignal(dict)  # emesso dopo ogni file completato con successo
+    error = pyqtSignal(str)
+    queue_updated = pyqtSignal(int)
     
     def __init__(self, processing_queue: List[str], queue_mutex: QMutex):
         """
@@ -204,6 +210,9 @@ class ProcessingWorker(QThread):
                 f"{'='*70}"
             )
             
+            # Notifica UI: file iniziato
+            self.file_started.emit(video_path)
+
             # Elabora file
             success = self._process_single_file(video_path)
             
@@ -258,10 +267,23 @@ class ProcessingWorker(QThread):
             # Crea pipeline
             self.pipeline = ProcessingPipeline(video_path)
 
-            # Log callback
+            # Mappa STEP-numero → percentuale per progress inline nella file_list
+            _STEP_PCT = {
+                '0': 2, '1': 5, '2': 15, '2.5': 25, '3': 40,
+                '4': 60, '4.2': 68, '4.5': 74, '5': 80, '5.5': 83,
+                '6': 88, '6.5': 93, '7': 97, '8': 99, '9': 100,
+            }
+            _step_re = re.compile(r'\n?(\d+(?:\.\d+)?)\.\s')
+
+            # Log callback con intercettazione step per file_progress
             def log_callback(msg):
                 if not self.is_cancelled:
                     self.log_message.emit(msg)
+                    m = _step_re.search(msg)
+                    if m:
+                        pct = _STEP_PCT.get(m.group(1))
+                        if pct is not None:
+                            self.file_progress.emit(video_path, pct)
 
             self.pipeline.set_log_callback(log_callback)
 
@@ -273,11 +295,28 @@ class ProcessingWorker(QThread):
             self.log_message.emit(tr('worker_start_single'))
             from utils.config import get_config
             target_language = get_config().get_target_language()
+            _t0 = time.time()
             success = self.pipeline.process(target_language=target_language)
-            
+            _duration = time.time() - _t0
+
             # Gestisci risultato
             if success and not self.is_cancelled:
                 self.log_message.emit(tr('worker_completed').format(filename=filename))
+                try:
+                    srt_path = str(self.pipeline.last_output_path) \
+                        if self.pipeline.last_output_path else ''
+                    self.file_history_entry.emit({
+                        'name': Path(video_path).name,
+                        'date_iso': datetime.now().isoformat(timespec='seconds'),
+                        'src_lang': 'auto',
+                        'dst_lang': target_language,
+                        'duration_seconds': round(_duration),
+                        'size_bytes': Path(video_path).stat().st_size,
+                        'srt_path': srt_path,
+                        'video_path': video_path,
+                    })
+                except Exception:
+                    pass
                 return True
             
             elif self.is_cancelled:

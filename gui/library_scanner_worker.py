@@ -39,8 +39,8 @@ class LibraryScannerWorker(QThread):
         self.request_type = request_type
         self.search = search
         self.media_type = media_type
-        self.timeout = 5
-        self.max_retries = 1
+        self.timeout = 4
+        self.max_retries = 0
 
     def _make_request(self, endpoint: str, params: dict = None) -> dict:
         """Esegue GET HTTP con retry"""

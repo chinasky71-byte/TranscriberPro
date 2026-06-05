@@ -485,8 +485,8 @@ if __name__ == '__main__':
     
     if dialog.exec() == QDialog.DialogCode.Accepted:
         selected = dialog.get_selected_profile()
-        print(f"âœ… Profilo selezionato: {selected}")
+        print(f" Profilo selezionato: {selected}")
     else:
-        print("âŒ Annullato")
+        print(" Annullato")
     
     sys.exit()

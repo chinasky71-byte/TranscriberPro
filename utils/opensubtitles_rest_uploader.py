@@ -44,8 +44,7 @@ def set_debug_logging():
         logger.addHandler(handler)
     logger.debug("✅ Debug logging attivato per REST uploader")
 
-# Attiva debug logging automaticamente
-set_debug_logging()
+# set_debug_logging()  # disabilitato in produzione
 
 
 class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
@@ -391,16 +390,15 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
             logger.info("UPLOAD PREPARATION:")
             logger.info("=" * 80)
             
-            # Calcolo movie hash
+            # Calcolo movie hash (opzionale: se il video non è raggiungibile si procede senza)
             logger.info("📊 Calcolo movie hash...")
             movie_hash, movie_size = self._calculate_movie_hash(video_path)
-            if not movie_hash:
-                logger.error("❌ Impossibile calcolare movie hash")
-                return False, "Impossibile calcolare hash video"
-            
-            logger.info(f"✅ Movie Hash: {movie_hash}")
-            logger.info(f"✅ Movie Size: {movie_size:,} bytes ({movie_size / (1024**3):.2f} GB)")
-            
+            if movie_hash:
+                logger.info(f"✅ Movie Hash: {movie_hash}")
+                logger.info(f"✅ Movie Size: {movie_size:,} bytes ({movie_size / (1024**3):.2f} GB)")
+            else:
+                logger.warning("⚠️  Hash video non disponibile — upload senza sub_to_movie (solo feature_id/imdb_id)")
+
             # Prepara contenuto sottotitolo (gzip+base64) e hash MD5
             logger.info("📦 Compressione e codifica sottotitolo...")
             sub_content, sub_hash = self._prepare_subtitle(subtitle_path)
@@ -410,39 +408,31 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
             # Risolvi feature_id OS (più affidabile di imdb_id per gli episodi TV)
             os_feature_id = self._resolve_feature_id(imdb_numeric)
 
-            baseinfo = {
-                "idmovieimdb": imdb_numeric,
-                "sublanguageid": metadata.language_code,
-                "moviereleasename": metadata.release_name or "",
-                "subauthorcomment": metadata.comments or "",
-                "automatictranslation": 0,
-                "hearingimpaired": 0,
-                "highDefinition": 1,
-                "foreignpartsonly": 0
+            subtitle_obj = {
+                "sub_content": sub_content,
+                "sub_hash": sub_hash,
+                "sub_language_id": lang2,
+                "sub_filename": subtitle_path.name,
+                "release": metadata.release_name or "",
+                "comments": metadata.comments or "Uploaded via TranscriberPro",
+                "ai_translated": True,
+                "hearing_impaired": False,
+                "high_definition": True,
+                "foreign_parts_only": False,
             }
+            if movie_hash:
+                subtitle_obj["sub_to_movie"] = {
+                    "movie_hash": movie_hash,
+                    "movie_byte_size": str(movie_size),
+                    "movie_filename": video_path.name
+                }
+            if imdb_numeric:
+                subtitle_obj["imdb_id"] = int(imdb_numeric)
             if os_feature_id:
-                baseinfo["feature_id"] = os_feature_id
+                subtitle_obj["feature_id"] = os_feature_id
 
             body = {
-                "base_subtitle_id": None,
-                "subtitles": [{
-                    "sub_to_movie": {
-                        "movie_hash": movie_hash,
-                        "movie_byte_size": str(movie_size),
-                        "movie_fps": None,
-                        "movie_time_ms": None,
-                        "movie_filename": video_path.name
-                    },
-                    "sub_content": sub_content,
-                    "sub_hash": sub_hash,
-                    "sub_language_id": lang2,
-                    "sub_filename": subtitle_path.name,
-                    "comments": metadata.comments or "",
-                    "hearing_impaired": False,
-                    "foreign_parts_only": False,
-                    "high_definition": True
-                }],
-                "baseinfo": baseinfo
+                "subtitles": [subtitle_obj]
             }
 
             # Informazioni file sottotitolo
@@ -893,5 +883,3 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
 # CRITICO: Questo deve essere eseguito quando il modulo viene importato
 # per registrare l'implementazione nella Factory condivisa
 UploaderFactory.register_implementation('rest', OpenSubtitlesRESTUploader)
-
-logger.info("✅ Implementazione REST registrata nella Factory globale")

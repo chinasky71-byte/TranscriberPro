@@ -26,6 +26,26 @@ except ImportError:
     TRANSLATOR_AVAILABLE = False
 
 
+# Stylesheet container coerenti col tema dark globale (theme.qss).
+# Cambia solo il colore del bordo per distinguere visivamente le sezioni.
+def _section_qss(border_color: str) -> str:
+    return f"""
+        QFrame {{
+            border: 1px solid {border_color};
+            border-radius: 8px;
+            padding: 15px;
+            background-color: #2c2e36;
+        }}
+    """
+
+_SECTION_QSS_NEUTRAL = _section_qss("#3a3d47")
+_SECTION_QSS_GREEN = _section_qss("#3fcf8e")
+_SECTION_QSS_BLUE = _section_qss("#3cc1e0")
+_SECTION_QSS_ORANGE = _section_qss("#f5b450")
+_SECTION_QSS_PURPLE = _section_qss("#9b6bc7")
+_SECTION_QSS_RED_ORANGE = _section_qss("#ef8a5a")
+
+
 class DownloadWorker(QThread):
     """Worker thread per download asincrono modello Aya"""
     
@@ -64,24 +84,27 @@ class DownloadWorker(QThread):
 class TranslationModelDialog(QDialog):
     """Dialog per selezione modello di traduzione"""
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, embed=False):
         super().__init__(parent)
         self.config = get_config()
         self.selected_model = self.config.get_translation_model()
         self.download_worker = None
-        
-        self.setWindowTitle(tr('tmd_title'))
-        self.setModal(True)
-        self.setMinimumWidth(800)
-        self.setMinimumHeight(700)
-        self.resize(850, 750)
-        self.setSizeGripEnabled(True)
-        
+        self.embed = embed
+
+        if not embed:
+            self.setWindowTitle(tr('tmd_title'))
+            self.setModal(True)
+            self.setMinimumWidth(800)
+            self.setMinimumHeight(700)
+            self.resize(850, 750)
+            self.setSizeGripEnabled(True)
+
         if not TRANSLATOR_AVAILABLE:
             self.init_ui_error()
         else:
             self.init_ui()
-            self.apply_theme()
+            if not embed:
+                self.apply_theme()
     
     def init_ui_error(self):
         """Interfaccia errore se translator non disponibile"""
@@ -110,23 +133,75 @@ class TranslationModelDialog(QDialog):
         main_layout = QVBoxLayout()
         main_layout.setSpacing(15)
         main_layout.setContentsMargins(20, 20, 20, 20)
-        
+
+        # Body (header + scroll area con tutte le sezioni)
+        body = self._build_body()
+        main_layout.addWidget(body, stretch=1)
+
+        # Buttons (solo in modalita' standalone)
+        if not self.embed:
+            btn_layout = QHBoxLayout()
+            btn_layout.addStretch()
+
+            save_btn = QPushButton(tr('save_close'))
+            save_btn.setMinimumWidth(120)
+            save_btn.clicked.connect(self.save_selection)
+
+            cancel_btn = QPushButton("Cancel")
+            cancel_btn.setMinimumWidth(100)
+            cancel_btn.clicked.connect(self.reject)
+
+            btn_layout.addWidget(cancel_btn)
+            btn_layout.addWidget(save_btn)
+            main_layout.addLayout(btn_layout)
+
+        self.setLayout(main_layout)
+
+        # Set selezione iniziale
+        if self.selected_model == 'aya':
+            self.aya_radio.setChecked(True)
+        elif self.selected_model == 'claude':
+            self.claude_radio.setChecked(True)
+        elif self.selected_model == 'nllb_finetuned':
+            self.nllb_ft_radio.setChecked(True)
+        elif self.selected_model == 'opensubtitles':
+            self.os_radio.setChecked(True)
+        elif self.selected_model == 'openai':
+            self.oai_radio.setChecked(True)
+        else:
+            self.nllb_radio.setChecked(True)
+
+        # In embed mode il toggle salva direttamente (no Save button).
+        if self.embed:
+            self.button_group.buttonToggled.connect(self._on_radio_toggled_embed)
+
+    def _build_body(self) -> QWidget:
+        """Costruisce il corpo: header + scroll area con tutte le sezioni.
+
+        Riusabile sia in modalita' standalone (init_ui aggiunge button bar)
+        sia in modalita' embedded (SettingsDialog usa solo questo body).
+        """
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setSpacing(15)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+
         # Header
         header = self.create_header()
-        main_layout.addWidget(header)
-        
+        body_layout.addWidget(header)
+
         # Scroll area
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        
+
         scroll_widget = QWidget()
         scroll_layout = QVBoxLayout(scroll_widget)
         scroll_layout.setSpacing(15)
-        
+
         # Button group per radio buttons
         self.button_group = QButtonGroup(self)
-        
+
         # NLLB
         nllb_widget, self.nllb_radio = self.create_model_section_nllb()
         scroll_layout.addWidget(nllb_widget)
@@ -171,51 +246,36 @@ class TranslationModelDialog(QDialog):
 
         scroll_layout.addStretch()
         scroll.setWidget(scroll_widget)
-        main_layout.addWidget(scroll, stretch=1)
-        
-        # Buttons
-        btn_layout = QHBoxLayout()
-        btn_layout.addStretch()
-        
-        save_btn = QPushButton(tr('save_close'))
-        save_btn.setMinimumWidth(120)
-        save_btn.clicked.connect(self.save_selection)
-        
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setMinimumWidth(100)
-        cancel_btn.clicked.connect(self.reject)
-        
-        btn_layout.addWidget(cancel_btn)
-        btn_layout.addWidget(save_btn)
-        main_layout.addLayout(btn_layout)
-        
-        self.setLayout(main_layout)
-        
-        # Set selezione iniziale
-        if self.selected_model == 'aya':
-            self.aya_radio.setChecked(True)
-        elif self.selected_model == 'claude':
-            self.claude_radio.setChecked(True)
-        elif self.selected_model == 'nllb_finetuned':
-            self.nllb_ft_radio.setChecked(True)
-        elif self.selected_model == 'opensubtitles':
-            self.os_radio.setChecked(True)
-        elif self.selected_model == 'openai':
-            self.oai_radio.setChecked(True)
-        else:
-            self.nllb_radio.setChecked(True)
+        body_layout.addWidget(scroll, stretch=1)
+
+        return body
+
+    def _on_radio_toggled_embed(self, button, checked: bool):
+        """Auto-persist della selezione in embed mode (no Save button).
+
+        Chiamato per ogni toggle del button_group; salva solo per il radio
+        appena attivato (checked=True). Niente QMessageBox: la conferma e'
+        gestita dal SettingsDialog di livello superiore.
+        """
+        if not checked:
+            return
+        name = button.objectName()
+        valid = {'nllb', 'nllb_finetuned', 'aya', 'claude', 'opensubtitles', 'openai'}
+        if name in valid:
+            self.config.set_translation_model(name)
+            self.selected_model = name
     
     def create_header(self) -> QWidget:
         """Crea header dialog"""
         header_widget = QWidget()
         header_layout = QVBoxLayout(header_widget)
         header_layout.setContentsMargins(0, 0, 0, 15)
-        
+
         title = QLabel(tr('tmd_header'))
-        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #1976d2;")
+        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #3cc1e0;")
 
         subtitle = QLabel(tr('tmd_subtitle'))
-        subtitle.setStyleSheet("color: #666; font-size: 13px;")
+        subtitle.setStyleSheet("font-size: 13px;")
         
         header_layout.addWidget(title)
         header_layout.addWidget(subtitle)
@@ -226,24 +286,17 @@ class TranslationModelDialog(QDialog):
         """Crea sezione NLLB"""
         radio = QRadioButton()
         radio.setObjectName("nllb")
-        
+
         container = QFrame()
         container.setFrameShape(QFrame.Shape.Box)
-        container.setStyleSheet("""
-            QFrame {
-                border: 1px solid #ddd;
-                border-radius: 8px;
-                padding: 15px;
-                background: white;
-            }
-        """)
-        
+        container.setStyleSheet(_SECTION_QSS_NEUTRAL)
+
         layout = QVBoxLayout(container)
-        
+
         title_label = QLabel("NLLB-200")
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #333;")
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold;")
         layout.addWidget(title_label)
-        
+
         features = (
             "✅ Locale (GPU)\n"
             "✅ 200+ lingue\n"
@@ -252,7 +305,7 @@ class TranslationModelDialog(QDialog):
             "❌ Qualità media"
         )
         features_label = QLabel(features)
-        features_label.setStyleSheet("color: #555; font-size: 12px; margin-top: 8px;")
+        features_label.setStyleSheet("font-size: 12px; margin-top: 8px;")
         layout.addWidget(features_label)
         
         main_layout = QHBoxLayout()
@@ -271,19 +324,12 @@ class TranslationModelDialog(QDialog):
 
         container = QFrame()
         container.setFrameShape(QFrame.Shape.Box)
-        container.setStyleSheet("""
-            QFrame {
-                border: 1px solid #4caf50;
-                border-radius: 8px;
-                padding: 15px;
-                background: #f1f8f1;
-            }
-        """)
+        container.setStyleSheet(_SECTION_QSS_GREEN)
 
         layout = QVBoxLayout(container)
 
         title_label = QLabel("NLLB-200 Fine-Tuned (Plex)")
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2e7d32;")
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #3fcf8e;")
         layout.addWidget(title_label)
 
         features = (
@@ -294,7 +340,7 @@ class TranslationModelDialog(QDialog):
             "⚠️ Solo EN→IT (dataset di training)"
         )
         features_label = QLabel(features)
-        features_label.setStyleSheet("color: #555; font-size: 12px; margin-top: 8px;")
+        features_label.setStyleSheet("font-size: 12px; margin-top: 8px;")
         layout.addWidget(features_label)
 
         # Path selector
@@ -384,24 +430,17 @@ class TranslationModelDialog(QDialog):
         """Crea sezione Aya con download"""
         radio = QRadioButton()
         radio.setObjectName("aya")
-        
+
         container = QFrame()
         container.setFrameShape(QFrame.Shape.Box)
-        container.setStyleSheet("""
-            QFrame {
-                border: 1px solid #ddd;
-                border-radius: 8px;
-                padding: 15px;
-                background: white;
-            }
-        """)
-        
+        container.setStyleSheet(_SECTION_QSS_NEUTRAL)
+
         layout = QVBoxLayout(container)
-        
+
         title_label = QLabel("Aya-23-8B")
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #333;")
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold;")
         layout.addWidget(title_label)
-        
+
         features = (
             "✅ Locale (GPU)\n"
             "✅ Qualità superiore\n"
@@ -410,7 +449,7 @@ class TranslationModelDialog(QDialog):
             "⚠️ Più lento di NLLB"
         )
         features_label = QLabel(features)
-        features_label.setStyleSheet("color: #555; font-size: 12px; margin-top: 8px;")
+        features_label.setStyleSheet("font-size: 12px; margin-top: 8px;")
         layout.addWidget(features_label)
         
         # Token HuggingFace
@@ -460,21 +499,14 @@ class TranslationModelDialog(QDialog):
         
         container = QFrame()
         container.setFrameShape(QFrame.Shape.Box)
-        container.setStyleSheet("""
-            QFrame {
-                border: 1px solid #ddd;
-                border-radius: 8px;
-                padding: 15px;
-                background: #f0f7ff;
-            }
-        """)
-        
+        container.setStyleSheet(_SECTION_QSS_BLUE)
+
         layout = QVBoxLayout(container)
-        
+
         title_label = QLabel("Claude API (Sonnet 4)")
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #1976d2;")
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #3cc1e0;")
         layout.addWidget(title_label)
-        
+
         features = (
             "✅ Cloud-based (zero GPU)\n"
             "✅ Massima qualità\n"
@@ -484,24 +516,24 @@ class TranslationModelDialog(QDialog):
             "💰 Richiede crediti API separati (≠ piano Pro)"
         )
         features_label = QLabel(features)
-        features_label.setStyleSheet("color: #555; font-size: 12px; margin-top: 8px;")
+        features_label.setStyleSheet("font-size: 12px; margin-top: 8px;")
         layout.addWidget(features_label)
-        
+
         # API Key group
         api_group = QGroupBox("Claude API Key")
         api_layout = QVBoxLayout()
-        
+
         self.claude_api_input = QLineEdit()
         self.claude_api_input.setPlaceholderText("sk-ant-...")
         self.claude_api_input.setEchoMode(QLineEdit.EchoMode.Password)
-        
+
         current_key = self.config.get_claude_api_key()
         if current_key:
             self.claude_api_input.setText(current_key)
-        
+
         # Info label
         info_label = QLabel(tr('api_key_info_claude'))
-        info_label.setStyleSheet("color: #666; font-size: 11px; margin: 5px 0;")
+        info_label.setStyleSheet("font-size: 11px; margin: 5px 0;")
         info_label.setWordWrap(True)
 
         save_api_btn = QPushButton(tr('save_api_key'))
@@ -535,19 +567,12 @@ class TranslationModelDialog(QDialog):
 
         container = QFrame()
         container.setFrameShape(QFrame.Shape.Box)
-        container.setStyleSheet("""
-            QFrame {
-                border: 1px solid #ff9800;
-                border-radius: 8px;
-                padding: 15px;
-                background: #fff8f0;
-            }
-        """)
+        container.setStyleSheet(_SECTION_QSS_ORANGE)
 
         layout = QVBoxLayout(container)
 
         title_label = QLabel("OpenSubtitles AI")
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #e65100;")
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #f5b450;")
         layout.addWidget(title_label)
 
         features = (
@@ -558,7 +583,7 @@ class TranslationModelDialog(QDialog):
             "⚠️ Quota limitata per account non-VIP"
         )
         features_label = QLabel(features)
-        features_label.setStyleSheet("color: #555; font-size: 12px; margin-top: 8px;")
+        features_label.setStyleSheet("font-size: 12px; margin-top: 8px;")
         layout.addWidget(features_label)
 
         # Status credenziali
@@ -567,7 +592,7 @@ class TranslationModelDialog(QDialog):
         layout.addWidget(self.os_status_label)
 
         info_label = QLabel(tr('os_creds_info'))
-        info_label.setStyleSheet("color: #888; font-size: 11px; margin-top: 4px;")
+        info_label.setStyleSheet("font-size: 11px; margin-top: 4px;")
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
 
@@ -596,19 +621,12 @@ class TranslationModelDialog(QDialog):
 
         container = QFrame()
         container.setFrameShape(QFrame.Shape.Box)
-        container.setStyleSheet("""
-            QFrame {
-                border: 1px solid #2e7d32;
-                border-radius: 8px;
-                padding: 15px;
-                background: #f0fff4;
-            }
-        """)
+        container.setStyleSheet(_SECTION_QSS_GREEN)
 
         layout = QVBoxLayout(container)
 
         title_label = QLabel("OpenAI GPT")
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #1b5e20;")
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #3fcf8e;")
         layout.addWidget(title_label)
 
         features = (
@@ -619,7 +637,7 @@ class TranslationModelDialog(QDialog):
             "💰 Pagamento per token (platform.openai.com)"
         )
         features_label = QLabel(features)
-        features_label.setStyleSheet("color: #555; font-size: 12px; margin-top: 8px;")
+        features_label.setStyleSheet("font-size: 12px; margin-top: 8px;")
         layout.addWidget(features_label)
 
         # API Key group
@@ -650,7 +668,7 @@ class TranslationModelDialog(QDialog):
         model_row.addStretch()
 
         info_label = QLabel(tr('api_key_info_openai'))
-        info_label.setStyleSheet("color: #666; font-size: 11px; margin: 5px 0;")
+        info_label.setStyleSheet("font-size: 11px; margin: 5px 0;")
         info_label.setWordWrap(True)
 
         save_api_btn = QPushButton(tr('save'))
@@ -887,23 +905,16 @@ class TranslationModelDialog(QDialog):
         """Crea sezione Speaker Diarization"""
         container = QFrame()
         container.setFrameShape(QFrame.Shape.Box)
-        container.setStyleSheet("""
-            QFrame {
-                border: 1px solid #7b1fa2;
-                border-radius: 8px;
-                padding: 15px;
-                background: #fdf3ff;
-            }
-        """)
+        container.setStyleSheet(_SECTION_QSS_PURPLE)
 
         layout = QVBoxLayout(container)
 
         title_label = QLabel(tr('diarization_title'))
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #6a1b9a;")
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #b78ee0;")
         layout.addWidget(title_label)
 
         desc_label = QLabel(tr('diarization_desc'))
-        desc_label.setStyleSheet("color: #555; font-size: 12px; margin-top: 4px;")
+        desc_label.setStyleSheet("font-size: 12px; margin-top: 4px;")
         desc_label.setWordWrap(True)
         layout.addWidget(desc_label)
 
@@ -932,7 +943,7 @@ class TranslationModelDialog(QDialog):
             "  • huggingface.co/pyannote/speaker-diarization-3.1\n"
             "  • huggingface.co/pyannote/segmentation-3.0"
         )
-        token_info.setStyleSheet("color: #888; font-size: 11px;")
+        token_info.setStyleSheet("font-size: 11px;")
         token_layout.addWidget(token_info)
 
         # Stato token
@@ -950,7 +961,7 @@ class TranslationModelDialog(QDialog):
 
         self.diarization_test_label = QLabel("")
         self.diarization_test_label.setWordWrap(True)
-        self.diarization_test_label.setStyleSheet("font-size: 11px; color: #555;")
+        self.diarization_test_label.setStyleSheet("font-size: 11px;")
         layout.addWidget(self.diarization_test_label)
 
         # --- Forced Alignment ---
@@ -1094,19 +1105,12 @@ class TranslationModelDialog(QDialog):
         """Crea sezione Gender Correction (EXPERIMENTAL)."""
         container = QFrame()
         container.setFrameShape(QFrame.Shape.Box)
-        container.setStyleSheet("""
-            QFrame {
-                border: 1px solid #e65100;
-                border-radius: 8px;
-                padding: 15px;
-                background: #fff8e1;
-            }
-        """)
+        container.setStyleSheet(_SECTION_QSS_RED_ORANGE)
 
         layout = QVBoxLayout(container)
 
         title_label = QLabel("Correzione Genere (SPERIMENTALE)")
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #e65100;")
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #ef8a5a;")
         layout.addWidget(title_label)
 
         desc_label = QLabel(
@@ -1114,7 +1118,7 @@ class TranslationModelDialog(QDialog):
             "usando un LLM locale (GGUF via llama-cpp-python).\n"
             "Eseguito in un processo separato dopo la traduzione."
         )
-        desc_label.setStyleSheet("color: #555; font-size: 12px; margin-top: 4px;")
+        desc_label.setStyleSheet("font-size: 12px; margin-top: 4px;")
         desc_label.setWordWrap(True)
         layout.addWidget(desc_label)
 
@@ -1130,17 +1134,17 @@ class TranslationModelDialog(QDialog):
             "<td>Qwen2.5-<b>14B</b> Q8_0 (~14 GB) oppure 32B Q4_K_M</td></tr>"
             "</table>"
         )
-        vram_label.setStyleSheet("color: #333; font-size: 12px; margin: 8px 0;")
+        vram_label.setStyleSheet("font-size: 12px; margin: 8px 0;")
         vram_label.setWordWrap(True)
         layout.addWidget(vram_label)
 
         download_label = QLabel(
             'Scarica i modelli GGUF da: '
-            '<a href="https://huggingface.co/Qwen" style="color:#1976d2;">huggingface.co/Qwen</a>'
+            '<a href="https://huggingface.co/Qwen" style="color:#3cc1e0;">huggingface.co/Qwen</a>'
             ' (cerca "GGUF" nella pagina del modello)'
         )
         download_label.setOpenExternalLinks(True)
-        download_label.setStyleSheet("color: #555; font-size: 11px;")
+        download_label.setStyleSheet("font-size: 11px;")
         layout.addWidget(download_label)
 
         # --- Path modello GGUF ---
@@ -1184,7 +1188,7 @@ class TranslationModelDialog(QDialog):
             "Si consiglia di verificare manualmente il risultato."
         )
         warning_label.setStyleSheet(
-            "color: #bf360c; font-size: 11px; font-style: italic; margin-top: 4px;"
+            "color: #f5b450; font-size: 11px; font-style: italic; margin-top: 4px;"
         )
         warning_label.setWordWrap(True)
         layout.addWidget(warning_label)
@@ -1234,19 +1238,12 @@ class TranslationModelDialog(QDialog):
         """Crea sezione 'Forza trascrizione da audio'."""
         container = QFrame()
         container.setFrameShape(QFrame.Shape.Box)
-        container.setStyleSheet("""
-            QFrame {
-                border: 1px solid #1976d2;
-                border-radius: 8px;
-                padding: 15px;
-                background: #e3f2fd;
-            }
-        """)
+        container.setStyleSheet(_SECTION_QSS_BLUE)
 
         layout = QVBoxLayout(container)
 
         title_label = QLabel(tr('force_audio_title'))
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #0d47a1;")
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #3cc1e0;")
         layout.addWidget(title_label)
 
         self.force_audio_checkbox = QCheckBox(tr('force_audio_checkbox'))
@@ -1257,7 +1254,7 @@ class TranslationModelDialog(QDialog):
         layout.addWidget(self.force_audio_checkbox)
 
         info_label = QLabel(tr('force_audio_info'))
-        info_label.setStyleSheet("color: #555; font-size: 11px; margin-top: 4px;")
+        info_label.setStyleSheet("font-size: 11px; margin-top: 4px;")
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
 
@@ -1282,42 +1279,10 @@ class TranslationModelDialog(QDialog):
         self.config.set('diarization_num_speakers', value)
 
     def apply_theme(self):
-        """Applica tema moderno"""
-        self.setStyleSheet("""
-            QDialog {
-                background: #f5f5f5;
-            }
-            QPushButton {
-                background: #1976d2;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-size: 13px;
-            }
-            QPushButton:hover {
-                background: #1565c0;
-            }
-            QPushButton:pressed {
-                background: #0d47a1;
-            }
-            QLineEdit {
-                padding: 8px;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-                font-size: 12px;
-                background: white;
-            }
-            QGroupBox {
-                font-weight: bold;
-                border: 1px solid #ddd;
-                border-radius: 6px;
-                margin-top: 10px;
-                padding-top: 10px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-            }
-        """)
+        """Tema dialog: neutralizzato in Fase 2 del GUI revamp.
+
+        Lo styling globale (dark slate + accent ciano) e' caricato in main.py
+        da gui/theme.qss. Il metodo resta come no-op per compatibilita' con il
+        chiamante in init_ui (modalita' standalone).
+        """
+        return

@@ -901,6 +901,10 @@ class LibraryScannerWidget(QFrame):
             # batch concluso
             self._ocr_batch_active = False
             self.ocr_progress_label.setVisible(False)
+            # Spegni al termine: schedula PRIMA del QMessageBox (che è bloccante ma
+            # i singleShot scattano comunque nel nested event loop del dialogo modale).
+            if self.main_window.shutdown_checkbox.isChecked():
+                QTimer.singleShot(5000, self.main_window.shutdown_system)
             QMessageBox.information(
                 self, tr('ocr_section_title'),
                 f"Batch OCR completato.\nConvertiti: {self._ocr_batch_ok} · "

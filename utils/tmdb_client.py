@@ -754,6 +754,46 @@ class TMDBClient:
         
         logger.warning(f"âš ï¸ Nessun risultato per: {title}")
         return None
+
+    def get_cast_info(self, tmdb_id: int, media_type: str,
+                      season: int = None, episode: int = None,
+                      max_cast: int = 15) -> Dict[str, str]:
+        """
+        Ritorna {character_name: "M"|"F"} dai credits TMDB.
+        TMDB gender: 0=unknown, 1=Female, 2=Male, 3=Non-binary
+        """
+        gender_map = {1: "F", 2: "M"}
+        result = {}
+        try:
+            if media_type == 'movie':
+                url = f"{self.base_url}/movie/{tmdb_id}/credits"
+            elif season and episode:
+                url = f"{self.base_url}/tv/{tmdb_id}/season/{season}/episode/{episode}/credits"
+            else:
+                url = f"{self.base_url}/tv/{tmdb_id}/aggregate_credits"
+
+            params = {'api_key': self.api_key, 'language': 'en-US'}
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+
+            for member in data.get('cast', [])[:max_cast]:
+                g = gender_map.get(member.get('gender'))
+                if not g:
+                    continue
+                char_name = member.get('character', '')
+                if not char_name or isinstance(char_name, list):
+                    continue
+                char_name = char_name.split('/')[0].strip()
+                if char_name and char_name not in result:
+                    result[char_name] = g
+
+            logger.info(f"🎭 TMDB cast: {len(result)} personaggi con genere noto")
+        except Exception as e:
+            logger.warning(f"⚠️ Errore recupero cast TMDB: {e}")
+
+        return result
+
     
     def download_poster(self, poster_path: str, media_title: str) -> Optional[Path]:
         """Scarica poster da TMDB"""

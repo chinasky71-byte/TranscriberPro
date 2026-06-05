@@ -983,32 +983,41 @@ def _render_web_ui() -> str:
 
     <!-- CONVERSIONE SOTTOTITOLI -->
     <div class="section">
-        <h2>Conversione Sottotitoli (ASS/SSA → SRT)</h2>
+        <h2>Conversione Sottotitoli</h2>
         <p style="color:#888;font-size:0.85em;margin-bottom:12px">
-            Converte i sottotitoli embedded in formato ASS/SSA in SRT per evitare il transcoding Plex.
-            Opera solo su file .mkv. I file PGS/VOBSUB (immagini) devono essere elaborati con Transcriber Pro.
+            <b>ASS/SSA → SRT</b>: converte sottotitoli embedded tramite FFmpeg (evita transcoding Plex).<br>
+            <b>PGS/VOBSUB → SRT</b>: converte sottotitoli bitmap tramite OCR Tesseract (server-side).
         </p>
         <div class="grid" style="margin-bottom:12px">
-            <div class="card"><h3>Da Convertire (ASS/SSA)</h3><div class="stat-big" id="conv-stat-todo" style="color:#ffd43b">-</div></div>
-            <div class="card"><h3>Solo PGS/VOBSUB</h3><div class="stat-big" id="conv-stat-bitmap" style="color:#ff9800">-</div></div>
+            <div class="card"><h3>ASS/SSA da convertire</h3><div class="stat-big" id="conv-stat-todo" style="color:#ffd43b">-</div></div>
+            <div class="card"><h3>PGS/VOBSUB da convertire (OCR)</h3><div class="stat-big" id="conv-stat-bitmap" style="color:#ff9800">-</div></div>
             <div class="card"><h3>Già Convertiti</h3><div class="stat-big" id="conv-stat-done" style="color:#52b788">-</div></div>
         </div>
         <div class="actions">
-            <button class="btn btn-primary" id="btn-conv-start" onclick="startConversion()">Avvia Conversione</button>
-            <button class="btn btn-danger" id="btn-conv-cancel" onclick="cancelConversion()" disabled>Annulla</button>
+            <button class="btn btn-primary" id="btn-conv-start" onclick="startAll()">Avvia Conversione</button>
+            <button class="btn btn-danger" id="btn-conv-cancel" onclick="cancelConversion()" disabled>Annulla ASS/SSA</button>
+            <button class="btn btn-danger" id="btn-ocr-cancel" onclick="cancelOcr()" disabled>Annulla OCR</button>
             <button class="btn btn-secondary" onclick="loadConversionData()">Aggiorna</button>
         </div>
         <div id="conv-progress-wrap" style="display:none;margin:10px 0">
+            <div style="color:#aaa;font-size:0.75em;margin-bottom:3px">ASS/SSA</div>
             <div style="background:#2a2a4a;border-radius:6px;height:8px;overflow:hidden">
                 <div id="conv-progress-bar" style="background:#e94560;height:100%;width:0%;transition:width 0.3s"></div>
             </div>
             <div id="conv-progress-text" style="color:#aaa;font-size:0.8em;margin-top:4px"></div>
         </div>
-        <h3 style="margin-top:16px;color:#888;font-size:0.9em">File con ASS/SSA (convertibili)</h3>
+        <div id="ocr-progress-wrap" style="display:none;margin:10px 0">
+            <div style="color:#aaa;font-size:0.75em;margin-bottom:3px">OCR PGS/VOBSUB</div>
+            <div style="background:#2a2a4a;border-radius:6px;height:8px;overflow:hidden">
+                <div id="ocr-progress-bar" style="background:#ff9800;height:100%;width:0%;transition:width 0.3s"></div>
+            </div>
+            <div id="ocr-progress-text" style="color:#aaa;font-size:0.8em;margin-top:4px"></div>
+        </div>
+        <h3 style="margin-top:16px;color:#888;font-size:0.9em">File con ASS/SSA (convertibili via FFmpeg)</h3>
         <table><thead><tr><th>Nome File</th><th>Directory</th><th>Dimensione</th><th>Stato</th><th></th></tr></thead>
         <tbody id="conv-body-convertible"></tbody></table>
-        <h3 style="margin-top:16px;color:#888;font-size:0.9em">File con solo PGS/VOBSUB (richiede Transcriber Pro)</h3>
-        <table><thead><tr><th>Nome File</th><th>Directory</th><th>Dimensione</th></tr></thead>
+        <h3 style="margin-top:16px;color:#888;font-size:0.9em">File PGS/VOBSUB (conversione OCR server-side)</h3>
+        <table><thead><tr><th>Nome File</th><th>Directory</th><th>Dimensione</th><th>Stato OCR</th></tr></thead>
         <tbody id="conv-body-bitmap"></tbody></table>
     </div>
 
@@ -1215,6 +1224,14 @@ async function loadConversionData() {
             if (s === 'converting') return '<span class="badge badge-warn">in corso</span>';
             return `<span class="badge badge-warn">${s}</span>`;
         };
+        const ocrBadge = v => {
+            const s = v.ocr_status;
+            if (!s) return '<span class="badge badge-warn">—</span>';
+            if (s === 'done') return '<span class="badge badge-ok">done</span>';
+            if (s === 'failed') return '<span class="badge badge-no">errore</span>';
+            if (s === 'running') return '<span class="badge badge-warn">in corso</span>';
+            return `<span class="badge badge-warn">${s}</span>`;
+        };
         document.getElementById('conv-body-convertible').innerHTML =
             todoData.videos.map(v => `<tr>
                 <td title="${v.linux_path}">${v.filename}</td>
@@ -1229,7 +1246,8 @@ async function loadConversionData() {
                 <td title="${v.linux_path}">${v.filename}</td>
                 <td>${v.directory_label||'-'}</td>
                 <td>${v.file_size_mb} MB</td>
-            </tr>`).join('') || '<tr><td colspan="3" style="color:#666">Nessun file</td></tr>';
+                <td>${ocrBadge(v)}</td>
+            </tr>`).join('') || '<tr><td colspan="4" style="color:#666">Nessun file</td></tr>';
 
     } catch(e) { log('Errore conversione: ' + e.message); }
 }
@@ -1238,7 +1256,6 @@ async function loadConversionStatus() {
     try {
         const s = await api('/api/subtitles/convert/status');
         if (!s) return;
-        document.getElementById('btn-conv-start').disabled = s.running;
         document.getElementById('btn-conv-cancel').disabled = !s.running;
         const wrap = document.getElementById('conv-progress-wrap');
         if (s.running) {
@@ -1250,7 +1267,34 @@ async function loadConversionStatus() {
         } else {
             wrap.style.display = s.done > 0 ? 'block' : 'none';
         }
+        _updateStartBtn();
     } catch(e) {}
+}
+
+async function loadOcrStatus() {
+    try {
+        const s = await api('/api/subtitles/ocr/status');
+        if (!s) return;
+        document.getElementById('btn-ocr-cancel').disabled = !s.running;
+        const wrap = document.getElementById('ocr-progress-wrap');
+        if (s.running) {
+            wrap.style.display = 'block';
+            const pct = s.total > 0 ? Math.round(s.done / s.total * 100) : 0;
+            document.getElementById('ocr-progress-bar').style.width = pct + '%';
+            document.getElementById('ocr-progress-text').textContent =
+                `${s.done}/${s.total} — ${s.current_file||''}`;
+        } else {
+            wrap.style.display = s.done > 0 ? 'block' : 'none';
+        }
+        _updateStartBtn();
+    } catch(e) {}
+}
+
+function _updateStartBtn() {
+    // Disabilita "Avvia" se almeno una delle due conversioni è in corso.
+    const convRunning = !document.getElementById('btn-conv-cancel').disabled;
+    const ocrRunning  = !document.getElementById('btn-ocr-cancel').disabled;
+    document.getElementById('btn-conv-start').disabled = convRunning || ocrRunning;
 }
 
 async function startConversionSingle(videoId) {
@@ -1262,15 +1306,28 @@ async function startConversionSingle(videoId) {
     } catch(e) { log('Errore: ' + e.message); }
 }
 
-async function startConversion() {
+async function startAll() {
+    let started = 0;
     try {
         await api('/api/subtitles/convert/start', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
-        log('Conversione avviata');
-        pollConversion();
-    } catch(e) { log('Errore avvio conversione: ' + e.message); }
+        started++; pollConversion();
+    } catch(e) {
+        if (e.message && !e.message.includes('corso')) log('ASS/SSA: ' + e.message);
+    }
+    try {
+        await api('/api/subtitles/ocr/start', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+        started++; pollOcr();
+    } catch(e) {
+        if (e.message && !e.message.includes('corso')) log('OCR: ' + e.message);
+    }
+    if (started > 0) log('Avviate ' + started + ' conversioni');
 }
+
 async function cancelConversion() {
-    try { await api('/api/subtitles/convert/cancel', {method:'POST'}); log('Cancellazione conversione richiesta'); } catch(e) { log('Errore: '+e.message); }
+    try { await api('/api/subtitles/convert/cancel', {method:'POST'}); log('Cancellazione ASS/SSA richiesta'); } catch(e) { log('Errore: '+e.message); }
+}
+async function cancelOcr() {
+    try { await api('/api/subtitles/ocr/cancel', {method:'POST'}); log('Cancellazione OCR richiesta'); } catch(e) { log('Errore: '+e.message); }
 }
 
 let convPollTimer = null;
@@ -1281,18 +1338,29 @@ function pollConversion() {
     convPollTimer = setInterval(async () => {
         const s = await api('/api/subtitles/convert/status');
         if (!s || !s.running) {
-            clearInterval(convPollTimer);
-            convPollTimer = null;
-            log('Conversione terminata');
-            loadConversionData();
-            loadConversionStatus();
-        } else {
-            loadConversionStatus();
-        }
+            clearInterval(convPollTimer); convPollTimer = null;
+            log('Conversione ASS/SSA terminata');
+            loadConversionData(); loadConversionStatus();
+        } else { loadConversionStatus(); }
     }, 3000);
 }
 
-function loadAll() { loadStats(); loadDirectories(); loadVideos(); loadHistory(); loadScanStatus(); loadApiKey(); loadConversionData(); loadConversionStatus(); }
+let ocrPollTimer = null;
+function pollOcr() {
+    document.getElementById('btn-conv-start').disabled = true;
+    document.getElementById('btn-ocr-cancel').disabled = false;
+    if (ocrPollTimer) clearInterval(ocrPollTimer);
+    ocrPollTimer = setInterval(async () => {
+        const s = await api('/api/subtitles/ocr/status');
+        if (!s || !s.running) {
+            clearInterval(ocrPollTimer); ocrPollTimer = null;
+            log('OCR PGS/VOBSUB terminato');
+            loadConversionData(); loadOcrStatus();
+        } else { loadOcrStatus(); }
+    }, 3000);
+}
+
+function loadAll() { loadStats(); loadDirectories(); loadVideos(); loadHistory(); loadScanStatus(); loadApiKey(); loadConversionData(); loadConversionStatus(); loadOcrStatus(); }
 loadAll();
 setInterval(loadAll, 30000);
 </script>
