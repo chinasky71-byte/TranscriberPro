@@ -35,110 +35,108 @@ class ProfileSelectionDialog(QDialog):
     - Altezza iniziale ridotta per compatibilità schermi
     """
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, embed=False):
         super().__init__(parent)
         self.config = get_config()
         self.selected_profile = self.config.get_transcription_profile()
-        
-        self.setWindowTitle(tr('profiles_title'))
-        self.setModal(True)
-        
-        # ✅ OTTIMIZZATO: Dimensioni iniziali più compatte
-        self.setMinimumWidth(650)
-        self.setMinimumHeight(480)  # 600 → 480
-        
-        # ✅ NUOVO: Dimensione iniziale ragionevole
-        self.resize(700, 550)
-        
-        # ✅ NUOVO: Abilita ridimensionamento completo
-        self.setSizeGripEnabled(True)
-        
+        self.embed = embed
+
+        if not embed:
+            self.setWindowTitle(tr('profiles_title'))
+            self.setModal(True)
+            self.setMinimumWidth(650)
+            self.setMinimumHeight(480)
+            self.resize(700, 550)
+            self.setSizeGripEnabled(True)
+
         self.init_ui()
-        self.apply_theme()
+        if not embed:
+            self.apply_theme()
     
     def init_ui(self):
         """Inizializza interfaccia con scroll area"""
-        # Layout principale dialog
         main_layout = QVBoxLayout()
-        main_layout.setSpacing(12)  # 15 → 12
-        main_layout.setContentsMargins(15, 15, 15, 15)  # 20 → 15
-        
-        # Header
+        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+
+        # Body (header + descrizione + scroll profili)
+        body = self._build_body()
+        main_layout.addWidget(body, stretch=1)
+
+        # Button bar - solo se NON embedded (in SettingsDialog usiamo "Salva e chiudi" globale)
+        if not self.embed:
+            separator2 = QFrame()
+            separator2.setFrameShape(QFrame.Shape.HLine)
+            separator2.setObjectName("separator")
+            main_layout.addWidget(separator2)
+
+            buttons_layout = QHBoxLayout()
+            buttons_layout.setSpacing(10)
+            buttons_layout.addStretch()
+
+            cancel_btn = QPushButton(tr('cancel'))
+            cancel_btn.setObjectName("cancelButton")
+            cancel_btn.setMinimumWidth(110)
+            cancel_btn.setFixedHeight(36)
+            cancel_btn.clicked.connect(self.reject)
+            buttons_layout.addWidget(cancel_btn)
+
+            ok_btn = QPushButton(tr('confirm'))
+            ok_btn.setObjectName("okButton")
+            ok_btn.setMinimumWidth(110)
+            ok_btn.setFixedHeight(36)
+            ok_btn.clicked.connect(self.accept)
+            buttons_layout.addWidget(ok_btn)
+
+            main_layout.addLayout(buttons_layout)
+
+        self.setLayout(main_layout)
+
+    def _build_body(self) -> QWidget:
+        """Costruisce il body widget (header + scroll profili).
+
+        Usato sia in modalita' standalone (init_ui lo wrappa con button bar)
+        sia in modalita' embed (chiamato direttamente dal SettingsDialog).
+        """
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setSpacing(10)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+
         header = self.create_header()
-        main_layout.addWidget(header)
-        
-        # Separator
+        body_layout.addWidget(header)
+
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.HLine)
         separator.setObjectName("separator")
-        main_layout.addWidget(separator)
-        
-        # ✅ OTTIMIZZATO: Descrizione più concisa
+        body_layout.addWidget(separator)
+
         desc_label = QLabel(tr('profiles_desc'))
         desc_label.setObjectName("descLabel")
         desc_label.setWordWrap(True)
-        main_layout.addWidget(desc_label)
-        
-        # ========================================
-        # ✅ NUOVO: Scroll Area per contenuto profili
-        # ========================================
+        body_layout.addWidget(desc_label)
+
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll_area.setObjectName("profileScrollArea")
-        
-        # Container interno per profili
+
         scroll_content = QWidget()
         scroll_layout = QVBoxLayout(scroll_content)
-        scroll_layout.setSpacing(8)  # 10 → 8 (più compatto)
-        scroll_layout.setContentsMargins(0, 0, 5, 0)  # Margine minimo a destra per scrollbar
-        
-        # Button group per radio buttons
+        scroll_layout.setSpacing(8)
+        scroll_layout.setContentsMargins(0, 0, 5, 0)
+
         self.button_group = QButtonGroup(self)
-        
-        # Crea widget per ogni profilo
         for profile in TranscriptionProfile:
             profile_widget = self.create_profile_widget(profile)
             scroll_layout.addWidget(profile_widget)
-        
-        # Stretch per spingere contenuto in alto
         scroll_layout.addStretch()
-        
+
         scroll_area.setWidget(scroll_content)
-        main_layout.addWidget(scroll_area, stretch=1)  # ✅ Stretch per prendere spazio disponibile
-        
-        # Separator bottom
-        separator2 = QFrame()
-        separator2.setFrameShape(QFrame.Shape.HLine)
-        separator2.setObjectName("separator")
-        main_layout.addWidget(separator2)
-        
-        # ========================================
-        # Bottoni OK / Cancel (FISSI in basso)
-        # ========================================
-        buttons_layout = QHBoxLayout()
-        buttons_layout.setSpacing(10)
-        buttons_layout.addStretch()
-        
-        cancel_btn = QPushButton(tr('cancel'))
-        cancel_btn.setObjectName("cancelButton")
-        cancel_btn.setMinimumWidth(110)  # 120 → 110
-        cancel_btn.setFixedHeight(36)  # Altezza fissa
-        cancel_btn.clicked.connect(self.reject)
-        buttons_layout.addWidget(cancel_btn)
-        
-        ok_btn = QPushButton(tr('confirm'))
-        ok_btn.setObjectName("okButton")
-        ok_btn.setMinimumWidth(110)
-        ok_btn.setFixedHeight(36)
-        ok_btn.clicked.connect(self.accept)
-        buttons_layout.addWidget(ok_btn)
-        
-        main_layout.addLayout(buttons_layout)
-        
-        self.setLayout(main_layout)
+        body_layout.addWidget(scroll_area, stretch=1)
+        return body
     
     def create_header(self):
         """Crea header dialog compatto"""
@@ -270,14 +268,14 @@ class ProfileSelectionDialog(QDialog):
     def on_profile_toggled(self, profile_value: str, checked: bool):
         """
         Callback quando un radio button viene toggled
-        
-        Args:
-            profile_value: Valore del profilo (es: 'fast', 'quality', ecc.)
-            checked: True se il button è stato selezionato, False se deselezionato
+
+        In embed mode (SettingsDialog) la selezione viene persistita immediatamente.
+        In standalone mode resta come prima: persistita solo su accept().
         """
-        if checked:  # Solo quando il button viene SELEZIONATO (non deselezionato)
+        if checked:
             self.selected_profile = profile_value
-            print(f"✅ Profilo selezionato nel dialogo: {profile_value}")
+            if self.embed:
+                self.config.set_transcription_profile(profile_value)
     
     def get_selected_profile(self) -> str:
         """

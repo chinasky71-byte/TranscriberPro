@@ -18,58 +18,10 @@ from utils.translations import tr
 
 logger = logging.getLogger(__name__)
 
-DIALOG_STYLE = """
-    QDialog, QWidget {
-        background-color: #1e1e1e;
-        color: #ffffff;
-    }
-    QGroupBox {
-        color: #ffffff;
-        border: 1px solid rgba(255,255,255,0.15);
-        border-radius: 6px;
-        margin-top: 8px;
-        padding-top: 8px;
-        font-weight: bold;
-    }
-    QGroupBox::title {
-        subcontrol-origin: margin;
-        left: 8px;
-        padding: 0 4px;
-    }
-    QLabel { color: #cccccc; }
-    QSpinBox, QDoubleSpinBox {
-        background-color: #2a2a2a;
-        border: 1px solid rgba(255,255,255,0.15);
-        border-radius: 4px;
-        color: #ffffff;
-        padding: 4px 8px;
-        min-width: 80px;
-    }
-    QSpinBox:focus, QDoubleSpinBox:focus {
-        border: 1px solid rgba(33,150,243,0.6);
-    }
-    QCheckBox { color: #ffffff; }
-    QCheckBox::indicator {
-        width: 16px; height: 16px;
-        border: 1px solid rgba(255,255,255,0.3);
-        border-radius: 3px;
-        background-color: #2a2a2a;
-    }
-    QCheckBox::indicator:checked { background-color: #2196F3; border-color: #2196F3; }
-    QPushButton {
-        background-color: rgba(33,150,243,200);
-        border: none;
-        border-radius: 6px;
-        color: white;
-        padding: 7px 14px;
-        font-weight: bold;
-    }
-    QPushButton:hover { background-color: rgba(33,150,243,255); }
-    QPushButton#resetBtn {
-        background-color: rgba(120,120,120,160);
-    }
-    QPushButton#resetBtn:hover { background-color: rgba(150,150,150,200); }
-"""
+# DIALOG_STYLE neutralizzato in Fase 1 del GUI revamp: lo styling globale e' ora
+# in gui/theme.qss. Il simbolo resta come stringa vuota per compatibilita' con i
+# call-site che fanno setStyleSheet(DIALOG_STYLE).
+DIALOG_STYLE = ""
 
 
 class AdaptiveBatchSettingsWidget(QWidget):

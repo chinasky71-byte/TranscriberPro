@@ -1,100 +1,118 @@
 """
-Splash Screen - Layout ottimizzato senza sovrapposizioni
+Splash Screen — progress bar reale collegata agli step di avvio.
 File: gui/splash_screen.py
-VERSIONE: 1.3.7
+
+La versione viene passata da main.py (APP_VERSION) invece di essere
+hardcoded qui. Il progresso viene aggiornato tramite update_progress()
+chiamato da main.py per ogni step di inizializzazione.
 """
 from PyQt6.QtWidgets import QSplashScreen, QApplication
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QRect
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont
 
 from utils.translations import tr
 
+# Layout costanti (coordinate px su pixmap 600×400)
+_BAR_Y      = 328   # y della progress bar
+_BAR_H      = 7     # altezza progress bar
+_MSG_Y      = 300   # y riga messaggio
+_MSG_H      = 22    # altezza area messaggio
+
+_ACCENT     = QColor(0x3c, 0xc1, 0xe0)   # ciano brand
+_BAR_BG     = QColor(62, 62, 66)
+_MSG_COLOR  = QColor(175, 178, 188)
+
+
 class SplashScreen(QSplashScreen):
-    def __init__(self):
-        # Crea un pixmap con sfondo personalizzato
+
+    def __init__(self, version: str = ""):
         pixmap = QPixmap(600, 400)
-        pixmap.fill(QColor(45, 45, 48))  # Sfondo scuro
-        
-        # Disegna il contenuto
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        # Titolo in alto (senza sovrapposizioni)
-        painter.setPen(QColor(255, 255, 255))
-        title_font = QFont("Arial", 32, QFont.Weight.Bold)
-        painter.setFont(title_font)
-        title_rect = pixmap.rect().adjusted(0, 30, 0, -300)  # Solo parte alta
-        painter.drawText(title_rect, Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignTop, 
-                        "Transcriber Pro")
-        
-        # Logo/Icona al centro (spostato più in alto)
-        icon_font = QFont("Arial", 80)  # Icona più grande e visibile
-        painter.setFont(icon_font)
-        painter.setPen(QColor(100, 150, 255))
-        icon_rect = pixmap.rect().adjusted(0, -30, 0, -80)  # Centrato ma più in alto
-        painter.drawText(icon_rect, Qt.AlignmentFlag.AlignCenter, "🎬")
-        
-        # Sottotitolo sotto l'icona
-        subtitle_font = QFont("Arial", 14)
-        painter.setFont(subtitle_font)
-        painter.setPen(QColor(200, 200, 200))
-        subtitle_rect = pixmap.rect().adjusted(0, 120, 0, 0)  # Posizionato sotto l'icona
-        painter.drawText(subtitle_rect, Qt.AlignmentFlag.AlignCenter,
-                        tr('splash_subtitle'))
-        
-        # ✅ VERSIONE AGGIORNATA: 1.3.7
-        version_font = QFont("Arial", 10)
-        painter.setFont(version_font)
-        painter.setPen(QColor(150, 150, 150))
-        painter.drawText(pixmap.rect().adjusted(0, 0, -10, -10),
-                        Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight,
-                        "v1.3.7")
-        
-        # Credits in basso a sinistra (aggiornato con NLLB e TMDB)
-        painter.drawText(pixmap.rect().adjusted(10, 0, 0, -10),
-                        Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignLeft,
-                        tr('splash_credits'))
-        
-        painter.end()
-        
-        # Inizializza lo splash screen
+        pixmap.fill(QColor(45, 45, 48))
+
+        p = QPainter(pixmap)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Titolo
+        p.setPen(QColor(255, 255, 255))
+        p.setFont(QFont("Arial", 32, QFont.Weight.Bold))
+        p.drawText(
+            pixmap.rect().adjusted(0, 30, 0, -300),
+            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignTop,
+            "Transcriber Pro",
+        )
+
+        # Icona
+        p.setFont(QFont("Arial", 80))
+        p.setPen(QColor(100, 150, 255))
+        p.drawText(
+            pixmap.rect().adjusted(0, -30, 0, -80),
+            Qt.AlignmentFlag.AlignCenter,
+            "\U0001f3ac",
+        )
+
+        # Sottotitolo
+        p.setFont(QFont("Arial", 14))
+        p.setPen(QColor(200, 200, 200))
+        p.drawText(
+            pixmap.rect().adjusted(0, 120, 0, 0),
+            Qt.AlignmentFlag.AlignCenter,
+            tr('splash_subtitle'),
+        )
+
+        # Versione (letta da main.py via parametro)
+        ver_str = f"v{version}" if version and not version.startswith('v') else version
+        p.setFont(QFont("Arial", 10))
+        p.setPen(QColor(140, 140, 148))
+        p.drawText(
+            pixmap.rect().adjusted(0, 0, -10, -10),
+            Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight,
+            ver_str,
+        )
+
+        # Credits
+        p.drawText(
+            pixmap.rect().adjusted(10, 0, 0, -10),
+            Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignLeft,
+            tr('splash_credits'),
+        )
+
+        p.end()
+
         super().__init__(pixmap)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint)
-        
-        # Messaggio di caricamento
-        self.showMessage(
-            tr('init_message'),
-            Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignCenter,
-            QColor(255, 255, 255)
-        )
-    
-    def update_message(self, message):
-        """Aggiorna il messaggio dello splash screen"""
-        self.showMessage(
-            message,
-            Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignCenter,
-            QColor(255, 255, 255)
-        )
+
+        self._pct: int = 0
+        self._message: str = tr('init_message')
+
+    # ── API pubblica ──────────────────────────────────────────────────────────
+
+    def update_progress(self, pct: int, message: str = "") -> None:
+        """Aggiorna progress bar e messaggio; ridisegna immediatamente."""
+        self._pct     = max(0, min(100, pct))
+        self._message = message
+        self.repaint()
         QApplication.processEvents()
 
+    # ── Rendering dinamico ────────────────────────────────────────────────────
 
-def show_splash(duration=2500):
-    """Mostra lo splash screen per una durata specificata"""
-    splash = SplashScreen()
-    splash.show()
-    
-    # Simula caricamento con messaggi
-    messages = [
-        (tr('init_message'),  0),
-        (tr('loading_ai'),  500),
-        (tr('checking_gpu'), 1000),
-        (tr('ready'),        1500),
-    ]
-    
-    for message, delay in messages:
-        QTimer.singleShot(delay, lambda m=message: splash.update_message(m))
-    
-    # Chiudi lo splash dopo la durata specificata
-    QTimer.singleShot(duration, splash.close)
-    
-    return splash
+    def drawContents(self, painter: QPainter) -> None:
+        """Disegna progress bar e messaggio sovrapposti al pixmap statico."""
+        w = self.width()
+
+        # Messaggio
+        if self._message:
+            painter.setFont(QFont("Arial", 10))
+            painter.setPen(_MSG_COLOR)
+            painter.drawText(
+                QRect(20, _MSG_Y, w - 40, _MSG_H),
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                self._message,
+            )
+
+        # Sfondo barra
+        painter.fillRect(0, _BAR_Y, w, _BAR_H, _BAR_BG)
+
+        # Riempimento barra
+        filled = int(w * self._pct / 100)
+        if filled > 0:
+            painter.fillRect(0, _BAR_Y, filled, _BAR_H, _ACCENT)

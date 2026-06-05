@@ -880,7 +880,22 @@ class MainWindow(QMainWindow):
         # SOLO quando lo status cambia (queued→processing, processing→completed…),
         # mai sui semplici aggiornamenti di percentuale a status invariato.
         if status != prev_status:
+            # Riapplica il filtro attivo: l'item deve essere visibile nel tab
+            # corrente prima che setCurrentRow() lo selezioni.
+            self._apply_filter(self.segmented_filter.current_filter())
             self._update_filter_badges()
+            if status == 'processing':
+                # Seleziona l'item E carica direttamente la locandina.
+                # Non ci si affida solo a itemSelectionChanged: può non scattare
+                # se l'item è già correntemente selezionato o era nascosto al
+                # momento della chiamata setCurrentRow().
+                row = self.file_list.row(item)
+                self.file_list.setCurrentRow(row)
+                self.last_loaded_file = None  # azzera la guard per forzare il reload
+                self.load_poster(path)
+                self._update_overlay()
+        elif self.file_list.currentItem() is item:
+            self._update_overlay()
 
     # ------------------------------------------------------------------
 
@@ -1026,6 +1041,10 @@ class MainWindow(QMainWindow):
             item.setData(Qt.ItemDataRole.UserRole, data)
             self.file_list.update()
             self._apply_filter(self.segmented_filter.current_filter())
+            row = self.file_list.row(item)
+            self.file_list.setCurrentRow(row)
+            self.last_loaded_file = None
+            self.load_poster(file_path)
         self._update_filter_badges()
         self._update_overlay()
         self._update_log_stats()

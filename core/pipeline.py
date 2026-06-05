@@ -120,6 +120,7 @@ class ProcessingPipeline:
         self._translator: Optional[BaseTranslator] = None
         self._audio_processor: Optional[AudioProcessor] = None
         self.last_execution_time = 0.0
+        self.last_output_path: Optional[Path] = None
         self.metadata: Dict[str, Any] = {}
         self._cleanup_done: bool = False
 
@@ -706,6 +707,7 @@ class ProcessingPipeline:
             # Crea nome file finale: [nome_video].[lang].srt
             final_name = self.video_name + f".{final_language_639_1}.srt"
             final_output_path = self.video_path.parent / final_name
+            self.last_output_path = final_output_path
             
             try:
                 shutil.copy(subtitle_path, final_output_path)

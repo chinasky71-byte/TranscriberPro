@@ -76,6 +76,7 @@ class PgsOcr:
         self.extractor = SubtitleExtractor(str(video_path))
         self._cancelled = False
         self._active_proc: Optional[subprocess.Popen] = None
+        self._bitmap_stream_abs_idx: Optional[int] = None
         self._configure_tesseract()
 
     def _progress(self, percent: int, label: str):
@@ -161,6 +162,7 @@ class PgsOcr:
         VERBATIM: nessuna correzione del testo.
         """
         sub = self.select_pgs_stream()
+        self._bitmap_stream_abs_idx = sub.get("index")
         stream_lang3 = (sub.get("language") or "und").lower()
         ocr_lang = pick_tesseract_lang(stream_lang3, fallback=self._cfg(CFG_LANGUAGE, DEFAULT_LANGUAGE))
         # Se la lingua della traccia non ha tessdata e non è "sconosciuta", interrompi
@@ -350,15 +352,32 @@ class PgsOcr:
         # Indice della nuova traccia sottotitolo = numero di sub esistenti.
         if not self.extractor.subtitle_streams:
             self.extractor.detect_subtitles()
-        n_subs = len(self.extractor.subtitle_streams)
+        subs = self.extractor.subtitle_streams
+        n_subs = len(subs)
+
+        # Individua la traccia bitmap da rimuovere
+        if self._bitmap_stream_abs_idx is None:
+            try:
+                self._bitmap_stream_abs_idx = self.select_pgs_stream().get("index")
+            except Exception:
+                pass
+        bitmap_rel_idx = next(
+            (i for i, s in enumerate(subs) if s.get("index") == self._bitmap_stream_abs_idx),
+            None,
+        )
+        # Se rimuoviamo 1 e aggiungiamo 1 il conteggio resta invariato → indice = n_subs-1
+        new_sub_idx = n_subs - 1 if bitmap_rel_idx is not None else n_subs
 
         temp = Path(str(self.video_path) + ".converting")
         cmd = ["ffmpeg", "-y", "-loglevel", "error",
                "-i", str(self.video_path), "-i", str(srt_file),
-               "-map", "0", "-map", "1:0", "-c", "copy",
-               f"-metadata:s:s:{n_subs}", f"language={language}",
-               f"-disposition:s:{n_subs}", "0",
-               "-f", "matroska", str(temp)]
+               "-map", "0"]
+        if bitmap_rel_idx is not None:
+            cmd += ["-map", f"-0:s:{bitmap_rel_idx}"]
+        cmd += ["-map", "1:0", "-c", "copy",
+                f"-metadata:s:s:{new_sub_idx}", f"language={language}",
+                f"-disposition:s:{new_sub_idx}", "0",
+                "-f", "matroska", str(temp)]
         self._active_proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             encoding="utf-8", errors="replace", creationflags=_CREATE_NO_WINDOW)

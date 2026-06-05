@@ -151,10 +151,11 @@ class SettingsDialog(QDialog):
         self._populate_pages()
 
     def _populate_pages(self):
-        """Crea e registra le 5 pagine nella sidebar + stack.
+        """Registra le tab nella sidebar con placeholder vuoti.
 
-        Errori di import vengono catturati per pagina e sostituiti da un
-        placeholder con messaggio d'errore, cosi' il dialog resta usabile.
+        I widget reali vengono istanziati in modo lazy al momento della
+        prima selezione di ciascuna tab (_on_row_changed), per evitare
+        import pesanti che bloccano il main thread all'apertura del dialog.
         """
         labels = {
             TAB_GENERAL: tr('settings_tab_general'),
@@ -165,14 +166,11 @@ class SettingsDialog(QDialog):
             TAB_OCR: tr('ocr_section_title'),
         }
 
-        for tab_id in _TAB_ORDER:
-            try:
-                widget = self._build_page(tab_id)
-            except Exception as exc:
-                widget = self._build_error_page(tab_id, str(exc))
+        self._page_built: list[bool] = [False] * len(_TAB_ORDER)
 
-            self._pages[tab_id] = widget
-            self.stack.addWidget(widget)
+        for tab_id in _TAB_ORDER:
+            self._pages[tab_id] = None
+            self.stack.addWidget(QWidget())  # placeholder vuoto
 
             item = QListWidgetItem(labels[tab_id])
             item.setIcon(svg_icon(_TAB_ICON.get(tab_id, 'settings'), 16, '#9095a0'))
@@ -234,6 +232,21 @@ class SettingsDialog(QDialog):
         if row < 0 or row >= len(_TAB_ORDER):
             return
         tab_id = _TAB_ORDER[row]
+
+        # Lazy build: istanzia la pagina solo alla prima selezione.
+        if not self._page_built[row]:
+            try:
+                widget = self._build_page(tab_id)
+            except Exception as exc:
+                widget = self._build_error_page(tab_id, str(exc))
+            self._pages[tab_id] = widget
+            self._page_built[row] = True
+            # Sostituisce il placeholder con il widget reale mantenendo l'indice.
+            placeholder = self.stack.widget(row)
+            self.stack.insertWidget(row, widget)
+            self.stack.removeWidget(placeholder)
+            placeholder.deleteLater()
+
         self.stack.setCurrentIndex(row)
         # Persisti l'ultima tab visitata
         try:
