@@ -1146,7 +1146,7 @@ async function loadHistory() {
 async function loadScanStatus() {
     try {
         const s = await api('/api/scan/status');
-        if (!s) return;
+        if (!s) return false;
         document.getElementById('btn-scan').disabled = s.scanning;
         document.getElementById('btn-cancel').disabled = !s.scanning;
 
@@ -1173,7 +1173,9 @@ async function loadScanStatus() {
                 : '';
             document.getElementById('scan-status').textContent = info;
         }
-    } catch(e) {}
+        if (s.scanning && !pollTimer) pollScan();
+        return s.scanning;
+    } catch(e) { return false; }
 }
 
 async function loadApiKey() {
@@ -1197,9 +1199,8 @@ function pollScan() {
     document.getElementById('btn-cancel').disabled=false;
     if(pollTimer)clearInterval(pollTimer);
     pollTimer=setInterval(async()=>{
-        await loadScanStatus();
-        const s=await api('/api/scan/status');
-        if(!s||!s.scanning){clearInterval(pollTimer);pollTimer=null;log('Scansione terminata');loadAll();}
+        const scanning=await loadScanStatus();
+        if(!scanning){clearInterval(pollTimer);pollTimer=null;log('Scansione terminata');loadAll();}
     },3000);
 }
 
