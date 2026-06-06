@@ -334,15 +334,18 @@ class SubtitleExtractor:
             return False
 
     def select_all_italian_bitmap_subtitles(self) -> List[Dict]:
-        """Restituisce TUTTE le tracce bitmap italiane non-forced, ordinate per index."""
+        """
+        Restituisce TUTTE le tracce bitmap italiane, ordinate per index.
+        Incluse le tracce forced: la Library Scanner le rileva senza filtrarle
+        e imposta has_italian_bitmap_sub=True su di esse.
+        """
         if not self.subtitle_streams:
             self.detect_subtitles()
         _ITALIAN = {'ita', 'it', 'italian', 'italiano'}
         result = sorted(
             [
                 s for s in self.subtitle_streams
-                if not s['forced']
-                and s['codec'].lower() in self.BITMAP_CODECS
+                if s['codec'].lower() in self.BITMAP_CODECS
                 and s['language'].lower() in _ITALIAN
             ],
             key=lambda s: s['index'],
