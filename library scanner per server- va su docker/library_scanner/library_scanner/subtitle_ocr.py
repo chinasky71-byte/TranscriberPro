@@ -230,6 +230,9 @@ class SubtitleOcr:
         except Exception as e:
             logger.warning(f"Recovery ocring fallito: {e}")
 
+        # ── Pulizia file orfani da crash precedenti ──────────────────────────
+        self._cleanup_orphaned_files()
+
         stats = {"status": "running", "total": 0, "done": 0, "failed": 0, "skipped": 0}
 
         try:
@@ -292,6 +295,55 @@ class SubtitleOcr:
             self._current_file = ""
 
         return stats
+
+    # ── Pulizia file orfani ───────────────────────────────────────────────────
+
+    def _cleanup_orphaned_files(self):
+        """
+        Rimuove file temporanei lasciati da crash OCR precedenti:
+          - *.mkv.converting  (MKV parziale del mux ffmpeg interrotto)
+          - *.ocr_tmp.srt / *.ocr_tmp_*.srt  (SRT intermedi per ffmpeg)
+        Cerca nelle directory video configurate nel DB.
+        Errori non fatali: logga e prosegue.
+        """
+        from library_scanner.models import ScanDirectory
+        try:
+            with get_db() as db:
+                dirs = db.execute(
+                    select(ScanDirectory).where(ScanDirectory.enabled == True)
+                ).scalars().all()
+                paths = [d.linux_path for d in dirs]
+        except Exception as e:
+            logger.warning(f"Cleanup orfani: impossibile leggere directory dal DB: {e}")
+            return
+
+        _ORPHAN_PATTERNS = ["*.converting", "*.ocr_tmp.srt", "*.ocr_tmp_*.srt"]
+        total_removed = 0
+        total_bytes = 0
+
+        for dir_path in paths:
+            root = Path(dir_path)
+            if not root.is_dir():
+                continue
+            for pattern in _ORPHAN_PATTERNS:
+                for orphan in root.rglob(pattern):
+                    try:
+                        size = orphan.stat().st_size
+                        orphan.unlink()
+                        total_removed += 1
+                        total_bytes += size
+                        logger.info(
+                            f"  Cleanup orfano rimosso: {orphan.name} "
+                            f"({size // 1024 // 1024} MB)"
+                        )
+                    except Exception as e:
+                        logger.warning(f"  Cleanup orfano: impossibile rimuovere {orphan}: {e}")
+
+        if total_removed:
+            logger.info(
+                f"Cleanup orfani completato: {total_removed} file rimossi "
+                f"({total_bytes // 1024 // 1024} MB liberati)"
+            )
 
     # ── File singolo ──────────────────────────────────────────────────────────
 
