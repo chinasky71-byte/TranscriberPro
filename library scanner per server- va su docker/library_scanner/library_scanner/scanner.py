@@ -29,10 +29,25 @@ class LibraryScanner:
         self._running = False
         self._cancelled = False
         self._progress_callback: Optional[Callable] = None
+        self._files_total: int = 0
+        self._files_processed: int = 0
+        self._current_file: str = ""
 
     @property
     def is_running(self) -> bool:
         return self._running
+
+    @property
+    def progress(self) -> dict:
+        total = self._files_total
+        processed = self._files_processed
+        percent = int(processed / total * 100) if total > 0 else 0
+        return {
+            "files_total": total,
+            "files_processed": processed,
+            "percent": percent,
+            "current_file": self._current_file,
+        }
 
     def cancel(self):
         """Richiede cancellazione della scansione in corso."""
@@ -57,6 +72,9 @@ class LibraryScanner:
         self._running = True
         self._cancelled = False
         self._progress_callback = progress_callback
+        self._files_total = 0
+        self._files_processed = 0
+        self._current_file = ""
 
         scan_log = None
         start_time = time.time()
@@ -223,12 +241,14 @@ class LibraryScanner:
 
         logger.info(f"  Trovati {len(video_files)} file video in {scan_dir.label}")
         dir_stats["found"] = len(video_files)
+        self._files_total += len(video_files)
 
         # Processa ogni file video
         with get_db() as db:
             for video_path in video_files:
                 if self._cancelled:
                     break
+                self._current_file = video_path.name
                 try:
                     result = self._process_video_file(db, scan_dir, video_path)
                     if result == "new":
@@ -250,6 +270,9 @@ class LibraryScanner:
                     dir_stats["errors"] += 1
                     dir_stats["error_details"].append(f"{video_path.name}: {e}")
                     logger.error(f"  Errore processando {video_path.name}: {e}")
+                finally:
+                    self._files_processed += 1
+                    self._notify(f"Scansione {scan_dir.label}", self.progress["percent"])
 
         return dir_stats
 
