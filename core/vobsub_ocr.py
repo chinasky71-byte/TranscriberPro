@@ -394,7 +394,8 @@ class VobSubOcr:
             title = (sub_info.get("title") or "").strip()
             if title:
                 cmd += [f"-metadata:s:s:{out_idx}", f"title={title}"]
-            cmd += [f"-disposition:s:{out_idx}", "0"]
+            disposition = "forced" if sub_info.get("forced", False) else "0"
+            cmd += [f"-disposition:s:{out_idx}", disposition]
         cmd += ["-f", "matroska", str(temp)]
 
         self._active_proc = subprocess.Popen(
@@ -481,6 +482,7 @@ class VobSubOcr:
         )
         new_sub_idx = n_subs - 1 if bitmap_rel_idx is not None else n_subs
         orig_title = (orig.get("title") or "").strip()
+        orig_forced = orig.get("forced", False)
 
         temp = Path(str(self.video_path) + ".converting")
         cmd = ["ffmpeg", "-y", "-loglevel", "error",
@@ -492,7 +494,8 @@ class VobSubOcr:
                 f"-metadata:s:s:{new_sub_idx}", f"language={language}"]
         if orig_title:
             cmd += [f"-metadata:s:s:{new_sub_idx}", f"title={orig_title}"]
-        cmd += [f"-disposition:s:{new_sub_idx}", "0",
+        disposition = "forced" if orig_forced else "0"
+        cmd += [f"-disposition:s:{new_sub_idx}", disposition,
                 "-f", "matroska", str(temp)]
         self._active_proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
