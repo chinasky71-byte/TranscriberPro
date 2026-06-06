@@ -67,20 +67,28 @@ class OcrWorker(QThread):
                 self.writeback_done.emit(ok)
                 return
 
-            events, content_lang = self._ocr.ocr_to_events()
-
-            if is_italian(content_lang):
-                # Traccia già italiana → flusso normale (review o auto).
-                if self.strategy == STRATEGY_AUTO:
-                    srt = events_to_srt(events)
-                    ok = self._ocr.writeback(srt, 'it') if srt.strip() else False
+            if self.strategy == STRATEGY_AUTO:
+                # Auto: run_auto() gestisce TUTTE le tracce italiane (singola o multi-stream).
+                # Se non ci sono tracce italiane di questo codec, rilancia BitmapNotSupported
+                # → catturata sotto → cade nel ramo OCR+traduzione via ocr_to_events().
+                try:
+                    ok = self._ocr.run_auto()
                     self.auto_done.emit(ok)
-                else:
-                    self.events_ready.emit(events, 'it')
+                    return
+                except _not_supported:
+                    # Nessuna traccia italiana di questo codec → prova tracce non-italiane.
+                    events, content_lang = self._ocr.ocr_to_events()
+                    ok = self._convert_and_translate(events, content_lang)
+                    self.auto_done.emit(ok)
             else:
-                # Traccia NON italiana → SEMPRE automatico: OCR sorgente + traduzione → .it.srt.
-                ok = self._convert_and_translate(events, content_lang)
-                self.auto_done.emit(ok)
+                # Review: singola traccia migliore per UI di revisione.
+                events, content_lang = self._ocr.ocr_to_events()
+                if is_italian(content_lang):
+                    self.events_ready.emit(events, 'it')
+                else:
+                    # Traccia NON italiana → automatico: OCR sorgente + traduzione → .it.srt.
+                    ok = self._convert_and_translate(events, content_lang)
+                    self.auto_done.emit(ok)
 
         except _not_supported as exc:
             self.unsupported.emit(str(exc))

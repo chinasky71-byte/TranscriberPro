@@ -333,6 +333,27 @@ class SubtitleExtractor:
             logger.error(f"❌ Errore estrazione sottotitolo: {e}", exc_info=True)
             return False
 
+    def select_all_italian_bitmap_subtitles(self) -> List[Dict]:
+        """Restituisce TUTTE le tracce bitmap italiane non-forced, ordinate per index."""
+        if not self.subtitle_streams:
+            self.detect_subtitles()
+        _ITALIAN = {'ita', 'it', 'italian', 'italiano'}
+        result = sorted(
+            [
+                s for s in self.subtitle_streams
+                if not s['forced']
+                and s['codec'].lower() in self.BITMAP_CODECS
+                and s['language'].lower() in _ITALIAN
+            ],
+            key=lambda s: s['index'],
+        )
+        if result:
+            logger.info(
+                f"  Tracce bitmap italiane: {len(result)} "
+                f"(stream {[s['index'] for s in result]})"
+            )
+        return result
+
     def has_subtitles(self) -> bool:
         """Verifica se il video ha sottotitoli"""
         if not self.subtitle_streams:

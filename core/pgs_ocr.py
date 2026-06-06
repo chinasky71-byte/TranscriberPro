@@ -136,6 +136,11 @@ class PgsOcr:
             )
         return sub
 
+    def select_all_pgs_streams_ita(self) -> List[dict]:
+        """Restituisce TUTTE le tracce PGS italiane non-forced, ordinate per index."""
+        subs = self.extractor.select_all_italian_bitmap_subtitles()
+        return [s for s in subs if s["codec"].lower() in PGS_CODECS]
+
     def extract_sup(self, stream_index: int, out_sup: Path) -> bool:
         out_sup.parent.mkdir(parents=True, exist_ok=True)
         cmd = ["ffmpeg", "-y", "-loglevel", "error",
@@ -155,18 +160,13 @@ class PgsOcr:
         return True
 
     # ── Ramo REVIEW: pgsreader + Tesseract ────────────────────────────────
-    def ocr_to_events(self) -> Tuple[List[OcrEvent], str]:
+    def _ocr_single_stream(self, sub: dict) -> Tuple[List[OcrEvent], str]:
         """
-        Esegue l'OCR PGS e ritorna (lista di OcrEvent, lingua_contenuto 2-lettere).
-        L'OCR usa il modello Tesseract della lingua della TRACCIA (non della config).
-        VERBATIM: nessuna correzione del testo.
+        OCR di UNA traccia PGS (helper condiviso da ocr_to_events e run_auto).
+        Ritorna (eventi, lingua_contenuto 2-lettere). VERBATIM.
         """
-        sub = self.select_pgs_stream()
-        self._bitmap_stream_abs_idx = sub.get("index")
         stream_lang3 = (sub.get("language") or "und").lower()
         ocr_lang = pick_tesseract_lang(stream_lang3, fallback=self._cfg(CFG_LANGUAGE, DEFAULT_LANGUAGE))
-        # Se la lingua della traccia non ha tessdata e non è "sconosciuta", interrompi
-        # (il caller la gestirà come file saltato, marcato completato).
         if stream_lang3 not in ('und', 'unk', '') and ocr_lang != stream_lang3:
             from core.bitmap_ocr_common import available_tesseract_langs
             if stream_lang3 not in available_tesseract_langs():
@@ -174,17 +174,17 @@ class PgsOcr:
                     f"Lingua '{stream_lang3}' non supportata da Tesseract (traineddata mancante)")
         content_lang = lang_to_2(stream_lang3)
 
-        from utils.file_handler import FileHandler  # lazy
+        from utils.file_handler import FileHandler
         try:
             fh = FileHandler()
-            sup_path = Path(fh.get_temp_path(str(self.video_path), "pgs_ocr.sup"))
+            sup_path = Path(fh.get_temp_path(str(self.video_path), f"pgs_{sub['index']}.sup"))
         except Exception:
             import tempfile
-            sup_path = Path(tempfile.gettempdir()) / f"{self.video_path.stem}_pgs_ocr.sup"
+            sup_path = Path(tempfile.gettempdir()) / f"{self.video_path.stem}_pgs_{sub['index']}.sup"
 
         self._log(f"Estrazione PGS (stream {sub['index']}, {stream_lang3}; OCR={ocr_lang})...")
         if not self.extract_sup(sub["index"], sup_path):
-            raise RuntimeError("Estrazione .sup fallita")
+            raise RuntimeError(f"Estrazione .sup fallita (stream {sub['index']})")
 
         self._log("Parsing PGS + OCR Tesseract...")
         events = self._sup_to_events(sup_path, ocr_lang)
@@ -197,6 +197,15 @@ class PgsOcr:
         n_flag = sum(1 for e in events if e.is_flagged)
         self._log(f"OCR completato: {len(events)} eventi, {n_flag} da rivedere")
         return events, content_lang
+
+    def ocr_to_events(self) -> Tuple[List[OcrEvent], str]:
+        """
+        Esegue l'OCR sulla traccia PGS migliore e ritorna (lista di OcrEvent, lingua 2-lettere).
+        Usato dal ramo review (singola traccia per UI di revisione).
+        """
+        sub = self.select_pgs_stream()
+        self._bitmap_stream_abs_idx = sub.get("index")
+        return self._ocr_single_stream(sub)
 
     def _sup_to_events(self, sup_path: Path, language: str) -> List[OcrEvent]:
         import numpy as np
@@ -301,17 +310,125 @@ class PgsOcr:
     # ── Ramo AUTO ─────────────────────────────────────────────────────────
     def run_auto(self) -> bool:
         """
-        Conversione automatica: usa lo STESSO motore validato del ramo review
-        (pgsreader + Tesseract via ffmpeg), saltando solo la UI di revisione.
-        Più affidabile e coerente di pgsrip (che dipende da mkvextract/tesseract
-        nel PATH del processo, fragile in un'app GUI).
+        Conversione automatica di TUTTE le tracce PGS italiane.
+        Singola traccia → writeback() normale.
+        Più tracce → mux single-pass (rimuove tutti i bitmap + aggiunge tutti gli SRT).
         """
-        events, language = self.ocr_to_events()
-        srt = events_to_srt(events)
-        if not srt.strip():
+        streams = self.select_all_pgs_streams_ita()
+        if not streams:
+            raise BitmapNotSupported("Nessun sottotitolo PGS italiano trovato")
+
+        results: List[Tuple[dict, str, str]] = []  # (stream_dict, srt_text, lang2)
+        for sub in streams:
+            try:
+                events, lang = self._ocr_single_stream(sub)
+            except Exception as e:
+                self._log(f"Stream {sub['index']}: errore OCR, skip: {e}")
+                continue
+            srt = events_to_srt(events)
+            if srt.strip():
+                results.append((sub, srt, lang))
+            else:
+                self._log(f"Stream {sub['index']}: OCR non ha prodotto testo, skip")
+
+        if not results:
             self._log("Nessun testo OCR prodotto")
             return False
-        return self.writeback(srt, language)
+
+        if len(results) == 1:
+            sub, srt, lang = results[0]
+            self._bitmap_stream_abs_idx = sub["index"]
+            return self.writeback(srt, lang)
+
+        return self._writeback_mux_multi(results)
+
+    def _writeback_mux_multi(self, results: List[Tuple[dict, str, str]]) -> bool:
+        """
+        Mux single-pass: rimuove tutte le tracce PGS OCR-ate e aggiunge gli SRT.
+        results: [(stream_dict, srt_text, lang2), ...]
+        """
+        if self.video_path.suffix.lower() != ".mkv":
+            logger.warning(f"Write-back mux multi salta {self.video_path.name}: non è MKV")
+            return False
+
+        if not self.extractor.subtitle_streams:
+            self.extractor.detect_subtitles()
+        all_subs = self.extractor.subtitle_streams
+        n_subs = len(all_subs)
+        N = len(results)
+
+        # Indici relativi (nell'array subtitle) delle tracce bitmap da rimuovere
+        bitmap_rel_indices = []
+        for sub, _, _ in results:
+            rel = next(
+                (i for i, s in enumerate(all_subs) if s.get("index") == sub["index"]), None
+            )
+            if rel is not None:
+                bitmap_rel_indices.append(rel)
+
+        out_sub_start = n_subs - len(bitmap_rel_indices)
+
+        # Scrivi SRT temporanei accanto al video
+        tmp_srts: List[Path] = []
+        temp = Path(str(self.video_path) + ".converting")
+        try:
+            for k, (_, srt_text, _) in enumerate(results):
+                srt_p = self.video_path.with_suffix(f".ocr_tmp_{k}.srt")
+                srt_p.write_text(srt_text, encoding="utf-8")
+                tmp_srts.append(srt_p)
+        except Exception as e:
+            logger.error(f"Scrittura SRT temp fallita: {e}")
+            for p in tmp_srts:
+                try:
+                    p.unlink(missing_ok=True)
+                except Exception:
+                    pass
+            return False
+
+        cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(self.video_path)]
+        for srt_p in tmp_srts:
+            cmd += ["-i", str(srt_p)]
+        cmd += ["-map", "0"]
+        for rel_idx in sorted(bitmap_rel_indices, reverse=True):
+            cmd += ["-map", f"-0:s:{rel_idx}"]
+        for k in range(N):
+            cmd += ["-map", f"{k + 1}:0"]
+        cmd += ["-c", "copy"]
+        for k, (sub, _, lang) in enumerate(results):
+            out_idx = out_sub_start + k
+            cmd += [f"-metadata:s:s:{out_idx}", f"language={lang}"]
+            title = (sub.get("title") or "").strip()
+            if title:
+                cmd += [f"-metadata:s:s:{out_idx}", f"title={title}"]
+            cmd += [f"-disposition:s:{out_idx}", "0"]
+        cmd += ["-f", "matroska", str(temp)]
+
+        self._active_proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            encoding="utf-8", errors="replace", creationflags=_CREATE_NO_WINDOW)
+        _, err = self._active_proc.communicate()
+        rc = self._active_proc.returncode
+        self._active_proc = None
+
+        for p in tmp_srts:
+            try:
+                p.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+        if self._cancelled:
+            if temp.exists():
+                temp.unlink()
+            raise InterruptedError("Operazione annullata")
+        if rc != 0 or not temp.exists() or temp.stat().st_size < 1024:
+            logger.error(f"Write-back mux multi fallito (rc={rc}): {err}")
+            if temp.exists():
+                temp.unlink()
+            return False
+        temp.replace(self.video_path)
+        langs = ", ".join(l for _, _, l in results)
+        self._log(f"{N} tracce SRT ({langs}) aggiunte in-place: {self.video_path.name}")
+        return True
 
     # ── Write-back ────────────────────────────────────────────────────────
     def write_sidecar(self, srt_text: str, lang2: str) -> Path:
