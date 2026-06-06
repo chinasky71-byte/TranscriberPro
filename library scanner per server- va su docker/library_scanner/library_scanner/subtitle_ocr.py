@@ -237,7 +237,6 @@ class SubtitleOcr:
                 q = (
                     select(VideoFile)
                     .where(VideoFile.has_italian_bitmap_sub == True)
-                    .where(VideoFile.has_italian_text_sub == False)
                 )
                 if video_ids:
                     q = q.where(VideoFile.id.in_(video_ids))
