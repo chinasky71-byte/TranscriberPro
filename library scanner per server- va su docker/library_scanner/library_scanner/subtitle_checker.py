@@ -221,12 +221,14 @@ def detect_subtitle_streams_full(video_path: Path) -> dict:
             is_bitmap = codec in Config.BITMAP_SUB_CODECS
             is_convertible = codec in Config.CONVERTIBLE_SUB_CODECS
             is_italian = lang in Config.ITALIAN_LANG_CODES
+            forced = bool(stream.get("disposition", {}).get("forced", 0))
 
             result["streams"].append({
                 "index": stream.get("index"),
                 "codec": codec,
                 "language": lang,
                 "title": title,
+                "forced": forced,
                 "convertible": is_convertible,
                 "is_bitmap": is_bitmap,
             })
