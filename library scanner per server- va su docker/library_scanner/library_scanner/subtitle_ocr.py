@@ -307,19 +307,22 @@ class SubtitleOcr:
             self._update_status(vf.id, "failed", "File non trovato su disco")
             return "failed"
 
-        stream = self._find_best_bitmap_stream(vf.sub_formats_json)
-        if not stream:
+        streams = self._find_all_bitmap_streams_ita(vf.sub_formats_json)
+        if not streams:
             self._update_status(vf.id, "skipped", "Nessun bitmap italiano in sub_formats_json")
             return "skipped"
 
-        codec = stream.get("codec", "").lower()
-        if codec in _PGS_CODECS:
-            return self._ocr_pgs(vf, video_path, stream["index"])
-        elif codec in _VOBSUB_CODECS:
-            return self._ocr_vobsub(vf, video_path, stream["index"])
+        if len(streams) == 1:
+            codec = streams[0].get("codec", "").lower()
+            if codec in _PGS_CODECS:
+                return self._ocr_pgs(vf, video_path, streams[0]["index"])
+            elif codec in _VOBSUB_CODECS:
+                return self._ocr_vobsub(vf, video_path, streams[0]["index"])
+            else:
+                self._update_status(vf.id, "skipped", f"Codec non supportato: {codec}")
+                return "skipped"
         else:
-            self._update_status(vf.id, "skipped", f"Codec non supportato: {codec}")
-            return "skipped"
+            return self._ocr_multi(vf, video_path, streams)
 
     def _find_best_bitmap_stream(self, sub_formats_json: Optional[str]) -> Optional[dict]:
         try:
@@ -344,6 +347,225 @@ class SubtitleOcr:
                 if match:
                     return s
         return bitmap[0]
+
+    def _find_all_bitmap_streams_ita(self, sub_formats_json: Optional[str]) -> List[dict]:
+        """Restituisce tutte le tracce bitmap (PGS o VOBSUB) in italiano, ordinate per index."""
+        try:
+            streams = json.loads(sub_formats_json or "[]")
+        except Exception:
+            return []
+        return sorted(
+            [
+                s for s in streams
+                if isinstance(s, dict)
+                and s.get("codec", "").lower() in (_PGS_CODECS | _VOBSUB_CODECS)
+                and str(s.get("language", s.get("lang", "")) or "").lower() in _ITALIAN_CODES
+            ],
+            key=lambda s: s.get("index", 0),
+        )
+
+    def _assign_srt_path(self, video_path: Path, stream: dict) -> Path:
+        """Determina il percorso SRT sidecar in base alla traccia (normal vs forced)."""
+        is_forced = stream.get("forced", False) or \
+            "forced" in (stream.get("title") or "").lower()
+        suffix = ".it.forced.srt" if is_forced else ".it.srt"
+        return video_path.with_name(f"{video_path.stem}{suffix}")
+
+    def _extract_and_ocr_pgs(self, stream_idx: int, video_path: Path,
+                              tmpdir: Path, vf) -> str:
+        """Estrae una traccia PGS e la converte in testo SRT. Raises on failure."""
+        sup_path = tmpdir / f"track_{stream_idx}.sup"
+        cmd = ["mkvextract", "tracks", str(video_path), f"{stream_idx}:{sup_path}"]
+        logger.info(f"  mkvextract PGS stream {stream_idx}: {vf.filename}")
+        self._current_proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            encoding="utf-8", errors="replace",
+        )
+        _, _ = self._current_proc.communicate(timeout=Config.OCR_TIMEOUT_S)
+        rc = self._current_proc.returncode
+        self._current_proc = None
+        if rc != 0:
+            raise RuntimeError(f"mkvextract fallito (rc={rc}) stream {stream_idx}")
+        if not sup_path.exists() or sup_path.stat().st_size < 100:
+            raise RuntimeError(f"mkvextract non ha prodotto .sup per stream {stream_idx}")
+        logger.info(f"  pgsreader + Tesseract ({_ocr_workers()} worker) stream {stream_idx}: {vf.filename}")
+        return self._sup_to_srt(sup_path, Config.OCR_LANGUAGE)
+
+    def _extract_and_ocr_vobsub(self, stream_idx: int, video_path: Path,
+                                 tmpdir: Path, vf) -> str:
+        """Estrae una traccia VOBSUB e la converte in testo SRT. Raises on failure."""
+        tmp_base = tmpdir / f"vobsub_{stream_idx}"
+        extract_cmd = ["mkvextract", "tracks", str(video_path), f"{stream_idx}:{tmp_base}"]
+        logger.info(f"  mkvextract VOBSUB stream {stream_idx}: {vf.filename}")
+        self._current_proc = subprocess.Popen(
+            extract_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            encoding="utf-8", errors="replace",
+        )
+        _, _ = self._current_proc.communicate(timeout=Config.OCR_TIMEOUT_S)
+        rc = self._current_proc.returncode
+        self._current_proc = None
+        if rc != 0:
+            raise RuntimeError(f"mkvextract fallito (rc={rc}) stream {stream_idx}")
+        idx_path = Path(str(tmp_base) + ".idx")
+        sub_path = Path(str(tmp_base) + ".sub")
+        if not idx_path.exists() or not sub_path.exists():
+            raise RuntimeError(f"mkvextract non ha prodotto .idx/.sub per stream {stream_idx}")
+        logger.info(f"  VobSubParser + Tesseract ({_ocr_workers()} worker) stream {stream_idx}: {vf.filename}")
+        return self._idxsub_to_srt(idx_path, sub_path, Config.OCR_LANGUAGE)
+
+    def _ocr_multi(self, vf, video_path: Path, streams: List[dict]) -> str:
+        """OCR di più tracce bitmap italiane (PGS/VOBSUB) con mux single-pass."""
+        log_id = self._create_log(vf.id, "multi")
+        self._update_status(vf.id, "ocring")
+        start = time.time()
+
+        results = []  # list of (stream_dict, srt_text)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for stream in streams:
+                if self._cancelled:
+                    break
+                idx = stream["index"]
+                codec = stream.get("codec", "").lower()
+                try:
+                    if codec in _PGS_CODECS:
+                        srt_text = self._extract_and_ocr_pgs(idx, video_path, Path(tmpdir), vf)
+                    elif codec in _VOBSUB_CODECS:
+                        srt_text = self._extract_and_ocr_vobsub(idx, video_path, Path(tmpdir), vf)
+                    else:
+                        logger.warning(f"  Stream {idx}: codec non supportato {codec}, skip")
+                        continue
+                except Exception as e:
+                    logger.error(f"  Stream {idx} OCR fallito: {e}", exc_info=True)
+                    continue
+                if srt_text and srt_text.strip():
+                    results.append((stream, srt_text))
+                else:
+                    logger.warning(f"  Stream {idx}: OCR non ha prodotto testo, skip")
+
+        if self._cancelled:
+            self._update_status(vf.id, "failed", "Annullato")
+            self._finish_log(log_id, "failed", "Annullato", time.time() - start)
+            return "failed"
+
+        if not results:
+            msg = "OCR multi: nessuna traccia ha prodotto testo"
+            self._update_status(vf.id, "skipped", msg)
+            self._finish_log(log_id, "skipped", msg, time.time() - start)
+            return "skipped"
+
+        mux_ok = self._writeback_mux_multi(video_path, results, vf.sub_formats_json)
+        duration = time.time() - start
+        if mux_ok:
+            logger.info(
+                f"  ✓ Multi OCR + mux in {duration:.1f}s "
+                f"({len(results)} tracce): {video_path.name}"
+            )
+        else:
+            for stream, srt_text in results:
+                srt_path = self._assign_srt_path(video_path, stream)
+                try:
+                    srt_path.write_text(srt_text, encoding="utf-8")
+                    logger.warning(f"  Mux fallito, sidecar: {srt_path.name}")
+                except Exception as e:
+                    logger.error(f"  Sidecar write fallito: {e}")
+
+        self._update_status(vf.id, "done", conversion_done_at=datetime.now(timezone.utc))
+        self._finish_log(log_id, "done", None, duration)
+        self._post_ocr_update(vf.id)
+        return "done"
+
+    def _writeback_mux_multi(self, video_path: Path, results: list,
+                             sub_formats_json: Optional[str]) -> bool:
+        """
+        Mux single-pass: rimuove tutte le tracce bitmap OCR-ate e aggiunge gli SRT.
+        results: list of (stream_dict, srt_text)
+        """
+        try:
+            all_subs = sorted(json.loads(sub_formats_json or "[]"),
+                              key=lambda s: s.get("index", 0))
+        except Exception:
+            all_subs = []
+
+        n_subs = len(all_subs)
+        N = len(results)
+
+        bitmap_rel_indices = []
+        for stream, _ in results:
+            abs_idx = stream["index"]
+            rel = next((i for i, s in enumerate(all_subs) if s.get("index") == abs_idx), None)
+            if rel is not None:
+                bitmap_rel_indices.append(rel)
+
+        # Gli SRT nel mux cominciano dopo le tracce subtitle rimaste
+        out_sub_start = n_subs - len(bitmap_rel_indices)
+
+        tmp_srts: List[Path] = []
+        temp = Path(str(video_path) + ".converting")
+        try:
+            for k, (_, srt_text) in enumerate(results):
+                srt_p = video_path.with_suffix(f".ocr_tmp_{k}.srt")
+                srt_p.write_text(srt_text, encoding="utf-8")
+                tmp_srts.append(srt_p)
+        except Exception as e:
+            logger.error(f"_writeback_mux_multi: scrittura SRT temp fallita: {e}")
+            for p in tmp_srts:
+                p.unlink(missing_ok=True)
+            return False
+
+        cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(video_path)]
+        for srt_p in tmp_srts:
+            cmd += ["-i", str(srt_p)]
+        cmd += ["-map", "0"]
+        for rel_idx in bitmap_rel_indices:
+            cmd += ["-map", f"-0:s:{rel_idx}"]
+        for k in range(N):
+            cmd += ["-map", f"{k + 1}:0"]
+        cmd += ["-c", "copy"]
+        for k, (stream, _) in enumerate(results):
+            out_idx = out_sub_start + k
+            orig_title = (stream.get("title") or "").strip()
+            is_forced = stream.get("forced", False) or \
+                "forced" in (stream.get("title") or "").lower()
+            cmd += [f"-metadata:s:s:{out_idx}", "language=ita"]
+            if orig_title:
+                cmd += [f"-metadata:s:s:{out_idx}", f"title={orig_title}"]
+            cmd += [f"-disposition:s:{out_idx}", "forced" if is_forced else "0"]
+        cmd += ["-f", "matroska", str(temp)]
+
+        try:
+            self._current_proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                encoding="utf-8", errors="replace",
+            )
+            _, err = self._current_proc.communicate(timeout=Config.OCR_TIMEOUT_S)
+            rc = self._current_proc.returncode
+            self._current_proc = None
+        except subprocess.TimeoutExpired:
+            if self._current_proc:
+                self._current_proc.kill()
+            self._current_proc = None
+            if temp.exists():
+                temp.unlink()
+            return False
+        finally:
+            for p in tmp_srts:
+                try:
+                    p.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+        if self._cancelled or rc != 0 or not temp.exists() or temp.stat().st_size < 1024:
+            if rc != 0:
+                logger.error(
+                    f"_writeback_mux_multi ffmpeg fallito (rc={rc}): {(err or '')[-300:]}"
+                )
+            if temp.exists():
+                temp.unlink()
+            return False
+
+        temp.replace(video_path)
+        return True
 
     # ── PGS: mkvextract + pgsreader + Tesseract parallelo ────────────────────
 
