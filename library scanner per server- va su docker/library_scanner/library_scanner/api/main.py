@@ -185,6 +185,19 @@ async def on_startup():
     from library_scanner.auth import get_auth_manager
     get_auth_manager()
 
+    # Recovery: scansioni rimaste "running" per riavvio container → interrupted
+    try:
+        from sqlalchemy import update as sa_update
+        with get_db() as db:
+            db.execute(
+                sa_update(ScanLog)
+                .where(ScanLog.status == "running")
+                .values(status="interrupted", finished_at=datetime.now(timezone.utc))
+            )
+        logger.info("Migrazione database completata")
+    except Exception as e:
+        logger.warning(f"Recovery scan_logs: {e}")
+
     start_scheduler()
     logger.info("API pronta")
 
@@ -396,7 +409,7 @@ async def cancel_scan():
 async def scan_status():
     scanner = get_scanner()
     sched = get_scheduler_status()
-    return {"scanning": scanner.is_running, "scheduler": sched}
+    return {"scanning": scanner.is_running, "progress": scanner.progress, "scheduler": sched}
 
 
 @app.get("/api/scan/history", dependencies=[Depends(require_auth)])
@@ -951,6 +964,12 @@ def _render_web_ui() -> str:
             <button class="btn btn-secondary" onclick="loadAll()">Aggiorna Dati</button>
         </div>
         <div id="scan-status" class="refresh-note"></div>
+        <div id="scan-progress-wrap" style="display:none;margin:10px 0">
+            <div style="background:#2a2a4a;border-radius:6px;height:10px;overflow:hidden">
+                <div id="scan-progress-bar" style="background:#3cc1e0;height:100%;width:0%;transition:width 0.4s"></div>
+            </div>
+            <div id="scan-progress-text" style="color:#aaa;font-size:0.8em;margin-top:5px"></div>
+        </div>
         <div id="log"></div>
     </div>
 
@@ -1111,8 +1130,12 @@ async function loadHistory() {
         if (!logs) return;
         document.getElementById('history-body').innerHTML = logs.map(l => {
             const date = l.started_at ? new Date(l.started_at).toLocaleString('it-IT') : '-';
-            const badge = l.status==='completed'?'badge-ok':l.status==='failed'?'badge-no':'badge-warn';
-            return `<tr><td>${date}</td><td><span class="badge ${badge}">${l.status}</span></td>
+            const badge = l.status==='completed' ? 'badge-ok'
+                        : l.status==='failed'    ? 'badge-no'
+                        : l.status==='interrupted' ? 'badge-no'
+                        : 'badge-warn';
+            const label = l.status==='interrupted' ? '⚡ interrotta' : l.status;
+            return `<tr><td>${date}</td><td><span class="badge ${badge}">${label}</span></td>
                 <td>${l.files_found||0}</td><td>${l.files_new||0}</td><td>${l.files_removed||0}</td>
                 <td>${l.files_with_subs||0}</td><td>${l.files_without_subs||0}</td>
                 <td>${l.duration_seconds?l.duration_seconds+'s':'-'}</td></tr>`;
@@ -1126,9 +1149,30 @@ async function loadScanStatus() {
         if (!s) return;
         document.getElementById('btn-scan').disabled = s.scanning;
         document.getElementById('btn-cancel').disabled = !s.scanning;
-        const info = s.scanning ? 'Scansione in corso...' :
-            (s.scheduler.next_scan ? 'Prossima scansione: '+new Date(s.scheduler.next_scan).toLocaleString('it-IT') : '');
-        document.getElementById('scan-status').textContent = info;
+
+        const wrap = document.getElementById('scan-progress-wrap');
+        if (s.scanning && s.progress && s.progress.files_total > 0) {
+            wrap.style.display = 'block';
+            const pct = s.progress.percent;
+            const done = s.progress.files_processed;
+            const total = s.progress.files_total;
+            document.getElementById('scan-progress-bar').style.width = pct + '%';
+            document.getElementById('scan-progress-text').textContent =
+                `${done} / ${total} file (${pct}%)` +
+                (s.progress.current_file ? ` — ${s.progress.current_file}` : '');
+            document.getElementById('scan-status').textContent = 'Scansione in corso...';
+        } else if (s.scanning) {
+            wrap.style.display = 'block';
+            document.getElementById('scan-progress-bar').style.width = '0%';
+            document.getElementById('scan-progress-text').textContent = 'Raccolta file...';
+            document.getElementById('scan-status').textContent = 'Scansione in corso...';
+        } else {
+            wrap.style.display = 'none';
+            const info = s.scheduler && s.scheduler.next_scan
+                ? 'Prossima scansione: ' + new Date(s.scheduler.next_scan).toLocaleString('it-IT')
+                : '';
+            document.getElementById('scan-status').textContent = info;
+        }
     } catch(e) {}
 }
 
@@ -1153,6 +1197,7 @@ function pollScan() {
     document.getElementById('btn-cancel').disabled=false;
     if(pollTimer)clearInterval(pollTimer);
     pollTimer=setInterval(async()=>{
+        await loadScanStatus();
         const s=await api('/api/scan/status');
         if(!s||!s.scanning){clearInterval(pollTimer);pollTimer=null;log('Scansione terminata');loadAll();}
     },3000);
