@@ -140,6 +140,11 @@ class VobSubOcr:
                 f"Codec {sub['codec']} non è VOBSUB (usa il modulo PGS)")
         return sub
 
+    def select_all_vobsub_streams_ita(self) -> List[dict]:
+        """Restituisce TUTTE le tracce VOBSUB italiane non-forced, ordinate per index."""
+        subs = self.extractor.select_all_italian_bitmap_subtitles()
+        return [s for s in subs if s["codec"].lower() in VOBSUB_CODECS]
+
     def extract_idx_sub(self, stream_index: int, out_base: Path) -> Tuple[Path, Path]:
         """
         Estrae VOBSUB in <out_base>.idx + <out_base>.sub via mkvextract.
@@ -193,9 +198,11 @@ class VobSubOcr:
         return True  # default PAL
 
     # ── Ramo REVIEW ───────────────────────────────────────────────────────
-    def ocr_to_events(self) -> Tuple[List[OcrEvent], str]:
-        sub_info = self.select_vobsub_stream()
-        self._bitmap_stream_abs_idx = sub_info.get("index")
+    def _ocr_single_stream(self, sub_info: dict) -> Tuple[List[OcrEvent], str]:
+        """
+        OCR di UNA traccia VOBSUB (helper condiviso da ocr_to_events e run_auto).
+        Ritorna (eventi, lingua_contenuto 2-lettere). VERBATIM.
+        """
         stream_lang3 = (sub_info.get("language") or "und").lower()
         ocr_lang = pick_tesseract_lang(stream_lang3, fallback=self._cfg(CFG_LANGUAGE, DEFAULT_LANGUAGE))
         if stream_lang3 not in ('und', 'unk', '') and ocr_lang != stream_lang3:
@@ -205,13 +212,13 @@ class VobSubOcr:
                     f"Lingua '{stream_lang3}' non supportata da Tesseract (traineddata mancante)")
         content_lang = lang_to_2(stream_lang3)
 
-        from utils.file_handler import FileHandler  # lazy
+        from utils.file_handler import FileHandler
         try:
             fh = FileHandler()
-            out_base = Path(fh.get_temp_path(str(self.video_path), "vobsub_ocr"))
+            out_base = Path(fh.get_temp_path(str(self.video_path), f"vobsub_{sub_info['index']}"))
         except Exception:
             import tempfile
-            out_base = Path(tempfile.gettempdir()) / f"{self.video_path.stem}_vobsub_ocr"
+            out_base = Path(tempfile.gettempdir()) / f"{self.video_path.stem}_vobsub_{sub_info['index']}"
 
         self._log(f"Estrazione VOBSUB (stream {sub_info['index']}, {stream_lang3}; OCR={ocr_lang})...")
         idx, sub = self.extract_idx_sub(sub_info["index"], out_base)
@@ -228,6 +235,15 @@ class VobSubOcr:
         n_flag = sum(1 for e in events if e.is_flagged)
         self._log(f"OCR completato: {len(events)} eventi, {n_flag} da rivedere")
         return events, content_lang
+
+    def ocr_to_events(self) -> Tuple[List[OcrEvent], str]:
+        """
+        Esegue l'OCR sulla traccia VOBSUB migliore e ritorna (lista OcrEvent, lingua 2-lettere).
+        Usato dal ramo review (singola traccia per UI di revisione).
+        """
+        sub_info = self.select_vobsub_stream()
+        self._bitmap_stream_abs_idx = sub_info.get("index")
+        return self._ocr_single_stream(sub_info)
 
     def _idxsub_to_events(self, idx: Path, sub: Path, language: str) -> List[OcrEvent]:
         import numpy as np
@@ -289,12 +305,124 @@ class VobSubOcr:
 
     # ── Ramo AUTO ─────────────────────────────────────────────────────────
     def run_auto(self) -> bool:
-        events, language = self.ocr_to_events()
-        srt = events_to_srt(events)
-        if not srt.strip():
+        """
+        Conversione automatica di TUTTE le tracce VOBSUB italiane.
+        Singola traccia → writeback() normale.
+        Più tracce → mux single-pass (rimuove tutti i bitmap + aggiunge tutti gli SRT).
+        """
+        streams = self.select_all_vobsub_streams_ita()
+        if not streams:
+            raise BitmapNotSupported("Nessun sottotitolo VOBSUB italiano trovato")
+
+        results: List[Tuple[dict, str, str]] = []  # (stream_dict, srt_text, lang2)
+        for sub_info in streams:
+            try:
+                events, lang = self._ocr_single_stream(sub_info)
+            except Exception as e:
+                self._log(f"Stream {sub_info['index']}: errore OCR, skip: {e}")
+                continue
+            srt = events_to_srt(events)
+            if srt.strip():
+                results.append((sub_info, srt, lang))
+            else:
+                self._log(f"Stream {sub_info['index']}: OCR non ha prodotto testo, skip")
+
+        if not results:
             self._log("Nessun testo OCR prodotto")
             return False
-        return self.writeback(srt, language)
+
+        if len(results) == 1:
+            sub_info, srt, lang = results[0]
+            self._bitmap_stream_abs_idx = sub_info["index"]
+            return self.writeback(srt, lang)
+
+        return self._writeback_mux_multi(results)
+
+    def _writeback_mux_multi(self, results: List[Tuple[dict, str, str]]) -> bool:
+        """
+        Mux single-pass: rimuove tutte le tracce VOBSUB OCR-ate e aggiunge gli SRT.
+        results: [(stream_dict, srt_text, lang2), ...]
+        """
+        if self.video_path.suffix.lower() != ".mkv":
+            logger.warning(f"Write-back mux multi salta {self.video_path.name}: non è MKV")
+            return False
+
+        if not self.extractor.subtitle_streams:
+            self.extractor.detect_subtitles()
+        all_subs = self.extractor.subtitle_streams
+        n_subs = len(all_subs)
+        N = len(results)
+
+        bitmap_rel_indices = []
+        for sub_info, _, _ in results:
+            rel = next(
+                (i for i, s in enumerate(all_subs) if s.get("index") == sub_info["index"]), None
+            )
+            if rel is not None:
+                bitmap_rel_indices.append(rel)
+
+        out_sub_start = n_subs - len(bitmap_rel_indices)
+
+        tmp_srts: List[Path] = []
+        temp = Path(str(self.video_path) + ".converting")
+        try:
+            for k, (_, srt_text, _) in enumerate(results):
+                srt_p = self.video_path.with_suffix(f".ocr_tmp_{k}.srt")
+                srt_p.write_text(srt_text, encoding="utf-8")
+                tmp_srts.append(srt_p)
+        except Exception as e:
+            logger.error(f"Scrittura SRT temp fallita: {e}")
+            for p in tmp_srts:
+                try:
+                    p.unlink(missing_ok=True)
+                except Exception:
+                    pass
+            return False
+
+        cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(self.video_path)]
+        for srt_p in tmp_srts:
+            cmd += ["-i", str(srt_p)]
+        cmd += ["-map", "0"]
+        for rel_idx in sorted(bitmap_rel_indices, reverse=True):
+            cmd += ["-map", f"-0:s:{rel_idx}"]
+        for k in range(N):
+            cmd += ["-map", f"{k + 1}:0"]
+        cmd += ["-c", "copy"]
+        for k, (sub_info, _, lang) in enumerate(results):
+            out_idx = out_sub_start + k
+            cmd += [f"-metadata:s:s:{out_idx}", f"language={lang}"]
+            title = (sub_info.get("title") or "").strip()
+            if title:
+                cmd += [f"-metadata:s:s:{out_idx}", f"title={title}"]
+            cmd += [f"-disposition:s:{out_idx}", "0"]
+        cmd += ["-f", "matroska", str(temp)]
+
+        self._active_proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            encoding="utf-8", errors="replace", creationflags=_CREATE_NO_WINDOW)
+        _, err = self._active_proc.communicate()
+        rc = self._active_proc.returncode
+        self._active_proc = None
+
+        for p in tmp_srts:
+            try:
+                p.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+        if self._cancelled:
+            if temp.exists():
+                temp.unlink()
+            raise InterruptedError("Operazione annullata")
+        if rc != 0 or not temp.exists() or temp.stat().st_size < 1024:
+            logger.error(f"Write-back mux multi fallito (rc={rc}): {err}")
+            if temp.exists():
+                temp.unlink()
+            return False
+        temp.replace(self.video_path)
+        langs = ", ".join(l for _, _, l in results)
+        self._log(f"{N} tracce SRT ({langs}) aggiunte in-place: {self.video_path.name}")
+        return True
 
     # ── Write-back ────────────────────────────────────────────────────────
     def write_sidecar(self, srt_text: str, lang2: str) -> Path:
