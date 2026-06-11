@@ -709,7 +709,7 @@ class MainWindow(QMainWindow):
         text = re.sub(r'[ðâïœ™]+', '', text)
         return text.strip()
 
-    UPDATABLE_PATTERNS = ["Progresso:", "Demucs: [", "Traduzione: [", "Trascrizione: [", "Warm-up: [", "Correzione genere: ["]
+    UPDATABLE_PATTERNS = ["Progresso:", "Demucs: [", "Traduzione: [", "Trascrizione: [", "Warm-up: [", "Correzione genere: [", "⚙️ OCR"]
 
     _LOG_COLORS = {
         'success': '#3fcf8e',

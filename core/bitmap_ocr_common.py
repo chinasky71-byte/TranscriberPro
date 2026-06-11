@@ -120,7 +120,7 @@ def ocr_images_parallel(images, language: str, upscale: int, auto_polarity: bool
             results[i] = res
             done += 1
             if progress_cb and (done % 5 == 0 or done == n):
-                progress_cb(int(done / n * 100), "OCR")
+                progress_cb(int(done / n * 100), "Tesseract")
     finally:
         ex.shutdown(wait=False)
     return results
