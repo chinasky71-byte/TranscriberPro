@@ -28,8 +28,9 @@ class FileHandler:
         
         # Usa hash se non già mappato
         if video_name not in self.video_hash_map:
-            # MD5 hash dei primi 8 caratteri
-            hash_obj = hashlib.md5(video_name.encode('utf-8'))
+            # MD5 hash del path completo risolto — evita collisioni tra file con stesso stem
+            full_path = str(Path(video_path).resolve()) if isinstance(video_path, (str, Path)) else video_name
+            hash_obj = hashlib.md5(full_path.encode('utf-8'))
             hash_short = hash_obj.hexdigest()[:8]
             self.video_hash_map[video_name] = hash_short
             self.logger.info(f"Video '{video_name}' -> temp dir 'vid_{hash_short}'")

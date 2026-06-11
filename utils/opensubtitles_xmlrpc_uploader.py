@@ -46,6 +46,7 @@ class OpenSubtitlesXMLRPCUploader(SubtitleUploaderInterface):
         self.password = password
         self.user_agent = user_agent or self.DEFAULT_USER_AGENT
         self.token = None
+        self._ua_registered = False  # True solo dopo login 200 OK
         
         self.server = xmlrpc.client.ServerProxy(
             self.XMLRPC_URL,
@@ -81,12 +82,19 @@ class OpenSubtitlesXMLRPCUploader(SubtitleUploaderInterface):
             status = response.get('status', '')
             self.token = response.get('token')
 
-            # Accetta 200 OK oppure 401 con token valido (user agent parzialmente registrato)
-            if self.token and status in ('200 OK', '401 Unauthorized'):
-                if status == '401 Unauthorized':
-                    logger.warning("⚠️  Login 401 ma token ricevuto — user agent non completamente registrato, upload OK")
-                logger.info(f"✅ Autenticazione riuscita ({status})")
+            if self.token and status == '200 OK':
+                self._ua_registered = True
+                logger.info("✅ Autenticazione riuscita (200 OK) — upload abilitato")
                 return True
+            elif self.token and status == '401 Unauthorized':
+                # 401 con token: UA non registrato. La ricerca funziona, ma gli UPLOAD
+                # sono bloccati dal server (documentato: UA registration required for upload).
+                # https://www.opensubtitles.org/addons/new per registrare il tuo UA.
+                self._ua_registered = False
+                logger.warning("⚠️  Login 401 — User-Agent NON registrato.")
+                logger.warning("   Search funziona, ma gli UPLOAD saranno rifiutati dal server.")
+                logger.warning("   Registra 'TranscriberPro v1.0.0' su: https://www.opensubtitles.org/addons/new")
+                return True  # consente search; upload() uscirà con errore chiaro
             else:
                 logger.error(f"❌ Autenticazione fallita: {status}")
                 self.token = None
@@ -128,8 +136,10 @@ class OpenSubtitlesXMLRPCUploader(SubtitleUploaderInterface):
             # Calcolo hash
             movie_hash, movie_size = self.calculate_movie_hash(video_path)
             if not movie_hash: return False, "Impossibile calcolare hash video"
-            sub_hash = self._calculate_subtitle_hash(subtitle_path)
-            if not sub_hash: return False, "Impossibile calcolare hash sottotitolo"
+            # subhash = MD5 del contenuto stripped (no cue promo, no BOM) — identico a upload()
+            _, stripped_bytes = self._prepare_subtitle_content(subtitle_path)
+            if stripped_bytes is None: return False, "Impossibile preparare contenuto sottotitolo"
+            sub_hash = hashlib.md5(stripped_bytes).hexdigest()
             
             # Prepara dati
             try_data = {
@@ -182,6 +192,15 @@ class OpenSubtitlesXMLRPCUploader(SubtitleUploaderInterface):
         if not self.token:
             return False, "Non autenticato - chiamare authenticate() prima"
 
+        if not self._ua_registered:
+            msg = (
+                "User-Agent non registrato — upload bloccato dal server OS. "
+                "Registra 'TranscriberPro v1.0.0' su https://www.opensubtitles.org/addons/new "
+                "poi riavvia l'applicazione."
+            )
+            logger.error(f"❌ {msg}")
+            return False, msg
+
         is_valid, error_msg = metadata.validate()
         if not is_valid:
             return False, f"Metadata non validi: {error_msg}"
@@ -196,14 +215,21 @@ class OpenSubtitlesXMLRPCUploader(SubtitleUploaderInterface):
 
             imdb_numeric = metadata.imdb_id.replace('tt', '')
 
-            # --- Prepara contenuto (con stripping cue promozionali) ---
-            sub_content, cleaned_bytes = self._prepare_subtitle_content(subtitle_path)
-            if not sub_content:
+            # --- Prepara contenuto ---
+            # I nostri SRT contengono un cue promozionale ("AI generated subtitles")
+            # che OpenSubtitles rifiuta esplicitamente con 402 Invalid format.
+            # Dobbiamo strippare il cue PRIMA di comprimere e hashare:
+            #   - subcontent = gzip+base64(stripped_bytes)
+            #   - subhash    = MD5(stripped_bytes)   ← stesso contenuto inviato
+            # _prepare_subtitle_content() fa: strip BOM + normalizza CRLF→LF +
+            # rimuove cue promozionali + re-encode UTF-8.
+            _, stripped_bytes = self._prepare_subtitle_content(subtitle_path)
+            if stripped_bytes is None:
                 return False, "Impossibile preparare contenuto sottotitolo"
-
-            # subhash = MD5 del contenuto PULITO (quello effettivamente compresso)
-            sub_hash = hashlib.md5(cleaned_bytes).hexdigest()
-            logger.info(f"   sub_hash (cleaned): {sub_hash}")
+            # subcontent = base64(gzip(stripped)) come stringa XML-RPC <string>
+            sub_hash = hashlib.md5(stripped_bytes).hexdigest()
+            sub_content = base64.b64encode(gzip.compress(stripped_bytes)).decode('ascii')
+            logger.info(f"   sub_hash (stripped, no-BOM): {sub_hash}")
 
             # --- Step 1: TryUploadSubtitles ---
             logger.info("   [1/2] Verifica esistenza sottotitolo (TryUploadSubtitles)...")
@@ -229,9 +255,11 @@ class OpenSubtitlesXMLRPCUploader(SubtitleUploaderInterface):
             # --- Step 2: UploadSubtitles ---
             logger.info("   [2/2] Upload in corso (UploadSubtitles)...")
 
-            safe_release_name = metadata.release_name.encode('ascii', errors='ignore').decode('ascii')
-            safe_comments = metadata.comments.encode('ascii', errors='ignore').decode('ascii') if metadata.comments else ''
-            safe_username = (self.username or '').encode('ascii', errors='ignore').decode('ascii')
+            # xmlrpc.client usa UTF-8 nativamente: non serve lo strip ASCII
+            # (strip aggressivo corrompeva release con accenti o caratteri non-ASCII)
+            safe_release_name = metadata.release_name or ''
+            safe_comments = metadata.comments or ''
+            safe_username = self.username or ''
 
             # Struttura corretta per UploadSubtitles: baseinfo + cd1
             upload_struct = {
@@ -339,14 +367,14 @@ class OpenSubtitlesXMLRPCUploader(SubtitleUploaderInterface):
             return None, None
 
     def _calculate_subtitle_hash(self, subtitle_path: Path) -> Optional[str]:
-        """
-        Calcola MD5 hash del contenuto sottotitolo
-        """
+        """Calcola MD5 del contenuto normalizzato (no-BOM, LF) — identico a upload()."""
         try:
             with open(subtitle_path, 'rb') as f:
                 content = f.read()
-                hash_md5 = hashlib.md5(content).hexdigest()
-            return hash_md5
+            if content[:3] == b'\xef\xbb\xbf':
+                content = content[3:]
+            content = content.replace(b'\r\n', b'\n')
+            return hashlib.md5(content).hexdigest()
         except IOError as e:
             logger.error(f"Errore calcolo hash sottotitolo: {e}")
             return None

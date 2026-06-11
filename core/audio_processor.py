@@ -684,9 +684,10 @@ class AudioProcessor:
     def _cleanup_gpu_memory(self):
         """Pulizia aggressiva memoria GPU"""
         if self.device == 'cuda':
-            import gc; gc.collect()
-            torch.cuda.empty_cache()
+            import gc
             torch.cuda.synchronize()
+            gc.collect()
+            torch.cuda.empty_cache()
     
     def cleanup_model(self):
         """Scarica modello Demucs dalla memoria"""

@@ -238,10 +238,11 @@ class LibraryScannerWidget(QFrame):
 
         self.format_combo = QComboBox()
         self.format_combo.setObjectName("scannerFilter")
-        # userData: None=tutti, 'pgs', 'vobsub'
+        # userData: None=tutti, 'pgs', 'vobsub', 'nosrt'=nessuna traccia subtitle
         self.format_combo.addItem(tr('all_formats'), None)
         self.format_combo.addItem("PGS", "pgs")
         self.format_combo.addItem("VOBSUB", "vobsub")
+        self.format_combo.addItem("No SRT", "nosrt")
         self.format_combo.currentIndexChanged.connect(self._on_format_filter_changed)
         format_layout.addWidget(self.format_combo)
 
@@ -260,6 +261,7 @@ class LibraryScannerWidget(QFrame):
         self.video_table.verticalHeader().setVisible(False)
         self.video_table.setShowGrid(False)
         self.video_table.setMaximumHeight(250)
+        self.video_table.setMinimumHeight(0)
         self.video_table.verticalHeader().setDefaultSectionSize(26)
 
         header = self.video_table.horizontalHeader()
@@ -291,6 +293,15 @@ class LibraryScannerWidget(QFrame):
         self.import_all_btn.setEnabled(False)
         buttons_layout.addWidget(self.import_all_btn)
 
+        self.superpower_btn = QPushButton("⚡ Superpower")
+        self.superpower_btn.setObjectName("scannerImportAllBtn")
+        self.superpower_btn.setToolTip(
+            "Acquisisci tutti i file bitmap pending dalla Library Scanner\n"
+            "e processali qui (più veloce).\n"
+            "La Library Scanner OCR viene fermata e riattivata al termine.")
+        self.superpower_btn.clicked.connect(self._superpower_ocr)
+        buttons_layout.addWidget(self.superpower_btn)
+
         layout.addLayout(buttons_layout)
 
         # Avanzamento OCR (visibile solo durante la conversione)
@@ -306,6 +317,7 @@ class LibraryScannerWidget(QFrame):
         self.stats_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.stats_label)
 
+        body.setMinimumHeight(0)
         return body
 
     # ========================================================================
@@ -611,7 +623,7 @@ class LibraryScannerWidget(QFrame):
         self._apply_days_filter()
 
     def _get_selected_format(self):
-        """Ritorna None (tutti) | 'pgs' | 'vobsub'."""
+        """Ritorna None (tutti) | 'pgs' | 'vobsub' | 'nosrt' (nessuna traccia subtitle)."""
         return self.format_combo.currentData() if hasattr(self, 'format_combo') else None
 
     def _apply_days_filter(self):
@@ -626,16 +638,21 @@ class LibraryScannerWidget(QFrame):
             if not hide and fmt:
                 name_item = self.video_table.item(row, 0)
                 row_fmt = name_item.data(Qt.ItemDataRole.UserRole + 1) if name_item else None
-                # 'mixed' soddisfa sia PGS sia VOBSUB
-                if not (row_fmt == fmt or row_fmt == 'mixed'):
-                    hide = True
+                if fmt == 'nosrt':
+                    # Mostra solo file senza nessuna traccia subtitle (bitmap_format=None)
+                    if row_fmt is not None:
+                        hide = True
+                else:
+                    # 'mixed' soddisfa sia PGS sia VOBSUB
+                    if not (row_fmt == fmt or row_fmt == 'mixed'):
+                        hide = True
             self.video_table.setRowHidden(row, hide)
             if not hide:
                 visible_count += 1
         self._update_badge(visible_count)
         self.import_all_btn.setEnabled(visible_count > 0)
-        # Etichetta del bottone: OCR se filtro formato attivo, altrimenti import coda
-        if fmt:
+        # Etichetta del bottone: OCR solo per filtri bitmap, import per gli altri
+        if fmt and fmt != 'nosrt':
             self.import_all_btn.setText(tr('ocr_convert_all'))
         else:
             self.import_all_btn.setText(tr('import_filtered'))
@@ -875,6 +892,75 @@ class LibraryScannerWidget(QFrame):
         if getattr(self, '_ocr_batch_active', False) and self._ocr_worker is None:
             self._ocr_batch_advance()
 
+    # ── Superpower: acquisisce coda Library Scanner e la processa localmente ──
+    def _superpower_ocr(self):
+        """Ferma Library Scanner OCR, importa tutti i pending bitmap e li processa qui."""
+        url     = self.config.get('library_scanner_url', '').strip().rstrip('/')
+        api_key = self.config.get('library_scanner_api_key', '').strip()
+        if not url or not api_key:
+            QMessageBox.warning(self, "⚡ Superpower",
+                                "Library Scanner non configurato (URL o API key mancante).")
+            return
+        if getattr(self, '_ocr_worker', None) is not None:
+            QMessageBox.information(self, "⚡ Superpower", "Un OCR è già in corso.")
+            return
+        reply = QMessageBox.question(
+            self, "⚡ Superpower OCR",
+            "Acquisisce tutti i file bitmap pending dalla Library Scanner\n"
+            "e li processa qui (più veloce).\n\n"
+            "La Library Scanner OCR verrà fermata e riattivata al termine.\n\n"
+            "Continuare?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        import requests
+        headers = {"X-API-Key": api_key}
+        try:
+            requests.post(f"{url}/api/subtitles/ocr/cancel", headers=headers, timeout=5)
+        except Exception:
+            pass  # non in corso: silenzioso
+        try:
+            resp = requests.get(f"{url}/api/subtitles/ocr/pending",
+                                headers=headers, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            QMessageBox.warning(self, "⚡ Superpower",
+                                f"Errore recupero lista dalla Library Scanner:\n{e}")
+            return
+        items = []
+        for v in data.get("files", []):
+            fmt = v.get("bitmap_format")
+            if not fmt:
+                continue
+            wp = v.get("windows_path", "")
+            if not wp:
+                continue
+            _, kind = self._badge_label_kind(fmt)
+            items.append((wp, kind))
+        if not items:
+            QMessageBox.information(self, "⚡ Superpower",
+                                    "Nessun file bitmap pending trovato nella Library Scanner.")
+            return
+        self._ocr_superpower_active = True
+        self._log(f"⚡ Superpower: {len(items)} file acquisiti dalla Library Scanner")
+        self._start_ocr_batch(items)
+
+    def _superpower_reactivate(self):
+        """Riattiva Library Scanner OCR al termine del batch Superpower."""
+        self._ocr_superpower_active = False
+        url     = self.config.get('library_scanner_url', '').strip().rstrip('/')
+        api_key = self.config.get('library_scanner_api_key', '').strip()
+        if not url or not api_key:
+            return
+        try:
+            import requests
+            requests.post(f"{url}/api/subtitles/ocr/start",
+                          headers={"X-API-Key": api_key}, timeout=5)
+            self._log("⚡ Superpower completato — Library Scanner OCR riattivata")
+        except Exception as e:
+            self._log(f"⚡ Superpower: errore riattivazione Library Scanner: {e}")
+
     # ── Batch OCR (Importa tutti con filtro formato attivo) ────────────────
     def _start_ocr_batch(self, items: list):
         """items: lista di (windows_path, kind). Converte tutti in AUTO, in sequenza."""
@@ -901,6 +987,8 @@ class LibraryScannerWidget(QFrame):
             # batch concluso
             self._ocr_batch_active = False
             self.ocr_progress_label.setVisible(False)
+            if getattr(self, '_ocr_superpower_active', False):
+                self._superpower_reactivate()
             # Spegni al termine: schedula PRIMA del QMessageBox (che è bloccante ma
             # i singleShot scattano comunque nel nested event loop del dialogo modale).
             if self.main_window.shutdown_checkbox.isChecked():

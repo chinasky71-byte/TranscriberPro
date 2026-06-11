@@ -44,6 +44,7 @@ import sys
 import tempfile
 import torch
 import shutil
+import psutil
 from pathlib import Path
 from typing import Optional, Callable, Dict, Any
 from datetime import datetime
@@ -498,13 +499,10 @@ class ProcessingPipeline:
                 # âœ… FIX TRANSLATOR SELECTION: Usa il metodo corretto per leggere il modello dalla config
                 # Leggi il modello di traduzione selezionato dall'utente
                 selected_model = self.config.get_translation_model()
-                use_aya_model = (selected_model == 'aya')
-                
-                self._log(f"ðŸ“‹ Modello di traduzione selezionato: {selected_model.upper()}")
+                self._log(f"📋 Modello di traduzione selezionato: {selected_model.upper()}")
 
                 # Usa la factory intelligente passando la scelta esplicita del modello
                 self._translator = get_translator(model_type=selected_model)
-                self._translator.set_log_callback(self._log_callback)
                 self._translator.set_log_callback(self._log_callback)
 
                 translated_srt_path = self.file_handler.get_temp_path(
@@ -1066,8 +1064,7 @@ class ProcessingPipeline:
         self._cleanup_done = True
 
         try:
-            import os as _os, psutil as _psutil
-            _proc = _psutil.Process(_os.getpid())
+            _proc = psutil.Process(os.getpid())
             _ram_before = _proc.memory_info().rss / 1024**3
             self._log(f"🧹 Cleanup risorse... (RAM processo: {_ram_before:.2f} GB)")
 

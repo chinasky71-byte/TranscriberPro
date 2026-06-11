@@ -225,7 +225,7 @@ class ProcessingWorker(QThread):
             
             # Calcola progresso basato su file elaborati vs totale iniziale
             files_processed = self.completed_files + self.failed_files
-            progress_percentage = int((files_processed / self.total_files_at_start) * 100)
+            progress_percentage = min(100, int((files_processed / self.total_files_at_start) * 100))
             self.progress.emit(progress_percentage)
             
             # Emetti aggiornamento coda (per UI)

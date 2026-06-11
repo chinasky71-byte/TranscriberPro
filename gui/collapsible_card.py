@@ -85,6 +85,7 @@ class CollapsibleCard(QFrame):
         # --- Body container --------------------------------------------
         self._body_container = QFrame()
         self._body_container.setObjectName("collapsibleBody")
+        self._body_container.setMinimumHeight(0)
         self._body_layout = QVBoxLayout(self._body_container)
         self._body_layout.setContentsMargins(12, 4, 12, 12)
         self._body_layout.setSpacing(8)
