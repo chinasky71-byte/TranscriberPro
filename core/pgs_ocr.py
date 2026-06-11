@@ -23,7 +23,8 @@ from typing import Optional, Callable, List, Tuple
 
 from core.subtitle_extractor import SubtitleExtractor
 from core.bitmap_ocr_common import (
-    preprocess_for_ocr, ocr_image_verbatim, ocr_images_parallel, pick_tesseract_lang)
+    preprocess_for_ocr, ocr_image_verbatim, ocr_images_parallel, pick_tesseract_lang,
+    srt_track_title)
 from core.pgs_types import (
     OcrEvent, events_to_srt, resolve_ocr_workers, lang_to_2, is_italian,
     CFG_LANGUAGE, CFG_CONF_THRESHOLD, CFG_TESSERACT_PATH, CFG_WRITEBACK, CFG_OCR_WORKERS,
@@ -397,7 +398,7 @@ class PgsOcr:
         for k, (sub, _, lang) in enumerate(results):
             out_idx = out_sub_start + k
             cmd += [f"-metadata:s:s:{out_idx}", f"language={lang}"]
-            title = (sub.get("title") or "").strip()
+            title = srt_track_title((sub.get("title") or "").strip())
             if title:
                 cmd += [f"-metadata:s:s:{out_idx}", f"title={title}"]
             # Preserva il flag forced dell'originale sul SRT di output
@@ -487,7 +488,7 @@ class PgsOcr:
         )
         # Se rimuoviamo 1 e aggiungiamo 1 il conteggio resta invariato → indice = n_subs-1
         new_sub_idx = n_subs - 1 if bitmap_rel_idx is not None else n_subs
-        orig_title = (orig.get("title") or "").strip()
+        orig_title = srt_track_title((orig.get("title") or "").strip())
         orig_forced = orig.get("forced", False)
 
         temp = Path(str(self.video_path) + ".converting")

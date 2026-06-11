@@ -254,7 +254,7 @@ class BaseTranslator(ABC):
         Maschera il testo per la traduzione, preservando blocchi specifici.
 
         Logica:
-        - I blocchi tra Ã¢â„¢Âª...Ã¢â„¢Âª sono *sempre* mascherati e preservati (copia esatta).
+        - I blocchi tra ♪...♪ sono *sempre* mascherati e preservati (copia esatta).
         - I blocchi tra [...] non vengono mascherati, ma sono gestiti dalla traduzione
           del modello (verranno tradotti all'interno delle quadre).
 
@@ -267,16 +267,15 @@ class BaseTranslator(ABC):
         """
         placeholders = {}
         
-        # 1. Maschera il testo tra Ã¢â„¢Âª...Ã¢â„¢Âª per impedirne la traduzione e garantirne la copia esatta.
-        # Usa un placeholder XML-like piÃƒÂ¹ robusto
+        # 1. Maschera il testo tra ♪...♪ per impedirne la traduzione e garantirne la copia esatta.
         def masking_replacer(match):
-            index = len(placeholders) 
-            placeholder = f" <[{model_prefix}_MUSIC_PRESERVE_{index}]> " # Aggiungi spazi per isolare
+            index = len(placeholders)
+            placeholder = f" <[{model_prefix}_MUSIC_PRESERVE_{index}]> "
             placeholders[placeholder] = match.group(0)
             return placeholder
 
-        # Regex (non-greedy, multi-line) che cattura tutto tra le due note, incluse le singole note
-        masked_text = re.sub(r'Ã¢â„¢Âª.*?Ã¢â„¢Âª', masking_replacer, text, flags=re.DOTALL)
+        # Regex (non-greedy, DOTALL) che cattura tutto tra le due note musicali
+        masked_text = re.sub(r'♪.*?♪', masking_replacer, text, flags=re.DOTALL)
         
         # 2. Verifica se il testo rimanente, una volta ripulito dagli spazi, ÃƒÂ¨ vuoto.
         text_without_placeholders = masked_text
@@ -693,15 +692,6 @@ class NLLBTranslator(BaseTranslator):
             else:
                 self._prepared_context = None
         
-        if not isinstance(output_path, Path):
-            try:
-                output_path = Path(output_path)
-            except Exception as e:
-                error_msg = f"Ã¢ÂÅ’ Errore conversione output_path in Path: {e}"
-                self.log(error_msg)
-                logger.error(error_msg, exc_info=True)
-                return False
-
         try:
             model_label = 'FT' if isinstance(self, NLLBFineTunedTranslator) else 'base'
             load_mode = 'fp16' if (self.use_gpu and torch.cuda.mem_get_info()[0] / 1024**3 >= 7.0) else '8-bit'
@@ -1213,15 +1203,6 @@ class AyaTranslator(BaseTranslator):
             else:
                 self._prepared_context = None
         
-        if not isinstance(output_path, Path):
-            try:
-                output_path = Path(output_path)
-            except Exception as e:
-                error_msg = f"Ã¢ÂÅ’ Errore conversione output_path in Path: {e}"
-                self.log(error_msg)
-                logger.error(error_msg, exc_info=True)
-                return False
-
         try:
             self.log(f" Traduzione Aya-23-8B (8-bit): {src_lang} → {tgt_lang}")
             
@@ -1374,13 +1355,21 @@ class AyaTranslator(BaseTranslator):
             return False
     
     def cleanup(self):
-        """Scarica modello Aya dalla VRAM."""
+        """Scarica modello Aya dalla VRAM.
+
+        Azzera prima le reference dell'istanza (self.model/tokenizer/device)
+        perche' sono copie dirette del singleton: finche' l'istanza le tiene,
+        _unload_aya_singleton() non puo' far scendere il ref count a zero
+        e la VRAM resta stuck (~8 GB bloccati).
+        """
         try:
+            self.model = None
+            self.tokenizer = None
+            self.device = None
             _unload_aya_singleton()
             self.log("  ✅ Modello Aya scaricato dalla VRAM")
         except Exception as e:
             logger.error(f"Errore durante cleanup Aya: {e}")
-            logger.error(f" Ã¢ÂÅ’ Errore durante cleanup GPU: {e}")
 
 
 
@@ -2018,19 +2007,6 @@ Provide translations as a numbered list matching the input format exactly. DO NO
 # ============================================================================
 # FACTORY E LEGACY FUNCTIONS (DA MANTENERE FUORI DALLE CLASSI)
 # ============================================================================
-
-try:
-    from utils.config import get_config
-    
-    try:
-        CONFIG = get_config()
-    except Exception:
-        CONFIG = None
-        logger.warning("Impossibile caricare Config. Uso configurazione NLLB di default.")
-        
-except ImportError:
-    logger.warning("Modulo 'config' non trovato. Uso configurazione NLLB di default.")
-    CONFIG = None
 
 def get_translator(model_type: Optional[str] = None, context: Optional[str] = None, 
                   use_aya: Optional[bool] = None) -> BaseTranslator:

@@ -18,6 +18,18 @@ if sys.stderr is None:
 # DEVE stare prima di qualsiasi import che tocchi torch/transformers/HF/onnxruntime.
 import utils.cache_bootstrap  # noqa: F401
 
+# Su Windows, ogni subprocess.Popen lanciato senza CREATE_NO_WINDOW fa apparire
+# una finestra di console (ffmpeg interno a whisperx, torchaudio, ffmpeg-python, ecc.).
+# Il monkey-patch qui copre tutte le librerie di terze parti in un unico punto.
+if sys.platform == 'win32':
+    import subprocess as _sp
+    _Popen_orig = _sp.Popen.__init__
+    def _Popen_no_window(self, *args, **kwargs):
+        kwargs.setdefault('creationflags', 0)
+        kwargs['creationflags'] |= _sp.CREATE_NO_WINDOW
+        _Popen_orig(self, *args, **kwargs)
+    _sp.Popen.__init__ = _Popen_no_window
+
 import sys
 import warnings
 import logging
@@ -37,7 +49,7 @@ from utils.translations import init_language, tr
 
 
 # ── Versione applicazione — unica fonte di verità ─────────────────────────────
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.5.0"
 
 PROJECT_ROOT      = Path(__file__).resolve().parent
 ASSETS_FONTS_DIR  = PROJECT_ROOT / 'assets' / 'fonts'

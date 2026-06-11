@@ -423,7 +423,7 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
             if movie_hash:
                 subtitle_obj["sub_to_movie"] = {
                     "movie_hash": movie_hash,
-                    "movie_byte_size": str(movie_size),
+                    "movie_byte_size": movie_size,   # int — la REST API v1 rifiuta le stringhe
                     "movie_filename": video_path.name
                 }
             if imdb_numeric:

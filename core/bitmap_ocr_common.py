@@ -7,7 +7,21 @@ Estratti da core/pgs_ocr.py per riuso da core/vobsub_ocr.py.
 VERBATIM: nessuna correzione del testo riconosciuto.
 Validati dagli spike PGS (2026-06-03) e VOBSUB (2026-06-03).
 """
+import re
 from typing import Tuple
+
+
+def srt_track_title(orig_title: str) -> str:
+    """Converte il titolo di una traccia bitmap in titolo SRT.
+    Rimuove le keyword codec (pgs/vobsub/ass/ssa) e aggiunge 'SRT' in coda.
+    Es: 'Italian Regular PGS' → 'Italian Regular SRT'
+    Ritorna stringa vuota se orig_title è vuoto (il chiamante omette il metadata).
+    """
+    if not orig_title:
+        return ""
+    cleaned = re.sub(r'\b(pgs|vobsub|ass|ssa)\b', '', orig_title, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return f"{cleaned} SRT" if cleaned else "SRT"
 
 
 _AVAILABLE_LANGS = None
@@ -65,7 +79,8 @@ def preprocess_for_ocr(img, upscale: int = 2, auto_polarity: bool = False):
             th = 255 - th
     else:
         th = 255 - th  # testo chiaro su nero → inverti
-    th = cv2.resize(th, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
+    if th.shape[0] < 50:
+        th = cv2.resize(th, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
     return cv2.copyMakeBorder(th, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
 
 

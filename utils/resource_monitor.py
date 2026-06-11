@@ -73,12 +73,12 @@ class ResourceMonitor:
         Check if system resources are within limits
         Returns: (within_limits, message)
         """
-        # Check RAM
+        # Check RAM disponibile (non usata) — più significativo di ram.used
         ram = psutil.virtual_memory()
-        ram_used_gb = ram.used / (1024**3)
-        
-        if ram_used_gb > self.max_ram_gb:
-            return False, f"RAM usage ({ram_used_gb:.1f} GB) exceeds limit ({self.max_ram_gb} GB)"
+        ram_available_gb = ram.available / (1024**3)
+
+        if ram_available_gb < (32 - self.max_ram_gb):
+            return False, f"RAM available ({ram_available_gb:.1f} GB) below threshold"
         
         # Check VRAM
         if self.gpu_available:
