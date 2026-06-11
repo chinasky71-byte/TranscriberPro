@@ -221,10 +221,11 @@ class VobSubOcr:
             import tempfile
             out_base = Path(tempfile.gettempdir()) / f"{self.video_path.stem}_vobsub_{sub_info['index']}"
 
-        self._log(f"Estrazione VOBSUB (stream {sub_info['index']}, {stream_lang3}; OCR={ocr_lang})...")
+        logger.info(f"Estrazione VOBSUB stream {sub_info['index']} ({stream_lang3}; OCR={ocr_lang})")
+        self._log("⚙️ OCR — Estrazione traccia VOBSUB...")
         idx, sub = self.extract_idx_sub(sub_info["index"], out_base)
 
-        self._log("Parsing VOBSUB + OCR Tesseract...")
+        self._log("⚙️ OCR — Analisi bitmap...")
         events = self._idxsub_to_events(idx, sub, ocr_lang)
 
         for p in (idx, sub):
@@ -234,7 +235,7 @@ class VobSubOcr:
                 pass
 
         n_flag = sum(1 for e in events if e.is_flagged)
-        self._log(f"OCR completato: {len(events)} eventi, {n_flag} da rivedere")
+        self._log(f"✅ {len(events)} battute, {n_flag} da rivedere")
         return events, content_lang
 
     def ocr_to_events(self) -> Tuple[List[OcrEvent], str]:
@@ -320,16 +321,17 @@ class VobSubOcr:
             try:
                 events, lang = self._ocr_single_stream(sub_info)
             except Exception as e:
-                self._log(f"Stream {sub_info['index']}: errore OCR, skip: {e}")
+                logger.warning(f"Stream {sub_info['index']}: errore OCR: {e}")
+                self._log(f"⚠ Stream {sub_info['index']}: OCR fallito, saltato")
                 continue
             srt = events_to_srt(events)
             if srt.strip():
                 results.append((sub_info, srt, lang))
             else:
-                self._log(f"Stream {sub_info['index']}: OCR non ha prodotto testo, skip")
+                self._log(f"⚠ Stream {sub_info['index']}: nessun testo, saltato")
 
         if not results:
-            self._log("Nessun testo OCR prodotto")
+            self._log("❌ Nessun testo OCR prodotto")
             return False
 
         if len(results) == 1:
@@ -423,7 +425,7 @@ class VobSubOcr:
             return False
         temp.replace(self.video_path)
         langs = ", ".join(l for _, _, l in results)
-        self._log(f"{N} tracce SRT ({langs}) aggiunte in-place: {self.video_path.name}")
+        self._log(f"✅ {N} tracce SRT ({langs}) incorporate: {self.video_path.name}")
         return True
 
     # ── Write-back ────────────────────────────────────────────────────────
@@ -431,7 +433,7 @@ class VobSubOcr:
         """Scrive un sidecar <stem>.<lang2>.srt e ritorna il Path."""
         out = self.video_path.with_name(f"{self.video_path.stem}.{lang2}.srt")
         out.write_text(srt_text, encoding="utf-8")
-        self._log(f"SRT sidecar scritto: {out.name}")
+        self._log(f"✅ SRT salvato: {out.name}")
         return out
 
     def writeback(self, srt_text: str, language: str) -> bool:
@@ -444,7 +446,7 @@ class VobSubOcr:
             except Exception as e:
                 logger.error(f"Scrittura sidecar fallita: {e}")
                 return False
-            self._log(f"SRT sidecar scritto: {out.name}")
+            self._log(f"✅ SRT salvato: {out.name}")
             return True
         # MUX: scrivi un SRT temporaneo e rimuxalo nell'MKV in-place.
         tmp_srt = self.video_path.with_suffix(".ocr_tmp.srt")
@@ -514,7 +516,7 @@ class VobSubOcr:
                 temp.unlink()
             return False
         temp.replace(self.video_path)
-        self._log(f"Traccia SRT ({language}) aggiunta in-place: {self.video_path.name}")
+        self._log("✅ SRT incorporato nel file")
         return True
 
 

@@ -11,6 +11,7 @@ Due fasi attorno alla UI di revisione (che vive sul main thread):
                        richiedere tempo).
 """
 import logging
+from pathlib import Path
 from PyQt6.QtCore import QThread, pyqtSignal
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,9 @@ class OcrWorker(QThread):
                 self.writeback_done.emit(ok)
                 return
 
+            kind_label = 'VOBSUB' if self.kind == 'vobsub' else 'PGS'
+            self._on_log(f"🎬 OCR {kind_label} — {Path(self.video_path).name}")
+
             if self.strategy == STRATEGY_AUTO:
                 # Auto: run_auto() gestisce TUTTE le tracce italiane (singola o multi-stream).
                 # Se non ci sono tracce italiane di questo codec, rilancia BitmapNotSupported
@@ -93,12 +97,14 @@ class OcrWorker(QThread):
         except _not_supported as exc:
             self.unsupported.emit(str(exc))
         except UnsupportedLanguage as exc:
-            self.log_message.emit(f"Lingua non supportata da Tesseract, file saltato: {exc}")
+            self.log_message.emit(f"⚠ Tesseract: lingua non supportata, file saltato")
+            logger.warning(f"UnsupportedLanguage: {exc}")
             self.lang_unsupported.emit(str(exc))
         except InterruptedError:
-            self.log_message.emit("OCR annullato")
+            self.log_message.emit("❌ OCR annullato")
         except Exception as exc:
             logger.exception("OcrWorker: eccezione non gestita")
+            self.log_message.emit(f"❌ OCR errore: {exc}")
             self.error.emit(str(exc))
         finally:
             self.finished.emit()
@@ -121,7 +127,7 @@ class OcrWorker(QThread):
         video = self._ocr.video_path
         it_path = video.with_name(f"{video.stem}.it.srt")
 
-        self._on_log(f"Traduzione {content_lang}→it in corso...")
+        self._on_log(f"⚙️ OCR — Traduzione {content_lang}→it...")
         try:
             from core.translator import get_translator
             translator = get_translator()
@@ -156,7 +162,7 @@ class OcrWorker(QThread):
                 except Exception:
                     pass
             if mux_ok:
-                self._on_log(f"SRT italiano incorporato nel file video")
+                self._on_log("✅ SRT italiano incorporato nel file")
             return mux_ok
         else:
             # Modalità sidecar: it_path è l'output, rimuovi solo il sorgente intermedio.
@@ -164,7 +170,7 @@ class OcrWorker(QThread):
                 Path(src_path).unlink(missing_ok=True)
             except Exception:
                 pass
-            self._on_log(f"SRT italiano scritto: {it_path.name}")
+            self._on_log(f"✅ SRT italiano scritto: {it_path.name}")
             return True
 
     def cancel(self):
