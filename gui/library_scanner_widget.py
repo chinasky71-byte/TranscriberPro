@@ -1032,8 +1032,9 @@ class LibraryScannerWidget(QFrame):
         if not path:
             return
 
-        # Se il filtro Formato è attivo, il bottone esegue l'OCR (non la coda).
-        if self._get_selected_format():
+        # Se il filtro è un formato bitmap (pgs/vobsub), avvia OCR; nosrt → coda standard.
+        fmt = self._get_selected_format()
+        if fmt and fmt != 'nosrt':
             row_fmt = item.data(Qt.ItemDataRole.UserRole + 1)
             _, kind = self._badge_label_kind(row_fmt)
             self._start_bitmap_ocr(path, kind)
@@ -1048,8 +1049,10 @@ class LibraryScannerWidget(QFrame):
                 btn.setToolTip(tr('already_queued'))
 
     def _import_all(self):
-        # Se il filtro Formato è attivo → batch OCR (automatico) di tutti i visibili.
-        if self._get_selected_format():
+        # Se il filtro è un formato bitmap (pgs/vobsub) → batch OCR automatico.
+        # nosrt → coda standard (non OCR).
+        fmt = self._get_selected_format()
+        if fmt and fmt != 'nosrt':
             items = []
             for row in range(self.video_table.rowCount()):
                 if not self.video_table.isRowHidden(row):
