@@ -986,9 +986,9 @@ class LibraryScannerWidget(QFrame):
         if getattr(self, '_ocr_batch_active', False) and self._ocr_worker is None:
             self._ocr_batch_advance()
 
-    # ── Superpower: acquisisce coda Library Scanner e la processa localmente ──
+    # ── Superpower: acquisisce tutti i bitmap dalla Library Scanner e li processa localmente ──
     def _superpower_ocr(self):
-        """Ferma Library Scanner OCR, importa tutti i pending bitmap e li processa qui."""
+        """Recupera tutti i file bitmap (PGS/VOBSUB) dalla Library Scanner e li processa qui."""
         url     = self.config.get('library_scanner_url', '').strip().rstrip('/')
         api_key = self.config.get('library_scanner_api_key', '').strip()
         if not url or not api_key:
@@ -1000,9 +1000,8 @@ class LibraryScannerWidget(QFrame):
             return
         reply = QMessageBox.question(
             self, "⚡ Superpower OCR",
-            "Acquisisce tutti i file bitmap pending dalla Library Scanner\n"
-            "e li processa qui (più veloce).\n\n"
-            "La Library Scanner OCR verrà fermata e riattivata al termine.\n\n"
+            "Recupera tutti i file con sottotitoli bitmap (PGS/VOBSUB) dalla Library Scanner\n"
+            "e li converte qui localmente tramite OCR.\n\n"
             "Continuare?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if reply != QMessageBox.StandardButton.Yes:
@@ -1010,11 +1009,8 @@ class LibraryScannerWidget(QFrame):
         import requests
         headers = {"X-API-Key": api_key}
         try:
-            requests.post(f"{url}/api/subtitles/ocr/cancel", headers=headers, timeout=5)
-        except Exception:
-            pass  # non in corso: silenzioso
-        try:
-            resp = requests.get(f"{url}/api/subtitles/ocr/pending",
+            resp = requests.get(f"{url}/api/subtitles/list",
+                                params={"issue_type": "bitmap", "limit": 500},
                                 headers=headers, timeout=15)
             resp.raise_for_status()
             data = resp.json()
@@ -1023,7 +1019,7 @@ class LibraryScannerWidget(QFrame):
                                 f"Errore recupero lista dalla Library Scanner:\n{e}")
             return
         items = []
-        for v in data.get("files", []):
+        for v in data.get("videos", []):
             fmt = v.get("bitmap_format")
             if not fmt:
                 continue
@@ -1034,26 +1030,16 @@ class LibraryScannerWidget(QFrame):
             items.append((wp, kind))
         if not items:
             QMessageBox.information(self, "⚡ Superpower",
-                                    "Nessun file bitmap pending trovato nella Library Scanner.")
+                                    "Nessun file bitmap trovato nella Library Scanner.")
             return
         self._ocr_superpower_active = True
-        self._log(f"⚡ Superpower: {len(items)} file acquisiti dalla Library Scanner")
+        self._log(f"⚡ Superpower: {len(items)} file bitmap acquisiti dalla Library Scanner")
         self._start_ocr_batch(items)
 
     def _superpower_reactivate(self):
-        """Riattiva Library Scanner OCR al termine del batch Superpower."""
+        """Chiamato al termine del batch Superpower."""
         self._ocr_superpower_active = False
-        url     = self.config.get('library_scanner_url', '').strip().rstrip('/')
-        api_key = self.config.get('library_scanner_api_key', '').strip()
-        if not url or not api_key:
-            return
-        try:
-            import requests
-            requests.post(f"{url}/api/subtitles/ocr/start",
-                          headers={"X-API-Key": api_key}, timeout=5)
-            self._log("⚡ Superpower completato — Library Scanner OCR riattivata")
-        except Exception as e:
-            self._log(f"⚡ Superpower: errore riattivazione Library Scanner: {e}")
+        self._log("⚡ Superpower OCR completato")
 
     # ── Batch OCR (Importa tutti con filtro formato attivo) ────────────────
     def _start_ocr_batch(self, items: list):
