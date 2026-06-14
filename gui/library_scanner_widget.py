@@ -309,7 +309,7 @@ class LibraryScannerWidget(QFrame):
         self.ocr_progress_label = QLabel("")
         self.ocr_progress_label.setObjectName("scannerStats")
         self.ocr_progress_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.ocr_progress_label.setVisible(False)
+        self.ocr_progress_label.setFixedHeight(16)  # altezza fissa: non varia mai il layout
         layout.addWidget(self.ocr_progress_label)
 
         # Statistiche
@@ -850,7 +850,6 @@ class LibraryScannerWidget(QFrame):
         else:
             prefix = "OCR · "
         self.ocr_progress_label.setText(f"{prefix}{name} — {label} {percent}%")
-        self.ocr_progress_label.setVisible(True)
         self._ocr_set_status(getattr(self, '_ocr_video_path', ''), 'processing', percent)
 
     def _log(self, msg: str):
@@ -883,7 +882,7 @@ class LibraryScannerWidget(QFrame):
             self._run_ocr_writeback(srt_text, language)
         else:
             self._log(f"OCR annullato in revisione: {self._ocr_name}")
-            self.ocr_progress_label.setVisible(False)
+            self.ocr_progress_label.setText("")
             self._ocr_set_status(getattr(self, '_ocr_video_path', ''), 'failed', 0)
 
     def _run_ocr_writeback(self, srt_text: str, language: str):
@@ -911,7 +910,7 @@ class LibraryScannerWidget(QFrame):
             self._ocr_batch_ok += 1 if ok else 0
             self._ocr_batch_fail += 0 if ok else 1
             return
-        self.ocr_progress_label.setVisible(False)
+        self.ocr_progress_label.setText("")
         if ok:
             QMessageBox.information(self, tr('ocr_section_title'),
                                    f"Conversione completata:\n{self._ocr_name}")
@@ -921,7 +920,7 @@ class LibraryScannerWidget(QFrame):
                                 f"Conversione fallita:\n{self._ocr_name}")
 
     def _on_ocr_writeback_done(self, ok: bool):
-        self.ocr_progress_label.setVisible(False)
+        self.ocr_progress_label.setText("")
         self._ocr_set_status(getattr(self, '_ocr_video_path', ''),
                              'completed' if ok else 'failed', 100)
         if ok:
@@ -961,7 +960,7 @@ class LibraryScannerWidget(QFrame):
         if getattr(self, '_ocr_batch_active', False):
             # Non conta come fallimento: il file era OK, la lingua non è gestita.
             return
-        self.ocr_progress_label.setVisible(False)
+        self.ocr_progress_label.setText("")
         QMessageBox.information(self, tr('ocr_section_title'),
                                f"{getattr(self, '_ocr_name', '')}\n\nLingua non supportata — file saltato.\n{msg}")
 
@@ -1066,7 +1065,7 @@ class LibraryScannerWidget(QFrame):
         if not queue:
             # batch concluso
             self._ocr_batch_active = False
-            self.ocr_progress_label.setVisible(False)
+            self.ocr_progress_label.setText("")
             if getattr(self, '_ocr_superpower_active', False):
                 self._superpower_reactivate()
             # Spegni al termine: schedula PRIMA del QMessageBox (che è bloccante ma
