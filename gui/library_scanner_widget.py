@@ -651,11 +651,7 @@ class LibraryScannerWidget(QFrame):
                 visible_count += 1
         self._update_badge(visible_count)
         self.import_all_btn.setEnabled(visible_count > 0)
-        # Etichetta del bottone: OCR solo per filtri bitmap, import per gli altri
-        if fmt and fmt != 'nosrt':
-            self.import_all_btn.setText(tr('ocr_convert_all'))
-        else:
-            self.import_all_btn.setText(tr('import_filtered'))
+        self.import_all_btn.setText(tr('import_filtered'))
 
     def _create_sub_badge(self, video: dict) -> QWidget:
         """
@@ -1032,14 +1028,6 @@ class LibraryScannerWidget(QFrame):
         if not path:
             return
 
-        # Se il filtro è un formato bitmap (pgs/vobsub), avvia OCR; nosrt → coda standard.
-        fmt = self._get_selected_format()
-        if fmt and fmt != 'nosrt':
-            row_fmt = item.data(Qt.ItemDataRole.UserRole + 1)
-            _, kind = self._badge_label_kind(row_fmt)
-            self._start_bitmap_ocr(path, kind)
-            return
-
         added = self._import_paths([path])
         if added > 0:
             btn = self.video_table.cellWidget(row, 4)
@@ -1049,24 +1037,6 @@ class LibraryScannerWidget(QFrame):
                 btn.setToolTip(tr('already_queued'))
 
     def _import_all(self):
-        # Se il filtro è un formato bitmap (pgs/vobsub) → batch OCR automatico.
-        # nosrt → coda standard (non OCR).
-        fmt = self._get_selected_format()
-        if fmt and fmt != 'nosrt':
-            items = []
-            for row in range(self.video_table.rowCount()):
-                if not self.video_table.isRowHidden(row):
-                    item = self.video_table.item(row, 0)
-                    if item:
-                        path = item.data(Qt.ItemDataRole.UserRole)
-                        row_fmt = item.data(Qt.ItemDataRole.UserRole + 1)
-                        if path:
-                            _, kind = self._badge_label_kind(row_fmt)
-                            items.append((path, kind))
-            if items:
-                self._start_ocr_batch(items)
-            return
-
         # Solo righe visibili (rispetta filtro giorni + tipo)
         paths = []
         for row in range(self.video_table.rowCount()):
