@@ -32,6 +32,7 @@ class LibraryScannerWorker(QThread):
                  request_type: str = 'both',
                  search: str = '',
                  media_type: str = '',
+                 format_filter: str = '',
                  parent=None):
         super().__init__(parent)
         self.server_url = server_url.rstrip('/')
@@ -39,6 +40,7 @@ class LibraryScannerWorker(QThread):
         self.request_type = request_type
         self.search = search
         self.media_type = media_type
+        self.format_filter = format_filter
         self.timeout = 4
         self.max_retries = 0
 
@@ -78,19 +80,30 @@ class LibraryScannerWorker(QThread):
                 self.stats_loaded.emit(stats)
 
             if self.request_type in (self.REQUEST_VIDEOS, self.REQUEST_BOTH):
-                params = {
-                    'no_subs_only': 'true',
-                    'limit': 500,
-                    'offset': 0,
-                    'sort_by': 'first_seen',
-                    'sort_order': 'desc',
-                }
-                if self.search:
-                    params['search'] = self.search
-                if self.media_type:
-                    params['media_type'] = self.media_type
+                if self.format_filter == 'assssa':
+                    # Endpoint dedicato: restituisce TUTTI i file con ASS/SSA,
+                    # inclusi quelli con has_any_italian_sub=True (non visibili in /api/videos).
+                    params = {'issue_type': 'convertible', 'limit': 500, 'offset': 0}
+                    data = self._make_request('/api/subtitles/list', params)
+                    # Normalizza campi assenti nell'endpoint subtitle
+                    for v in data.get('videos', []):
+                        v.setdefault('days_without_subs', 0)
+                        v.setdefault('has_any_italian_sub', True)
+                        v.setdefault('first_seen', None)
+                else:
+                    params = {
+                        'no_subs_only': 'true',
+                        'limit': 500,
+                        'offset': 0,
+                        'sort_by': 'first_seen',
+                        'sort_order': 'desc',
+                    }
+                    if self.search:
+                        params['search'] = self.search
+                    if self.media_type:
+                        params['media_type'] = self.media_type
+                    data = self._make_request('/api/videos', params)
 
-                data = self._make_request('/api/videos', params)
                 self.data_loaded.emit(data)
 
             self.connection_status.emit(True)
