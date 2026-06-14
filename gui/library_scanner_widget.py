@@ -518,7 +518,8 @@ class LibraryScannerWidget(QFrame):
             api_key=api_key,
             request_type='both',
             search=self.search_bar.text().strip(),
-            media_type=self._get_selected_type()
+            media_type=self._get_selected_type(),
+            format_filter=self._get_selected_format() or '',
         )
         self.worker.data_loaded.connect(self._on_videos_loaded)
         self.worker.stats_loaded.connect(self._on_stats_loaded)
@@ -630,8 +631,16 @@ class LibraryScannerWidget(QFrame):
         self._apply_days_filter()
 
     def _on_format_filter_changed(self):
-        # Filtro client-side: bitmap_format è già in videos_data.
-        self._apply_days_filter()
+        fmt = self._get_selected_format()
+        prev = getattr(self, '_prev_format_filter', None)
+        self._prev_format_filter = fmt
+        # ASS/SSA usa un endpoint diverso: serve refresh dal server.
+        # Stessa cosa quando si torna da ASS/SSA a un altro filtro.
+        if fmt == 'assssa' or prev == 'assssa':
+            if self.is_loaded:
+                self.refresh_data()
+        else:
+            self._apply_days_filter()
 
     def _get_selected_format(self):
         """Ritorna None (tutti) | 'pgs' | 'vobsub' | 'nosrt' (nessuna traccia subtitle)."""
