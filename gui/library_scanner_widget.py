@@ -750,7 +750,8 @@ class LibraryScannerWidget(QFrame):
         return container
 
     def _start_ass_conversion(self, video_ids: list):
-        """Avvia la conversione ASS/SSA→SRT sul server Library Scanner."""
+        """Avvia la conversione ASS/SSA→SRT sul server Library Scanner.
+        video_ids vuota = converti tutti i pending (stessa semantica del server)."""
         url     = self.config.get('library_scanner_url', '').strip().rstrip('/')
         api_key = self.config.get('library_scanner_api_key', '').strip()
         if not url or not api_key:
@@ -759,18 +760,24 @@ class LibraryScannerWidget(QFrame):
             return
         try:
             import requests
+            # Corpo vuoto = server converte tutti i pending; IDs specifici = solo quei file
+            body = {"video_ids": video_ids} if video_ids else {}
             resp = requests.post(
                 f"{url}/api/subtitles/convert/start",
-                json={"video_ids": video_ids},
+                json=body,
                 headers={"X-API-Key": api_key},
                 timeout=10,
             )
             if resp.status_code == 200:
-                n = len(video_ids)
-                self._log(f"⚙️ Conversione ASS→SRT avviata sul server: {n} file")
+                if video_ids:
+                    desc = f"{len(video_ids)} file"
+                    self._log(f"⚙️ Conversione ASS→SRT avviata sul server: {desc}")
+                else:
+                    desc = "tutti i file pending"
+                    self._log("⚙️ Conversione ASS→SRT avviata sul server (tutti i pending)")
                 QMessageBox.information(
                     self, "Conversione ASS/SSA",
-                    f"Conversione avviata sul server per {n} file.\n"
+                    f"Conversione avviata sul server per {desc}.\n"
                     "Controlla lo stato nell'interfaccia web Library Scanner.")
             else:
                 self._log(f"⚠ Conversione ASS: errore server {resp.status_code}")
@@ -1129,18 +1136,9 @@ class LibraryScannerWidget(QFrame):
     def _import_all(self):
         fmt = self._get_selected_format()
 
-        # Filtro ASS/SSA: avvia conversione batch sul server
+        # Filtro ASS/SSA: corpo vuoto → server converte TUTTI i pending, non solo quelli in tabella
         if fmt == 'assssa':
-            video_ids = []
-            for row in range(self.video_table.rowCount()):
-                if not self.video_table.isRowHidden(row):
-                    item = self.video_table.item(row, 0)
-                    if item:
-                        vid = item.data(Qt.ItemDataRole.UserRole + 2)
-                        if vid:
-                            video_ids.append(vid)
-            if video_ids:
-                self._start_ass_conversion(video_ids)
+            self._start_ass_conversion([])
             return
 
         # Solo righe visibili (rispetta filtro giorni + tipo)
