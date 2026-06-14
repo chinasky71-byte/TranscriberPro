@@ -238,10 +238,11 @@ class LibraryScannerWidget(QFrame):
 
         self.format_combo = QComboBox()
         self.format_combo.setObjectName("scannerFilter")
-        # userData: None=tutti, 'pgs', 'vobsub', 'nosrt'=nessuna traccia subtitle
+        # userData: None=tutti, 'pgs', 'vobsub', 'assssa', 'nosrt'=nessuna traccia subtitle
         self.format_combo.addItem(tr('all_formats'), None)
         self.format_combo.addItem("PGS", "pgs")
         self.format_combo.addItem("VOBSUB", "vobsub")
+        self.format_combo.addItem("ASS/SSA", "assssa")
         self.format_combo.addItem("No SRT", "nosrt")
         self.format_combo.currentIndexChanged.connect(self._on_format_filter_changed)
         format_layout.addWidget(self.format_combo)
@@ -574,6 +575,10 @@ class LibraryScannerWidget(QFrame):
             name_item.setData(Qt.ItemDataRole.UserRole, windows_path)
             # UserRole+1: bitmap_format ('pgs'|'vobsub'|'mixed'|None) per il filtro Formato
             name_item.setData(Qt.ItemDataRole.UserRole + 1, video.get('bitmap_format'))
+            # UserRole+2: video id (int) — per chiamate API conversione ASS/SSA
+            name_item.setData(Qt.ItemDataRole.UserRole + 2, video.get('id'))
+            # UserRole+3: has_convertible_subs (bool) — True se ha ASS/SSA embedded
+            name_item.setData(Qt.ItemDataRole.UserRole + 3, bool(video.get('has_convertible_subs', False)))
 
             # Rileva lingua audio dal filename e colora di conseguenza
             if _detect_italian(filename) == 'ita':
@@ -603,7 +608,13 @@ class LibraryScannerWidget(QFrame):
 
             # Colonna 3: badge formato subtitle problematico
             has_bitmap = video.get('has_only_bitmap_subs', False)
-            badge_widget = self._create_sub_badge(video) if has_bitmap else QWidget()
+            has_ass    = video.get('has_convertible_subs', False)
+            if has_bitmap:
+                badge_widget = self._create_sub_badge(video)
+            elif has_ass:
+                badge_widget = self._create_ass_badge(video)
+            else:
+                badge_widget = QWidget()
             self.video_table.setCellWidget(row, 3, badge_widget)
 
             # Colonna 4: Bottone import singolo
@@ -638,9 +649,12 @@ class LibraryScannerWidget(QFrame):
             if not hide and fmt:
                 name_item = self.video_table.item(row, 0)
                 row_fmt = name_item.data(Qt.ItemDataRole.UserRole + 1) if name_item else None
+                has_ass = name_item.data(Qt.ItemDataRole.UserRole + 3) if name_item else False
                 if fmt == 'nosrt':
-                    # Mostra solo file senza nessuna traccia subtitle (bitmap_format=None)
                     if row_fmt is not None:
+                        hide = True
+                elif fmt == 'assssa':
+                    if not has_ass:
                         hide = True
                 else:
                     # 'mixed' soddisfa sia PGS sia VOBSUB
@@ -651,9 +665,8 @@ class LibraryScannerWidget(QFrame):
                 visible_count += 1
         self._update_badge(visible_count)
         self.import_all_btn.setEnabled(visible_count > 0)
-        # Etichetta del bottone: OCR solo per filtri bitmap, import per gli altri
-        if fmt and fmt != 'nosrt':
-            self.import_all_btn.setText(tr('ocr_convert_all'))
+        if fmt == 'assssa':
+            self.import_all_btn.setText("Converti ASS/SSA")
         else:
             self.import_all_btn.setText(tr('import_filtered'))
 
@@ -702,6 +715,71 @@ class LibraryScannerWidget(QFrame):
         if fmt == 'mixed':
             return "MIX", "pgs"   # default PGS per i misti (la traccia PGS è preferibile)
         return "PGS", "pgs"
+
+    def _create_ass_badge(self, video: dict) -> QWidget:
+        """Badge cliccabile per file con sottotitoli ASS/SSA embedded convertibili in SRT."""
+        container = QWidget()
+        lay = QHBoxLayout(container)
+        lay.setContentsMargins(2, 2, 2, 2)
+        lay.setSpacing(0)
+
+        video_id = video.get('id')
+        conversion_status = video.get('conversion_status')
+
+        btn = QPushButton("ASS")
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        if conversion_status == 'done':
+            btn.setStyleSheet(
+                "QPushButton { background-color: #2e7d32; color: #ffffff; border: none;"
+                " border-radius: 3px; font-size: 7pt; font-weight: bold; padding: 1px 4px; }"
+            )
+            btn.setToolTip("ASS/SSA già convertito in SRT.")
+            btn.setEnabled(False)
+        else:
+            btn.setStyleSheet(
+                "QPushButton { background-color: #6A0DAD; color: #ffffff; border: none;"
+                " border-radius: 3px; font-size: 7pt; font-weight: bold; padding: 1px 4px; }"
+                "QPushButton:hover { background-color: #8B2FC9; }"
+            )
+            btn.setToolTip(
+                "Sottotitoli ASS/SSA embedded.\n"
+                "Clicca per convertirli in SRT via FFmpeg sul server Library Scanner."
+            )
+            btn.clicked.connect(lambda _checked, vid=video_id: self._start_ass_conversion([vid]))
+        lay.addWidget(btn)
+        return container
+
+    def _start_ass_conversion(self, video_ids: list):
+        """Avvia la conversione ASS/SSA→SRT sul server Library Scanner."""
+        url     = self.config.get('library_scanner_url', '').strip().rstrip('/')
+        api_key = self.config.get('library_scanner_api_key', '').strip()
+        if not url or not api_key:
+            QMessageBox.warning(self, "Conversione ASS/SSA",
+                                "Library Scanner non configurato (URL o API key mancante).")
+            return
+        try:
+            import requests
+            resp = requests.post(
+                f"{url}/api/subtitles/convert/start",
+                json={"video_ids": video_ids},
+                headers={"X-API-Key": api_key},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                n = len(video_ids)
+                self._log(f"⚙️ Conversione ASS→SRT avviata sul server: {n} file")
+                QMessageBox.information(
+                    self, "Conversione ASS/SSA",
+                    f"Conversione avviata sul server per {n} file.\n"
+                    "Controlla lo stato nell'interfaccia web Library Scanner.")
+            else:
+                self._log(f"⚠ Conversione ASS: errore server {resp.status_code}")
+                QMessageBox.warning(self, "Conversione ASS/SSA",
+                                    f"Errore dal server: {resp.status_code}\n{resp.text[:200]}")
+        except Exception as e:
+            self._log(f"⚠ Conversione ASS: errore connessione: {e}")
+            QMessageBox.warning(self, "Conversione ASS/SSA",
+                                f"Errore di connessione al server:\n{e}")
 
     # ========================================================================
     # OCR PGS → SRT
@@ -1032,12 +1110,12 @@ class LibraryScannerWidget(QFrame):
         if not path:
             return
 
-        # Se il filtro è un formato bitmap (pgs/vobsub), avvia OCR; nosrt → coda standard.
-        fmt = self._get_selected_format()
-        if fmt and fmt != 'nosrt':
-            row_fmt = item.data(Qt.ItemDataRole.UserRole + 1)
-            _, kind = self._badge_label_kind(row_fmt)
-            self._start_bitmap_ocr(path, kind)
+        # File con ASS/SSA: conversione sul server invece di aggiungere in coda locale
+        has_ass = item.data(Qt.ItemDataRole.UserRole + 3)
+        if has_ass:
+            video_id = item.data(Qt.ItemDataRole.UserRole + 2)
+            if video_id:
+                self._start_ass_conversion([video_id])
             return
 
         added = self._import_paths([path])
@@ -1049,22 +1127,20 @@ class LibraryScannerWidget(QFrame):
                 btn.setToolTip(tr('already_queued'))
 
     def _import_all(self):
-        # Se il filtro è un formato bitmap (pgs/vobsub) → batch OCR automatico.
-        # nosrt → coda standard (non OCR).
         fmt = self._get_selected_format()
-        if fmt and fmt != 'nosrt':
-            items = []
+
+        # Filtro ASS/SSA: avvia conversione batch sul server
+        if fmt == 'assssa':
+            video_ids = []
             for row in range(self.video_table.rowCount()):
                 if not self.video_table.isRowHidden(row):
                     item = self.video_table.item(row, 0)
                     if item:
-                        path = item.data(Qt.ItemDataRole.UserRole)
-                        row_fmt = item.data(Qt.ItemDataRole.UserRole + 1)
-                        if path:
-                            _, kind = self._badge_label_kind(row_fmt)
-                            items.append((path, kind))
-            if items:
-                self._start_ocr_batch(items)
+                        vid = item.data(Qt.ItemDataRole.UserRole + 2)
+                        if vid:
+                            video_ids.append(vid)
+            if video_ids:
+                self._start_ass_conversion(video_ids)
             return
 
         # Solo righe visibili (rispetta filtro giorni + tipo)
