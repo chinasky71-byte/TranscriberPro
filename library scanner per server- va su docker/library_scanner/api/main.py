@@ -1049,11 +1049,24 @@ def _render_web_ui() -> str:
             <div class="card"><h3>PGS/VOBSUB da convertire (OCR)</h3><div class="stat-big" id="conv-stat-bitmap" style="color:#ff9800">-</div></div>
             <div class="card"><h3>Già Convertiti</h3><div class="stat-big" id="conv-stat-done" style="color:#52b788">-</div></div>
         </div>
-        <div class="actions">
-            <button class="btn btn-primary" id="btn-conv-start" onclick="startAll()">Avvia Conversione</button>
-            <button class="btn btn-danger" id="btn-conv-cancel" onclick="cancelConversion()" disabled>Annulla ASS/SSA</button>
-            <button class="btn btn-danger" id="btn-ocr-cancel" onclick="cancelOcr()" disabled>Annulla OCR</button>
-            <button class="btn btn-secondary" onclick="loadConversionData()">Aggiorna</button>
+        <div class="actions" style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
+            <div style="display:flex;flex-direction:column;gap:6px;padding:10px 14px;border:1px solid #2a2a4a;border-radius:8px">
+                <div style="color:#ffd43b;font-size:0.85em;font-weight:600">ASS/SSA → SRT (FFmpeg)</div>
+                <div style="display:flex;gap:8px">
+                    <button class="btn btn-primary" id="btn-conv-start" onclick="startConvAll()">Avvia Conversione ASS/SSA</button>
+                    <button class="btn btn-danger" id="btn-conv-cancel" onclick="cancelConversion()" disabled>Annulla</button>
+                </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;padding:10px 14px;border:1px solid #2a2a4a;border-radius:8px">
+                <div style="color:#ff9800;font-size:0.85em;font-weight:600">PGS/VOBSUB → SRT (OCR)</div>
+                <div style="display:flex;gap:8px">
+                    <button class="btn btn-primary" id="btn-ocr-start" onclick="startOcrAll()">Avvia OCR PGS/VOBSUB</button>
+                    <button class="btn btn-danger" id="btn-ocr-cancel" onclick="cancelOcr()" disabled>Annulla</button>
+                </div>
+            </div>
+            <div style="display:flex;align-items:center;padding:10px 0">
+                <button class="btn btn-secondary" onclick="loadConversionData()">Aggiorna</button>
+            </div>
         </div>
         <div id="conv-progress-wrap" style="display:none;margin:10px 0">
             <div style="color:#aaa;font-size:0.75em;margin-bottom:3px">ASS/SSA</div>
@@ -1386,10 +1399,20 @@ async function loadOcrStatus() {
 }
 
 function _updateStartBtn() {
-    // Disabilita "Avvia" se almeno una delle due conversioni è in corso.
+    // I due processi sono indipendenti: ogni bottone "Avvia" si disabilita
+    // solo finché il proprio processo è in corso.
     const convRunning = !document.getElementById('btn-conv-cancel').disabled;
     const ocrRunning  = !document.getElementById('btn-ocr-cancel').disabled;
-    document.getElementById('btn-conv-start').disabled = convRunning || ocrRunning;
+    const convStart = document.getElementById('btn-conv-start');
+    const ocrStart  = document.getElementById('btn-ocr-start');
+    if (convStart) {
+        convStart.disabled = convRunning;
+        convStart.textContent = convRunning ? 'Conversione in corso…' : 'Avvia Conversione ASS/SSA';
+    }
+    if (ocrStart) {
+        ocrStart.disabled = ocrRunning;
+        ocrStart.textContent = ocrRunning ? 'OCR in corso…' : 'Avvia OCR PGS/VOBSUB';
+    }
 }
 
 async function startConversionSingle(videoId) {
@@ -1401,21 +1424,32 @@ async function startConversionSingle(videoId) {
     } catch(e) { log('Errore: ' + e.message); }
 }
 
-async function startAll() {
-    let started = 0;
+// Avvia SOLO la conversione ASS/SSA → SRT (FFmpeg). Indipendente dall'OCR.
+async function startConvAll() {
+    const btn = document.getElementById('btn-conv-start');
+    btn.disabled = true; btn.textContent = 'Avvio…';
     try {
         await api('/api/subtitles/convert/start', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
-        started++; pollConversion();
+        log('Conversione ASS/SSA avviata');
+        pollConversion();
     } catch(e) {
-        if (e.message && !e.message.includes('corso')) log('ASS/SSA: ' + e.message);
+        log('ASS/SSA: ' + e.message);
+        loadConversionStatus();
     }
+}
+
+// Avvia SOLO l'OCR PGS/VOBSUB → SRT (Tesseract). Indipendente dalla conversione ASS/SSA.
+async function startOcrAll() {
+    const btn = document.getElementById('btn-ocr-start');
+    btn.disabled = true; btn.textContent = 'Avvio…';
     try {
         await api('/api/subtitles/ocr/start', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
-        started++; pollOcr();
+        log('OCR PGS/VOBSUB avviato');
+        pollOcr();
     } catch(e) {
-        if (e.message && !e.message.includes('corso')) log('OCR: ' + e.message);
+        log('OCR: ' + e.message);
+        loadOcrStatus();
     }
-    if (started > 0) log('Avviate ' + started + ' conversioni');
 }
 
 async function cancelConversion() {
@@ -1427,7 +1461,8 @@ async function cancelOcr() {
 
 let convPollTimer = null;
 function pollConversion() {
-    document.getElementById('btn-conv-start').disabled = true;
+    const cs = document.getElementById('btn-conv-start');
+    cs.disabled = true; cs.textContent = 'Conversione in corso…';
     document.getElementById('btn-conv-cancel').disabled = false;
     if (convPollTimer) clearInterval(convPollTimer);
     convPollTimer = setInterval(async () => {
@@ -1442,7 +1477,8 @@ function pollConversion() {
 
 let ocrPollTimer = null;
 function pollOcr() {
-    document.getElementById('btn-conv-start').disabled = true;
+    const os = document.getElementById('btn-ocr-start');
+    os.disabled = true; os.textContent = 'OCR in corso…';
     document.getElementById('btn-ocr-cancel').disabled = false;
     // Mostra subito il wrap senza aspettare il primo tick
     const wrap = document.getElementById('ocr-progress-wrap');
