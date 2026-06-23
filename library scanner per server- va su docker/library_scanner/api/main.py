@@ -481,6 +481,7 @@ async def list_videos(
                 "has_any_italian_sub": v.has_any_italian_sub,
                 "has_only_bitmap_subs": getattr(v, "has_only_bitmap_subs", False),
                 "has_convertible_subs": getattr(v, "has_convertible_subs", False),
+                "has_italian_convertible_subs": getattr(v, "has_italian_convertible_subs", False),
                 "bitmap_format": _derive_bitmap_format(v.sub_formats_json),
                 "conversion_status": getattr(v, "conversion_status", None),
                 "days_without_subs": days if not v.has_any_italian_sub else 0,
@@ -571,7 +572,7 @@ async def list_subtitle_issues(
     """
     Elenco file con problemi subtitle che causano transcoding Plex.
     issue_type:
-      'convertible' — hanno ASS/SSA convertibili in SRT (questo tool)
+      'convertible' — hanno ASS/SSA ITALIANO convertibile in SRT (questo tool)
       'bitmap'      — hanno solo PGS/VOBSUB (richiedono Transcriber Pro)
       'done'        — già convertiti
       None          — tutti
@@ -579,7 +580,9 @@ async def list_subtitle_issues(
     with get_db() as db:
         q = select(VideoFile)
         if issue_type == "convertible":
-            q = q.where(VideoFile.has_convertible_subs == True)
+            # Solo ASS/SSA ITALIANO ancora da convertire: i file con solo ASS
+            # non-italiano (mai elaborati) o già convertiti escono dalla lista.
+            q = q.where(VideoFile.has_italian_convertible_subs == True)
         elif issue_type == "bitmap":
             q = q.where(
                 VideoFile.has_italian_bitmap_sub == True,
@@ -608,6 +611,7 @@ async def list_subtitle_issues(
                     "file_size_mb": round(v.file_size / (1024 * 1024), 1) if v.file_size else 0,
                     "media_type": v.media_type,
                     "has_convertible_subs": getattr(v, "has_convertible_subs", False),
+                    "has_italian_convertible_subs": getattr(v, "has_italian_convertible_subs", False),
                     "has_only_bitmap_subs": getattr(v, "has_only_bitmap_subs", False),
                     "bitmap_format": _derive_bitmap_format(v.sub_formats_json),
                     "conversion_status": getattr(v, "conversion_status", None),

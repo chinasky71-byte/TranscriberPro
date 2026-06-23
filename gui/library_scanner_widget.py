@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QLabel, QToolButton, QLineEdit, QComboBox,
     QTableWidget, QTableWidgetItem, QPushButton,
     QHeaderView, QAbstractItemView, QSpinBox,
-    QMessageBox
+    QMessageBox, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QTimer, QMutexLocker, QThread, pyqtSignal
 from PyQt6.QtGui import QColor
@@ -18,6 +18,7 @@ import logging
 import re
 
 from gui.library_scanner_worker import LibraryScannerWorker
+from gui.widgets import ElideLabel
 from utils.config import get_config
 from utils.translations import tr
 
@@ -292,10 +293,16 @@ class LibraryScannerWidget(QFrame):
         self.import_all_btn.setObjectName("scannerImportAllBtn")
         self.import_all_btn.clicked.connect(self._import_all)
         self.import_all_btn.setEnabled(False)
+        # Policy shrinkable: il cambio testo (Importa filtrati ↔ Converti ASS/SSA)
+        # non deve mai allargare il pannello e quindi la finestra.
+        self.import_all_btn.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.import_all_btn.setMinimumWidth(0)
         buttons_layout.addWidget(self.import_all_btn)
 
         self.superpower_btn = QPushButton("⚡ Superpower")
         self.superpower_btn.setObjectName("scannerImportAllBtn")
+        self.superpower_btn.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.superpower_btn.setMinimumWidth(0)
         self.superpower_btn.setToolTip(
             "Acquisisci tutti i file bitmap pending dalla Library Scanner\n"
             "e processali qui (più veloce).\n"
@@ -306,14 +313,16 @@ class LibraryScannerWidget(QFrame):
         layout.addLayout(buttons_layout)
 
         # Avanzamento OCR (visibile solo durante la conversione)
-        self.ocr_progress_label = QLabel("")
+        # ElideLabel: il testo dinamico (path file completo) NON deve mai imporre
+        # un minimum width al pannello → niente ridimensionamento finestra.
+        self.ocr_progress_label = ElideLabel("")
         self.ocr_progress_label.setObjectName("scannerStats")
         self.ocr_progress_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.ocr_progress_label.setFixedHeight(16)  # altezza fissa: non varia mai il layout
         layout.addWidget(self.ocr_progress_label)
 
-        # Statistiche
-        self.stats_label = QLabel(tr('waiting_connection'))
+        # Statistiche — anch'essa ElideLabel per non imporre minimum width
+        self.stats_label = ElideLabel(tr('waiting_connection'))
         self.stats_label.setObjectName("scannerStats")
         self.stats_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.stats_label)
@@ -578,8 +587,16 @@ class LibraryScannerWidget(QFrame):
             name_item.setData(Qt.ItemDataRole.UserRole + 1, video.get('bitmap_format'))
             # UserRole+2: video id (int) — per chiamate API conversione ASS/SSA
             name_item.setData(Qt.ItemDataRole.UserRole + 2, video.get('id'))
-            # UserRole+3: has_convertible_subs (bool) — True se ha ASS/SSA embedded
-            name_item.setData(Qt.ItemDataRole.UserRole + 3, bool(video.get('has_convertible_subs', False)))
+            # UserRole+3: has_italian_convertible_subs (bool) — True se ha ASS/SSA ITALIANO
+            # ancora da convertire (lavoro reale). NON usiamo has_convertible_subs
+            # (any-language): un file con solo ASS non-italiano non è un job per questo tool.
+            name_item.setData(Qt.ItemDataRole.UserRole + 3, bool(video.get('has_italian_convertible_subs', False)))
+            # UserRole+4: has_only_bitmap_subs (bool) — True solo se il file necessita
+            # davvero OCR (bitmap ITA e nessun sub testo ITA). bitmap_format indica solo
+            # la PRESENZA di uno stream PGS/VOBSUB: un file può avere PGS ma anche un sub
+            # testuale ITA (has_only_bitmap_subs=False) → NON è un job OCR e il filtro
+            # Formato non deve mostrarlo come PGS/VOBSUB (coerenza col badge, righe ~620).
+            name_item.setData(Qt.ItemDataRole.UserRole + 4, bool(video.get('has_only_bitmap_subs', False)))
 
             # Rileva lingua audio dal filename e colora di conseguenza
             if _detect_italian(filename) == 'ita':
@@ -609,7 +626,7 @@ class LibraryScannerWidget(QFrame):
 
             # Colonna 3: badge formato subtitle problematico
             has_bitmap = video.get('has_only_bitmap_subs', False)
-            has_ass    = video.get('has_convertible_subs', False)
+            has_ass    = video.get('has_italian_convertible_subs', False)
             if has_bitmap:
                 badge_widget = self._create_sub_badge(video)
             elif has_ass:
@@ -666,8 +683,14 @@ class LibraryScannerWidget(QFrame):
                     if not has_ass:
                         hide = True
                 else:
+                    # Filtri bitmap (pgs/vobsub): mostra SOLO i file che necessitano
+                    # davvero OCR (has_only_bitmap_subs). Un file con stream PGS ma sub
+                    # testo ITA presente (es. Dumbo, La fabbrica di cioccolato) ha
+                    # bitmap_format='pgs' ma has_only_bitmap_subs=False → non è un job OCR
+                    # e non deve apparire qui (coerenza col badge ASS/SSA mostrato in tabella).
+                    only_bitmap = name_item.data(Qt.ItemDataRole.UserRole + 4) if name_item else False
                     # 'mixed' soddisfa sia PGS sia VOBSUB
-                    if not (row_fmt == fmt or row_fmt == 'mixed'):
+                    if not only_bitmap or not (row_fmt == fmt or row_fmt == 'mixed'):
                         hide = True
             self.video_table.setRowHidden(row, hide)
             if not hide:
@@ -1119,6 +1142,17 @@ class LibraryScannerWidget(QFrame):
                 self._start_ass_conversion([video_id])
             return
 
+        # File con sottotitoli bitmap (PGS/VOBSUB): OCR locale, NON trascrizione audio
+        bitmap_format = item.data(Qt.ItemDataRole.UserRole + 1)
+        if bitmap_format:
+            _, kind = self._badge_label_kind(bitmap_format)
+            btn = self.video_table.cellWidget(row, 4)
+            if btn:
+                btn.setText("✓")
+                btn.setEnabled(False)
+            self._start_bitmap_ocr(path, kind)
+            return
+
         added = self._import_paths([path])
         if added > 0:
             btn = self.video_table.cellWidget(row, 4)
@@ -1133,6 +1167,22 @@ class LibraryScannerWidget(QFrame):
         # Filtro ASS/SSA: corpo vuoto → server converte TUTTI i pending, non solo quelli in tabella
         if fmt == 'assssa':
             self._start_ass_conversion([])
+            return
+
+        # Filtro bitmap (PGS/VOBSUB): batch OCR locale, NON aggiunge in coda trascrizione
+        if fmt in ('pgs', 'vobsub'):
+            items = []
+            for row in range(self.video_table.rowCount()):
+                if not self.video_table.isRowHidden(row):
+                    item = self.video_table.item(row, 0)
+                    if item:
+                        path = item.data(Qt.ItemDataRole.UserRole)
+                        bf   = item.data(Qt.ItemDataRole.UserRole + 1)
+                        if path and bf:
+                            _, kind = self._badge_label_kind(bf)
+                            items.append((path, kind))
+            if items:
+                self._start_ocr_batch(items)
             return
 
         # Solo righe visibili (rispetta filtro giorni + tipo)

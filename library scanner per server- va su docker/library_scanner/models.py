@@ -63,6 +63,7 @@ class VideoFile(Base):
     has_italian_text_sub   = Column(Boolean, default=False, nullable=False)  # .srt esterno OR embedded testo
     has_italian_bitmap_sub = Column(Boolean, default=False, nullable=False)  # PGS/VOBSUB italiano
     has_convertible_subs   = Column(Boolean, default=False, nullable=False)  # ASS/SSA embedded (qualsiasi lingua)
+    has_italian_convertible_subs = Column(Boolean, default=False, nullable=False)  # ASS/SSA ITALIANO (lavoro reale)
     sub_formats_json       = Column(Text, nullable=True)                     # JSON: [{index,codec,lang,title,convertible}]
 
     # Stato conversione ASS→SRT
