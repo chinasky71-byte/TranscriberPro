@@ -335,6 +335,7 @@ class LibraryScanner:
                 has_italian_text_sub=has_italian_text_sub,
                 has_italian_bitmap_sub=stream_result["has_italian_bitmap_sub"],
                 has_convertible_subs=stream_result["has_convertible_subs"],
+                has_italian_convertible_subs=stream_result["has_italian_convertible"],
                 sub_formats_json=sub_formats_json,
                 subtitle_check_error=combined_error,
                 media_type=scan_dir.media_type,
@@ -363,6 +364,7 @@ class LibraryScanner:
             existing.has_italian_text_sub = has_italian_text_sub
             existing.has_italian_bitmap_sub = stream_result["has_italian_bitmap_sub"]
             existing.has_convertible_subs = stream_result["has_convertible_subs"]
+            existing.has_italian_convertible_subs = stream_result["has_italian_convertible"]
             existing.sub_formats_json = sub_formats_json
             existing.subtitle_check_error = combined_error
             # Reset conversion_status solo se la sorgente non ha più ASS/SSA

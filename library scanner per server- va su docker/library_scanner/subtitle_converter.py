@@ -15,9 +15,22 @@ from typing import Optional, Callable
 
 from sqlalchemy import select, or_
 
+import re
+
 from library_scanner.config import Config
 from library_scanner.database import get_db
 from library_scanner.models import VideoFile, ConversionLog
+
+
+def _srt_track_title(orig_title: str) -> str:
+    """Converte il titolo di una traccia ASS/SSA in titolo SRT.
+    Es: 'Italiano ASS' → 'Italiano SRT'
+    """
+    if not orig_title:
+        return ""
+    cleaned = re.sub(r'\b(pgs|vobsub|ass|ssa)\b', '', orig_title, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return f"{cleaned} SRT" if cleaned else "SRT"
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +79,7 @@ class SubtitleConverter:
                        progress_callback: Optional[Callable] = None) -> dict:
         """
         Avvia conversione in batch.
-        Se video_ids è None converte tutti i file con has_convertible_subs=True
+        Se video_ids è None converte tutti i file con has_italian_convertible_subs=True
         e conversion_status non 'done'/'skipped'.
         """
         if self._running:
@@ -82,7 +95,7 @@ class SubtitleConverter:
 
         try:
             with get_db() as db:
-                q = select(VideoFile).where(VideoFile.has_convertible_subs == True)
+                q = select(VideoFile).where(VideoFile.has_italian_convertible_subs == True)
                 if video_ids:
                     q = q.where(VideoFile.id.in_(video_ids))
                 else:
@@ -175,6 +188,13 @@ class SubtitleConverter:
             self._update_status(vf.id, "skipped", "sub_formats_json vuoto")
             return "skipped"
 
+        # Elaboriamo SOLO le tracce ASS/SSA italiane (stessa regola dei bitmap PGS/VOBSUB).
+        ita_conv = self._italian_convertible(streams)
+        if not ita_conv:
+            logger.info(f"  Skip {vf.filename}: nessun ASS/SSA italiano da convertire")
+            self._update_status(vf.id, "skipped", "Nessun ASS/SSA italiano")
+            return "skipped"
+
         cmd = self._build_ffmpeg_cmd(video_path, streams)
         temp_path = Path(str(video_path) + ".converting")
 
@@ -229,7 +249,15 @@ class SubtitleConverter:
                 conversion_done_at=datetime.now(timezone.utc)
             )
             self._finish_log(log_id, "done", None, duration)
-            self._post_conversion_update(vf.id)
+            # Restano sub convertibili se c'è ancora ASS/SSA NON italiano (non lo tocchiamo).
+            remaining_conv = any(
+                isinstance(s, dict)
+                and s.get("convertible")
+                and (s.get("codec") or "").lower() in Config.CONVERTIBLE_SUB_CODECS
+                and (s.get("language") or "").lower().strip() not in Config.ITALIAN_LANG_CODES
+                for s in streams
+            )
+            self._post_conversion_update(vf.id, remaining_conv)
             return "done"
 
         except subprocess.TimeoutExpired:
@@ -253,28 +281,55 @@ class SubtitleConverter:
             logger.error(f"  Errore inatteso: {e}", exc_info=True)
             return "failed"
 
+    @staticmethod
+    def _italian_convertible(streams: list) -> list:
+        """Restituisce le tracce ASS/SSA italiane (le sole da convertire)."""
+        out = []
+        for s in streams:
+            if not isinstance(s, dict):
+                continue
+            codec = (s.get("codec") or "").lower()
+            lang = (s.get("language") or "").lower().strip()
+            if (s.get("convertible")
+                    and codec in Config.CONVERTIBLE_SUB_CODECS
+                    and lang in Config.ITALIAN_LANG_CODES):
+                out.append(s)
+        return out
+
     def _build_ffmpeg_cmd(self, video_path: Path, streams: list) -> list:
         """
-        Costruisce il comando FFmpeg.
-        Mappa video e audio, converte i sub convertibili in SRT,
-        e IGNORA gli altri stream di sottotitoli.
+        Costruisce il comando FFmpeg (conversione in-place, stesse regole dei PGS/VOBSUB).
+
+        Mantiene TUTTI gli stream del file (`-map 0 -c copy`: video, audio, altri
+        sottotitoli — testo e bitmap —, allegati/font, capitoli) e transcodifica in
+        SRT SOLO le tracce ASS/SSA ITALIANE, sovrascrivendole nella stessa posizione.
+        Il titolo originale viene copiato con suffisso 'SRT'; lingua e disposition
+        (forced) sono preservate automaticamente da `-c copy`.
         """
-        # Mappiamo esplicitamente video (v) e audio (a) per conservarli
+        # Ordiniamo per index: con `-map 0` l'indice subtitle-relative (s:N) di output
+        # coincide con questa posizione, così `-c:s:N` colpisce la traccia giusta.
+        all_subs = sorted(
+            [s for s in streams if isinstance(s, dict)],
+            key=lambda s: s.get("index") if s.get("index") is not None else 0,
+        )
+
         cmd = [
-            "ffmpeg", "-y",
+            "ffmpeg", "-y", "-loglevel", "error",
             "-i", str(video_path),
-            "-map", "0:v",
-            "-map", "0:a",
-            "-c:v", "copy",
-            "-c:a", "copy",
+            "-map", "0",
+            "-c", "copy",
         ]
 
-        # Aggiungiamo i sottotitoli SRT convertiti
-        for sub_idx, stream in enumerate(streams):
+        for rel_idx, stream in enumerate(all_subs):
+            codec = (stream.get("codec") or "").lower()
+            lang = (stream.get("language") or "").lower().strip()
             if (stream.get("convertible")
-                    and stream.get("codec", "").lower() in Config.CONVERTIBLE_SUB_CODECS):
-                cmd += ["-map", f"0:{stream.get('index')}"]
-                cmd += [f"-c:s:{sub_idx}", "srt"]
+                    and codec in Config.CONVERTIBLE_SUB_CODECS
+                    and lang in Config.ITALIAN_LANG_CODES):
+                cmd += [f"-c:s:{rel_idx}", "srt"]
+                srt_title = _srt_track_title((stream.get("title") or "").strip())
+                if srt_title:
+                    cmd += [f"-metadata:s:s:{rel_idx}", f"title={srt_title}"]
 
         cmd += ["-f", "matroska", str(video_path) + ".converting"]
         return cmd
@@ -324,13 +379,19 @@ class SubtitleConverter:
         except Exception as e:
             logger.error(f"_finish_log error: {e}")
 
-    def _post_conversion_update(self, video_id: int):
-        """Dopo conversione riuscita: aggiorna i flag del file nel DB."""
+    def _post_conversion_update(self, video_id: int, remaining_convertible: bool = False):
+        """Dopo conversione riuscita: aggiorna i flag del file nel DB.
+
+        `remaining_convertible`: True se restano tracce ASS/SSA NON italiane (non
+        convertite di proposito) → il flag has_convertible_subs resta acceso.
+        """
         try:
             with get_db() as db:
                 vf = db.get(VideoFile, video_id)
                 if vf:
-                    vf.has_convertible_subs = False
+                    vf.has_convertible_subs = remaining_convertible
+                    # L'ASS/SSA italiano è stato convertito in SRT → esce dalla lista.
+                    vf.has_italian_convertible_subs = False
                     vf.has_italian_text_sub = True
                     vf.has_any_italian_sub = True
         except Exception as e:

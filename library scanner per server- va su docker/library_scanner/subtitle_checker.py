@@ -187,6 +187,7 @@ def detect_subtitle_streams_full(video_path: Path) -> dict:
           has_italian_text_embedded  – True se c'è almeno un sub testo italiano embedded
           has_italian_bitmap_sub     – True se c'è almeno un sub bitmap italiano
           has_convertible_subs       – True se c'è almeno un sub ASS/SSA (qualsiasi lingua)
+          has_italian_convertible    – True se c'è almeno un sub ASS/SSA ITALIANO
           error                      – stringa errore se ffprobe fallisce
     """
     result = {
@@ -194,6 +195,7 @@ def detect_subtitle_streams_full(video_path: Path) -> dict:
         "has_italian_text_embedded": False,
         "has_italian_bitmap_sub": False,
         "has_convertible_subs": False,
+        "has_italian_convertible": False,
         "error": "",
     }
 
@@ -238,6 +240,8 @@ def detect_subtitle_streams_full(video_path: Path) -> dict:
                     result["has_italian_bitmap_sub"] = True
                 else:
                     result["has_italian_text_embedded"] = True
+                    if is_convertible:
+                        result["has_italian_convertible"] = True
 
             if is_convertible:
                 result["has_convertible_subs"] = True
