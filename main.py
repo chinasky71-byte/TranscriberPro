@@ -86,20 +86,6 @@ def _apply_global_stylesheet(app, logger):
         logger.error(f"Errore caricamento theme.qss: {e}")
 
 
-def _check_gpu(logger):
-    """Rileva GPU disponibile e logga nome e VRAM."""
-    try:
-        import torch
-        if torch.cuda.is_available():
-            name   = torch.cuda.get_device_name(0)
-            vram   = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
-            logger.info(f"GPU: {name} — {vram:.1f} GB VRAM")
-        else:
-            logger.info("CUDA non disponibile — elaborazione su CPU")
-    except ImportError:
-        logger.info("PyTorch non importabile durante check GPU")
-
-
 def _verify_model_paths(config, logger):
     """Verifica esistenza dei percorsi modello configurati (solo Path.exists, no loading)."""
     checks = {
@@ -145,18 +131,14 @@ def main():
     app.setFont(QFont("Inter Tight", 10))
 
     # Step 2 — Tema
-    splash.update_progress(30, tr('splash_loading_theme'))
+    splash.update_progress(35, tr('splash_loading_theme'))
     _apply_global_stylesheet(app, logger)
 
-    # Step 3 — GPU
-    splash.update_progress(50, tr('checking_gpu'))
-    _check_gpu(logger)
-
-    # Step 4 — Percorsi modelli
-    splash.update_progress(65, tr('splash_checking_models'))
+    # Step 3 — Percorsi modelli
+    splash.update_progress(60, tr('splash_checking_models'))
     _verify_model_paths(config, logger)
 
-    # Step 5 — MainWindow
+    # Step 4 — MainWindow
     splash.update_progress(85, tr('splash_loading_window'))
     from gui.main_window import MainWindow
     main_window = MainWindow()

@@ -33,7 +33,6 @@ from datetime import datetime
 import time
 import re
 
-from core.pipeline import ProcessingPipeline
 from utils.logger import setup_logger
 from utils.translations import tr
 
@@ -264,6 +263,8 @@ class ProcessingWorker(QThread):
             if self.is_cancelled:
                 return False
             
+            # Lazy import: torch e tutti i moduli ML vengono caricati solo alla prima elaborazione
+            from core.pipeline import ProcessingPipeline
             # Crea pipeline
             self.pipeline = ProcessingPipeline(video_path)
 
