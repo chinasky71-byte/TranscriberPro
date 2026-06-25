@@ -18,12 +18,7 @@ from pathlib import Path
 from utils.translations import tr
 from utils.config import get_config
 
-try:
-    from core.translator import BaseTranslator
-    TRANSLATOR_AVAILABLE = True
-except ImportError:
-    BaseTranslator = None
-    TRANSLATOR_AVAILABLE = False
+# Lazy: core.translator (e transformers) vengono caricati solo quando il dialog è aperto
 
 
 # Stylesheet container coerenti col tema dark globale (theme.qss).
@@ -66,7 +61,7 @@ class DownloadWorker(QThread):
             
             translator = get_translator(model_type='aya')
             
-            if translator and isinstance(translator, BaseTranslator):
+            if translator is not None:
                 self.progress_updated.emit("Modello caricato in memoria.", 100)
                 self.download_completed.emit(True, "[OK] Download completato!")
             else:
@@ -91,6 +86,12 @@ class TranslationModelDialog(QDialog):
         self.download_worker = None
         self.embed = embed
 
+        try:
+            from core.translator import BaseTranslator  # noqa: F401
+            _translator_available = True
+        except ImportError:
+            _translator_available = False
+
         if not embed:
             self.setWindowTitle(tr('tmd_title'))
             self.setModal(True)
@@ -99,7 +100,7 @@ class TranslationModelDialog(QDialog):
             self.resize(850, 750)
             self.setSizeGripEnabled(True)
 
-        if not TRANSLATOR_AVAILABLE:
+        if not _translator_available:
             self.init_ui_error()
         else:
             self.init_ui()
