@@ -213,6 +213,9 @@ class TranslationModelDialog(QDialog):
         scroll_layout.addWidget(nllb_ft_widget)
         self.button_group.addButton(self.nllb_ft_radio)
 
+        # Parametri NLLB (condivisi tra NLLB base e Fine-Tuned)
+        scroll_layout.addWidget(self.create_nllb_params_section())
+
         # Aya
         aya_widget, self.aya_radio = self.create_model_section_aya()
         scroll_layout.addWidget(aya_widget)
@@ -385,6 +388,29 @@ class TranslationModelDialog(QDialog):
         wrapper.setLayout(main_layout)
 
         return wrapper, radio
+
+    def create_nllb_params_section(self) -> QWidget:
+        """Sezione parametri NLLB condivisi (base + fine-tuned)."""
+        group = QGroupBox(tr('nllb_params_group'))
+        layout = QHBoxLayout(group)
+        layout.setContentsMargins(12, 8, 12, 8)
+
+        label = QLabel(tr('nllb_num_beams_label'))
+        layout.addWidget(label)
+
+        self.nllb_beams_spin = QSpinBox()
+        self.nllb_beams_spin.setRange(1, 20)
+        self.nllb_beams_spin.setValue(self.config.get_nllb_num_beams())
+        self.nllb_beams_spin.setFixedWidth(70)
+        self.nllb_beams_spin.setToolTip(tr('nllb_num_beams_tooltip'))
+        self.nllb_beams_spin.valueChanged.connect(self._on_nllb_beams_changed)
+        layout.addWidget(self.nllb_beams_spin)
+
+        layout.addStretch()
+        return group
+
+    def _on_nllb_beams_changed(self, value: int):
+        self.config.set_nllb_num_beams(value)
 
     def browse_nllb_ft_path(self):
         """Apre dialog per selezionare la cartella del modello fine-tuned"""

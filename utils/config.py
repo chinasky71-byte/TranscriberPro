@@ -621,6 +621,12 @@ class Config:
         p = Path(path)
         return p.exists() and (p / 'config.json').exists()
 
+    def get_nllb_num_beams(self) -> int:
+        return int(self.get('nllb_num_beams', 7))
+
+    def set_nllb_num_beams(self, value: int):
+        self.set('nllb_num_beams', int(value))
+
     # ========================================================================
     # METODI HELPER per Gender Correction
     # ========================================================================
