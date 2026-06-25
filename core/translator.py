@@ -582,7 +582,6 @@ class NLLBTranslator(BaseTranslator):
     }
 
     # Parametri ottimizzati per qualitÃƒÂ  / performance
-    NUM_BEAMS = 7 
     NO_REPEAT_NGRAM_SIZE = 3
     MAX_LENGTH_SENTENCE = 256
 
@@ -649,7 +648,7 @@ class NLLBTranslator(BaseTranslator):
                 outputs = self.model.generate(
                     **inputs,
                     forced_bos_token_id=forced_bos_token_id,
-                    num_beams=self.NUM_BEAMS,
+                    num_beams=get_config().get_nllb_num_beams(),
                     no_repeat_ngram_size=self.NO_REPEAT_NGRAM_SIZE,
                     max_length=self.MAX_LENGTH_SENTENCE
                 )
@@ -695,7 +694,8 @@ class NLLBTranslator(BaseTranslator):
         try:
             model_label = 'FT' if isinstance(self, NLLBFineTunedTranslator) else 'base'
             load_mode = 'fp16' if (self.use_gpu and torch.cuda.mem_get_info()[0] / 1024**3 >= 7.0) else '8-bit'
-            self.log(f"  🌐 Traduzione NLLB ({model_label}, {load_mode}): {src_lang} → {tgt_lang} | beams:{self.NUM_BEAMS}")
+            num_beams = get_config().get_nllb_num_beams()
+            self.log(f"  🌐 Traduzione NLLB ({model_label}, {load_mode}): {src_lang} → {tgt_lang} | beams:{num_beams}")
 
             if self._prepared_context:
                 context_preview = self._prepared_context[:70].replace('\n', ' ')
