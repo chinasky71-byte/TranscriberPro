@@ -328,11 +328,17 @@ class ProcessingPipeline:
                                 "transcribed.srt"
                             )
                             
-                            # âœ… FIX CRITICO v3.9: Gestione corretta tupla + keyword argument
+                            # Whisper vuole ISO 639-1 (2 lettere, es. 'sr').
+                            # source_language_639_2 viene dal MKV in ISO 639-2 (3 lettere, es. 'srp').
+                            # Convertiamo prima; 'und' diventa None (auto-detect Whisper).
+                            _whisper_lang = self.LANG_MAP_639_2_TO_639_1.get(source_language_639_2)
+                            if _whisper_lang == 'und':
+                                _whisper_lang = None
+
                             success, detected_lang_639_1 = self._transcriber.transcribe_chunks(
                                 audio_chunks=chunk_list,
                                 output_path=str(subtitle_path),
-                                whisper_language=source_language_639_2  # Keyword argument
+                                whisper_language=_whisper_lang
                             )
                             
                             # Validazione risultato
