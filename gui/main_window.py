@@ -409,7 +409,8 @@ class MainWindow(QMainWindow):
         remaining_header.addStretch()
         self.remaining_files_label = QLabel("")
         self.remaining_files_label.setObjectName("remainingFilesLabel")
-        self.remaining_files_label.setVisible(False)
+        self.remaining_files_label.setMinimumHeight(0)
+        self.remaining_files_label.setMaximumHeight(0)   # nascosto senza uscire dal layout
         remaining_header.addWidget(self.remaining_files_label)
         layout.addLayout(remaining_header)
         
@@ -540,7 +541,8 @@ class MainWindow(QMainWindow):
         # Info strip (nascosta di default, mostrata su file selezionato)
         self._info_strip = QFrame()
         self._info_strip.setObjectName("posterInfoStrip")
-        self._info_strip.setVisible(False)
+        self._info_strip.setMinimumHeight(0)
+        self._info_strip.setMaximumHeight(0)   # nascosto senza uscire dal layout
         strip_lay = QVBoxLayout(self._info_strip)
         strip_lay.setContentsMargins(12, 8, 12, 10)
         strip_lay.setSpacing(4)
@@ -971,10 +973,11 @@ class MainWindow(QMainWindow):
         self.worker.log_message.connect(self.log_message)
         self.worker.finished.connect(self.processing_finished)
         self.worker.file_completed.connect(self.on_file_completed)
+        self.worker.file_failed.connect(self.on_file_failed)
         self.worker.file_started.connect(self.on_file_started)
         self.worker.file_progress.connect(self.on_file_progress)
         self.worker.file_history_entry.connect(self._on_file_history_entry)
-        self.worker.queue_updated.connect(self.on_queue_updated) 
+        self.worker.queue_updated.connect(self.on_queue_updated)
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.clear_btn.setEnabled(False)
@@ -1032,6 +1035,22 @@ class MainWindow(QMainWindow):
         self._update_overlay()
         self._update_log_stats()
 
+    def on_file_failed(self, file_path: str):
+        item = self._find_item_by_path(file_path)
+        if item:
+            data = item.data(Qt.ItemDataRole.UserRole) or {}
+            data['status'] = 'failed'
+            data['progress'] = 0
+            item.setData(Qt.ItemDataRole.UserRole, data)
+            self.file_list.update()
+            self._apply_filter(self.segmented_filter.current_filter())
+        self.update_remaining_files_label()
+        self._update_filter_badges()
+        self._error_count += 1
+        self._diag_errori._val.setText(str(self._error_count))
+        self._update_overlay()
+        self._update_log_stats()
+
     def on_file_started(self, file_path: str):
         item = self._find_item_by_path(file_path)
         if item:
@@ -1067,10 +1086,10 @@ class MainWindow(QMainWindow):
             remaining = len(self.processing_queue)
         if self.is_processing:
             self.remaining_files_label.setText(f"📊 {tr('remaining_files')} {remaining}")
-            self.remaining_files_label.setVisible(True)
+            self.remaining_files_label.setMaximumHeight(16777215)
         else:
             self.remaining_files_label.clear()
-            self.remaining_files_label.setVisible(False)
+            self.remaining_files_label.setMaximumHeight(0)
 
     def processing_finished(self):
         self.is_processing = False
@@ -1167,7 +1186,7 @@ class MainWindow(QMainWindow):
     def _update_overlay(self):
         item = self.file_list.currentItem()
         if not item:
-            self._info_strip.setVisible(False)
+            self._info_strip.setMaximumHeight(0)
             self.preview_filename_pill.setVisible(False)
             return
         data = item.data(Qt.ItemDataRole.UserRole) or {}
@@ -1181,10 +1200,10 @@ class MainWindow(QMainWindow):
         self.preview_filename_pill.setVisible(True)
 
         if status == 'queued':
-            self._info_strip.setVisible(False)
+            self._info_strip.setMaximumHeight(0)
             return
 
-        self._info_strip.setVisible(True)
+        self._info_strip.setMaximumHeight(16777215)
         dst = self.config.get_target_language().upper()
         self._overlay_lang_pill.setText(f"→ {dst}")
         status_map = {
