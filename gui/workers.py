@@ -118,6 +118,7 @@ class ProcessingWorker(QThread):
     log_message = pyqtSignal(str)
     finished = pyqtSignal()
     file_completed = pyqtSignal(str)
+    file_failed = pyqtSignal(str)          # (file_path) — emesso quando pipeline ritorna False
     file_started = pyqtSignal(str)         # (file_path)
     file_progress = pyqtSignal(str, int)   # (file_path, percent 0-100)
     file_history_entry = pyqtSignal(dict)  # emesso dopo ogni file completato con successo
@@ -221,7 +222,8 @@ class ProcessingWorker(QThread):
                 self.file_completed.emit(video_path)
             else:
                 self.failed_files += 1
-            
+                self.file_failed.emit(video_path)
+
             # Calcola progresso basato su file elaborati vs totale iniziale
             files_processed = self.completed_files + self.failed_files
             progress_percentage = min(100, int((files_processed / self.total_files_at_start) * 100))

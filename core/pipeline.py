@@ -95,7 +95,9 @@ class ProcessingPipeline:
         'pol': 'pl', 'tur': 'tr', 'nld': 'nl', 'dut': 'nl', 'swe': 'sv',
         'dan': 'da', 'danish': 'da', 'nor': 'no', 'fin': 'fi', 'ces': 'cs', 
         'cze': 'cs', 'hun': 'hu', 'ron': 'ro', 'rum': 'ro', 'ukr': 'uk', 
-        'ell': 'el', 'gre': 'el', 'heb': 'he', 'vie': 'vi', 'tha': 'th', 
+        'ell': 'el', 'gre': 'el', 'heb': 'he', 'vie': 'vi', 'tha': 'th',
+        'srp': 'sr', 'hrv': 'hr', 'bos': 'bs', 'slk': 'sk', 'slv': 'sl',
+        'bul': 'bg', 'cat': 'ca', 'lit': 'lt', 'lav': 'lv', 'est': 'et',
         'und': 'und'
     }
     
