@@ -11,7 +11,8 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QComboBox, QSplitter, QMenu, QTabBar, QStackedWidget,
                              QGraphicsOpacityEffect)
 from PyQt6.QtCore import (Qt, QTimer, QSize, QMutex, QMutexLocker,
-                          QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup)
+                          QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup,
+                          pyqtSignal)
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPixmap, QTextCursor, QAction
 import os
 import subprocess
@@ -138,6 +139,8 @@ class RoundedLabel(QLabel):
         self.update()
 
 class MainWindow(QMainWindow):
+    processing_done = pyqtSignal()   # emesso quando il ProcessingWorker termina
+
     def __init__(self):
         super().__init__()
         self.config = get_config()
@@ -967,6 +970,12 @@ class MainWindow(QMainWindow):
 
     def start_processing(self):
         if not self.processing_queue: return
+        if getattr(self.library_scanner, '_ocr_worker', None) is not None:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Avvio bloccato",
+                                "Una conversione OCR è in corso.\n"
+                                "Attendere il completamento prima di avviare la trascrizione.")
+            return
         self.is_processing = True
         self.worker = ProcessingWorker(self.processing_queue, self.queue_mutex)
         self.worker.progress.connect(self.update_progress)
@@ -1093,6 +1102,7 @@ class MainWindow(QMainWindow):
 
     def processing_finished(self):
         self.is_processing = False
+        self.processing_done.emit()   # notifica widget in attesa (es. OCR differito)
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.clear_btn.setEnabled(True)
