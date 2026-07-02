@@ -100,6 +100,9 @@ class LibraryScannerWidget(QFrame):
         self.is_loaded = False
         self.worker = None
         self.videos_data = []
+        self._ocr_deferred_queue = []   # job OCR in attesa che la pipeline principale si liberi
+        if hasattr(main_window, 'processing_done'):
+            main_window.processing_done.connect(self._drain_deferred_ocr)
 
         self.setObjectName("libraryScannerFrame")
         self._init_ui()
@@ -832,6 +835,14 @@ class LibraryScannerWidget(QFrame):
         """
         if not windows_path:
             return
+        # Se la pipeline di trascrizione è attiva, rinvia il job per evitare OOM
+        if getattr(self.main_window, 'is_processing', False):
+            kind_label = 'VOBSUB' if kind == 'vobsub' else 'PGS'
+            self._ocr_deferred_queue.append((windows_path, kind, force_auto))
+            self._ocr_add_job(windows_path, kind_label)
+            self._ocr_set_status(windows_path, 'queued', 0)
+            self._log(f"⏳ OCR accodato (trascrizione in corso): {Path(windows_path).name}")
+            return
         if getattr(self, '_ocr_worker', None) is not None:
             QMessageBox.information(self, tr('ocr_section_title'),
                                     "Un'altra conversione OCR è già in corso.")
@@ -1005,8 +1016,11 @@ class LibraryScannerWidget(QFrame):
         if worker is getattr(self, '_ocr_worker', None):
             self._ocr_worker = None
         # In modalità batch, avanza al file successivo quando il worker è concluso.
-        if getattr(self, '_ocr_batch_active', False) and self._ocr_worker is None:
-            self._ocr_batch_advance()
+        if self._ocr_worker is None:
+            if getattr(self, '_ocr_batch_active', False):
+                self._ocr_batch_advance()
+            else:
+                self._drain_deferred_ocr()
 
     # ── Superpower: acquisisce tutti i bitmap dalla Library Scanner e li processa localmente ──
     def _superpower_ocr(self):
@@ -1100,9 +1114,22 @@ class LibraryScannerWidget(QFrame):
                 f"Batch OCR completato.\nConvertiti: {self._ocr_batch_ok} · "
                 f"Falliti: {self._ocr_batch_fail} (su {self._ocr_batch_total})")
             self._auto_refresh()
+            # Avvia eventuali job singoli che erano in attesa durante il batch
+            self._drain_deferred_ocr()
             return
         path, kind = queue.pop(0)
         self._start_bitmap_ocr(path, kind, force_auto=True)
+
+    def _drain_deferred_ocr(self):
+        """Avvia il prossimo job OCR dalla coda differita (chiamato quando la pipeline si libera)."""
+        if not self._ocr_deferred_queue:
+            return
+        if getattr(self, '_ocr_worker', None) is not None:
+            return  # OCR già in corso
+        if getattr(self.main_window, 'is_processing', False):
+            return  # pipeline ripartita (sicurezza)
+        windows_path, kind, force_auto = self._ocr_deferred_queue.pop(0)
+        self._start_bitmap_ocr(windows_path, kind, force_auto)
 
     def _create_row_button(self, row: int, already_queued: bool) -> QPushButton:
         btn = QPushButton("✓" if already_queued else "➕")
