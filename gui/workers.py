@@ -372,6 +372,16 @@ class ProcessingWorker(QThread):
                 except Exception:
                     pass
 
+                # Cintura di sicurezza: pipeline.cleanup() ha già chiamato
+                # release_ram_to_os(), ma il worker ha eseguito un ulteriore
+                # gc.collect() dopo. Ri-eseguiamo il trim per restituire all'OS
+                # la RAM liberata da quest'ultimo passaggio (EmptyWorkingSet).
+                try:
+                    from utils.resource_monitor import release_ram_to_os
+                    release_ram_to_os()
+                except Exception:
+                    pass
+
                 logger.info("✅ Pipeline cleanup completato")
         except Exception as e:
             logger.error(f"❌ Errore durante cleanup: {e}")

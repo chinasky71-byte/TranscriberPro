@@ -631,6 +631,10 @@ class MainWindow(QMainWindow):
         self.log_text = QTextEdit()
         self.log_text.setObjectName("logText")
         self.log_text.setReadOnly(True)
+        # Limita il log ai ~5000 blocchi più recenti: su code lunghe (centinaia
+        # di file) il QTextDocument accumulerebbe altrimenti RAM per l'intera
+        # sessione. I blocchi più vecchi vengono scartati automaticamente.
+        self.log_text.document().setMaximumBlockCount(5000)
         layout.addWidget(self.log_text, stretch=1)
 
         # Diagnostic footer

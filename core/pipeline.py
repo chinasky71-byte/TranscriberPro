@@ -139,6 +139,13 @@ class ProcessingPipeline:
         # File paths
         self.extracted_srt: Optional[Path] = None
         self.detected_language: Optional[str] = None
+
+        # Diagnostica RAM per-step (opt-in via config: "diagnose_ram": true).
+        # Quando attiva, _log() appende l'RSS del processo ai boundary di step.
+        try:
+            self._diagnose_ram = bool(self.config.get('diagnose_ram', False))
+        except Exception:
+            self._diagnose_ram = False
     
     def set_log_callback(self, callback: Callable):
         """Imposta callback per logging GUI (chiamato dal ProcessingWorker)"""
@@ -167,6 +174,16 @@ class ProcessingPipeline:
     
     def _log(self, message: str):
         """Logga il messaggio sia a logger che a callback GUI"""
+        # Diagnostica RAM: se attiva e il messaggio è un boundary di step
+        # (es. "\n2. …", "\n2.5. …", "\n6.5. …"), appende l'RSS del processo.
+        if getattr(self, '_diagnose_ram', False):
+            import re
+            if re.match(r'\s*\n?\d+(?:\.\d+)?\.\s', message):
+                try:
+                    rss_gb = psutil.Process(os.getpid()).memory_info().rss / 1024**3
+                    message = f"{message}  [RSS: {rss_gb:.2f} GB]"
+                except Exception:
+                    pass
         logger.info(message)
         if self._log_callback:
             self._log_callback(message)
