@@ -114,14 +114,33 @@ class LibraryScanner:
                 total_dirs = len(directories)
                 logger.info(f"Inizio scansione di {total_dirs} directory")
 
-            # Scansiona ogni directory
-            for idx, scan_dir in enumerate(directories):
+            # ── FASE 1: pre-conteggio globale su TUTTI i percorsi ──
+            # Enumera i file di ogni directory abilitata PRIMA di elaborare, così
+            # _files_total è il totale globale fin dall'inizio e la barra non si
+            # "resetta" passando da un percorso al successivo. L'enumerazione è
+            # fatta una sola volta: le liste raccolte vengono riusate in Fase 2.
+            collected = []  # list[(scan_dir, [Path], [error_details])]
+            for scan_dir in directories:
+                if self._cancelled:
+                    stats["status"] = "cancelled"
+                    break
+                self._current_file = f"Conteggio: {scan_dir.label}"
+                self._notify(f"Conteggio file: {scan_dir.label}", 0)
+                paths, errs = self._collect_video_files(scan_dir)
+                collected.append((scan_dir, paths, errs))
+                self._files_total += len(paths)
+            logger.info(
+                f"Totale file da scansionare su {len(collected)} percorsi: {self._files_total}"
+            )
+
+            # ── FASE 2: elaborazione con totale globale fisso ──
+            for scan_dir, paths, errs in collected:
                 if self._cancelled:
                     stats["status"] = "cancelled"
                     break
 
-                self._notify(f"Scansione: {scan_dir.label}", int((idx / total_dirs) * 100))
-                dir_stats = self._scan_directory(scan_dir)
+                self._notify(f"Scansione: {scan_dir.label}", self.progress["percent"])
+                dir_stats = self._scan_directory(scan_dir, paths, errs)
 
                 stats["directories_scanned"] += 1
                 stats["files_found"] += dir_stats["found"]
@@ -191,30 +210,27 @@ class LibraryScanner:
             self._running = False
             self._cancelled = False
 
-    def _scan_directory(self, scan_dir: ScanDirectory) -> dict:
-        """Scansiona una singola directory e aggiorna il database."""
-        dir_stats = {
-            "found": 0, "new": 0, "updated": 0,
-            "with_subs": 0, "without_subs": 0,
-            "errors": 0, "error_details": []
-        }
+    def _collect_video_files(self, scan_dir: ScanDirectory) -> tuple:
+        """Enumera i file video di una directory SENZA elaborarli (Fase 1).
 
+        Ritorna: (list[Path], list[str] error_details). L'elaborazione vera
+        (ffprobe + DB) avviene poi in _scan_directory sulla lista qui raccolta.
+        Separando conteggio ed elaborazione, _files_total può essere il totale
+        globale di TUTTI i percorsi prima che la barra parta.
+        """
+        errors = []
         linux_path = Path(scan_dir.linux_path)
         if not linux_path.exists():
             msg = f"Directory non trovata: {scan_dir.linux_path}"
             logger.warning(msg)
-            dir_stats["errors"] += 1
-            dir_stats["error_details"].append(msg)
-            return dir_stats
+            return [], [msg]
 
         if not linux_path.is_dir():
             msg = f"Non e' una directory: {scan_dir.linux_path}"
             logger.warning(msg)
-            dir_stats["errors"] += 1
-            dir_stats["error_details"].append(msg)
-            return dir_stats
+            return [], [msg]
 
-        logger.info(f"Scansione directory: {scan_dir.label} ({scan_dir.linux_path})")
+        logger.info(f"Conteggio directory: {scan_dir.label} ({scan_dir.linux_path})")
 
         # Raccogli tutti i file video
         video_files = []
@@ -236,12 +252,24 @@ class LibraryScanner:
         except PermissionError as e:
             msg = f"Permesso negato: {e}"
             logger.warning(msg)
-            dir_stats["errors"] += 1
-            dir_stats["error_details"].append(msg)
+            errors.append(msg)
 
         logger.info(f"  Trovati {len(video_files)} file video in {scan_dir.label}")
-        dir_stats["found"] = len(video_files)
-        self._files_total += len(video_files)
+        return video_files, errors
+
+    def _scan_directory(self, scan_dir: ScanDirectory,
+                        video_files: list, collect_errors: list) -> dict:
+        """Elabora i file video GIÀ raccolti di una directory (Fase 2) e aggiorna il DB."""
+        dir_stats = {
+            "found": len(video_files), "new": 0, "updated": 0,
+            "with_subs": 0, "without_subs": 0,
+            "errors": len(collect_errors), "error_details": list(collect_errors)
+        }
+
+        if not video_files:
+            return dir_stats
+
+        logger.info(f"Elaborazione directory: {scan_dir.label} ({len(video_files)} file)")
 
         # Processa ogni file video
         with get_db() as db:
