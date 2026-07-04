@@ -41,3 +41,7 @@ huggingface_write_token.txt
 
 # Modelli GGUF (troppo grandi per Git)
 *.gguf
+
+# Script di lavoro / speed-fix (non codice di produzione)
+speed_fix_*.py
+speed_*.py
