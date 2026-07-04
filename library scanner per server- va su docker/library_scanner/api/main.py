@@ -521,11 +521,15 @@ async def notify_subtitle(req: NotifySubtitleRequest):
         vf.has_italian_srt = True
         vf.has_italian_text_sub = True
         vf.has_any_italian_sub = True
-        # L'SRT italiano ora esiste → il file NON è più da convertire: azzera il
-        # flag, altrimenti resterebbe nella lista 'convertibili' pur essendo done.
-        vf.has_italian_convertible_subs = False
-        vf.conversion_status = "done"
-        vf.conversion_done_at = datetime.now(timezone.utc)
+        # conversion_status riguarda SOLO la conversione ASS/SSA→SRT (dominio del
+        # converter). Un SRT sidecar creato da Transcriber Pro NON tocca l'ASS/SSA
+        # embedded: se il file ha ancora un ASS/SSA italiano convertibile, marcarlo
+        # 'done' qui lo escluderebbe dal batch di conversione, lasciando l'ASS
+        # embedded (transcoding Plex) irrisolto. Marchiamo done solo se non c'è
+        # più nulla da convertire.
+        if not vf.has_italian_convertible_subs:
+            vf.conversion_status = "done"
+            vf.conversion_done_at = datetime.now(timezone.utc)
         vf.ocr_status   = "done"
         vf.ocr_done_at  = datetime.now(timezone.utc)
         fname = vf.filename
