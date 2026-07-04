@@ -1363,14 +1363,26 @@ async function loadConversionStatus() {
         if (!s) return;
         document.getElementById('btn-conv-cancel').disabled = !s.running;
         const wrap = document.getElementById('conv-progress-wrap');
+        const hadActivity = s.done > 0 || s.errors > 0;
         if (s.running) {
             wrap.style.display = 'block';
-            const pct = s.total > 0 ? Math.round(s.done / s.total * 100) : 0;
+            const processed = s.done + (s.errors || 0);
+            const pct = s.total > 0 ? Math.round(processed / s.total * 100) : 0;
             document.getElementById('conv-progress-bar').style.width = pct + '%';
-            document.getElementById('conv-progress-text').textContent =
-                `${s.done}/${s.total} — ${s.current_file||''}`;
+            let txt = `${processed}/${s.total} — ${s.current_file||''}`;
+            if (s.errors > 0) txt += ` (${s.errors} errori)`;
+            document.getElementById('conv-progress-text').textContent = txt;
+        } else if (hadActivity) {
+            // A fine elaborazione la barra va portata a 100% (stesso pattern
+            // dell'OCR): il ramo running mostra i file COMPLETATI, quindi senza
+            // questo l'ultimo file lascerebbe la barra bloccata a total-1.
+            wrap.style.display = 'block';
+            document.getElementById('conv-progress-bar').style.width = '100%';
+            let txt = `Completato: ${s.done} ok`;
+            if (s.errors > 0) txt += `, ${s.errors} errori`;
+            document.getElementById('conv-progress-text').textContent = txt;
         } else {
-            wrap.style.display = s.done > 0 ? 'block' : 'none';
+            wrap.style.display = 'none';
         }
         _updateStartBtn();
     } catch(e) {}
