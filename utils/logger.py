@@ -10,6 +10,14 @@ from pathlib import Path
 from datetime import datetime
 
 
+# File handler condiviso tra tutti i logger dell'app: creato una sola volta,
+# così ogni modulo (anche con nome diverso, es. "core.pipeline") scrive nello
+# STESSO file invece di generarne uno separato per nome.
+_shared_file_handler = None
+_shared_log_file = None
+_stdout_reconfigured = False
+
+
 def _strip_emoji(text: str) -> str:
     """Rimuove emoji e simboli grafici dal testo per output console DOS Windows."""
     result = []
@@ -26,49 +34,59 @@ def _strip_emoji(text: str) -> str:
 
 def setup_logger(name='TranscriberPro', log_dir=None):
     """
-    Setup application logger with Windows UTF-8 fix
+    Setup application logger with Windows UTF-8 fix.
+
+    Tutti i logger dell'app condividono UN unico file di log per sessione
+    (handler condiviso), a prescindere dal `name` passato: così i moduli con
+    nome distinto (es. "core.pipeline") non generano file separati.
     """
+    global _shared_file_handler, _shared_log_file, _stdout_reconfigured
+
     # Create logger
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
-    
+
     # Prevent duplicate handlers
     if logger.handlers:
         return logger
-    
+
     # Create log directory
     if log_dir is None:
         log_dir = Path.home() / '.transcriberpro' / 'logs'
     else:
         log_dir = Path(log_dir)
-    
+
     log_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Create formatters
     detailed_formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
-    
+
     simple_formatter = logging.Formatter(
         '%(levelname)s: %(message)s'
     )
-    
+
     # ========================================
-    # FILE HANDLER - UTF-8 (già OK)
+    # FILE HANDLER - UTF-8, CONDIVISO tra tutti i logger
     # ========================================
-    log_file = log_dir / f'transcriber_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(detailed_formatter)
-    logger.addHandler(file_handler)
-    
+    # Creato una sola volta: il primo setup_logger() della sessione crea il
+    # file, tutti i successivi riusano lo stesso handler → un unico file.
+    if _shared_file_handler is None:
+        _shared_log_file = log_dir / f'transcriber_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
+        _shared_file_handler = logging.FileHandler(_shared_log_file, encoding='utf-8')
+        _shared_file_handler.setLevel(logging.DEBUG)
+        _shared_file_handler.setFormatter(detailed_formatter)
+    logger.addHandler(_shared_file_handler)
+
     # ========================================
     # CONSOLE HANDLER - FIX UTF-8 per Windows
     # ========================================
     try:
-        # Prova a riconfigurare stdout per UTF-8
-        if sys.platform == 'win32':
+        # Riconfigura stdout per UTF-8 una sola volta (evita di re-wrappare
+        # ad ogni chiamata di setup_logger).
+        if sys.platform == 'win32' and not _stdout_reconfigured:
             # Wrap stdout con UTF-8 encoding
             sys.stdout = io.TextIOWrapper(
                 sys.stdout.buffer,
@@ -76,10 +94,11 @@ def setup_logger(name='TranscriberPro', log_dir=None):
                 errors='replace',  # Sostituisci caratteri problematici
                 line_buffering=True
             )
+            _stdout_reconfigured = True
     except Exception as e:
         # Se fallisce, continua senza UTF-8 nel console
         pass
-    
+
     # Gestione errori di encoding
     class SafeStreamHandler(logging.StreamHandler):
         def emit(self, record):
@@ -97,6 +116,6 @@ def setup_logger(name='TranscriberPro', log_dir=None):
     safe_console.setFormatter(simple_formatter)
     logger.addHandler(safe_console)
     
-    logger.info(f"Logger initialized. Log file: {log_file}")
+    logger.info(f"Logger initialized. Log file: {_shared_log_file}")
     
     return logger
