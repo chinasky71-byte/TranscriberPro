@@ -174,19 +174,36 @@ class ProcessingPipeline:
     
     def _log(self, message: str):
         """Logga il messaggio sia a logger che a callback GUI"""
-        # Diagnostica RAM: se attiva e il messaggio è un boundary di step
-        # (es. "\n2. …", "\n2.5. …", "\n6.5. …"), appende l'RSS del processo.
-        if getattr(self, '_diagnose_ram', False):
-            import re
-            if re.match(r'\s*\n?\d+(?:\.\d+)?\.\s', message):
-                try:
-                    rss_gb = psutil.Process(os.getpid()).memory_info().rss / 1024**3
-                    message = f"{message}  [RSS: {rss_gb:.2f} GB]"
-                except Exception:
-                    pass
         logger.info(message)
         if self._log_callback:
             self._log_callback(message)
+        # Diagnostica RAM: SOLO sul file di log (mai a schermo), quando attiva
+        # e il messaggio è un boundary di step (es. "\n2. …", "\n6.5. …").
+        if getattr(self, '_diagnose_ram', False):
+            import re
+            if re.match(r'\s*\n?\d+(?:\.\d+)?\.\s', message):
+                self._log_ram_diag(message.strip().splitlines()[0])
+
+    def _log_ram_diag(self, step_label: str):
+        """Scrive una riga di diagnostica RAM SOLO sul file di log (non a schermo).
+
+        Usa metriche affidabili — NON l'RSS, che EmptyWorkingSet falsa svuotando
+        il working set:
+        - RAM di SISTEMA (used/available): è ciò che l'utente vede riempirsi.
+        - commit del PROCESSO (private bytes su Windows): cresce anche col working
+          set svuotato → vero indicatore di leak/frammentazione.
+        """
+        try:
+            vm = psutil.virtual_memory()
+            mi = psutil.Process(os.getpid()).memory_info()
+            private_gb = getattr(mi, 'private', getattr(mi, 'vms', 0)) / 1024**3
+            logger.info(
+                f"[DIAG-RAM] {step_label} | sistema: usata {vm.used/1024**3:.2f} GB / "
+                f"disp. {vm.available/1024**3:.2f} GB ({vm.percent:.0f}%) | "
+                f"processo: commit {private_gb:.2f} GB, rss {mi.rss/1024**3:.2f} GB"
+            )
+        except Exception:
+            pass
 
     def process(self, target_language: str = 'ita') -> bool:
         """
