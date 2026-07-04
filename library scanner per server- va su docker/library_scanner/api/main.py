@@ -521,6 +521,9 @@ async def notify_subtitle(req: NotifySubtitleRequest):
         vf.has_italian_srt = True
         vf.has_italian_text_sub = True
         vf.has_any_italian_sub = True
+        # L'SRT italiano ora esiste → il file NON è più da convertire: azzera il
+        # flag, altrimenti resterebbe nella lista 'convertibili' pur essendo done.
+        vf.has_italian_convertible_subs = False
         vf.conversion_status = "done"
         vf.conversion_done_at = datetime.now(timezone.utc)
         vf.ocr_status   = "done"

@@ -193,6 +193,9 @@ class SubtitleConverter:
         if not ita_conv:
             logger.info(f"  Skip {vf.filename}: nessun ASS/SSA italiano da convertire")
             self._update_status(vf.id, "skipped", "Nessun ASS/SSA italiano")
+            # Nessun ASS/SSA italiano → il file non è (più) convertibile: azzera il
+            # flag così esce dalla lista 'convertibili' invece di restarci bloccato.
+            self._clear_italian_convertible(vf.id)
             return "skipped"
 
         cmd = self._build_ffmpeg_cmd(video_path, streams)
@@ -396,6 +399,18 @@ class SubtitleConverter:
                     vf.has_any_italian_sub = True
         except Exception as e:
             logger.error(f"_post_conversion_update error: {e}")
+
+    def _clear_italian_convertible(self, video_id: int):
+        """Azzera SOLO has_italian_convertible_subs (file senza ASS/SSA italiano
+        da convertire). Non tocca gli altri flag sub: non presume la presenza di
+        un SRT italiano, si limita a togliere il file dalla lista 'convertibili'."""
+        try:
+            with get_db() as db:
+                vf = db.get(VideoFile, video_id)
+                if vf:
+                    vf.has_italian_convertible_subs = False
+        except Exception as e:
+            logger.error(f"_clear_italian_convertible error: {e}")
 
     def _notify(self, message: str, percent: int):
         if self._progress_callback:
