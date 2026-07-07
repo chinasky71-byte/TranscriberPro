@@ -363,22 +363,30 @@ class ProcessingWorker(QThread):
         try:
             # Stream stdout riga per riga → log GUI + progress inline.
             # Cancel: a ogni riga controlliamo is_cancelled e uccidiamo l'albero.
+            # Rumore che alcune librerie scrivono su STDOUT (non stderr) bypassando
+            # il logging: es. torch.hub "Downloading: ..." per il download modelli.
+            # Va solo nel file di log del parent, mai a schermo.
+            _stdout_noise = ('Downloading:', 'Using cache found in')
             for line in proc.stdout:
                 if self.is_cancelled:
                     self._kill_proc_tree(proc)
                     break
                 line = line.rstrip()
-                if line:
-                    self.log_message.emit(line)
-                    # Le righe [DIAG-RAM] contengono "N. Step" ma NON sono boundary
-                    # di step: escludile dal match progress (le inoltra comunque a
-                    # log_message, che le centralizza nel file di log del parent).
-                    if '[DIAG-RAM]' not in line:
-                        m = _step_re.search(line)
-                        if m:
-                            pct = _STEP_PCT.get(m.group(1))
-                            if pct is not None:
-                                self.file_progress.emit(video_path, pct)
+                if not line:
+                    continue
+                if line.lstrip().startswith(_stdout_noise):
+                    logger.info(f"[child-stdout] {line}")
+                    continue
+                self.log_message.emit(line)
+                # Le righe [DIAG-RAM] contengono "N. Step" ma NON sono boundary
+                # di step: escludile dal match progress (le inoltra comunque a
+                # log_message, che le centralizza nel file di log del parent).
+                if '[DIAG-RAM]' not in line:
+                    m = _step_re.search(line)
+                    if m:
+                        pct = _STEP_PCT.get(m.group(1))
+                        if pct is not None:
+                            self.file_progress.emit(video_path, pct)
             return_code = proc.wait()
         finally:
             self._current_proc = None
