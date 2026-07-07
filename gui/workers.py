@@ -312,8 +312,11 @@ class ProcessingWorker(QThread):
         env['PYTHONIOENCODING'] = 'utf-8'
         env['TP_SUBPROCESS'] = '1'   # nel child: niente console handler dei logger
         env['TQDM_DISABLE'] = '1'    # niente barre di progresso (download modelli)
-        creationflags = (subprocess.CREATE_NEW_PROCESS_GROUP
-                         if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP') else 0)
+        creationflags = 0
+        if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP'):
+            creationflags |= subprocess.CREATE_NEW_PROCESS_GROUP
+        if hasattr(subprocess, 'CREATE_NO_WINDOW'):
+            creationflags |= subprocess.CREATE_NO_WINDOW  # nessuna finestra console per il child
 
         self.log_message.emit(tr('worker_start_single'))
         _t0 = time.time()
