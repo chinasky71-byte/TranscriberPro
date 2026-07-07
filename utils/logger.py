@@ -3,6 +3,7 @@ Logging configuration - FIXED for Windows UTF-8
 File: utils/logger.py
 """
 import logging
+import os
 import sys
 import io
 import unicodedata
@@ -110,11 +111,16 @@ def setup_logger(name='TranscriberPro', log_dir=None):
             except Exception:
                 self.handleError(record)
 
-    # Console: solo WARNING ed ERROR (INFO/DEBUG già nel file di log e nella GUI)
-    safe_console = SafeStreamHandler(sys.stdout)
-    safe_console.setLevel(logging.WARNING)
-    safe_console.setFormatter(simple_formatter)
-    logger.addHandler(safe_console)
+    # Console: solo WARNING ed ERROR (INFO/DEBUG già nel file di log e nella GUI).
+    # Nei subprocess isolati (TP_SUBPROCESS) NON aggiungiamo il console handler:
+    # lì sys.stdout è la pipe catturata dal worker e deve restare pulita (solo
+    # i messaggi _emit della pipeline), altrimenti i logger.warning delle
+    # librerie finirebbero a schermo nel QTextEdit del parent.
+    if not os.environ.get('TP_SUBPROCESS'):
+        safe_console = SafeStreamHandler(sys.stdout)
+        safe_console.setLevel(logging.WARNING)
+        safe_console.setFormatter(simple_formatter)
+        logger.addHandler(safe_console)
     
     logger.info(f"Logger initialized. Log file: {_shared_log_file}")
     

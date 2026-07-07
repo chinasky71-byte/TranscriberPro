@@ -305,6 +305,8 @@ class ProcessingWorker(QThread):
         env = os.environ.copy()
         env['PYTHONIOENCODING'] = 'utf-8'
         env['PYTHONUTF8'] = '1'
+        env['TP_SUBPROCESS'] = '1'   # nel child: niente console handler dei logger
+        env['TQDM_DISABLE'] = '1'    # niente barre di progresso (download modelli)
         creationflags = (subprocess.CREATE_NEW_PROCESS_GROUP
                          if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP') else 0)
 
@@ -315,7 +317,7 @@ class ProcessingWorker(QThread):
             proc = subprocess.Popen(
                 [sys.executable, "-m", "core.pipeline_cli", str(args_path)],
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                stderr=subprocess.PIPE,
                 cwd=str(project_root),
                 env=env,
                 text=True,
@@ -332,6 +334,26 @@ class ProcessingWorker(QThread):
             return False
 
         self._current_proc = proc
+
+        # Thread che drena lo stderr del child (tqdm, warning di librerie, logging
+        # esterno) SOLO nel file di log del parent, MAI a schermo. Così il log a
+        # video resta pulito come nel percorso in-process (solo i messaggi _emit
+        # della pipeline arrivano su stdout).
+        import threading
+
+        def _drain_stderr(stream):
+            try:
+                for eline in stream:
+                    eline = eline.rstrip()
+                    if eline:
+                        logger.info(f"[child-stderr] {eline}")
+            except Exception:
+                pass
+
+        stderr_thread = threading.Thread(
+            target=_drain_stderr, args=(proc.stderr,), daemon=True)
+        stderr_thread.start()
+
         return_code = 1
         try:
             # Stream stdout riga per riga → log GUI + progress inline.
@@ -355,6 +377,10 @@ class ProcessingWorker(QThread):
             return_code = proc.wait()
         finally:
             self._current_proc = None
+            try:
+                stderr_thread.join(timeout=5)
+            except Exception:
+                pass
 
         _duration = time.time() - _t0
 
