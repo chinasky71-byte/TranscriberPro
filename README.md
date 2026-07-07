@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.4.0-orange)
+![Version](https://img.shields.io/badge/Version-1.6.0-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -254,6 +254,33 @@ This project is licensed under the MIT License.
 
 ## Changelog
 
+### v1.6.0
+- **Per-film subprocess isolation** — each video now processes in a separate Python subprocess that terminates on completion, returning *all* native RAM/VRAM (PyTorch / ctranslate2 / CUDA / NLLB allocator pools) to the OS. Fixes system-RAM growth on long queues (RAM was climbing past 24 GB over 9 films). Opt-out via the `pipeline_subprocess_isolation` config flag. Bonus: a ctranslate2 crash now stays confined to the child — the film fails, the queue continues, the GUI survives.
+- **RAM diagnostics** — opt-in `diagnose_ram` logs system RAM + process commit per pipeline step (`[DIAG-RAM]`), centralized in the parent log file, never on screen.
+- **Unified & clean logging** — single log file per session; library noise (tqdm download bars, transformers/speechbrain warnings, whisperX / torch.hub stdout) filtered to the log file only; no more console windows flashing from nested subprocesses (`CREATE_NO_WINDOW`).
+- **Concurrency guard** — OCR jobs and the audio-transcription pipeline never run simultaneously (OOM prevention): a new OCR request is queued while a transcription runs, and vice versa.
+- **Complete NLLB language map** — added ~40 missing Whisper+NLLB languages; ISO 639-2 → 639-1 conversion before Whisper (fixes crash on e.g. Serbian tracks).
+- **Failed files no longer stuck** — a failing file correctly moves to "Failed" and the queue advances.
+- **Configurable NLLB beam size** — in Settings → Translation.
+- **Faster startup** — splash visible in ~1.6 s, main window in ~3.5 s (cold).
+- **Library Scanner fixes** — scan progress bar uses the global file total across all paths (no per-disk reset); ASS/SSA conversion bar reaches 100%; `notify-subtitle` no longer marks files with embedded Italian ASS/SSA as "done" (they stayed stuck in the convertible list).
+
+### v1.5.3
+- **ASS/SSA filter in Library Scanner widget** — Italian-aware server-side ASS/SSA → SRT conversion (converts only Italian ASS/SSA tracks, preserves the title and the other tracks)
+
+### v1.5.2
+- Fix: NoSrt filter incorrectly launched OCR instead of the standard queue
+
+### v1.5.1
+- Structured OCR logging (emoji + in-place progress updates)
+
+### v1.5.0
+- **Superpower OCR** — pull all bitmap files from the Library Scanner and process them locally in batch
+- **Multi-track bitmap OCR** — processes *all* Italian bitmap tracks (not just the first); preserves forced disposition in the mux
+- **VOBSUB OCR mux in-place** — remuxes the SRT and removes the original bitmap track
+- **Library Scanner scan progress bar** + stale-scan recovery + automatic cleanup of orphan files from crashed OCR runs
+- **NoSrt filter** + SRT track titles + window resize/jitter fixes
+
 ### v1.4.0
 - **Bitmap OCR pipeline** (PGS / VOBSUB → SRT) — verbatim, parallel multi-core Tesseract; ~8× faster than single-core
 - **Per-track language OCR** — model selected from stream language tag; non-Italian tracks auto-translated to Italian
@@ -493,6 +520,33 @@ Questo progetto è distribuito con licenza MIT.
 ---
 
 ## Changelog
+
+### v1.6.0
+- **Isolamento della pipeline per-film in subprocess** — ogni video viene ora elaborato in un processo Python separato che termina a fine elaborazione, restituendo *tutta* la RAM/VRAM nativa (pool allocator di PyTorch / ctranslate2 / CUDA / NLLB) all'OS. Risolve la crescita della RAM di sistema su code lunghe (saliva oltre 24 GB su 9 film). Disattivabile con il flag `pipeline_subprocess_isolation`. Bonus: un crash di ctranslate2 resta confinato al processo figlio — il film va in "Falliti", la coda prosegue, la GUI sopravvive.
+- **Diagnostica RAM** — flag opt-in `diagnose_ram`: logga RAM di sistema + commit del processo per ogni step (`[DIAG-RAM]`), centralizzata nel file di log principale, mai a schermo.
+- **Logging unificato e pulito** — un solo file di log per sessione; il rumore delle librerie (barre di download tqdm, warning transformers/speechbrain, stdout di whisperX / torch.hub) va solo nel file, non a schermo; niente più finestre console lampeggianti dalle subprocess annidate (`CREATE_NO_WINDOW`).
+- **Guardia anti-concorrenza** — i job OCR e la pipeline di trascrizione audio non girano mai contemporaneamente (prevenzione OOM): una nuova richiesta OCR viene accodata mentre una trascrizione è in corso, e viceversa.
+- **Mappa lingue NLLB completa** — aggiunte ~40 lingue Whisper+NLLB mancanti; conversione ISO 639-2 → 639-1 prima di Whisper (risolve il crash su tracce es. serbe).
+- **File falliti non più bloccati** — un file che fallisce passa correttamente a "Falliti" e la coda avanza.
+- **Beam size NLLB configurabile** — in Impostazioni → Traduzione.
+- **Avvio più veloce** — splash visibile in ~1,6 s, finestra principale in ~3,5 s (cold).
+- **Fix Library Scanner** — la barra di scansione usa il totale globale su tutti i percorsi (nessun reset per disco); la barra di conversione ASS/SSA arriva al 100%; `notify-subtitle` non marca più "done" i file con ASS/SSA italiano ancora embedded (restavano bloccati nella lista convertibili).
+
+### v1.5.3
+- **Filtro ASS/SSA nel widget Library Scanner** — conversione ASS/SSA → SRT server-side, italiana-aware (converte solo le tracce ASS/SSA italiane, preserva il titolo e le altre tracce)
+
+### v1.5.2
+- Fix: il filtro NoSrt avviava l'OCR invece della coda standard
+
+### v1.5.1
+- Logging OCR strutturato (emoji + aggiornamento progress in-place)
+
+### v1.5.0
+- **Superpower OCR** — recupera tutti i file bitmap dal Library Scanner e li elabora localmente in batch
+- **OCR bitmap multi-traccia** — elabora *tutte* le tracce bitmap italiane (non solo la prima); preserva la disposition forced nel mux
+- **VOBSUB OCR mux in-place** — rimuxa l'SRT e rimuove la traccia bitmap originale
+- **Barra di avanzamento scansione Library Scanner** + recovery scansioni bloccate + pulizia automatica file orfani da OCR crashati
+- **Filtro NoSrt** + titoli traccia SRT + fix resize/jitter finestra
 
 ### v1.4.0
 - **Pipeline OCR bitmap** (PGS / VOBSUB → SRT) — verbatim, Tesseract parallelo multi-core; ~8× più veloce del single-core
