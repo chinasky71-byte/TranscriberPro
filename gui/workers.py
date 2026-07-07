@@ -343,11 +343,15 @@ class ProcessingWorker(QThread):
                 line = line.rstrip()
                 if line:
                     self.log_message.emit(line)
-                    m = _step_re.search(line)
-                    if m:
-                        pct = _STEP_PCT.get(m.group(1))
-                        if pct is not None:
-                            self.file_progress.emit(video_path, pct)
+                    # Le righe [DIAG-RAM] contengono "N. Step" ma NON sono boundary
+                    # di step: escludile dal match progress (le inoltra comunque a
+                    # log_message, che le centralizza nel file di log del parent).
+                    if '[DIAG-RAM]' not in line:
+                        m = _step_re.search(line)
+                        if m:
+                            pct = _STEP_PCT.get(m.group(1))
+                            if pct is not None:
+                                self.file_progress.emit(video_path, pct)
             return_code = proc.wait()
         finally:
             self._current_proc = None
@@ -467,11 +471,12 @@ class ProcessingWorker(QThread):
             def log_callback(msg):
                 if not self.is_cancelled:
                     self.log_message.emit(msg)
-                    m = _step_re.search(msg)
-                    if m:
-                        pct = _STEP_PCT.get(m.group(1))
-                        if pct is not None:
-                            self.file_progress.emit(video_path, pct)
+                    if '[DIAG-RAM]' not in msg:
+                        m = _step_re.search(msg)
+                        if m:
+                            pct = _STEP_PCT.get(m.group(1))
+                            if pct is not None:
+                                self.file_progress.emit(video_path, pct)
 
             self.pipeline.set_log_callback(log_callback)
 
