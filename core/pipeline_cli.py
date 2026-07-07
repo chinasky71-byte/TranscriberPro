@@ -38,6 +38,32 @@ def _emit(msg: str) -> None:
     print(msg, flush=True)
 
 
+def _suppress_subprocess_windows() -> None:
+    """Su Windows forza CREATE_NO_WINDOW su TUTTE le subprocess lanciate nel child.
+
+    Le nostre classi (audio_processor, ecc.) già lo usano, ma le librerie
+    (whisperx/torchaudio che invocano ffmpeg durante l'alignment) no: senza
+    questo una finestra console lampeggia a schermo. Il monkeypatch di
+    Popen.__init__ copre ogni subprocess, nostra o di libreria.
+    """
+    if sys.platform != 'win32':
+        return
+    import subprocess as _sp
+    flag = getattr(_sp, 'CREATE_NO_WINDOW', 0)
+    if not flag:
+        return
+    _orig_init = _sp.Popen.__init__
+
+    def _patched_init(self, *args, **kwargs):
+        try:
+            kwargs['creationflags'] = kwargs.get('creationflags', 0) | flag
+        except Exception:
+            pass
+        _orig_init(self, *args, **kwargs)
+
+    _sp.Popen.__init__ = _patched_init
+
+
 def main(argv: list) -> int:
     if len(argv) < 2:
         _emit("ERRORE CLI: argomento args.json mancante")
@@ -128,5 +154,9 @@ if __name__ == '__main__':
     _project_root = Path(__file__).resolve().parent.parent
     if str(_project_root) not in sys.path:
         sys.path.insert(0, str(_project_root))
+
+    # Nessuna finestra console per le subprocess annidate (es. ffmpeg lanciato
+    # da whisperx/torchaudio durante l'alignment).
+    _suppress_subprocess_windows()
 
     sys.exit(main(sys.argv))
