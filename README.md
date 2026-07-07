@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.6.0-orange)
+![Version](https://img.shields.io/badge/Version-1.5.4-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -254,7 +254,7 @@ This project is licensed under the MIT License.
 
 ## Changelog
 
-### v1.6.0
+### v1.5.4
 - **Per-film subprocess isolation** — each video now processes in a separate Python subprocess that terminates on completion, returning *all* native RAM/VRAM (PyTorch / ctranslate2 / CUDA / NLLB allocator pools) to the OS. Fixes system-RAM growth on long queues (RAM was climbing past 24 GB over 9 films). Opt-out via the `pipeline_subprocess_isolation` config flag. Bonus: a ctranslate2 crash now stays confined to the child — the film fails, the queue continues, the GUI survives.
 - **RAM diagnostics** — opt-in `diagnose_ram` logs system RAM + process commit per pipeline step (`[DIAG-RAM]`), centralized in the parent log file, never on screen.
 - **Unified & clean logging** — single log file per session; library noise (tqdm download bars, transformers/speechbrain warnings, whisperX / torch.hub stdout) filtered to the log file only; no more console windows flashing from nested subprocesses (`CREATE_NO_WINDOW`).
@@ -521,7 +521,7 @@ Questo progetto è distribuito con licenza MIT.
 
 ## Changelog
 
-### v1.6.0
+### v1.5.4
 - **Isolamento della pipeline per-film in subprocess** — ogni video viene ora elaborato in un processo Python separato che termina a fine elaborazione, restituendo *tutta* la RAM/VRAM nativa (pool allocator di PyTorch / ctranslate2 / CUDA / NLLB) all'OS. Risolve la crescita della RAM di sistema su code lunghe (saliva oltre 24 GB su 9 film). Disattivabile con il flag `pipeline_subprocess_isolation`. Bonus: un crash di ctranslate2 resta confinato al processo figlio — il film va in "Falliti", la coda prosegue, la GUI sopravvive.
 - **Diagnostica RAM** — flag opt-in `diagnose_ram`: logga RAM di sistema + commit del processo per ogni step (`[DIAG-RAM]`), centralizzata nel file di log principale, mai a schermo.
 - **Logging unificato e pulito** — un solo file di log per sessione; il rumore delle librerie (barre di download tqdm, warning transformers/speechbrain, stdout di whisperX / torch.hub) va solo nel file, non a schermo; niente più finestre console lampeggianti dalle subprocess annidate (`CREATE_NO_WINDOW`).
