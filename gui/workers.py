@@ -303,8 +303,13 @@ class ProcessingWorker(QThread):
 
         project_root = Path(__file__).resolve().parent.parent
         env = os.environ.copy()
+        # PYTHONIOENCODING forza gli std stream del child a UTF-8 (per emoji/accenti
+        # nei messaggi). NON impostiamo PYTHONUTF8=1: attiverebbe la UTF-8 mode
+        # globale, cambiando il default encoding delle subprocess ANNIDATE (ffmpeg,
+        # tool di demucs/pyannote) da cp1252 a UTF-8 strict → UnicodeDecodeError su
+        # metadata in cp1252 (byte 0x8a &c.). In-process il default è cp1252: lo
+        # replichiamo non forzando PYTHONUTF8.
         env['PYTHONIOENCODING'] = 'utf-8'
-        env['PYTHONUTF8'] = '1'
         env['TP_SUBPROCESS'] = '1'   # nel child: niente console handler dei logger
         env['TQDM_DISABLE'] = '1'    # niente barre di progresso (download modelli)
         creationflags = (subprocess.CREATE_NEW_PROCESS_GROUP
