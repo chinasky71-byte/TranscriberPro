@@ -197,11 +197,21 @@ class ProcessingPipeline:
             vm = psutil.virtual_memory()
             mi = psutil.Process(os.getpid()).memory_info()
             private_gb = getattr(mi, 'private', getattr(mi, 'vms', 0)) / 1024**3
-            logger.info(
+            msg = (
                 f"[DIAG-RAM] {step_label} | sistema: usata {vm.used/1024**3:.2f} GB / "
                 f"disp. {vm.available/1024**3:.2f} GB ({vm.percent:.0f}%) | "
                 f"processo: commit {private_gb:.2f} GB, rss {mi.rss/1024**3:.2f} GB"
             )
+            # Emette via callback quando disponibile: nel subprocess isolato il
+            # callback è _emit (→ stdout → parent), così la diagnostica confluisce
+            # nel file di log del PARENT (centralizzata) invece che in quello del
+            # child. Il consumer (main_window.log_message) riconosce il prefisso
+            # [DIAG-RAM] e lo scrive solo su file, mai a schermo. Fallback su
+            # logger.info se non c'è callback.
+            if self._log_callback:
+                self._log_callback(msg)
+            else:
+                logger.info(msg)
         except Exception:
             pass
 

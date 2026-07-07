@@ -746,6 +746,12 @@ class MainWindow(QMainWindow):
         )
 
     def log_message(self, message: str):
+        # Diagnostica RAM: centralizzata SOLO nel file di log del processo GUI
+        # (mai a schermo), sia dai film in-process sia dai subprocess isolati che
+        # la inoltrano via stdout. Punto unico per rileggere tutte le [DIAG-RAM].
+        if '[DIAG-RAM]' in message:
+            logger.info(message)
+            return
         message = self.fix_mojibake(message)
         timestamp = datetime.now().strftime("%H:%M:%S")
         formatted = f"[{timestamp}] {message}"
