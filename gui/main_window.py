@@ -1028,9 +1028,9 @@ class MainWindow(QMainWindow):
         self.stop_btn.setEnabled(False)
         self.log_message(tr('stop_requested'))
         if self.worker:
-            self.worker.is_cancelled = True
-            if self.worker.pipeline:
-                self.worker.pipeline.cancel()
+            # cancel() gestisce sia il subprocess isolato (kill dell'albero) sia
+            # la pipeline in-process legacy.
+            self.worker.cancel()
 
     def on_file_completed(self, file_path: str):
         item = self._find_item_by_path(file_path)

@@ -140,8 +140,9 @@ class ProcessingWorker(QThread):
         self.queue_mutex = queue_mutex  # âœ… Mutex condiviso con UI
         
         self.is_cancelled = False
-        self.pipeline = None
-        
+        self.pipeline = None          # usato solo nel percorso in-process (legacy/opt-out)
+        self._current_proc = None     # subprocess pipeline_cli in corso (isolamento)
+
         # Contatori per statistiche
         self.completed_files = 0
         self.failed_files = 0
@@ -250,11 +251,195 @@ class ProcessingWorker(QThread):
     
     def _process_single_file(self, video_path: str) -> bool:
         """
-        Elabora singolo file video
-        
+        Dispatcher: sceglie tra elaborazione ISOLATA in subprocess (default) e
+        legacy in-process, in base al flag config 'pipeline_subprocess_isolation'.
+
+        L'isolamento in subprocess evita l'accumulo di RAM su code lunghe: ogni
+        film gira in un processo Python che muore a fine elaborazione, così l'OS
+        recupera tutta la RAM/VRAM degli allocatori nativi ML.
+        """
+        try:
+            from utils.config import get_config
+            use_subprocess = get_config().get('pipeline_subprocess_isolation', True)
+        except Exception:
+            use_subprocess = True
+        if use_subprocess:
+            return self._process_single_file_subprocess(video_path)
+        return self._process_single_file_inprocess(video_path)
+
+    def _process_single_file_subprocess(self, video_path: str) -> bool:
+        """Elabora il film in un subprocess isolato (core.pipeline_cli)."""
+        import os
+        import sys
+        import json
+        import shutil
+        import tempfile
+        import subprocess
+
+        filename = Path(video_path).name
+
+        # Mappa STEP-numero → percentuale (identica al percorso in-process).
+        _STEP_PCT = {
+            '0': 2, '1': 5, '2': 15, '2.5': 25, '3': 40,
+            '4': 60, '4.2': 68, '4.5': 74, '5': 80, '5.5': 83,
+            '6': 88, '6.5': 93, '7': 97, '8': 99, '9': 100,
+        }
+        _step_re = re.compile(r'\n?(\d+(?:\.\d+)?)\.\s')
+
+        from utils.config import get_config
+        target_language = get_config().get_target_language()
+        files_done = self.completed_files + self.failed_files
+
+        # Dir IPC separata dalla temp dir del video (che il cleanup rimuove).
+        ipc_dir = Path(tempfile.mkdtemp(prefix="tp_pipe_"))
+        args_path = ipc_dir / "args.json"
+        result_path = ipc_dir / "result.json"
+        args_path.write_text(json.dumps({
+            "video_path": video_path,
+            "target_language": target_language,
+            "files_processed": files_done,
+            "result_path": str(result_path),
+        }, ensure_ascii=False), encoding='utf-8')
+
+        project_root = Path(__file__).resolve().parent.parent
+        env = os.environ.copy()
+        env['PYTHONIOENCODING'] = 'utf-8'
+        env['PYTHONUTF8'] = '1'
+        creationflags = (subprocess.CREATE_NEW_PROCESS_GROUP
+                         if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP') else 0)
+
+        self.log_message.emit(tr('worker_start_single'))
+        _t0 = time.time()
+
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, "-m", "core.pipeline_cli", str(args_path)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                cwd=str(project_root),
+                env=env,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                bufsize=1,
+                creationflags=creationflags,
+            )
+        except Exception as e:
+            self.log_message.emit(
+                tr('worker_critical_error').format(filename=filename, error=str(e)))
+            logger.error(f"Spawn pipeline_cli fallito: {e}", exc_info=True)
+            shutil.rmtree(ipc_dir, ignore_errors=True)
+            return False
+
+        self._current_proc = proc
+        return_code = 1
+        try:
+            # Stream stdout riga per riga → log GUI + progress inline.
+            # Cancel: a ogni riga controlliamo is_cancelled e uccidiamo l'albero.
+            for line in proc.stdout:
+                if self.is_cancelled:
+                    self._kill_proc_tree(proc)
+                    break
+                line = line.rstrip()
+                if line:
+                    self.log_message.emit(line)
+                    m = _step_re.search(line)
+                    if m:
+                        pct = _STEP_PCT.get(m.group(1))
+                        if pct is not None:
+                            self.file_progress.emit(video_path, pct)
+            return_code = proc.wait()
+        finally:
+            self._current_proc = None
+
+        _duration = time.time() - _t0
+
+        if self.is_cancelled:
+            self.log_message.emit(tr('worker_cancelled_file').format(filename=filename))
+            shutil.rmtree(ipc_dir, ignore_errors=True)
+            return False
+
+        # Recupera l'esito da result.json (fallback su exit code).
+        success = (return_code == 0)
+        last_output_path = ''
+        try:
+            if result_path.exists():
+                res = json.loads(result_path.read_text(encoding='utf-8'))
+                success = bool(res.get('success', success))
+                last_output_path = res.get('last_output_path') or ''
+        except Exception:
+            pass
+        shutil.rmtree(ipc_dir, ignore_errors=True)
+
+        if success:
+            self.log_message.emit(tr('worker_completed').format(filename=filename))
+            try:
+                self.file_history_entry.emit({
+                    'name': Path(video_path).name,
+                    'date_iso': datetime.now().isoformat(timespec='seconds'),
+                    'src_lang': 'auto',
+                    'dst_lang': target_language,
+                    'duration_seconds': round(_duration),
+                    'size_bytes': Path(video_path).stat().st_size,
+                    'srt_path': last_output_path,
+                    'video_path': video_path,
+                })
+            except Exception:
+                pass
+            return True
+
+        self.log_message.emit(tr('worker_failed').format(filename=filename))
+        self.log_message.emit(tr('worker_hint'))
+        return False
+
+    def _kill_proc_tree(self, proc):
+        """Uccide il subprocess e TUTTI i discendenti (ffmpeg, gender_corrector_cli).
+        Su Windows terminate() sul child Python non propaga ai nipoti: serve
+        killare esplicitamente l'albero via psutil."""
+        try:
+            import psutil
+            parent = psutil.Process(proc.pid)
+            for child in parent.children(recursive=True):
+                try:
+                    child.kill()
+                except Exception:
+                    pass
+            parent.kill()
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                pass
+        except Exception:
+            # Fallback senza psutil: terminate/kill del solo child.
+            try:
+                proc.terminate()
+                proc.wait(timeout=5)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+
+    def cancel(self):
+        """Richiesta di cancellazione dal main thread: kill del subprocess in
+        corso (isolamento) e/o cancel della pipeline in-process (legacy)."""
+        self.is_cancelled = True
+        proc = self._current_proc
+        if proc is not None:
+            self._kill_proc_tree(proc)
+        if self.pipeline is not None:
+            try:
+                self.pipeline.cancel()
+            except Exception:
+                pass
+
+    def _process_single_file_inprocess(self, video_path: str) -> bool:
+        """
+        Elabora singolo file video IN-PROCESS (percorso legacy / opt-out).
+
         Args:
             video_path: Path del file da elaborare
-            
+
         Returns:
             True se successo, False altrimenti
         """
