@@ -135,6 +135,7 @@ class ProcessingPipeline:
         self._current_proc: Optional[subprocess.Popen] = None
         self._track_selector = None   # AudioTrackSelector ref per cancel()
         self._subtitle_extractor = None  # SubtitleExtractor ref per cancel()
+        self._ocr = None  # PgsOcr/VobSubOcr ref per cancel() (ramo bitmap STEP 1)
         
         # File paths
         self.extracted_srt: Optional[Path] = None
@@ -171,6 +172,11 @@ class ProcessingPipeline:
             self._track_selector.cancel()
         if self._subtitle_extractor:
             self._subtitle_extractor.cancel()
+        if self._ocr:
+            try:
+                self._ocr.cancel()
+            except Exception:
+                pass
     
     def _log(self, message: str):
         """Logga il messaggio sia a logger che a callback GUI"""
@@ -214,6 +220,42 @@ class ProcessingPipeline:
                 logger.info(msg)
         except Exception:
             pass
+
+    @staticmethod
+    def _bitmap_kind(codec) -> str:
+        """Mappa il codec del sottotitolo bitmap al motore OCR: 'vobsub' per i
+        DVD (dvd_subtitle), 'pgs' per tutto il resto (PGS Blu-ray, ecc.)."""
+        c = (codec or '').lower()
+        if c in ('dvd_subtitle', 'dvdsub'):
+            return 'vobsub'
+        return 'pgs'
+
+    def _run_bitmap_ocr(self, kind: str) -> bool:
+        """Esegue l'OCR bitmap AUTO (PGS/VOBSUB → SRT) tramite core.ocr_auto.
+
+        Ritorna False su qualsiasi problema (nessun bitmap OCR-abile, lingua
+        Tesseract mancante, errore), così il chiamante può ripiegare sulla
+        trascrizione da audio. L'OCR gira in AUTO (nessuna UI di revisione: la
+        pipeline è headless nel subprocess).
+        """
+        from core.ocr_auto import make_bitmap_ocr, run_ocr_auto
+        from core.pgs_ocr import BitmapNotSupported as PgsNotSupported
+        from core.vobsub_ocr import BitmapNotSupported as VobNotSupported
+        from core.pgs_types import UnsupportedLanguage
+        try:
+            self._ocr = make_bitmap_ocr(
+                self.video_path, self.config, kind, log_callback=self._log_callback)
+            return bool(run_ocr_auto(self._ocr, log_callback=self._log_callback))
+        except (PgsNotSupported, VobNotSupported) as e:
+            self._log(f"⚠️ Nessun sottotitolo bitmap OCR-abile: {e}")
+            return False
+        except UnsupportedLanguage as e:
+            self._log(f"⚠️ Tesseract: lingua non supportata ({e})")
+            return False
+        except Exception as e:
+            logger.warning(f"OCR bitmap fallito: {e}", exc_info=True)
+            self._log(f"⚠️ Errore OCR bitmap: {e}")
+            return False
 
     def process(self, target_language: str = 'ita') -> bool:
         """
@@ -263,20 +305,68 @@ class ProcessingPipeline:
                 extractor = SubtitleExtractor(str(self.video_path))
                 self._subtitle_extractor = extractor
                 selected_stream = extractor.select_best_subtitle()
+                selected_is_ita = bool(
+                    selected_stream
+                    and (selected_stream.get('language') or '').lower().startswith('it'))
 
-                if selected_stream:
-                    temp_srt_path = self.file_handler.get_temp_path(
-                        self.video_path,
-                        f"embedded_{selected_stream['language']}.srt"
-                    )
-                    if extractor.extract_subtitle(temp_srt_path, selected_stream['index']):
-                        subtitle_path = temp_srt_path
-                        source_language_639_2 = selected_stream['language']
-                        self._log(f"✅ Sottotitoli embedded trovati ({source_language_639_2}). Salto trascrizione.")
-                    else:
-                        self._log("❌ Estrazione sottotitoli fallita. Passo a trascrizione.")
+                def _use_text_sub(stream):
+                    """Estrae la traccia testo selezionata → (path, lang) o (None, None)."""
+                    p = self.file_handler.get_temp_path(
+                        self.video_path, f"embedded_{stream['language']}.srt")
+                    if extractor.extract_subtitle(p, stream['index']):
+                        self._log(f"✅ Sottotitoli embedded trovati "
+                                  f"({stream['language']}). Salto trascrizione.")
+                        return p, stream['language']
+                    self._log("❌ Estrazione sottotitoli fallita. Passo a trascrizione.")
+                    return None, None
+
+                # Bitmap ITALIANO ha priorità sul testo NON italiano: si privilegia
+                # l'italiano nativo (testo o bitmap) alla traduzione da un'altra lingua.
+                try:
+                    ita_bitmaps = extractor.select_all_italian_bitmap_subtitles()
+                except Exception:
+                    ita_bitmaps = []
+
+                if selected_is_ita:
+                    # (2) Testo ITALIANO → usa quello (migliore dell'OCR).
+                    p, lang = _use_text_sub(selected_stream)
+                    if p:
+                        subtitle_path, source_language_639_2 = p, lang
+
+                elif ita_bitmaps:
+                    # (3) Bitmap ITALIANO → OCR, anche se esiste un testo non italiano.
+                    kind = self._bitmap_kind(ita_bitmaps[0].get('codec'))
+                    self._log(f"\n1b. Sottotitoli bitmap italiani ({kind.upper()}) → OCR...")
+                    if self._run_bitmap_ocr(kind):
+                        self._log("✅ OCR bitmap completato.")
+                        return True
+                    self._log("⚠️ OCR bitmap non riuscito.")
+                    if selected_stream:  # ripiega sul testo non italiano, se presente
+                        p, lang = _use_text_sub(selected_stream)
+                        if p:
+                            subtitle_path, source_language_639_2 = p, lang
+
+                elif selected_stream:
+                    # (4) Testo NON italiano → usa quello (tradotto a valle).
+                    p, lang = _use_text_sub(selected_stream)
+                    if p:
+                        subtitle_path, source_language_639_2 = p, lang
+
                 else:
-                    self._log("ℹ️ Nessun sottotitolo embedded. Procedo con trascrizione.")
+                    # (5) Nessun testo: c'è un bitmap (non italiano)? → OCR + traduzione.
+                    try:
+                        best_bitmap = extractor.select_best_bitmap_subtitle()
+                    except Exception:
+                        best_bitmap = None
+                    if best_bitmap:
+                        kind = self._bitmap_kind(best_bitmap.get('codec'))
+                        self._log(f"\n1b. Sottotitoli bitmap ({kind.upper()}) → OCR + traduzione...")
+                        if self._run_bitmap_ocr(kind):
+                            self._log("✅ OCR bitmap completato.")
+                            return True
+                        self._log("⚠️ OCR bitmap non riuscito. Procedo con trascrizione.")
+                    else:
+                        self._log("ℹ️ Nessun sottotitolo embedded. Procedo con trascrizione.")
 
             if self._cancelled:
                 self._log("⏹ Elaborazione annullata")

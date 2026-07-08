@@ -45,14 +45,10 @@ class OcrWorker(QThread):
         self.is_cancelled = False
 
     def _make_ocr(self):
-        """Istanzia il motore giusto in base al tipo di bitmap."""
-        if self.kind == "vobsub":
-            from core.vobsub_ocr import VobSubOcr
-            return VobSubOcr(self.video_path, self.config,
-                             log_callback=self._on_log, progress_callback=self._on_progress)
-        from core.pgs_ocr import PgsOcr
-        return PgsOcr(self.video_path, self.config,
-                      log_callback=self._on_log, progress_callback=self._on_progress)
+        """Istanzia il motore giusto in base al tipo di bitmap (logica condivisa)."""
+        from core.ocr_auto import make_bitmap_ocr
+        return make_bitmap_ocr(self.video_path, self.config, self.kind,
+                               log_callback=self._on_log, progress_callback=self._on_progress)
 
     def run(self):
         # BitmapNotSupported è definita in entrambi i moduli (classi distinte): catturale entrambe.
@@ -72,18 +68,13 @@ class OcrWorker(QThread):
             self._on_log(f"🎬 OCR {kind_label} — {Path(self.video_path).name}")
 
             if self.strategy == STRATEGY_AUTO:
-                # Auto: run_auto() gestisce TUTTE le tracce italiane (singola o multi-stream).
-                # Se non ci sono tracce italiane di questo codec, rilancia BitmapNotSupported
-                # → catturata sotto → cade nel ramo OCR+traduzione via ocr_to_events().
-                try:
-                    ok = self._ocr.run_auto()
-                    self.auto_done.emit(ok)
-                    return
-                except _not_supported:
-                    # Nessuna traccia italiana di questo codec → prova tracce non-italiane.
-                    events, content_lang = self._ocr.ocr_to_events()
-                    ok = self._convert_and_translate(events, content_lang)
-                    self.auto_done.emit(ok)
+                # Auto: run_ocr_auto() gestisce TUTTE le tracce italiane (run_auto) e,
+                # se non ce ne sono, OCR della traccia migliore + traduzione. Logica
+                # condivisa con la pipeline principale (core.ocr_auto). Propaga
+                # BitmapNotSupported / UnsupportedLanguage → catturate sotto.
+                from core.ocr_auto import run_ocr_auto
+                ok = run_ocr_auto(self._ocr, log_callback=self._on_log)
+                self.auto_done.emit(ok)
             else:
                 # Review: singola traccia migliore per UI di revisione.
                 events, content_lang = self._ocr.ocr_to_events()
@@ -91,7 +82,8 @@ class OcrWorker(QThread):
                     self.events_ready.emit(events, 'it')
                 else:
                     # Traccia NON italiana → automatico: OCR sorgente + traduzione → .it.srt.
-                    ok = self._convert_and_translate(events, content_lang)
+                    from core.ocr_auto import convert_and_translate
+                    ok = convert_and_translate(self._ocr, events, content_lang, self._on_log)
                     self.auto_done.emit(ok)
 
         except _not_supported as exc:
@@ -108,70 +100,6 @@ class OcrWorker(QThread):
             self.error.emit(str(exc))
         finally:
             self.finished.emit()
-
-    def _convert_and_translate(self, events, content_lang: str) -> bool:
-        """
-        Traccia non italiana: OCR sorgente → traduzione → .it.srt.
-        Se la modalità è mux, rimux nel video e cancella i sidecar intermedi.
-        Se la modalità è sidecar, mantiene .it.srt e cancella il sorgente intermedio.
-        """
-        from core.pgs_types import events_to_srt, CFG_WRITEBACK, WRITEBACK_MUX
-        from pathlib import Path
-
-        src_text = events_to_srt(events)
-        if not src_text.strip():
-            self._on_log("Nessun testo OCR prodotto")
-            return False
-
-        src_path = self._ocr.write_sidecar(src_text, content_lang)   # <stem>.<lang>.srt
-        video = self._ocr.video_path
-        it_path = video.with_name(f"{video.stem}.it.srt")
-
-        self._on_log(f"⚙️ OCR — Traduzione {content_lang}→it...")
-        try:
-            from core.translator import get_translator
-            translator = get_translator()
-            ok = translator.translate_file(
-                Path(src_path), it_path, src_lang=content_lang, tgt_lang='it')
-            try:
-                translator.unload()
-            except Exception:
-                pass
-        except Exception as exc:
-            # NON emettere error qui: run() emette già auto_done(False) → evita doppio
-            # popup (singolo) e doppio conteggio fail (batch).
-            logger.exception("Traduzione OCR fallita")
-            self._on_log(f"Traduzione fallita: {exc}")
-            return False
-
-        if not ok:
-            return False
-
-        is_mux = self._ocr._cfg(CFG_WRITEBACK, WRITEBACK_MUX) == WRITEBACK_MUX
-        if is_mux:
-            # Rimux .it.srt nel file video, poi cancella i sidecar.
-            try:
-                it_text = it_path.read_text(encoding='utf-8')
-            except Exception as exc:
-                self._on_log(f"Impossibile leggere {it_path.name}: {exc}")
-                return False
-            mux_ok = self._ocr.writeback(it_text, 'it')
-            for p in (Path(src_path), it_path):
-                try:
-                    p.unlink(missing_ok=True)
-                except Exception:
-                    pass
-            if mux_ok:
-                self._on_log("✅ SRT italiano incorporato nel file")
-            return mux_ok
-        else:
-            # Modalità sidecar: it_path è l'output, rimuovi solo il sorgente intermedio.
-            try:
-                Path(src_path).unlink(missing_ok=True)
-            except Exception:
-                pass
-            self._on_log(f"✅ SRT italiano scritto: {it_path.name}")
-            return True
 
     def cancel(self):
         self.is_cancelled = True
