@@ -1077,7 +1077,7 @@ class LibraryScannerWidget(QFrame):
         self._ocr_superpower_active = False
         self._log("⚡ Superpower OCR completato")
 
-    # ── Batch OCR (Importa tutti con filtro formato attivo) ────────────────
+    # ── Batch OCR (azione esplicita: Superpower) ───────────────────────────
     def _start_ocr_batch(self, items: list):
         """items: lista di (windows_path, kind). Converte tutti in AUTO, in sequenza."""
         if getattr(self, '_ocr_worker', None) is not None:
@@ -1169,17 +1169,10 @@ class LibraryScannerWidget(QFrame):
                 self._start_ass_conversion([video_id])
             return
 
-        # File con sottotitoli bitmap (PGS/VOBSUB): OCR locale, NON trascrizione audio
-        bitmap_format = item.data(Qt.ItemDataRole.UserRole + 1)
-        if bitmap_format:
-            _, kind = self._badge_label_kind(bitmap_format)
-            btn = self.video_table.cellWidget(row, 4)
-            if btn:
-                btn.setText("✓")
-                btn.setEnabled(False)
-            self._start_bitmap_ocr(path, kind)
-            return
-
+        # File con sottotitoli bitmap (PGS/VOBSUB): entra nella coda come un file
+        # normale. La pipeline lo instrada automaticamente all'OCR su "Avvia"
+        # (routing STEP 1). NON avviare l'OCR qui: l'import deve solo accodare.
+        # Per un OCR immediato l'utente usa il badge arancione o "Superpower".
         added = self._import_paths([path])
         if added > 0:
             btn = self.video_table.cellWidget(row, 4)
@@ -1196,21 +1189,10 @@ class LibraryScannerWidget(QFrame):
             self._start_ass_conversion([])
             return
 
-        # Filtro bitmap (PGS/VOBSUB): batch OCR locale, NON aggiunge in coda trascrizione
-        if fmt in ('pgs', 'vobsub'):
-            items = []
-            for row in range(self.video_table.rowCount()):
-                if not self.video_table.isRowHidden(row):
-                    item = self.video_table.item(row, 0)
-                    if item:
-                        path = item.data(Qt.ItemDataRole.UserRole)
-                        bf   = item.data(Qt.ItemDataRole.UserRole + 1)
-                        if path and bf:
-                            _, kind = self._badge_label_kind(bf)
-                            items.append((path, kind))
-            if items:
-                self._start_ocr_batch(items)
-            return
+        # Filtro bitmap (PGS/VOBSUB): i film entrano nella coda come file normali;
+        # la pipeline li instrada all'OCR su "Avvia". L'import NON avvia l'OCR.
+        # Per un OCR batch immediato l'utente usa "Superpower".
+        # (nessun ramo speciale: cadono nel percorso di import generico sotto)
 
         # Solo righe visibili (rispetta filtro giorni + tipo)
         paths = []
