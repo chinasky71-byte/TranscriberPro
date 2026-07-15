@@ -181,13 +181,30 @@ def firstperson_gender_spacy(ita: str):
             continue
         if not (g.pos_ == 'ADJ' or g.morph.get('VerbForm') == ['Part']):
             continue
+        # anti-FP: la desinenza deve combaciare col genere (esclude mis-tag
+        # tipo "potresti" e forme invariabili non misurabili)
+        low = g.text.lower()
+        if g.morph.get('Gender') == ['Fem'] and not low.endswith('a'):
+            continue
+        if g.morph.get('Gender') == ['Masc'] and not low.endswith('o'):
+            continue
+        # anti-FP: "stesso/stessa" concorda col nome, mai col parlante
+        if g.lemma_.lower() == 'stesso':
+            continue
+        # anti-FP: locuzioni avverbiali ("di nascosto", "all'improvviso"):
+        # token retto/preceduto direttamente da preposizione
+        if g.i > 0 and doc[g.i - 1].pos_ == 'ADP':
+            continue
 
         # verbi FINITI legati SINTATTICAMENTE a g (l'ausiliare/copula che
-        # regge g, non un verbo di un'altra proposizione nella stessa cue)
+        # regge g, non un verbo di un'altra proposizione nella stessa cue).
+        # dep_ 'conj' escluso: un verbo COORDINATO ("...fantastica e lo
+        # apprezzo") appartiene a un'altra proposizione.
         fins = [c for c in g.children
-                if c.pos_ in ('AUX', 'VERB') and c.morph.get('VerbForm') == ['Fin']]
+                if c.pos_ in ('AUX', 'VERB') and c.morph.get('VerbForm') == ['Fin']
+                and c.dep_ != 'conj']
         h = g.head
-        if h is not g:
+        if h is not g and g.dep_ != 'conj':
             if h.pos_ in ('AUX', 'VERB') and h.morph.get('VerbForm') == ['Fin']:
                 fins.append(h)
             for c in h.children:
@@ -210,9 +227,13 @@ def firstperson_gender_spacy(ita: str):
             persons.update(f.morph.get('Person'))
             if f.text.lower() == 'sono':
                 has_sono = True
-        # soggetto esplicito "io" tra i figli del verbo reggente
-        has_io = any(c.text.lower() == 'io'
-                     for f in fins for c in f.children)
+        # soggetto esplicito "io"/"tu" tra i figli del verbo reggente
+        # (e del predicato stesso: "fossi stato tu" aggancia "tu" a g)
+        subj_toks = [c for f in fins for c in f.children] + list(g.children)
+        has_io = any(c.text.lower() == 'io' for c in subj_toks)
+        has_tu = any(c.text.lower() == 'tu' for c in subj_toks)
+        if has_tu and not has_io:
+            continue
 
         # decisione: 1ª persona se il verbo reggente è P1, o è "io ...",
         # o è "sono" con predicato singolare (→ io sono, non loro sono).
