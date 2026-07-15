@@ -84,6 +84,38 @@ class SpeakerGenderMap:
             return None, 0.0
         return self.gender_of(spk)
 
+    def addressee_gender_for_range(self, start: float, end: float,
+                                   window: float = 12.0) -> Tuple[Optional[str], float]:
+        """Genere dell'INTERLOCUTORE (2ª persona): il parlante dei turni
+        adiacenti. Prudente per costruzione: richiede che nella finestra
+        ±window ci sia UN SOLO altro parlante (dialogo a due localmente);
+        scene di gruppo o contesto ambiguo → (None, 0)."""
+        current = self.speaker_for_range(start, end)
+        if current is None:
+            return None, 0.0
+        others = set()
+        prev_spk = next_spk = None
+        for t_start, t_end, spk in self.turns:
+            if spk == current:
+                continue
+            if t_end <= start and start - t_end <= window:
+                prev_spk = spk               # ultimo turno altrui prima
+                others.add(spk)
+            elif t_start >= end and t_start - end <= window:
+                if next_spk is None:
+                    next_spk = spk           # primo turno altrui dopo
+                others.add(spk)
+            elif t_start < end and t_end > start:
+                others.add(spk)              # sovrapposto (parla anche lui)
+            if t_start > end + window:
+                break
+        if len(others) != 1:
+            return None, 0.0                 # gruppo o nessuno: ambiguo
+        addressee = others.pop()
+        if prev_spk == addressee or next_spk == addressee:
+            return self.gender_of(addressee)
+        return None, 0.0
+
     def to_json(self) -> str:
         return json.dumps({
             'turns': self.turns,
