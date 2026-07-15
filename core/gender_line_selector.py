@@ -119,11 +119,25 @@ def firstperson_gender(ita: str) -> Tuple[Optional[str], Optional[str]]:
     """Ritorna (marker, 'F'|'M') se la riga contiene una forma di genere
     plausibilmente riferita al parlante (1ª persona), altrimenti (None, None).
     """
+    hits = speaker_gendered_tokens(ita)
+    if hits:
+        return hits[0]
+    return None, None
+
+
+def speaker_gendered_tokens(ita: str) -> list:
+    """Ritorna TUTTE le forme di genere riferite al parlante (1ª persona)
+    nella riga, come lista di (testo_token, 'F'|'M') in ordine di apparizione.
+
+    Oltre ai predicati individuati direttamente, include la catena di
+    accordo coordinata ("sono stancO e confusO" → entrambi i token).
+    """
     nlp = _get_nlp()
     if nlp is None:
-        return None, None
+        return []
     doc = nlp(ita)
 
+    selected = []          # token spaCy accettati
     for g in doc:
         # candidato: participio o aggettivo SINGOLARE marcato al genere
         if g.morph.get('Number') != ['Sing']:
@@ -212,7 +226,29 @@ def firstperson_gender(ita: str) -> Tuple[Optional[str], Optional[str]]:
         if not ('1' in persons or has_io or has_sono):
             continue
 
-        gender = 'F' if g.morph.get('Gender') == ['Fem'] else 'M'
-        return g.text, gender
+        selected.append(g)
 
-    return None, None
+    # catena di accordo coordinata: "sono stancO e confusO" — il secondo
+    # aggettivo/participio è `conj` del primo e concorda con lo stesso
+    # soggetto (il parlante)
+    sel_set = set(t.i for t in selected)
+    for t in doc:
+        if t.i in sel_set or t.dep_ != 'conj' or t.head.i not in sel_set:
+            continue
+        if t.morph.get('Number') != ['Sing']:
+            continue
+        if t.morph.get('Gender') not in (['Fem'], ['Masc']):
+            continue
+        if not (t.pos_ == 'ADJ' or t.morph.get('VerbForm') == ['Part']):
+            continue
+        lw = t.text.lower()
+        if t.morph.get('Gender') == ['Fem'] and not lw.endswith('a'):
+            continue
+        if t.morph.get('Gender') == ['Masc'] and not lw.endswith('o'):
+            continue
+        selected.append(t)
+        sel_set.add(t.i)
+
+    selected.sort(key=lambda t: t.i)
+    return [(t.text, 'F' if t.morph.get('Gender') == ['Fem'] else 'M')
+            for t in selected]
