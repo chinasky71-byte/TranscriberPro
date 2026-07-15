@@ -158,187 +158,30 @@ def align(ita_cues, eng_cues):
 # Filtro spaCy (preferito): forma di GENERE in PRIMA PERSONA nell'italiano
 # ---------------------------------------------------------------------------
 
-_NLP = None
-_SPACY_TRIED = False
+_NLP_SENTINEL = None
 
 
-def _get_nlp():
-    global _NLP, _SPACY_TRIED
-    if not _SPACY_TRIED:
-        _SPACY_TRIED = True
-        try:
-            import spacy
-            _NLP = spacy.load('it_core_news_lg')
-        except Exception as e:
-            print(f"[spaCy non disponibile: {str(e)[:60]}] uso euristica regex", flush=True)
-            _NLP = None
-    return _NLP
+def _load_core_selector():
+    """Carica core/gender_line_selector.py per path (senza core/__init__,
+    che nel venv spaCy non è importabile: niente torch)."""
+    import importlib.util
+    path = Path(__file__).resolve().parent.parent / 'core' / 'gender_line_selector.py'
+    spec = importlib.util.spec_from_file_location('gender_line_selector', path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules['gender_line_selector'] = mod   # serve a @dataclass con
+    spec.loader.exec_module(mod)                # `from __future__ import annotations`
+    return mod
 
 
-# Forme flesse di "avere": il lemmatizer spaCy fallisce su forme
-# capitalizzate ("Avrei"→"Avrei") e clitiche ("averlo"→"avere lo")
-_AVERE_FORMS = {
-    'ho', 'hai', 'ha', 'abbiamo', 'avete', 'hanno',
-    'avevo', 'avevi', 'aveva', 'avevamo', 'avevate', 'avevano',
-    'ebbi', 'avesti', 'ebbe', 'avemmo', 'aveste', 'ebbero',
-    'avrò', 'avrai', 'avrà', 'avremo', 'avrete', 'avranno',
-    'avrei', 'avresti', 'avrebbe', 'avremmo', 'avreste', 'avrebbero',
-    'abbia', 'abbiate', 'abbiano', 'avessi', 'avesse', 'avessimo',
-    'avessero', 'avendo', 'aver', 'avere',
-}
-
-
-def _is_avere(tok) -> bool:
-    """True se il token è una forma di 'avere' (anche clitica/capitalizzata)."""
-    lem = tok.lemma_.lower()
-    if lem == 'avere' or lem.startswith('avere '):
-        return True
-    txt = tok.text.lower()
-    return txt in _AVERE_FORMS or txt.startswith('aver')
+_SELECTOR = _load_core_selector()
 
 
 def firstperson_gender_spacy(ita: str):
-    """
-    Candidato 1ª persona con genere se la frase contiene un predicato
-    (participio Part o aggettivo ADJ) singolare marcato al genere, e un
-    contesto di 1ª persona singolare. Ritorna (span, 'F'|'M'|None) o (None,None).
-
-    Regole di 1ª persona (in ordine di robustezza):
-      - un verbo/ausiliare FINITO con Person=1  (es. "ero", "sarei", "sento");
-      - il verbo "sono" con un predicato SINGOLARE marcato → è "io sono"
-        (la 3ª plurale richiederebbe accordo plurale);
-      - un "io" esplicito.
-    Esclude implicitamente 2ª/3ª persona (nessun aggancio 1ª persona) e i casi
-    plurali (predicato Number=Sing richiesto → "sono stati" cade).
-    """
-    nlp = _get_nlp()
-    if nlp is None:
-        return firstperson_gender_regex(ita)
-    doc = nlp(ita)
-
-    for g in doc:
-        # candidato: participio o aggettivo SINGOLARE marcato al genere
-        if g.morph.get('Number') != ['Sing']:
-            continue
-        if g.morph.get('Gender') not in (['Fem'], ['Masc']):
-            continue
-        if not (g.pos_ == 'ADJ' or g.morph.get('VerbForm') == ['Part']):
-            continue
-        # anti-FP: la desinenza deve combaciare col genere (esclude mis-tag
-        # tipo "potresti" e forme invariabili non misurabili)
-        low = g.text.lower()
-        if g.morph.get('Gender') == ['Fem'] and not low.endswith('a'):
-            continue
-        if g.morph.get('Gender') == ['Masc'] and not low.endswith('o'):
-            continue
-        # anti-FP: "stesso/stessa" concorda col nome, mai col parlante
-        if g.lemma_.lower() == 'stesso':
-            continue
-        # anti-FP: mis-tag lessicali ricorrenti (interiezioni/particelle)
-        if low in ('ciao', 'vero', 'so', 'ecco', 'bene', 'no'):
-            continue
-        # anti-FP: modificatore/argomento NOMINALE ("una CATTIVA compagnia",
-        # "il mio orso VINTO"): concorda col nome, non col parlante
-        if g.dep_ in ('amod', 'nummod', 'det', 'appos', 'nmod', 'obl',
-                      'obj', 'iobj', 'nsubj', 'fixed', 'flat', 'compound'):
-            continue
-        # anti-FP: participio retto da AVERE in QUALSIASI forma — finita
-        # ("Avrò dimenticato"), infinita ("potrei aver detto"), con clitico
-        # ("ricordo di averlo fatto", lemma spaCy "avere lo"), o come
-        # fratello aux del participio modale ("Avrei voluto", lemma non
-        # normalizzato). Il participio con avere è invariabile (o concorda
-        # col clitico oggetto), mai col parlante.
-        if g.morph.get('VerbForm') == ['Part']:
-            linked = [c for c in g.children if c.dep_.startswith('aux')
-                      or c.dep_ == 'cop']
-            if g.pos_ == 'AUX' or g.dep_.startswith('aux'):
-                # participio modale ("voluto" in "Avrei voluto"): gli aux
-                # coordinati sono FRATELLI sotto lo stesso head
-                linked += [c for c in g.head.children
-                           if c is not g and c.dep_.startswith('aux')]
-            if any(_is_avere(c) for c in linked):
-                continue
-        # anti-FP: locuzioni avverbiali ("di nascosto", "all'improvviso"):
-        # token retto/preceduto direttamente da preposizione
-        if g.i > 0 and doc[g.i - 1].pos_ == 'ADP':
-            continue
-
-        # verbi FINITI legati SINTATTICAMENTE a g (l'ausiliare/copula che
-        # regge g, non un verbo di un'altra proposizione nella stessa cue).
-        # dep_ 'conj' escluso: un verbo COORDINATO ("...fantastica e lo
-        # apprezzo") appartiene a un'altra proposizione.
-        fins = [c for c in g.children
-                if c.pos_ in ('AUX', 'VERB') and c.morph.get('VerbForm') == ['Fin']
-                and c.dep_ != 'conj']
-        h = g.head
-        if h is not g and g.dep_ != 'conj':
-            if h.pos_ in ('AUX', 'VERB') and h.morph.get('VerbForm') == ['Fin']:
-                fins.append(h)
-            for c in h.children:
-                if c.pos_ == 'AUX' and c.morph.get('VerbForm') == ['Fin']:
-                    fins.append(c)
-        if not fins:
-            continue
-
-        # Nei tempi composti con AVERE il participio è INVARIABILE (maschile
-        # di default, "ho detto/mangiato") → NON concorda col parlante.
-        # Solo i participi con ESSERE concordano ("sono andata", "ero stanca").
-        if g.morph.get('VerbForm') == ['Part']:
-            aux_lemmas = {f.lemma_.lower() for f in fins if f.pos_ == 'AUX'}
-            if 'avere' in aux_lemmas:
-                continue
-
-        persons = set()
-        has_sono = False
-        for f in fins:
-            persons.update(f.morph.get('Person'))
-            if f.text.lower() == 'sono':
-                has_sono = True
-        # soggetto esplicito "io"/"tu" tra i figli del verbo reggente
-        # (e del predicato stesso: "fossi stato tu" aggancia "tu" a g)
-        subj_toks = [c for f in fins for c in f.children] + list(g.children)
-        has_io = any(c.text.lower() == 'io' for c in subj_toks)
-        has_tu = any(c.text.lower() == 'tu' for c in subj_toks)
-        if has_tu and not has_io:
-            continue
-
-        # decisione: 1ª persona se il verbo reggente è P1, o è "io ...",
-        # o è "sono" con predicato singolare (→ io sono, non loro sono).
-        # Escludi se il reggente è chiaramente 2ª/3ª persona.
-        if '2' in persons or ('3' in persons and not has_sono and not has_io):
-            continue
-        if not ('1' in persons or has_io or has_sono):
-            continue
-
-        gender = 'F' if g.morph.get('Gender') == ['Fem'] else 'M'
-        return g.text, gender
-
-    return None, None
-
-
-# ---------------------------------------------------------------------------
-# Euristica regex (fallback se spaCy non c'è)
-# ---------------------------------------------------------------------------
-
-# Marcatori di soggetto 1ª persona singolare vicino a un participio/aggettivo genere.
-_P1 = r'(?:io\s+)?(?:sono|ero|sarò|sarei|fui|mi\s+sento|mi\s+sentivo|mi\s+sentii|' \
-      r'mi\s+sono|mi\s+ero|resto|rimango|rimasi|mi\s+sentirei)'
-# participi/aggettivi con desinenza di genere (m -o/-i, f -a/-e) — catturiamo la desinenza
-_GENDERED = r'([a-zàèéìòù]+?(?:at|ut|it|os|iv|ant|ent))([oaie])\b'
-
-# forme frequenti irregolari/aggettivi comuni marcati al genere
-_COMMON_F = re.compile(
-    r'\b(stanca|sicura|pronta|sola|contenta|felice|convinta|delusa|stufa|'
-    r'nata|cresciuta|rimasta|andata|stata|venuta|morta|viva|certa|'
-    r'preoccupata|spaventata|arrabbiata|innamorata|sorpresa|seduta|'
-    r'costretta|obbligata|abituata|grata|pentita|persa|sposata)\b', re.I)
-_COMMON_M = re.compile(
-    r'\b(stanco|sicuro|pronto|solo|contento|convinto|deluso|stufo|'
-    r'nato|cresciuto|rimasto|andato|stato|venuto|morto|vivo|certo|'
-    r'preoccupato|spaventato|arrabbiato|innamorato|sorpreso|seduto|'
-    r'costretto|obbligato|abituato|grato|pentito|perso|sposato)\b', re.I)
-
-_P1_RE = re.compile(_P1 + r'\s+(?:\w+\s+){0,2}?' + _GENDERED, re.I)
+    """Delegato al modulo di produzione core/gender_line_selector.py
+    (Fase 2). Fallback regex se spaCy non è disponibile."""
+    if _SELECTOR.available():
+        return _SELECTOR.firstperson_gender(ita)
+    return firstperson_gender_regex(ita)
 
 
 def firstperson_gender_regex(ita: str):
