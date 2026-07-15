@@ -97,15 +97,35 @@ def clean_text(t: str) -> str:
     return re.sub(r'\s+', ' ', t).strip()
 
 
-def parse_srt(path: Path):
+def _is_dialog_cue(raw: str) -> bool:
+    """True se la cue contiene un dialogo a due parlanti ("- ... - ...").
+
+    Una cue con due (o più) righe che iniziano col trattino, o con una
+    risposta introdotta da trattino su riga successiva, ha DUE parlanti:
+    non è attribuibile a un singolo speaker → va esclusa dal ground-truth.
+    """
+    lines = [l.strip() for l in raw.strip().split('\n') if l.strip()]
+    dash_lines = sum(1 for l in lines if re.match(r'^[-–—]', l))
+    if dash_lines >= 2:
+        return True
+    if dash_lines == 1 and len(lines) >= 2 and not re.match(r'^[-–—]', lines[0]):
+        return True
+    return False
+
+
+def parse_srt(path: Path, detect_dialog: bool = False):
     content = path.read_text(encoding='utf-8', errors='replace')
     cues = []
     for m in _TS.finditer(content):
         s = (int(m.group(2))*3600 + int(m.group(3))*60 + int(m.group(4)))*1000 + int(m.group(5))
         e = (int(m.group(6))*3600 + int(m.group(7))*60 + int(m.group(8)))*1000 + int(m.group(9))
-        txt = clean_text(m.group(10))
+        raw = m.group(10)
+        txt = clean_text(raw)
         if txt:
-            cues.append((s, e, txt))
+            if detect_dialog:
+                cues.append((s, e, txt, _is_dialog_cue(raw)))
+            else:
+                cues.append((s, e, txt))
     return cues
 
 
@@ -114,10 +134,11 @@ def parse_srt(path: Path):
 # ---------------------------------------------------------------------------
 
 def align(ita_cues, eng_cues):
-    """Per ogni cue italiana ritorna (start, ita_text, eng_text_concatenato)."""
+    """Per ogni cue italiana (s, e, txt, is_dialog) ritorna
+    (start_ms, end_ms, ita_text, eng_text_concatenato, is_dialog)."""
     pairs = []
     j0 = 0
-    for (s, e, it) in ita_cues:
+    for (s, e, it, dlg) in ita_cues:
         overlap = []
         for k in range(j0, len(eng_cues)):
             es, ee, et = eng_cues[k]
@@ -129,7 +150,7 @@ def align(ita_cues, eng_cues):
             if max(s, es) < min(e, ee):   # sovrapposizione reale
                 overlap.append(et)
         eng = ' '.join(dict.fromkeys(overlap))   # dedup preservando ordine
-        pairs.append((s, it, eng))
+        pairs.append((s, e, it, eng, dlg))
     return pairs
 
 
@@ -152,6 +173,28 @@ def _get_nlp():
             print(f"[spaCy non disponibile: {str(e)[:60]}] uso euristica regex", flush=True)
             _NLP = None
     return _NLP
+
+
+# Forme flesse di "avere": il lemmatizer spaCy fallisce su forme
+# capitalizzate ("Avrei"→"Avrei") e clitiche ("averlo"→"avere lo")
+_AVERE_FORMS = {
+    'ho', 'hai', 'ha', 'abbiamo', 'avete', 'hanno',
+    'avevo', 'avevi', 'aveva', 'avevamo', 'avevate', 'avevano',
+    'ebbi', 'avesti', 'ebbe', 'avemmo', 'aveste', 'ebbero',
+    'avrò', 'avrai', 'avrà', 'avremo', 'avrete', 'avranno',
+    'avrei', 'avresti', 'avrebbe', 'avremmo', 'avreste', 'avrebbero',
+    'abbia', 'abbiate', 'abbiano', 'avessi', 'avesse', 'avessimo',
+    'avessero', 'avendo', 'aver', 'avere',
+}
+
+
+def _is_avere(tok) -> bool:
+    """True se il token è una forma di 'avere' (anche clitica/capitalizzata)."""
+    lem = tok.lemma_.lower()
+    if lem == 'avere' or lem.startswith('avere '):
+        return True
+    txt = tok.text.lower()
+    return txt in _AVERE_FORMS or txt.startswith('aver')
 
 
 def firstperson_gender_spacy(ita: str):
@@ -191,6 +234,30 @@ def firstperson_gender_spacy(ita: str):
         # anti-FP: "stesso/stessa" concorda col nome, mai col parlante
         if g.lemma_.lower() == 'stesso':
             continue
+        # anti-FP: mis-tag lessicali ricorrenti (interiezioni/particelle)
+        if low in ('ciao', 'vero', 'so', 'ecco', 'bene', 'no'):
+            continue
+        # anti-FP: modificatore/argomento NOMINALE ("una CATTIVA compagnia",
+        # "il mio orso VINTO"): concorda col nome, non col parlante
+        if g.dep_ in ('amod', 'nummod', 'det', 'appos', 'nmod', 'obl',
+                      'obj', 'iobj', 'nsubj', 'fixed', 'flat', 'compound'):
+            continue
+        # anti-FP: participio retto da AVERE in QUALSIASI forma — finita
+        # ("Avrò dimenticato"), infinita ("potrei aver detto"), con clitico
+        # ("ricordo di averlo fatto", lemma spaCy "avere lo"), o come
+        # fratello aux del participio modale ("Avrei voluto", lemma non
+        # normalizzato). Il participio con avere è invariabile (o concorda
+        # col clitico oggetto), mai col parlante.
+        if g.morph.get('VerbForm') == ['Part']:
+            linked = [c for c in g.children if c.dep_.startswith('aux')
+                      or c.dep_ == 'cop']
+            if g.pos_ == 'AUX' or g.dep_.startswith('aux'):
+                # participio modale ("voluto" in "Avrei voluto"): gli aux
+                # coordinati sono FRATELLI sotto lo stesso head
+                linked += [c for c in g.head.children
+                           if c is not g and c.dep_.startswith('aux')]
+            if any(_is_avere(c) for c in linked):
+                continue
         # anti-FP: locuzioni avverbiali ("di nascosto", "all'improvviso"):
         # token retto/preceduto direttamente da preposizione
         if g.i > 0 and doc[g.i - 1].pos_ == 'ADP':
@@ -327,12 +394,12 @@ def main():
     extract_srt(video, ita_idx, ita_srt)
     extract_srt(video, eng_idx, eng_srt)
 
-    ita_cues = parse_srt(ita_srt)
+    ita_cues = parse_srt(ita_srt, detect_dialog=True)
     eng_cues = parse_srt(eng_srt)
     print(f"Cue: ita={len(ita_cues)}, eng={len(eng_cues)}")
 
     pairs = align(ita_cues, eng_cues)
-    aligned_ok = sum(1 for _, _, en in pairs if en)
+    aligned_ok = sum(1 for p in pairs if p[3])
     print(f"Cue italiane con sorgente inglese allineata: {aligned_ok}/{len(pairs)}")
 
     def ms2ts(ms):
@@ -340,13 +407,18 @@ def main():
         return f"{h:02d}:{m:02d}:{s:02d}.{msx:03d}"
 
     n_cand = 0
+    n_dialog_skip = 0
     with open(out_tsv, 'w', encoding='utf-8') as f:
-        f.write("start\tgender\tmarker\tita_reference\teng_source\n")
-        for (start, it, en) in pairs:
+        f.write("start\tend\tgender\tmarker\tita_reference\teng_source\n")
+        for (start, end, it, en, dlg) in pairs:
             marker, g = firstperson_gender_spacy(it)
             if marker and en:            # candidato 1ª persona con sorgente
+                if dlg:
+                    # cue di dialogo a due parlanti: non attribuibile → skip
+                    n_dialog_skip += 1
+                    continue
                 n_cand += 1
-                f.write(f"{ms2ts(start)}\t{g or '?'}\t{marker}\t{it}\t{en}\n")
+                f.write(f"{ms2ts(start)}\t{ms2ts(end)}\t{g or '?'}\t{marker}\t{it}\t{en}\n")
 
     print(f"\nCandidati 1ª persona con genere e sorgente EN: {n_cand}")
     print(f"TSV: {out_tsv}")
@@ -356,8 +428,8 @@ def main():
     for ln in lines:
         cols = ln.split('\t')
         if len(cols) >= 5:
-            print(f"  [{cols[0]}] ({cols[1]}) {cols[3]}")
-            print(f"        EN: {cols[4][:90]}")
+            print(f"  [{cols[0]}] ({cols[2]}) {cols[4]}")
+            print(f"        EN: {cols[5][:90]}")
 
 
 if __name__ == '__main__':
