@@ -90,7 +90,6 @@ def _verify_model_paths(config, logger):
     """Verifica esistenza dei percorsi modello configurati (solo Path.exists, no loading)."""
     checks = {
         'Whisper':          config.get('whisper_model_path', ''),
-        'Gender corrector': config.get('gender_correction_model_path', ''),
     }
     for name, path in checks.items():
         if not path:
@@ -99,6 +98,16 @@ def _verify_model_paths(config, logger):
             logger.info(f"  {name}: ✓ trovato")
         else:
             logger.warning(f"  {name}: ✗ non trovato — {path}")
+    # Gender corrector v2: serve il venv NLP (spaCy), non più il GGUF.
+    # Check inline (NO import di core.*: manterrebbe torch fuori dallo startup)
+    _root = Path(__file__).resolve().parent
+    _nlp_cands = [config.get('gender_selector_python', ''),
+                  _root / 'venv_nlp' / 'Scripts' / 'python.exe',
+                  _root / 'gender_eval' / '.venv_spacy' / 'Scripts' / 'python.exe']
+    if any(p and Path(p).exists() for p in _nlp_cands):
+        logger.info("  Gender corrector v2: ✓ venv NLP trovato")
+    else:
+        logger.warning("  Gender corrector v2: ✗ venv NLP (spaCy) non trovato")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
