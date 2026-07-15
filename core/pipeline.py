@@ -685,13 +685,13 @@ class ProcessingPipeline:
             # ============================================================
             if (final_language_639_1 == 'it'
                     and self.config.get('gender_correction_enabled', False)):
-                self._log("\n6.5. Correzione genere grammaticale (LLM, subprocess)...")
+                self._log("\n6.5. Correzione genere grammaticale (v2, subprocess)...")
                 try:
-                    import importlib.util
-                    if importlib.util.find_spec('llama_cpp') is None:
-                        self._log("⚠️ llama-cpp-python non installato. Salto.")
-                    elif not self.config.is_gender_correction_available():
-                        self._log("⚠️ Modello GGUF non trovato in config. Salto.")
+                    from core.gender_corrector_v2 import find_selector_python
+                    if not self.config.get('huggingface_token', ''):
+                        self._log("⚠️ Token HuggingFace mancante (serve per pyannote). Salto.")
+                    elif find_selector_python() is None:
+                        self._log("⚠️ Venv NLP (spaCy) non trovato. Salto.")
                     else:
                         # Cleanup parent: libera RAM/VRAM prima dello spawn.
                         # Non aiuta direttamente la VRAM del child (CUDA context
@@ -740,33 +740,16 @@ class ProcessingPipeline:
                             self._clear_vram()
                         release_ram_to_os()
 
-                        # Cast da TMDB (resta nel parent: API call leggera)
-                        character_context = {}
-                        if self.metadata and self.metadata.get('id'):
-                            try:
-                                character_context = self.tmdb_client.get_cast_info(
-                                    self.metadata['id'],
-                                    'tv' if self.metadata.get('season') else 'movie',
-                                    season=self.metadata.get('season'),
-                                    episode=self.metadata.get('episode'))
-                                if character_context:
-                                    self._log(f"✅ Cast: {len(character_context)} personaggi")
-                            except Exception as e:
-                                logger.warning(f"TMDB cast error: {e}")
-
-                        # Prepara args.json per il subprocess
+                        # Prepara args.json per il subprocess (v2: serve il
+                        # video per la speaker gender map dall'audio)
                         corrected_path = self.file_handler.get_temp_path(
                             self.video_path, f"gender_corrected_{final_language_639_1}.srt")
-                        original_srt = (cleaned_srt_path
-                                        if source_language_639_1 != target_language_639_1
-                                        else None)
                         args_path = self.file_handler.get_temp_path(
                             self.video_path, "gender_correction_args.json")
                         args_payload = {
                             "input_srt": str(subtitle_path),
                             "output_srt": str(corrected_path),
-                            "original_srt": str(original_srt) if original_srt else None,
-                            "character_context": character_context or {},
+                            "video_path": str(self.video_path),
                         }
                         args_path.write_text(
                             json.dumps(args_payload, ensure_ascii=False),

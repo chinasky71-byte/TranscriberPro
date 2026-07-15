@@ -3,21 +3,21 @@
 Gender Correction CLI - Entrypoint subprocess isolato
 File: core/gender_corrector_cli.py
 
-Esegue la correzione di genere in un processo Python separato cosi'
-che la VRAM occupata dal processo principale (CUDA context, cuBLAS
-workspace, ctranslate2 leftovers) NON limiti il LLM. Quando questo
-processo termina, l'OS recupera tutta la VRAM allocata.
+Esegue la correzione di genere V2 (deterministica, audio-driven) in un
+processo separato: pyannote/ECAPA usano la GPU su contesto CUDA vergine
+e alla fine il processo muore restituendo tutta la RAM/VRAM all'OS.
+Il selettore spaCy gira in un ULTERIORE subprocess col suo venv dedicato.
 
 Uso (chiamato dalla pipeline, non manuale):
     python -m core.gender_corrector_cli <args.json>
 
-Formato args.json:
+Formato args.json (v2):
     {
       "input_srt": "path/to/translated.srt",
       "output_srt": "path/to/corrected.srt",
-      "original_srt": "path/to/source.srt" | null,
-      "character_context": {"Meredith Grey": "F", "Derek Shepherd": "M"}
+      "video_path": "path/to/video.mkv"   # serve per la speaker gender map
     }
+    (le chiavi original_srt/character_context del vecchio motore sono ignorate)
 
 Exit code:
     0 = correzione completata (anche con 0 patch applicate)
@@ -55,8 +55,7 @@ def main(argv: list) -> int:
 
     input_srt = args.get('input_srt')
     output_srt = args.get('output_srt')
-    original_srt = args.get('original_srt')
-    character_context = args.get('character_context') or {}
+    video_path = args.get('video_path')
 
     if not input_srt or not output_srt:
         _emit("ERRORE CLI: input_srt e output_srt sono obbligatori")
@@ -64,35 +63,25 @@ def main(argv: list) -> int:
 
     input_path = Path(input_srt)
     output_path = Path(output_srt)
-    original_path = Path(original_srt) if original_srt else None
 
     if not input_path.exists():
         _emit(f"ERRORE CLI: input SRT non trovato: {input_path}")
         return 2
 
-    # Import LAZY: cosi' il check args.json non paga il costo di llama_cpp
+    # Import LAZY: il check args.json non paga il costo di torch/pyannote
     try:
-        from core.gender_corrector import GenderCorrectionEngine, LLAMA_CPP_AVAILABLE
+        from core.gender_corrector_v2 import GenderCorrectorV2
     except Exception as e:
-        _emit(f"ERRORE CLI: import gender_corrector fallito: {e}")
+        _emit(f"ERRORE CLI: import gender_corrector_v2 fallito: {e}")
         traceback.print_exc(file=sys.stderr)
         return 1
 
-    if not LLAMA_CPP_AVAILABLE:
-        _emit("ERRORE CLI: llama-cpp-python non installato nel subprocess")
-        return 1
-
     try:
-        engine = GenderCorrectionEngine(log_callback=_emit)
-        if not engine.is_available():
-            _emit("ERRORE CLI: modello GGUF non disponibile (controlla config)")
-            return 1
-
+        engine = GenderCorrectorV2(log_callback=_emit)
         ok = engine.correct_file(
             srt_path=input_path,
             output_path=output_path,
-            character_context=character_context,
-            original_srt_path=original_path,
+            video_path=Path(video_path) if video_path else None,
         )
 
         try:
