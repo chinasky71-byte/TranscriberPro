@@ -547,6 +547,16 @@ class ProcessingPipeline:
                                         diarizer.load()
                                         num_spk = self.config.get('diarization_num_speakers', 0)
                                         diarization_result = diarizer.diarize(vocals_path, num_speakers=num_spk)
+                                        # Salva i turni per il riuso nello STEP 6.5
+                                        # (Gender Corrector v2: risparmia ~1-2 min/film)
+                                        try:
+                                            _diar_json = self.file_handler.get_temp_path(
+                                                self.video_path, "diarization_turns.json")
+                                            _diar_json.write_text(
+                                                json.dumps(diarization_result),
+                                                encoding='utf-8')
+                                        except Exception as e:
+                                            logger.warning(f"Salvataggio diarization per riuso fallito: {e}")
                                         annotated = diarizer.assign_speakers(segments_for_diarization, diarization_result)
                                         formatter = SubtitleFormatter(log_callback=self._log)
                                         formatter.save(annotated, subtitle_path)
@@ -746,10 +756,26 @@ class ProcessingPipeline:
                             self.video_path, f"gender_corrected_{final_language_639_1}.srt")
                         args_path = self.file_handler.get_temp_path(
                             self.video_path, "gender_correction_args.json")
+                        # Riuso diarization della trascrizione (se disponibile)
+                        _diar_json = self.file_handler.get_temp_path(
+                            self.video_path, "diarization_turns.json")
+                        # Cast TMDB per i vocativi 2ª persona (API leggera)
+                        character_context = {}
+                        if self.metadata and self.metadata.get('id'):
+                            try:
+                                character_context = self.tmdb_client.get_cast_info(
+                                    self.metadata['id'],
+                                    'tv' if self.metadata.get('season') else 'movie',
+                                    season=self.metadata.get('season'),
+                                    episode=self.metadata.get('episode'))
+                            except Exception as e:
+                                logger.warning(f"TMDB cast error: {e}")
                         args_payload = {
                             "input_srt": str(subtitle_path),
                             "output_srt": str(corrected_path),
                             "video_path": str(self.video_path),
+                            "diarization_json": str(_diar_json) if _diar_json.exists() else None,
+                            "character_context": character_context or {},
                         }
                         args_path.write_text(
                             json.dumps(args_payload, ensure_ascii=False),
