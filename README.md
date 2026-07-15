@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.5.4-orange)
+![Version](https://img.shields.io/badge/Version-1.6.0-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -35,7 +35,7 @@ Transcriber Pro takes any video file and produces clean `.srt` subtitle files th
 - **Intelligent audio chunking** — splits at silence points for accurate timestamp alignment
 - **Transcription profiles** — Fast / Balanced / Quality / Maximum / Batch presets
 - **Force audio transcription** — bypass embedded subtitle extraction and always transcribe from audio
-- **Gender correction (experimental)** — LLM-based post-translation fix for Italian grammatical gender errors using Qwen2.5-14B GGUF via llama-cpp-python; runs in isolated subprocess with TMDB cast context
+- **Gender correction v2 (audio-driven)** — fixes Italian grammatical gender in 1st/2nd person by detecting the speaker's gender **from the voice** (pyannote diarization + ECAPA classifier, 95% acc), then applying a deterministic morphological rewrite guarded by a validator — no LLM, no extra VRAM, hallucinations impossible by construction. Feminine accuracy on first-person lines: 19% → 87% (validated on 700+ auto-extracted test points). Addressee gender for 2nd person comes from dialogue turn-taking (91% acc) and TMDB-cast vocatives
 
 ### Bitmap OCR (PGS / VOBSUB → SRT)
 - **PGS (Blu-ray) and VOBSUB (DVD)** bitmap subtitle tracks converted to text SRT — verbatim, no AI hallucination
@@ -114,7 +114,18 @@ pip install torch==2.8.0+cu126 torchaudio==2.8.0+cu126 --index-url https://downl
 # 4. Install remaining dependencies
 pip install -r requirements.txt
 
-# 5. Run
+# 5. (Optional, for Gender Correction v2) Create the separate NLP venv.
+#    spaCy lives in its own environment so it never touches the app's
+#    pinned dependencies (ctranslate2 4.6.0, setuptools <= 69.5.1),
+#    and its RAM is fully released when the helper subprocess exits.
+python -m venv venv_nlp
+venv_nlp\Scripts\pip install spacy
+venv_nlp\Scripts\python -m spacy download it_core_news_lg
+#    Also required: a HuggingFace token in the app settings (pyannote
+#    diarization models). Accept the pyannote/speaker-diarization-3.1
+#    user conditions on huggingface.co once.
+
+# 6. Run
 python main.py
 ```
 
@@ -167,7 +178,8 @@ All credentials are optional except for the translation model you choose to use.
 | Aya-23-8B | Translation (local) | 8 B params | ~8 GB | ★★★★☆ | ★★★☆☆ |
 | Claude Sonnet (API) | Translation (cloud) | — | 0 GB | ★★★★★ | ★★★★☆ |
 | GPT-4o-mini (API) | Translation (cloud) | — | 0 GB | ★★★★☆ | ★★★★★ |
-| Qwen2.5-14B GGUF | Gender correction | 14 B params | ~8.4 GB | ★★★☆☆ | ★★★☆☆ |
+| pyannote 3.1 + ECAPA gender | Gender correction v2 (voice) | — | ~3 GB (transient) | ★★★★☆ | ★★★★☆ |
+| spaCy it_core_news_lg | Gender correction v2 (text) | — | 0 GB (CPU, separate venv) | ★★★★☆ | ★★★★★ |
 | Tesseract 5 (ita/eng/…) | Bitmap OCR | — | 0 GB | ★★★★☆ | ★★★★★ |
 
 Models are loaded and unloaded sequentially to fit within available VRAM.
@@ -190,7 +202,7 @@ Models are loaded and unloaded sequentially to fit within available VRAM.
 │          ProcessingPipeline (audio transcription)             │
 │  SubtitleExtractor · AudioProcessor · Transcriber             │
 │  Translator (NLLB / Aya / Claude / OpenAI)                    │
-│  GenderCorrector                                              │
+│  GenderCorrectorV2 (speaker gender map · selector · rewriter) │
 │                                                               │
 │          PgsOcr · VobSubOcr · BitmapOcrCommon                 │
 │  pgsreader (vendored) · vobsub parser (vendored)              │
@@ -301,10 +313,10 @@ This project is licensed under the MIT License.
 - **Force audio transcription** — new option to bypass embedded subtitle extraction
 
 ### v1.3.6
-- **Gender correction settings UI** — GGUF model selector with VRAM guidance, file browser, enable/disable toggle
+- **Gender correction settings UI** — v2 prerequisites status (NLP venv + HF token), 2nd-person toggle, enable/disable
 
 ### v1.3.5
-- **Gender Correction (EXPERIMENTAL)** — LLM-based Italian grammatical gender fix via Qwen2.5-14B GGUF; isolated subprocess; TMDB cast context
+- **Gender Correction v2** — deterministic audio-driven Italian gender fix (speaker gender from voice + morphological rewrite with validator); replaces the LLM approach
 - **VRAM cleanup fix** — fixed 3.2 GB VRAM stuck after NLLB cleanup (cuBLAS persistent workspaces)
 - **Encoding fix** — UnicodeDecodeError on Windows with non-ASCII filenames
 
@@ -375,7 +387,7 @@ Transcriber Pro produce file `.srt` attraverso due pipeline complementari:
 - **Chunking audio intelligente** — divide ai punti di silenzio per timestamp precisi
 - **Profili di trascrizione** — Fast / Balanced / Quality / Maximum / Batch
 - **Forza trascrizione audio** — ignora i sottotitoli embedded e trascrive sempre dall'audio
-- **Correzione grammaticale genere (sperimentale)** — correzione post-traduzione degli errori di genere in italiano con Qwen2.5-14B GGUF via llama-cpp-python; subprocess isolato con contesto cast TMDB
+- **Correzione genere v2 (audio-driven)** — corregge il genere grammaticale di 1ª/2ª persona deducendo il genere di chi parla **dalla voce** (diarization pyannote + classificatore ECAPA, 95%) e riscrivendo con un flip morfologico deterministico protetto da validatore — niente LLM, niente VRAM extra, allucinazioni impossibili. Accuratezza femminile in 1ª persona: 19% → 87%. La 2ª persona usa i turni di dialogo (91%) e i vocativi col cast TMDB
 
 ### OCR Bitmap (PGS / VOBSUB → SRT)
 - **Tracce PGS (Blu-ray) e VOBSUB (DVD)** convertite in SRT testuale — verbatim, nessuna allucinazione AI
@@ -453,7 +465,18 @@ pip install torch==2.8.0+cu126 torchaudio==2.8.0+cu126 --index-url https://downl
 # 4. Installa le dipendenze
 pip install -r requirements.txt
 
-# 5. Avvia
+# 5. (Opzionale, per la Correzione Genere v2) Crea il venv NLP separato.
+#    spaCy vive in un ambiente proprio: non tocca le dipendenze bloccate
+#    dell'app (ctranslate2 4.6.0, setuptools <= 69.5.1) e la sua RAM viene
+#    liberata del tutto quando il subprocess termina.
+python -m venv venv_nlp
+venv_nlp\Scripts\pip install spacy
+venv_nlp\Scripts\python -m spacy download it_core_news_lg
+#    Serve inoltre un token HuggingFace nelle impostazioni (modelli
+#    pyannote): accetta una volta le condizioni d'uso di
+#    pyannote/speaker-diarization-3.1 su huggingface.co.
+
+# 6. Avvia
 python main.py
 ```
 
@@ -506,7 +529,8 @@ Tutte le credenziali sono opzionali tranne quella del motore di traduzione scelt
 | Aya-23-8B | Traduzione (locale) | 8 B params | ~8 GB | ★★★★☆ | ★★★☆☆ |
 | Claude Sonnet (API) | Traduzione (cloud) | — | 0 GB | ★★★★★ | ★★★★☆ |
 | GPT-4o-mini (API) | Traduzione (cloud) | — | 0 GB | ★★★★☆ | ★★★★★ |
-| Qwen2.5-14B GGUF | Correzione genere | 14 B params | ~8,4 GB | ★★★☆☆ | ★★★☆☆ |
+| pyannote 3.1 + ECAPA gender | Correzione genere v2 (voce) | — | ~3 GB (transitori) | ★★★★☆ | ★★★★☆ |
+| spaCy it_core_news_lg | Correzione genere v2 (testo) | — | 0 GB (CPU, venv separato) | ★★★★☆ | ★★★★★ |
 | Tesseract 5 (ita/eng/…) | OCR bitmap | — | 0 GB | ★★★★☆ | ★★★★★ |
 
 I modelli vengono caricati e scaricati sequenzialmente per rientrare nella VRAM disponibile.
@@ -568,10 +592,10 @@ Questo progetto è distribuito con licenza MIT.
 - **Forza trascrizione audio** — nuova opzione per ignorare i sottotitoli embedded
 
 ### v1.3.6
-- **UI impostazioni correzione genere** — selettore modello GGUF con tabella VRAM, browser file, toggle
+- **UI impostazioni correzione genere** — stato prerequisiti v2 (venv NLP + token HF), toggle 2ª persona, abilitazione
 
 ### v1.3.5
-- **Correzione Genere (SPERIMENTALE)** — fix grammaticale italiano via Qwen2.5-14B GGUF; subprocess isolato; contesto cast TMDB
+- **Correzione Genere v2** — fix deterministico guidato dall'audio (genere del parlante dalla voce + riscrittura morfologica validata); sostituisce l'approccio LLM
 - **Fix VRAM** — risolti 3,2 GB VRAM bloccati dopo cleanup NLLB (cuBLAS persistent workspaces)
 - **Fix encoding** — UnicodeDecodeError su Windows con nomi file non-ASCII
 
