@@ -160,7 +160,7 @@ class GenderCorrectorV2:
         tokens_per_line, tokens_p2_per_line = sel_out
 
         from utils.config import get_config as _gc
-        if not bool(_gc().get('gender_correction_second_person', True)):
+        if not bool(_gc().get('gender_correction_second_person', False)):
             tokens_p2_per_line = [[] for _ in flat]
 
         candidates = [i for i, _t in enumerate(tokens_per_line)
