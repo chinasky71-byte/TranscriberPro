@@ -45,3 +45,5 @@ huggingface_write_token.txt
 # Script di lavoro / speed-fix (non codice di produzione)
 speed_fix_*.py
 speed_*.py
+
+diagnostica
