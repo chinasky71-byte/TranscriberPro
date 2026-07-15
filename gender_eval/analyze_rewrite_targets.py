@@ -29,16 +29,21 @@ spec.loader.exec_module(sel)
 if not sel.available():
     sys.exit("spaCy non disponibile")
 
-detail = RESULTS / "film_detail_nllb_ft_film_1a_persona.tsv"
+import argparse
+ap = argparse.ArgumentParser(); ap.add_argument('--tag', default='nllb_ft_film_1a_persona')
+ap.add_argument('--person', choices=['1','2'], default='1')
+a = ap.parse_args()
+detail = RESULTS / f"film_detail_{a.tag}.tsv"
 rows = list(csv.DictReader(open(detail, encoding='utf-8'), delimiter='\t'))
 out = []
 for i, r in enumerate(rows):
-    toks = sel.speaker_gendered_tokens(r['nllb_hyp'])
+    fn = sel.addressee_gendered_tokens if a.person == '2' else sel.speaker_gendered_tokens
+    toks = fn(r['nllb_hyp'])
     out.append({'i': i, 'tokens': toks})
     if (i + 1) % 50 == 0:
         print(f"  {i+1}/{len(rows)}", flush=True)
 
-with open(RESULTS / "rewrite_targets.json", 'w', encoding='utf-8') as f:
+with open(RESULTS / f'rewrite_targets_{a.tag}.json', 'w', encoding='utf-8') as f:
     json.dump(out, f, ensure_ascii=False)
 
 n_with = sum(1 for o in out if o['tokens'])

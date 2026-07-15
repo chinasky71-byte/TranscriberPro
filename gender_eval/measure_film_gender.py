@@ -78,8 +78,12 @@ def main():
     ap.add_argument('--limit', type=int, default=0, help='max candidati totali (smoke)')
     ap.add_argument('--batch-size', type=int, default=16)
     ap.add_argument('--tag', default='nllb_ft_film_1a_persona')
+    ap.add_argument('--gt-dir', default=None, help='cartella TSV alternativa (es. film_groundtruth_p2)')
     args = ap.parse_args()
 
+    global GT_DIR
+    if args.gt_dir:
+        GT_DIR = SCRIPT_DIR / args.gt_dir
     cands = load_candidates()
     # tieni solo candidati con marker flippabile e genere noto
     usable = []

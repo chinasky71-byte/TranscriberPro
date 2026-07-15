@@ -62,14 +62,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--engines', default='rule', help='rule,llm')
     ap.add_argument('--limit', type=int, default=0)
+    ap.add_argument('--tag', default='nllb_ft_film_1a_persona')
     args = ap.parse_args()
 
     rw = load_rewriter_module()
 
-    detail = RESULTS / "film_detail_nllb_ft_film_1a_persona.tsv"
+    detail = RESULTS / f"film_detail_{args.tag}.tsv"
     rows = list(csv.DictReader(open(detail, encoding='utf-8'), delimiter='\t'))
     targets = {o['i']: o['tokens']
-               for o in json.load(open(RESULTS / "rewrite_targets.json",
+               for o in json.load(open(RESULTS / f"rewrite_targets_{args.tag}.json",
                                        encoding='utf-8'))}
     if args.limit:
         rows = rows[:args.limit]
