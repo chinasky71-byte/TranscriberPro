@@ -207,10 +207,19 @@ def _gendered_tokens(ita: str, person: str) -> list:
             for c in h.children:
                 if c.pos_ == 'AUX' and c.morph.get('VerbForm') == ['Fin']:
                     fins.append(c)
+        # anti-FP: locuzioni congiuntive ("dato che", "visto che")
+        if (g.text.lower() in ('dato', 'visto', 'detto')
+                and g.i + 1 < len(doc)
+                and doc[g.i + 1].text.lower() == 'che'):
+            continue
         # copule P2 mis-taggate (es. "Sei" → NUM): recuperale come anchor
-        # se sono figlie/sorelle/head di g
-        p2_near = [t for t in (list(g.children)
-                               + list(g.head.children) + [g.head])
+        # SOLO nella stessa proposizione di g (figli diretti, o head se g
+        # è complemento predicativo) — mai da proposizioni sorelle
+        # ("la polizia è brava, perché non SEI lì" non deve legare).
+        _local = list(g.children)
+        if g.dep_ in ('xcomp', 'ccomp', 'advcl', 'acl', 'ROOT', 'root'):
+            _local.append(g.head)
+        p2_near = [t for t in _local
                    if t is not g and t.text.lower() in _P2_COPULA]
         if not fins and not p2_near:
             continue
@@ -249,6 +258,22 @@ def _gendered_tokens(ita: str, person: str) -> list:
                 continue
         else:  # person == '2': interlocutore
             if has_io:
+                continue
+            # evidenza P2 solo dalla stessa proposizione: ricalcola persons
+            # sui soli anchor locali (figli di g + head predicativo)
+            def _same_clause(a):
+                lo, hi = sorted((a.i, g.i))
+                return not any(tok.text in (',', ';', ':') or tok.pos_ == 'SCONJ'
+                               for tok in doc[lo + 1:hi])
+            _local_fins = [f for f in fins
+                           if (f in _local or f is g.head) and _same_clause(f)]
+            p2_near = [t2 for t2 in p2_near if _same_clause(t2)]
+            has_p2cop = bool(p2_near) or any(
+                f.text.lower() in _P2_COPULA for f in _local_fins)
+            persons = set()
+            for f in _local_fins:
+                persons.update(f.morph.get('Person'))
+            if not _local_fins and not p2_near and not has_tu:
                 continue
             if '1' in persons and not (has_p2cop or has_tu):
                 continue
