@@ -85,7 +85,8 @@ class SpeakerGenderMap:
         return self.gender_of(spk)
 
     def addressee_gender_for_range(self, start: float, end: float,
-                                   window: float = 12.0) -> Tuple[Optional[str], float]:
+                                   window: float = 8.0,
+                                   strict: bool = True) -> Tuple[Optional[str], float]:
         """Genere dell'INTERLOCUTORE (2ª persona): il parlante dei turni
         adiacenti. Prudente per costruzione: richiede che nella finestra
         ±window ci sia UN SOLO altro parlante (dialogo a due localmente);
@@ -112,6 +113,12 @@ class SpeakerGenderMap:
         if len(others) != 1:
             return None, 0.0                 # gruppo o nessuno: ambiguo
         addressee = others.pop()
+        if strict:
+            # richiede l'interlocutore sia PRIMA che DOPO la cue
+            # (conversazione attiva a due, non ingresso/uscita di scena)
+            if prev_spk == addressee and next_spk == addressee:
+                return self.gender_of(addressee)
+            return None, 0.0
         if prev_spk == addressee or next_spk == addressee:
             return self.gender_of(addressee)
         return None, 0.0
