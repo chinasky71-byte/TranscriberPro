@@ -139,7 +139,7 @@ def addressee_gendered_tokens(ita: str) -> list:
 
 # copule/ausiliari di 2ª persona che spaCy a volte mis-tagga
 # ("Sei" a inizio frase → NUM "sei")
-_P2_COPULA = {'sei', 'eri', 'sarai', 'saresti', 'fosti'}
+_P2_COPULA = {'sei', 'eri', 'sarai', 'saresti', 'fosti', 'stai', 'stavi', 'starai'}
 
 
 def _gendered_tokens(ita: str, person: str) -> list:
@@ -263,8 +263,13 @@ def _gendered_tokens(ita: str, person: str) -> list:
             # sui soli anchor locali (figli di g + head predicativo)
             def _same_clause(a):
                 lo, hi = sorted((a.i, g.i))
-                return not any(tok.text in (',', ';', ':') or tok.pos_ == 'SCONJ'
-                               for tok in doc[lo + 1:hi])
+                # barriere: punteggiatura, subordinanti, pronomi
+                # interrogativi/relativi ("sai COS'È successo")
+                return not any(
+                    tok.text in (',', ';', ':') or tok.pos_ == 'SCONJ'
+                    or (tok.pos_ == 'PRON'
+                        and (tok.morph.get('PronType') in (['Int'], ['Rel'])))
+                    for tok in doc[lo + 1:hi])
             _local_fins = [f for f in fins
                            if (f in _local or f is g.head) and _same_clause(f)]
             p2_near = [t2 for t2 in p2_near if _same_clause(t2)]
@@ -280,6 +285,14 @@ def _gendered_tokens(ita: str, person: str) -> list:
             if '3' in persons and not (has_p2cop or has_tu or '2' in persons):
                 continue
             if not ('2' in persons or has_p2cop or has_tu):
+                continue
+            # predicato con aux/copula di 3ª persona nella PROPRIA
+            # proposizione ("se n'È andato", "cos'È successo"):
+            # il soggetto è un terzo, non l'interlocutore
+            if any(c.dep_ in ('aux', 'aux:pass', 'cop')
+                   and c.morph.get('Person') == ['3']
+                   and c.text.lower() not in _P2_COPULA
+                   for c in g.children):
                 continue
 
         selected.append(g)
