@@ -86,6 +86,38 @@ def find_selector_python() -> Optional[Path]:
     return None
 
 
+def _build_cast_firstnames(character_context: dict) -> dict:
+    """{nome_proprio_lower: 'F'|'M'} dai personaggi TMDB (primo nome di
+    ogni personaggio; nomi ambigui — stesso nome, generi diversi — esclusi)."""
+    names = {}
+    ambiguous = set()
+    for full_name, gender in character_context.items():
+        if gender not in ('F', 'M'):
+            continue
+        first = full_name.strip().split()[0].lower() if full_name.strip() else ''
+        if len(first) < 3:
+            continue
+        if first in names and names[first] != gender:
+            ambiguous.add(first)
+        names[first] = gender
+    for a in ambiguous:
+        names.pop(a, None)
+    return names
+
+
+_VOCATIVE_RE = re.compile(r"\b([A-ZÀ-Þ][a-zà-ÿ]{2,})\b")
+
+
+def _vocative_gender(line: str, cast_names: dict) -> Optional[str]:
+    """Se la riga contiene UN SOLO nome del cast (vocativo), ritorna il suo
+    genere; più nomi o nessuno → None (ambiguo)."""
+    if not cast_names:
+        return None
+    found = {cast_names[w.lower()] for w in _VOCATIVE_RE.findall(line)
+             if w.lower() in cast_names}
+    return found.pop() if len(found) == 1 else None
+
+
 class GenderCorrectorV2:
     """Nuovo motore di correzione genere (deterministico, audio-driven)."""
 
@@ -133,7 +165,8 @@ class GenderCorrectorV2:
 
     def correct_file(self, srt_path: Path, output_path: Path,
                      video_path: Optional[Path] = None,
-                     diarization: Optional[list] = None) -> bool:
+                     diarization: Optional[list] = None,
+                     character_context: Optional[dict] = None) -> bool:
         """Corregge il genere di 1ª persona in un SRT tradotto.
 
         Args:
@@ -192,6 +225,9 @@ class GenderCorrectorV2:
         # 3. Riscrittura deterministica + validatore
         from core.gender_rewriter import RuleRewriter, apply_rewrite
         engine = RuleRewriter()
+        cast_names = _build_cast_firstnames(character_context or {})
+        if cast_names:
+            self._log(f"   Vocativi TMDB attivi: {len(cast_names)} nomi cast")
         stats = {'rewritten': 0, 'unchanged': 0, 'rejected': 0,
                  'no_output': 0, 'unknown': 0, 'dialog': 0}
         new_cues = list(cues)
@@ -212,10 +248,14 @@ class GenderCorrectorV2:
                     new_flat, esito = apply_rewrite(
                         engine, new_flat, None, gender, toks)
                     stats[esito] += 1
-            # 2ª persona: genere dell'INTERLOCUTORE (turni adiacenti)
+            # 2ª persona: genere dell'INTERLOCUTORE. Priorità:
+            # 1. VOCATIVO col cast TMDB ("Sei cresciuta, Veronica") — alta
+            #    precisione; 2. turni di dialogo adiacenti (strict).
             toks2 = [tuple(t) for t in tokens_p2_per_line[i]]
             if toks2:
-                a_gender, a_conf = gmap.addressee_gender_for_range(t0, t1)
+                a_gender = _vocative_gender(flat[i], cast_names)
+                if a_gender is None:
+                    a_gender, a_conf = gmap.addressee_gender_for_range(t0, t1)
                 if a_gender is None:
                     stats['unknown'] += 1
                 else:

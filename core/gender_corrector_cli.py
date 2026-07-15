@@ -56,6 +56,8 @@ def main(argv: list) -> int:
     input_srt = args.get('input_srt')
     output_srt = args.get('output_srt')
     video_path = args.get('video_path')
+    diarization_json = args.get('diarization_json')
+    character_context = args.get('character_context') or {}
 
     if not input_srt or not output_srt:
         _emit("ERRORE CLI: input_srt e output_srt sono obbligatori")
@@ -77,11 +79,23 @@ def main(argv: list) -> int:
         return 1
 
     try:
+        diarization = None
+        if diarization_json and Path(diarization_json).exists():
+            try:
+                diarization = json.loads(
+                    Path(diarization_json).read_text(encoding='utf-8'))
+                diarization = [tuple(t) for t in diarization]
+                _emit(f"   Riuso diarization della trascrizione "
+                      f"({len(diarization)} turni)")
+            except Exception as e:
+                _emit(f"WARN CLI: diarization_json illeggibile: {e}")
         engine = GenderCorrectorV2(log_callback=_emit)
         ok = engine.correct_file(
             srt_path=input_path,
             output_path=output_path,
             video_path=Path(video_path) if video_path else None,
+            diarization=diarization,
+            character_context=character_context,
         )
 
         try:
