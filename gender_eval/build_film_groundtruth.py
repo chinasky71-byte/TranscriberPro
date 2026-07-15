@@ -213,11 +213,16 @@ def main():
     ap.add_argument('--out', default=None, help='nome TSV (default: dal filename)')
     ap.add_argument('--ita-index', type=int, default=None)
     ap.add_argument('--eng-index', type=int, default=None)
+    ap.add_argument('--person', choices=['1', '2'], default='1',
+                    help='1=parlante (default), 2=interlocutore')
     args = ap.parse_args()
 
     video = args.video
     if not Path(video).exists():
         sys.exit(f"File non trovato: {video}")
+    global OUT_DIR
+    if args.person == '2':
+        OUT_DIR = SCRIPT_DIR / "film_groundtruth_p2"
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     stem = Path(video).stem
     out_tsv = OUT_DIR / (args.out or f"{stem}.tsv")
@@ -254,7 +259,11 @@ def main():
     with open(out_tsv, 'w', encoding='utf-8') as f:
         f.write("start\tend\tgender\tmarker\tita_reference\teng_source\n")
         for (start, end, it, en, dlg) in pairs:
-            marker, g = firstperson_gender_spacy(it)
+            if args.person == '2':
+                _hits = _SELECTOR.addressee_gendered_tokens(it)
+                marker, g = (_hits[0] if _hits else (None, None))
+            else:
+                marker, g = firstperson_gender_spacy(it)
             if marker and en:            # candidato 1ª persona con sorgente
                 if dlg:
                     # cue di dialogo a due parlanti: non attribuibile → skip

@@ -126,12 +126,23 @@ def firstperson_gender(ita: str) -> Tuple[Optional[str], Optional[str]]:
 
 
 def speaker_gendered_tokens(ita: str) -> list:
-    """Ritorna TUTTE le forme di genere riferite al parlante (1ª persona)
-    nella riga, come lista di (testo_token, 'F'|'M') in ordine di apparizione.
+    """Forme di genere riferite al PARLANTE (1ª persona). Lista di
+    (testo_token, 'F'|'M') in ordine, incluse catene coordinate."""
+    return _gendered_tokens(ita, person='1')
 
-    Oltre ai predicati individuati direttamente, include la catena di
-    accordo coordinata ("sono stancO e confusO" → entrambi i token).
-    """
+
+def addressee_gendered_tokens(ita: str) -> list:
+    """Forme di genere riferite all'INTERLOCUTORE (2ª persona singolare:
+    "sei stanca", "eri andata"). Stesse esclusioni della 1ª persona."""
+    return _gendered_tokens(ita, person='2')
+
+
+# copule/ausiliari di 2ª persona che spaCy a volte mis-tagga
+# ("Sei" a inizio frase → NUM "sei")
+_P2_COPULA = {'sei', 'eri', 'sarai', 'saresti', 'fosti'}
+
+
+def _gendered_tokens(ita: str, person: str) -> list:
     nlp = _get_nlp()
     if nlp is None:
         return []
@@ -196,7 +207,12 @@ def speaker_gendered_tokens(ita: str) -> list:
             for c in h.children:
                 if c.pos_ == 'AUX' and c.morph.get('VerbForm') == ['Fin']:
                     fins.append(c)
-        if not fins:
+        # copule P2 mis-taggate (es. "Sei" → NUM): recuperale come anchor
+        # se sono figlie/sorelle/head di g
+        p2_near = [t for t in (list(g.children)
+                               + list(g.head.children) + [g.head])
+                   if t is not g and t.text.lower() in _P2_COPULA]
+        if not fins and not p2_near:
             continue
 
         # participio con ausiliare AVERE finito (ridondante ma innocuo)
@@ -206,25 +222,40 @@ def speaker_gendered_tokens(ita: str) -> list:
 
         persons = set()
         has_sono = False
+        has_p2cop = bool(p2_near)
         for f in fins:
             persons.update(f.morph.get('Person'))
-            if f.text.lower() == 'sono':
+            low_f = f.text.lower()
+            if low_f == 'sono':
                 has_sono = True
+            if low_f in _P2_COPULA:
+                has_p2cop = True
         # soggetto esplicito "io"/"tu" tra i figli del verbo reggente
         # (e del predicato stesso: "fossi stato tu" aggancia "tu" a g)
         subj_toks = [c for f in fins for c in f.children] + list(g.children)
         has_io = any(c.text.lower() == 'io' for c in subj_toks)
         has_tu = any(c.text.lower() == 'tu' for c in subj_toks)
-        if has_tu and not has_io:
-            continue
 
-        # decisione: 1ª persona se il verbo reggente è P1, o è "io ...",
-        # o è "sono" con predicato singolare (→ io sono, non loro sono).
-        # Escludi se il reggente è chiaramente 2ª/3ª persona.
-        if '2' in persons or ('3' in persons and not has_sono and not has_io):
-            continue
-        if not ('1' in persons or has_io or has_sono):
-            continue
+        if person == '1':
+            if has_tu and not has_io:
+                continue
+            # 1ª persona: verbo reggente P1, o "io ...", o "sono" +
+            # predicato singolare. Escludi 2ª/3ª persona chiara.
+            if has_p2cop or '2' in persons:
+                continue
+            if '3' in persons and not has_sono and not has_io:
+                continue
+            if not ('1' in persons or has_io or has_sono):
+                continue
+        else:  # person == '2': interlocutore
+            if has_io:
+                continue
+            if '1' in persons and not (has_p2cop or has_tu):
+                continue
+            if '3' in persons and not (has_p2cop or has_tu or '2' in persons):
+                continue
+            if not ('2' in persons or has_p2cop or has_tu):
+                continue
 
         selected.append(g)
 

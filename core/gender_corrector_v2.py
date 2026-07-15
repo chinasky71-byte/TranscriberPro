@@ -126,7 +126,8 @@ class GenderCorrectorV2:
             if proc.returncode != 0:
                 self._log(f"⚠️ Selettore exit code {proc.returncode} — salto")
                 return None
-            return json.loads(out_p.read_text(encoding='utf-8'))['tokens']
+            data = json.loads(out_p.read_text(encoding='utf-8'))
+            return data['tokens'], data.get('tokens_p2', [[] for _ in lines])
 
     # ── Correzione ───────────────────────────────────────────────────────
 
@@ -152,14 +153,22 @@ class GenderCorrectorV2:
 
         # 1. Selettore (subprocess spaCy). Testo appiattito per l'analisi.
         flat = [c[3].replace('\n', ' ') for c in cues]
-        tokens_per_line = self._run_selector(flat)
-        if tokens_per_line is None:
+        sel_out = self._run_selector(flat)
+        if sel_out is None:
             shutil.copy(srt_path, output_path)
             return True
+        tokens_per_line, tokens_p2_per_line = sel_out
 
-        candidates = [i for i, t in enumerate(tokens_per_line) if t]
-        self._log(f"   Righe candidate (1ª persona con genere): "
-                  f"{len(candidates)}/{len(cues)}")
+        from utils.config import get_config as _gc
+        if not bool(_gc().get('gender_correction_second_person', True)):
+            tokens_p2_per_line = [[] for _ in flat]
+
+        candidates = [i for i, _t in enumerate(tokens_per_line)
+                      if _t or tokens_p2_per_line[i]]
+        n1 = sum(1 for t in tokens_per_line if t)
+        n2 = sum(1 for t in tokens_p2_per_line if t)
+        self._log(f"   Righe candidate: {n1} in 1ª persona, "
+                  f"{n2} in 2ª persona su {len(cues)}")
         if not candidates:
             shutil.copy(srt_path, output_path)
             self._log("   Nessuna riga da correggere.")
@@ -192,13 +201,29 @@ class GenderCorrectorV2:
                 stats['dialog'] += 1          # due parlanti: mai toccare
                 continue
             t0, t1 = _ts_to_sec(start), _ts_to_sec(end)
-            gender, conf = gmap.gender_for_range(t0, t1)
-            if gender is None:
-                stats['unknown'] += 1         # prudenza: riga intatta
-                continue
+            new_flat, esito = flat[i], 'unchanged'
+            # 1ª persona: genere del PARLANTE
             toks = [tuple(t) for t in tokens_per_line[i]]
-            new_flat, esito = apply_rewrite(engine, flat[i], None, gender, toks)
-            stats[esito] += 1
+            if toks:
+                gender, conf = gmap.gender_for_range(t0, t1)
+                if gender is None:
+                    stats['unknown'] += 1     # prudenza: riga intatta
+                else:
+                    new_flat, esito = apply_rewrite(
+                        engine, new_flat, None, gender, toks)
+                    stats[esito] += 1
+            # 2ª persona: genere dell'INTERLOCUTORE (turni adiacenti)
+            toks2 = [tuple(t) for t in tokens_p2_per_line[i]]
+            if toks2:
+                a_gender, a_conf = gmap.addressee_gender_for_range(t0, t1)
+                if a_gender is None:
+                    stats['unknown'] += 1
+                else:
+                    new_flat, esito2 = apply_rewrite(
+                        engine, new_flat, None, a_gender, toks2)
+                    stats[esito2] += 1
+                    if esito2 == 'rewritten':
+                        esito = 'rewritten'
             if esito == 'rewritten':
                 # riporta il testo su singola riga corretta preservando
                 # gli a-capo originali quando possibile

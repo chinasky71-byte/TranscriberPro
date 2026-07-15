@@ -10,7 +10,7 @@ spaCy — niente unload manuale.
 
 Uso:  <venv_nlp>/python.exe core/gender_selector_cli.py <in.json> <out.json>
   in.json  = {"lines": ["riga 1", "riga 2", ...]}
-  out.json = {"tokens": [[["andato","M"], ...], [], ...]}  (parallelo a lines)
+  out.json = {"tokens": [...1ª persona...], "tokens_p2": [...2ª persona...]}
 
 Exit: 0 ok; 1 spaCy non disponibile; 2 argomenti invalidi.
 """
@@ -43,10 +43,13 @@ def main(argv):
 
     lines = json.loads(in_path.read_text(encoding='utf-8'))['lines']
     tokens = [sel.speaker_gendered_tokens(line) for line in lines]
-    out_path.write_text(json.dumps({'tokens': tokens}, ensure_ascii=False),
-                        encoding='utf-8')
-    n = sum(1 for t in tokens if t)
-    print(f"Selettore: {n}/{len(lines)} righe con forme 1ª persona", flush=True)
+    tokens_p2 = [sel.addressee_gendered_tokens(line) for line in lines]
+    out_path.write_text(json.dumps({'tokens': tokens, 'tokens_p2': tokens_p2},
+                                   ensure_ascii=False), encoding='utf-8')
+    n1 = sum(1 for t in tokens if t)
+    n2 = sum(1 for t in tokens_p2 if t)
+    print(f"Selettore: {n1} righe 1ª persona, {n2} righe 2ª persona "
+          f"su {len(lines)}", flush=True)
     return 0
 
 

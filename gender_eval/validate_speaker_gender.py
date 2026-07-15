@@ -78,6 +78,7 @@ def main():
     ap.add_argument('--episode', default=None, help='filtra i TSV per pattern (es. S01E01)')
     ap.add_argument('--threshold', type=float, default=0.75)
     ap.add_argument('--force', action='store_true', help='ricalcola le mappe cacheate')
+    ap.add_argument('--person', choices=['1', '2'], default='1')
     args = ap.parse_args()
 
     sg = load_speaker_gender_module()
@@ -89,7 +90,8 @@ def main():
     MAPS_DIR.mkdir(exist_ok=True)
     RESULTS.mkdir(exist_ok=True)
 
-    tsvs = sorted(GT_DIR.glob("*.tsv"))
+    gt_dir = GT_DIR if args.person == '1' else (SCRIPT_DIR / "film_groundtruth_p2")
+    tsvs = sorted(gt_dir.glob("*.tsv"))
     if args.episode:
         tsvs = [t for t in tsvs if args.episode.lower() in t.stem.lower()]
     if not tsvs:
@@ -130,7 +132,10 @@ def main():
                     continue
                 t0 = ts_to_sec(row['start'])
                 t1 = ts_to_sec(row['end']) if row.get('end') else t0 + CUE_WINDOW_SEC
-                pred, conf = gmap.gender_for_range(t0, t1)
+                if args.person == '2':
+                    pred, conf = gmap.addressee_gender_for_range(t0, t1)
+                else:
+                    pred, conf = gmap.gender_for_range(t0, t1)
                 if pred is None:
                     esito = 'UNKNOWN'
                     ep['unknown'] += 1
