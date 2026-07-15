@@ -266,6 +266,14 @@ This project is licensed under the MIT License.
 
 ## Changelog
 
+### v1.6.0
+- **Gender Corrector v2 — complete redesign (audio-driven, deterministic)** — the LLM corrector (Qwen2.5-14B GGUF) was measured as ineffective (+0.66pt) and fully replaced. The speaker's gender is now detected **from the voice** (pyannote diarization + ECAPA classifier, 95% acc) and only 1st/2nd-person forms are rewritten via a deterministic morphological flip guarded by a validator — no LLM, no extra VRAM, hallucinations impossible by construction. First-person feminine accuracy: 19% → 87% (corpus), 0% → 60% on a real full-pipeline episode; masculine never degraded.
+- **2nd person support** — addressee gender inferred from dialogue turn-taking (91% acc, strict two-party mode) and TMDB-cast vocatives ("Sei cresciuta, *Veronica*"). Toggle: `gender_correction_second_person`.
+- **Diarization reuse** — transcription diarization turns are saved and reused by the corrector (~1–2 min saved per film).
+- **Separate NLP venv** — spaCy runs in its own throwaway subprocess environment (`venv_nlp/`): app dependencies untouched, RAM fully returned on exit. See Installation.
+- **Evaluation harness** (`gender_eval/`) — MT-GenEval benchmark, automatic ground-truth extraction from dual-track professional subtitles (~700 test points, zero manual annotation), engine comparison, A/B episode runner.
+- Migration: the GGUF model is no longer needed; requires NLP venv + HuggingFace token (pyannote). Settings UI updated.
+
 ### v1.5.4
 - **Per-film subprocess isolation** — each video now processes in a separate Python subprocess that terminates on completion, returning *all* native RAM/VRAM (PyTorch / ctranslate2 / CUDA / NLLB allocator pools) to the OS. Fixes system-RAM growth on long queues (RAM was climbing past 24 GB over 9 films). Opt-out via the `pipeline_subprocess_isolation` config flag. Bonus: a ctranslate2 crash now stays confined to the child — the film fails, the queue continues, the GUI survives.
 - **RAM diagnostics** — opt-in `diagnose_ram` logs system RAM + process commit per pipeline step (`[DIAG-RAM]`), centralized in the parent log file, never on screen.
@@ -544,6 +552,14 @@ Questo progetto è distribuito con licenza MIT.
 ---
 
 ## Changelog
+
+### v1.6.0
+- **Correzione Genere v2 — redesign completo (audio-driven, deterministico)** — il correttore LLM (Qwen2.5-14B GGUF), misurato inefficace (+0,66pt), è stato interamente sostituito. Il genere del parlante ora si deduce **dalla voce** (diarization pyannote + classificatore ECAPA, 95%) e si riscrivono solo le forme di 1ª/2ª persona con un flip morfologico deterministico protetto da validatore — niente LLM, niente VRAM extra, allucinazioni impossibili per costruzione. Accuratezza femminile in 1ª persona: 19% → 87% (corpus), 0% → 60% su un episodio reale da pipeline completa; maschile mai degradato.
+- **Supporto 2ª persona** — genere dell'interlocutore dai turni di dialogo (91%, modalità strict a due parlanti) e dai vocativi col cast TMDB ("Sei cresciuta, *Veronica*"). Toggle: `gender_correction_second_person`.
+- **Riuso diarization** — i turni della trascrizione vengono salvati e riusati dal correttore (~1–2 min risparmiati a film).
+- **Venv NLP separato** — spaCy gira in un subprocess usa-e-getta col proprio ambiente (`venv_nlp/`): dipendenze dell'app intatte, RAM restituita all'uscita. Vedi Installazione.
+- **Harness di valutazione** (`gender_eval/`) — benchmark MT-GenEval, ground-truth automatico dai sottotitoli professionali dual-track (~700 punti di test, zero annotazione manuale), confronto motori, A/B su episodio.
+- Migrazione: il modello GGUF non serve più; servono venv NLP + token HuggingFace (pyannote). UI impostazioni aggiornata.
 
 ### v1.5.4
 - **Isolamento della pipeline per-film in subprocess** — ogni video viene ora elaborato in un processo Python separato che termina a fine elaborazione, restituendo *tutta* la RAM/VRAM nativa (pool allocator di PyTorch / ctranslate2 / CUDA / NLLB) all'OS. Risolve la crescita della RAM di sistema su code lunghe (saliva oltre 24 GB su 9 film). Disattivabile con il flag `pipeline_subprocess_isolation`. Bonus: un crash di ctranslate2 resta confinato al processo figlio — il film va in "Falliti", la coda prosegue, la GUI sopravvive.
