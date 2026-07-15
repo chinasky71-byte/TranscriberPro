@@ -1,0 +1,6 @@
+# Ambiente isolato spaCy (grande, ricreabile)
+.venv_spacy/
+# Risultati di run (ipotesi, log, json) — rigenerabili
+results/
+# Ground-truth estratto dai film: contiene testo di sottotitoli protetti → NO commit
+film_groundtruth/
