@@ -281,7 +281,7 @@ class Translations:
             'abs_autodetect':           'Auto-detect',
 
             # ── gender correction ─────────────────────────────────────────
-            'gender_correction_checkbox': 'Advanced gender correction (LLM)',
+            'gender_correction_checkbox': 'Advanced gender correction',
 
             # ── force audio transcription ─────────────────────────────────
             'force_audio_title':        'Force audio transcription',
@@ -634,7 +634,7 @@ class Translations:
             'abs_autodetect':           'Auto-detect',
 
             # ── gender correction ─────────────────────────────────────────
-            'gender_correction_checkbox': 'Correzione genere avanzata (LLM)',
+            'gender_correction_checkbox': 'Correzione genere avanzata',
 
             # ── force audio transcription ─────────────────────────────────
             'force_audio_title':        'Forza trascrizione da audio',
