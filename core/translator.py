@@ -656,12 +656,18 @@ class NLLBTranslator(BaseTranslator):
             if 'Warm-up' in msg:
                 self.log(msg)
 
+        # Cap a MAX_BATCH_SIZE (tarato per NLLB): la chiave config
+        # 'adaptive_batch_max_size' è condivisa con la trascrizione whisper
+        # (dove 62 ha senso) — qui, lasciata passare senza tetto, ha spinto
+        # il batch a 36+ con beam=7 su un modello già da ~6.6GB in VRAM,
+        # causando spillover in RAM condivisa WDDM (stesso bug corretto in
+        # v1.9.2 per faster_whisper_engine, qui mancava il cap analogo).
         self.batch_manager = AdaptiveBatchSizeManager(
             device=self.device,
             use_gpu=self.use_gpu,
             initial_size=cfg.get('initial_size'),
             min_size=cfg.get('min_size', self.MIN_BATCH_SIZE),
-            max_size=cfg.get('max_size', self.MAX_BATCH_SIZE),
+            max_size=min(cfg.get('max_size', self.MAX_BATCH_SIZE), self.MAX_BATCH_SIZE),
             warmup_batches=cfg.get('warmup_batches', 5),
             high_threshold=cfg.get('high_threshold', 0.85),
             low_threshold=cfg.get('low_threshold', 0.60),
@@ -1109,19 +1115,21 @@ class AyaTranslator(BaseTranslator):
 
         from utils.adaptive_batch_manager import AdaptiveBatchSizeManager
         cfg = get_config().get_adaptive_batch_config() if get_config else {}
+        # Cap a MAX_BATCH_SIZE (vedi commento in NLLBTranslator.__init__):
+        # stessa chiave config condivisa, stesso rischio di spillover WDDM.
         self.batch_manager = AdaptiveBatchSizeManager(
             device=self.device,
             use_gpu=self.use_gpu,
             initial_size=cfg.get('initial_size'),
             min_size=cfg.get('min_size', self.MIN_BATCH_SIZE),
-            max_size=cfg.get('max_size', self.MAX_BATCH_SIZE),
+            max_size=min(cfg.get('max_size', self.MAX_BATCH_SIZE), self.MAX_BATCH_SIZE),
             warmup_batches=cfg.get('warmup_batches', 5),
             high_threshold=cfg.get('high_threshold', 0.85),
             low_threshold=cfg.get('low_threshold', 0.60),
             log_callback=self.log,
         )
         self.current_batch_size = self.batch_manager.current_batch_size
-    
+
     def _aya_to_iso(self, lang_code: str) -> Optional[str]:
         """Converte codice ISO 639-2/1 in codice Aya"""
         result = self.LANGUAGE_CODES.get(lang_code.lower(), None)
@@ -1800,12 +1808,14 @@ class NLLBFineTunedTranslator(NLLBTranslator):
             if 'Warm-up' in msg:
                 self.log(msg)
 
+        # Stesso cap del NLLBTranslator base (vedi commento lì) — il modello
+        # fine-tuned ha lo stesso footprint VRAM del base.
         self.batch_manager = AdaptiveBatchSizeManager(
             device=self.device,
             use_gpu=self.use_gpu,
             initial_size=cfg.get('initial_size'),
             min_size=cfg.get('min_size', self.MIN_BATCH_SIZE),
-            max_size=cfg.get('max_size', self.MAX_BATCH_SIZE),
+            max_size=min(cfg.get('max_size', self.MAX_BATCH_SIZE), self.MAX_BATCH_SIZE),
             warmup_batches=cfg.get('warmup_batches', 5),
             high_threshold=cfg.get('high_threshold', 0.85),
             low_threshold=cfg.get('low_threshold', 0.60),

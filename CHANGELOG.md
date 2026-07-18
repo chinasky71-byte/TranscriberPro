@@ -3,6 +3,27 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.9.4] — 2026-07
+
+### Fix spaziatura diarization multi-engine
+- Le frasi divise dalla speaker diarization per cambio di parlante potevano
+  comparire con le parole attaccate ("Sièe trasferitadapoco" invece di "Si è
+  trasferita da poco") quando la trascrizione proveniva dagli engine
+  Qwen3-ASR o Canary. Causa: la ricostruzione del testo del sotto-segmento
+  assumeva la convenzione di spaziatura di faster-whisper (spazio incorporato
+  a inizio parola), non valida per gli altri due engine. Corretto con una
+  normalizzazione della spaziatura indipendente dall'engine.
+
+## [1.9.3] — 2026-07
+
+### Fix batch adattivo di traduzione
+- Il batch manager di NLLB / NLLB fine-tuned / Aya-23 ignorava il tetto
+  storico della propria classe e seguiva solo la soglia di configurazione
+  condivisa con la trascrizione, causando in alcuni casi lo sforamento della
+  VRAM dedicata con spillover silenzioso in RAM condivisa (Windows/WDDM non
+  genera un errore di memoria in quel caso, solo un forte rallentamento).
+  Ora ogni traduttore rispetta il proprio tetto di batch storicamente sicuro.
+
 ## [1.9.2] — 2026-07
 
 ### Ancoraggio sottotitoli alle battute + fix batch adattivo

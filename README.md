@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.9.2-orange)
+![Version](https://img.shields.io/badge/Version-1.9.4-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -271,6 +271,12 @@ This project is licensed under the MIT License.
 ---
 
 ## Changelog
+
+### v1.9.4
+- **Multi-engine diarization spacing fix** — sentences split by speaker diarization on a speaker change could come out with words stuck together ("Sièe trasferitadapoco" instead of "Si è trasferita da poco") when the transcription came from the Qwen3-ASR or Canary engines. Cause: the sub-segment text reconstruction assumed faster-whisper's spacing convention (leading space embedded in each word), which doesn't hold for the other two engines. Fixed with an engine-independent spacing normalization.
+
+### v1.9.3
+- **Adaptive translation batch fix** — the batch manager for NLLB / NLLB fine-tuned / Aya-23 ignored its class's historical ceiling and only followed the configuration threshold shared with transcription, in some cases overshooting dedicated VRAM with silent spillover into shared RAM (on Windows/WDDM this doesn't raise an out-of-memory error, just a severe slowdown). Each translator now respects its own historically safe batch ceiling.
 
 ### v1.9.2
 - **Subtitles anchored to lines** — the anti-fragment rule now merges a short tail only when it is a true fragment of the same sentence (pause ≤ 0.8 s and unfinished sentence) — no more blocks joining two distant lines on the same row.
@@ -591,6 +597,12 @@ Questo progetto è distribuito con licenza MIT.
 ---
 
 ## Changelog
+
+### v1.9.4
+- **Fix spaziatura diarization multi-engine** — le frasi divise dalla speaker diarization per cambio di parlante potevano comparire con le parole attaccate ("Sièe trasferitadapoco" invece di "Si è trasferita da poco") quando la trascrizione proveniva dagli engine Qwen3-ASR o Canary. Causa: la ricostruzione del testo del sotto-segmento assumeva la convenzione di spaziatura di faster-whisper (spazio incorporato a inizio parola), non valida per gli altri due engine. Corretto con una normalizzazione della spaziatura indipendente dall'engine.
+
+### v1.9.3
+- **Fix batch adattivo di traduzione** — il batch manager di NLLB / NLLB fine-tuned / Aya-23 ignorava il tetto storico della propria classe e seguiva solo la soglia di configurazione condivisa con la trascrizione, causando in alcuni casi lo sforamento della VRAM dedicata con spillover silenzioso in RAM condivisa (Windows/WDDM non genera un errore di memoria in quel caso, solo un forte rallentamento). Ora ogni traduttore rispetta il proprio tetto di batch storicamente sicuro.
 
 ### v1.9.2
 - **Sottotitoli ancorati alle battute** — la regola anti-frammento riunisce la coda corta solo se è un vero frammento della stessa frase (pausa ≤ 0,8 s e frase non conclusa) — niente più blocchi con due battute distanti nella stessa riga.
