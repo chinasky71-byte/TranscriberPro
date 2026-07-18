@@ -1,548 +1,197 @@
 """
-Transcriber - WITH DYNAMIC PROFILES INTEGRATION
+Transcriber - FACADE MULTI-ENGINE (routing automatico per lingua)
 File: core/transcriber.py
 
-VERSIONE: v3.5 - FIX LINGUA INDEFINITA
+VERSIONE: v4.0 - SISTEMA MULTI-ENGINE
 
-MODIFICHE v3.5:
-✅ FIX CRITICO: Gestione codice lingua 'und' (undefined)
-   Quando la traccia audio ha lingua indefinita ('und'), faster-whisper
-   rileva automaticamente la lingua impostando language=None
-✅ Aggiunta lista codici lingua invalidi per rilevamento robusto
+MODIFICHE v4.0:
+✅ La classe Transcriber è ora una FACADE retrocompatibile sul sistema
+   multi-engine (core/engine_router.py + core/engines/*):
+   - Canary-Qwen-2.5B (NeMo, venv dedicato)  → solo inglese
+   - Qwen3-ASR-1.7B + ForcedAligner-0.6B     → 11 lingue allineabili + LID
+   - faster-whisper large-v3                 → fallback universale
+✅ Firma pubblica INVARIATA: __init__(method, log_callback) e
+   transcribe_chunks(audio_chunks, output_path, whisper_language)
+   -> (success, detected_language) — il chiamante (pipeline) non cambia
+✅ Il costruttore pre-carica SEMPRE faster-whisper (stesso comportamento
+   storico: ctranslate2 deve inizializzare il contesto CUDA per primo,
+   e il fallback resta caldo). Il routing avviene in transcribe_chunks,
+   quando la lingua è nota; cambio engine = unload whisper → load nuovo.
+✅ Guardia file-unico: la modalità batched (1 solo chunk = intero film) è
+   gestibile SOLO da faster-whisper → routing bypassato in quel caso.
+✅ Qualsiasi errore degli engine nuovi degrada su faster-whisper (router):
+   la pipeline non fallisce MAI per colpa di un engine nuovo.
+
+MODIFICHE v3.5 (storiche, preservate in FasterWhisperEngine):
+✅ Gestione codice lingua 'und' → auto-detect
 """
 import re
-import time
 from pathlib import Path
 from typing import List, Dict, Optional, Callable, Tuple
-import torch
 
 from utils.logger import setup_logger
 from utils.config import get_config
-from utils.transcription_profiles import ProfileConfig, TranscriptionProfile
-from utils.cache_bootstrap import HF_HUB_CACHE_DIR
 
 logger = setup_logger()
 
 
 class Transcriber:
     """
-    Gestisce trascrizione audio con Faster-Whisper
-    Con supporto profili dinamici per ottimizzazione parametri
+    Facade di trascrizione multi-engine.
+
+    Mantiene il contratto storico della classe (metodi, firma, tupla di
+    ritorno) delegando la scelta dell'engine a EngineRouter. faster-whisper
+    viene pre-caricato alla costruzione (come in v3.x) e resta il fallback
+    universale sempre pronto.
     """
-    
+
     def __init__(self, method: str = 'faster-whisper', log_callback: Optional[Callable] = None):
         """
         Args:
-            method:       Sempre 'faster-whisper' (unico metodo supportato)
-            log_callback: Callback opzionale da passare all'init (usato dal pre-load
-                          anticipato della pipeline, prima di set_log_callback()).
+            method:       Mantenuto per retrocompatibilità (storicamente sempre
+                          'faster-whisper'); l'engine effettivo è deciso dal
+                          router in base a lingua e config.
+            log_callback: Callback opzionale da passare all'init (usato dal
+                          pre-load anticipato della pipeline).
         """
+        from core.engine_router import EngineRouter
+
         self.config = get_config()
         self.method = 'faster-whisper'
-
-        device_config = self.config.get('whisper_device', 'auto')
-
-        if device_config == 'auto':
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        else:
-            self.device = device_config
-
         self.log_callback: Optional[Callable] = log_callback
-        self.faster_whisper_model = None
-        self.vad_available = False
         self._last_segments: list = []
         self._cancelled: bool = False
-        
-        # ========================================
-        # ✅ NUOVO v3.2: Carica parametri profilo
-        # ========================================
-        self._load_profile_params()
 
-        # Adaptive batch manager (future-ready per BatchedInferencePipeline)
-        from utils.adaptive_batch_manager import AdaptiveBatchSizeManager
-        profile_config = ProfileConfig.get_profile_config(self.profile)
-        batch_hint = profile_config.get('batch_size_hint', None)
+        # Router engine (lifecycle VRAM: un solo engine residente)
+        self._router = EngineRouter(log_callback=log_callback)
 
-        # Leggi config adaptive batch (stesse chiavi usate dal translator)
-        cfg = self.config.get_adaptive_batch_config() if self.config else {}
-        # Per la trascrizione, cap high_threshold a 0.75 (OOM in ctranslate2 è fatale)
-        ht = min(cfg.get('high_threshold', 0.85), 0.75)
-        self.batch_manager = AdaptiveBatchSizeManager(
-            device=self.device,
-            use_gpu=(self.device == 'cuda'),
-            initial_size=batch_hint or cfg.get('initial_size'),
-            min_size=cfg.get('min_size', 1),
-            max_size=cfg.get('max_size', 24),
-            warmup_batches=cfg.get('warmup_batches', 5),
-            high_threshold=ht,
-            low_threshold=cfg.get('low_threshold', 0.60),
-            log_callback=self.log_callback,
-        )
-        self.batch_size_for_transcription = None  # None finché BatchedInferencePipeline non disponibile
+        # Pre-carica faster-whisper: stesso comportamento del costruttore v3.x.
+        # Garantisce l'ordine di init CUDA richiesto da ctranslate2 (PRIMA di
+        # Demucs) e tiene il fallback pronto. Se il routing sceglierà un altro
+        # engine, whisper verrà scaricato prima del load del nuovo.
+        self._whisper_engine = self._router.ensure_loaded('faster-whisper')
 
-        # Inizializza modello con parametri profilo
-        self._init_faster_whisper()
-        
+        self.device = self._whisper_engine.device
+
         logger.info(f"Transcriber inizializzato - Device: {self.device}")
         logger.info(f"Profilo: {self.profile_name} | Workers: {self.num_workers} | Beam: {self.beam_size}")
-    
-    def _load_profile_params(self):
-        """
-        Carica parametri dal profilo corrente
-        """
-        profile_str = self.config.get_transcription_profile()
-        
-        try:
-            self.profile = ProfileConfig.from_string(profile_str) 
-        except ValueError:
-            logger.warning(f"Profilo '{profile_str}' non valido, uso 'balanced'")
-            self.profile = TranscriptionProfile.BALANCED
-        
-        params = ProfileConfig.get_transcription_params(self.profile)
-        profile_config = ProfileConfig.get_profile_config(self.profile)
-        
-        self.num_workers = params['num_workers']
-        self.beam_size = params['beam_size']
-        self.profile_name = profile_config['name']
-        
-        logger.info(f"✅ Parametri profilo caricati: {self.profile_name}")
-        logger.info(f"   - num_workers: {self.num_workers}")
-        logger.info(f"   - beam_size: {self.beam_size}")
-    
+
+    # ------------------------------------------------------------------
+    # Proxy di compatibilità verso l'engine faster-whisper (profili, VAD)
+    # ------------------------------------------------------------------
+    @property
+    def profile(self):
+        return self._whisper_engine.profile
+
+    @property
+    def profile_name(self) -> str:
+        return self._whisper_engine.profile_name
+
+    @property
+    def num_workers(self) -> int:
+        return self._whisper_engine.num_workers
+
+    @property
+    def beam_size(self) -> int:
+        return self._whisper_engine.beam_size
+
+    @property
+    def vad_available(self) -> bool:
+        return self._whisper_engine.vad_available
+
+    @property
+    def faster_whisper_model(self):
+        return self._whisper_engine.faster_whisper_model
+
+    @property
+    def batch_manager(self):
+        return self._whisper_engine.batch_manager
+
     def reload_profile(self):
-        """
-        Ricarica parametri profilo dalla config
-        """
-        old_workers = self.num_workers
-        old_beam = self.beam_size
-        
-        self._load_profile_params()
-        
-        if old_workers != self.num_workers:
-            logger.info(f"⚠️ num_workers cambiato ({old_workers}→{self.num_workers}), reinizializzo modello...")
-            self.cleanup()
-            self._init_faster_whisper()
-        
-        if old_beam != self.beam_size:
-            logger.info(f"✅ beam_size aggiornato ({old_beam}→{self.beam_size})")
-    
-    def cancel(self):
-        """Segnala cancellazione — interrompe il loop di trascrizione tra un chunk e l'altro."""
-        self._cancelled = True
+        """Ricarica parametri profilo dalla config (solo faster-whisper:
+        gli altri engine leggono il profilo al load)."""
+        self._whisper_engine.reload_profile()
 
     def set_files_processed(self, count: int):
-        """Passa il contatore fatigue al batch_manager per riduzione preventiva batch_size."""
-        self.batch_manager.set_files_processed(count)
+        """Passa il contatore fatigue al batch_manager (OOM prevention)."""
+        self._whisper_engine.set_files_processed(count)
 
+    # ------------------------------------------------------------------
+    # Logging / cancellazione
+    # ------------------------------------------------------------------
     def set_log_callback(self, callback: Callable):
         """Imposta callback per logging GUI"""
         self.log_callback = callback
-    
+        self._router.set_log_callback(callback)
+
     def log(self, message: str):
         """Log messaggio sia su file che GUI"""
         logger.info(message)
         if self.log_callback:
             self.log_callback(message)
-    
-    def _init_faster_whisper(self):
-        """
-        Inizializza modello faster-whisper
-        """
-        try:
-            from faster_whisper import WhisperModel
-            try:
-                from faster_whisper import BatchedInferencePipeline
-                _batched_available = True
-            except ImportError:
-                _batched_available = False
-            
-            # NON chiamare torch.cuda.synchronize() / empty_cache() qui.
-            # ctranslate2 ≥4.7 usa lazy CUDA init e richiede di essere il
-            # primo a inizializzare il contesto CUDA del processo.
-            # Se PyTorch chiama cudaDeviceSynchronize() prima (via synchronize()),
-            # crea il contesto con i propri flag → ctranslate2 trova un contesto
-            # incompatibile e chiama std::abort() silenziosamente.
-            # Il cleanup pre-load è gestito da cleanup() prima del reload.
 
-            model_size = self.config.get('whisper_model', 'large-v3')
-            
-            self.log(f"  📦 Caricamento modello {model_size}...")
-            self.log(f"  ⚙️ Profilo: {self.profile_name}")
-            self.log(f"  👷 Workers: {self.num_workers} | 🎯 Beam: {self.beam_size}")
-            
-            if self.device == "cuda":
-                # int8_float16: pesi INT8 (~1.5GB vs ~3GB float16), compute FP16.
-                # Più robusto dopo Demucs (VRAM frammentata) — qualità identica.
-                compute_type = "int8_float16"
-                device_index = 0
+    def cancel(self):
+        """Segnala cancellazione — interrompe il loop di trascrizione tra un
+        chunk e l'altro (propagata a tutti gli engine e ai subprocess)."""
+        self._cancelled = True
+        self._router.cancel()
 
-                import gc
-                gc.collect()
-
-                self.faster_whisper_model = WhisperModel(
-                    model_size,
-                    device="cuda",
-                    device_index=device_index,
-                    compute_type=compute_type,
-                    num_workers=self.num_workers,
-                    cpu_threads=self.num_workers,
-                    download_root=HF_HUB_CACHE_DIR,
-                )
-                
-                self.log(f"  ✅ Modello {model_size} caricato su CUDA con {self.num_workers} workers")
-            else:
-                self.faster_whisper_model = WhisperModel(
-                    model_size,
-                    device="cpu",
-                    compute_type="int8",
-                    num_workers=self.num_workers,
-                    cpu_threads=self.num_workers,
-                    download_root=HF_HUB_CACHE_DIR,
-                )
-                
-                self.log(f"  ✅ Modello {model_size} caricato su CPU con {self.num_workers} workers")
-
-            # VAD check sul WhisperModel puro (prima del wrapping)
-            self._check_vad_availability()
-
-            # Future-ready: attiva BatchedInferencePipeline se disponibile
-            if _batched_available:
-                self.faster_whisper_model = BatchedInferencePipeline(self.faster_whisper_model)
-                self.batch_size_for_transcription = self.batch_manager.current_batch_size
-                self.log(f"  BatchedInferencePipeline attivo (batch_size={self.batch_size_for_transcription})")
-            else:
-                self.batch_size_for_transcription = None
-                self.log("  BatchedInferencePipeline non disponibile — elaborazione sequenziale")
-            
-        except Exception as e:
-            error_msg = f"❌ Errore caricamento modello Faster-Whisper: {e}"
-            self.log(error_msg)
-            logger.error(error_msg, exc_info=True)
-            raise
-    
-    def _check_vad_availability(self):
-        """Verifica se il VAD è disponibile/funzionante"""
-        try:
-            import numpy as np
-            dummy_audio = np.zeros(16000, dtype=np.float32)
-            
-            segments, info = self.faster_whisper_model.transcribe(
-                dummy_audio,
-                language="en",
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=500)
-            )
-            
-            _ = list(segments)
-            self.vad_available = True
-            self.log("  ✅ VAD (Voice Activity Detection) disponibile")
-            logger.info("VAD test successful - enabled")
-            
-        except Exception as e:
-            self.vad_available = False
-            self.log("  ⚠️ VAD non disponibile, uso modalità standard")
-            logger.warning(f"VAD not available: {e}")
-    
-    
+    # ------------------------------------------------------------------
+    # Trascrizione (contratto storico invariato)
+    # ------------------------------------------------------------------
     def transcribe_chunks(
-        self, 
-        audio_chunks: List[tuple], 
+        self,
+        audio_chunks: List[tuple],
         output_path: str, # Questo è il percorso SRT di output
         whisper_language: str = None # Questo è il codice lingua (es. 'it')
     ) -> Tuple[bool, Optional[str]]:
         """
-        Trascrizione usando Faster-Whisper di chunk multipli
+        Trascrive i chunk audio con l'engine selezionato dal router
+        (Canary/Qwen3/faster-whisper) e scrive il file SRT.
+
+        Contratto identico a v3.x: (success, detected_language_639_1).
         """
-        total_chunks = len(audio_chunks)
-        
-        # Lista di codici lingua invalidi o indefiniti
-        invalid_language_codes = ['und', 'unknown', 'undefined', 'n/a', 'none', '']
-        
-        # Gestione lingua indefinita: faster-whisper rileverà automaticamente
-        auto_detect = False
-        if whisper_language is None or whisper_language.lower().strip() in invalid_language_codes:
-            whisper_language = None  # None farà rilevare automaticamente la lingua
-            auto_detect = True
-            logger.info("Codice lingua non specificato, attivo rilevamento automatico")
-        else:
-            # FIX: Assicuriamo che il codice lingua sia a 2 lettere (ISO 639-1)
-            # Faster-Whisper accetta sia 2 che 3 lettere, ma per sicurezza usiamo 2
-            if len(whisper_language) == 3:
-                 # Mappa inversa (ITA -> IT)
-                 lang_map_3_to_2 = {'ita': 'it', 'eng': 'en', 'spa': 'es', 'fre': 'fr', 'deu': 'de', 'por': 'pt', 'rus': 'ru', 'jpn': 'ja'}
-                 whisper_language = lang_map_3_to_2.get(whisper_language.lower(), whisper_language)
-        
-        
-        all_segments = []
-        detected_language = None
+        if not audio_chunks:
+            return False, None
 
-        # ── Modalità BatchedInferencePipeline: file unico, nessun chunking ──
-        batched_mode = (
-            len(audio_chunks) == 1 and self.batch_size_for_transcription is not None
-        )
+        # ── Guardia file-unico (modalità batched: intero film in un chunk) ──
+        # Solo faster-whisper (BatchedInferencePipeline + VAD) gestisce input
+        # di durata arbitraria; Qwen3 ha limite 1200s e Canary 40s per input.
+        if len(audio_chunks) == 1:
+            engine = self._router.ensure_loaded('faster-whisper')
+            success, detected = engine.transcribe_chunks(
+                audio_chunks, output_path, whisper_language)
+            self._last_segments = engine.last_segments
+            return success, detected
 
-        if batched_mode:
-            chunk_path, _, total_duration = audio_chunks[0]
+        # ── Routing multi-engine con fallback garantito ──
+        success, detected, engine = self._router.transcribe_with_fallback(
+            audio_chunks, output_path, whisper_language)
+        if engine is not None:
+            self._last_segments = engine.last_segments
+        return success, detected
 
-            # VRAM pre-transcription logging
-            free_vram = self.batch_manager._get_free_vram_gb()
-            total_vram = self.batch_manager._get_total_vram_gb()
-            if total_vram > 0:
-                used_pct = int(((total_vram - free_vram) / total_vram) * 100)
-                self.log(
-                    f"  📊 VRAM pre-transcription: {free_vram:.1f}/{total_vram:.1f} GB free "
-                    f"({used_pct}% used)"
-                )
-
-            # Batch size: min(adaptive, safe ceiling basato su VRAM reale)
-            adaptive_bs = self.batch_manager.get_batch_size()
-            safe_bs = self.batch_manager.compute_safe_batch_size(
-                audio_duration_s=total_duration,
-                beam_size=self.beam_size,
-            )
-            bs = min(adaptive_bs, safe_bs)
-            self.log(
-                f"  📊 Batch size: adaptive={adaptive_bs}, safe_ceiling={safe_bs}, "
-                f"using={bs}"
-            )
-            self.log(f"  📊 BatchedInferencePipeline — file unico ({total_duration:.0f}s), batch_size={bs}")
-            self.log(f"  ⚙️ Profilo: {self.profile_name} (beam={self.beam_size})")
-            if auto_detect:
-                self.log("  🎯 Lingua: AUTO-DETECT")
-            else:
-                self.log(f"  🎯 Lingua: {whisper_language}")
-
-            # BatchedInferencePipeline richiede vad_filter=True obbligatoriamente
-            # word_timestamps=True per splitting preciso dei segmenti lunghi
-            transcribe_kwargs = dict(
-                language=whisper_language,
-                beam_size=self.beam_size,
-                batch_size=bs,
-                word_timestamps=True,
-            )
-            try:
-                segments, info = self.faster_whisper_model.transcribe(
-                    str(chunk_path),
-                    vad_filter=True,
-                    vad_parameters=dict(min_silence_duration_ms=500, threshold=0.5),
-                    **transcribe_kwargs
-                )
-
-                detected_language = info.language if hasattr(info, 'language') else None
-                if detected_language and auto_detect:
-                    self.log(f"  🔍 Lingua rilevata automaticamente: {detected_language}")
-
-                last_pct = -1
-                t0_transcribe = time.time()
-                for segment in segments:
-                    if self._cancelled:
-                        break
-                    all_segments.append({
-                        'start': segment.start,
-                        'end': segment.end,
-                        'text': segment.text.strip(),
-                        'words': [
-                            {'start': w.start, 'end': w.end, 'word': w.word}
-                            for w in (segment.words or [])
-                        ],
-                    })
-                    if total_duration > 0:
-                        pct = min(int((segment.end / total_duration) * 100), 99)
-                        if pct != last_pct:
-                            bars = int(pct / 10)
-                            bar = '█' * bars + '░' * (10 - bars)
-                            self.log(f"  🎙️ Trascrizione: [{bar}] {pct:3d}%")
-                            last_pct = pct
-
-                elapsed = time.time() - t0_transcribe
-                mins, secs = divmod(int(elapsed), 60)
-                time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
-                self.log(f"  ✅ Trascrizione: [██████████] 100% │ {time_str}")
-
-                # Suddividi segmenti lunghi usando i word timestamps
-                raw_count = len(all_segments)
-                split_segments = []
-                for seg in all_segments:
-                    split_segments.extend(self._split_segment_by_words(seg))
-                all_segments = split_segments
-                self.log(f"  ✂️ Suddivisione: {raw_count} → {len(all_segments)} segmenti")
-                self._last_segments = all_segments   # esposto per diarization in pipeline
-
-            except Exception as e:
-                logger.error(f"❌ Errore BatchedInferencePipeline: {e}", exc_info=True)
-                self.log(f"  ❌ Errore trascrizione: {str(e)}")
-
-        else:
-            # ── Modalità classica: N chunk sequenziali ──
-            failed_chunks = 0
-            last_progress_pct = -1
-            t0_transcribe = time.time()
-
-            self.log(f"  📊 Trascrizione di {total_chunks} chunks audio...")
-            self.log(f"  ⚙️ Profilo: {self.profile_name} (beam={self.beam_size}, workers={self.num_workers})")
-            if auto_detect:
-                self.log("  🎯 Lingua: AUTO-DETECT (rilevamento automatico)")
-            else:
-                self.log(f"  🎯 Lingua: {whisper_language}")
-
-            for i, (chunk_path, start_time, end_time) in enumerate(audio_chunks):
-                if self._cancelled:
-                    break
-                chunk_num = i + 1
-                try:
-                    chunk_path_obj = Path(chunk_path)
-                    if not chunk_path_obj.exists():
-                        logger.error(f"Chunk {chunk_num} non trovato: {chunk_path}")
-                        failed_chunks += 1
-                        continue
-
-                    transcribe_kwargs = dict(language=whisper_language, beam_size=self.beam_size)
-                    if self.batch_size_for_transcription is not None:
-                        transcribe_kwargs['batch_size'] = self.batch_manager.get_batch_size()
-
-                    if self.vad_available:
-                        segments, info = self.faster_whisper_model.transcribe(
-                            str(chunk_path),
-                            vad_filter=True,
-                            vad_parameters=dict(min_silence_duration_ms=500, threshold=0.5),
-                            **transcribe_kwargs
-                        )
-                    else:
-                        segments, info = self.faster_whisper_model.transcribe(
-                            str(chunk_path),
-                            vad_filter=False,
-                            word_timestamps=False,
-                            **transcribe_kwargs
-                        )
-
-                    if detected_language is None:
-                        detected_language = info.language if hasattr(info, 'language') else None
-                        if detected_language and auto_detect:
-                            self.log(f"  🔍 Lingua rilevata automaticamente: {detected_language}")
-
-                    for segment in segments:
-                        all_segments.append({
-                            'start': segment.start + start_time,
-                            'end': segment.end + start_time,
-                            'text': segment.text.strip()
-                        })
-
-                    pct = int((chunk_num / total_chunks) * 100)
-                    if pct != last_progress_pct:
-                        bars = int(pct / 10)
-                        bar = '█' * bars + '░' * (10 - bars)
-                        self.log(f"  🎙️ Trascrizione: [{bar}] {pct:3d}% ({chunk_num}/{total_chunks})")
-                        last_progress_pct = pct
-
-                except Exception as e:
-                    error_msg = f"❌ ERRORE chunk {chunk_num}: {str(e)}"
-                    logger.error(error_msg, exc_info=True)
-                    failed_chunks += 1
-                    continue
-
-            elapsed = time.time() - t0_transcribe
-            mins, secs = divmod(int(elapsed), 60)
-            time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
-            if failed_chunks > 0:
-                self.log(f"  ⚠️ Completato con {failed_chunks} chunks falliti su {total_chunks}")
-            self.log(f"  ✅ Trascrizione: [██████████] 100% ({total_chunks}/{total_chunks}) │ {time_str}")
-            self._last_segments = all_segments   # esposto per diarization in pipeline
-
-        self.log(f"  📝 Totale segmenti trascritti: {len(all_segments)}")
-        
-        # Salva se richiesto
-        if output_path and all_segments:
-            save_success = save_srt_file(all_segments, Path(output_path))
-            return save_success, detected_language
-        
-        return len(all_segments) > 0, detected_language
-    
-    def _split_segment_by_words(
-        self,
-        segment: dict,
-        max_chars: int = 80,
-        max_duration: float = 6.0,
-    ) -> list:
+    # ------------------------------------------------------------------
+    # Cleanup
+    # ------------------------------------------------------------------
+    def unload_engines(self):
         """
-        Divide un segmento lungo in sotto-segmenti usando i word timestamps.
-        Restituisce una lista di dict {start, end, text} pronti per save_srt_file.
+        Scarica gli engine residenti in VRAM SENZA distruggere la facade.
+
+        Usato dalla pipeline a fine STEP 3 quando l'engine pianificato non è
+        faster-whisper: il load di Qwen3/Canary parte così con VRAM massima.
+        Whisper resta ricaricabile in-process per il fallback (il pre-load
+        allo STEP 2.5 ha già inizializzato ctranslate2 su contesto vergine).
         """
-        words = segment.get('words', [])
-        text = segment['text']
-        duration = segment['end'] - segment['start']
-
-        # Segmento già corto: nessuno split necessario
-        if not words or (len(text) <= max_chars and duration <= max_duration):
-            return [{'start': segment['start'], 'end': segment['end'],
-                     'text': text, 'words': words}]
-
-        result = []
-        current_words = []
-        current_start = None
-        current_text = ''
-
-        for word in words:
-            w_text = word['word']
-            if current_start is None:
-                current_start = word['start']
-
-            candidate_text = current_text + w_text
-            candidate_duration = word['end'] - current_start
-
-            if current_words and (
-                len(candidate_text.strip()) > max_chars
-                or candidate_duration > max_duration
-            ):
-                # Chiudi segmento corrente (preserva words per diarization word-level)
-                result.append({
-                    'start': current_start,
-                    'end': current_words[-1]['end'],
-                    'text': current_text.strip(),
-                    'words': list(current_words),
-                })
-                # Inizia nuovo segmento
-                current_start = word['start']
-                current_text = w_text
-                current_words = [word]
-            else:
-                current_text = candidate_text
-                current_words.append(word)
-
-        # Ultimo segmento residuo
-        if current_words and current_text.strip():
-            result.append({
-                'start': current_start,
-                'end': current_words[-1]['end'],
-                'text': current_text.strip(),
-                'words': list(current_words),
-            })
-
-        # Anti-frammento: se il residuo finale ha < 4 parole, riunirlo al
-        # chunk precedente. Parole isolate vengono ancorate male dal forced
-        # aligner e creano sottotitoli anticipati o ritardati.
-        if len(result) >= 2 and len(result[-1]['words']) < 4:
-            tail = result.pop()
-            prev = result[-1]
-            result[-1] = {
-                'start': prev['start'],
-                'end':   tail['end'],
-                'text':  (prev['text'] + ' ' + tail['text']).strip(),
-                'words': prev['words'] + tail['words'],
-            }
-
-        return result or [{'start': segment['start'], 'end': segment['end'], 'text': text}]
+        try:
+            self._router.unload_all()
+        except Exception as e:
+            logger.warning(f"Errore unload engine anticipato: {e}")
 
     def cleanup(self):
-        """Pulizia risorse GPU"""
+        """Pulizia risorse GPU (tutti gli engine)"""
         try:
-            if self.faster_whisper_model:
-                del self.faster_whisper_model
-                self.faster_whisper_model = None
-            import gc; gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-                torch.cuda.empty_cache()
-            
+            self._router.unload_all()
             logger.info("✅ Transcriber cleanup completato")
         except Exception as e:
             logger.error(f"Errore durante cleanup: {e}")
@@ -565,7 +214,7 @@ def format_timestamp(seconds: float) -> str:
     minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
     millis = int((seconds % 1) * 1000)
-    
+
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
 
@@ -606,13 +255,13 @@ def save_srt_file(segments: List[Dict], output_path: Path) -> bool:
     """Salva segmenti in file SRT"""
     try:
         srt_content = segments_to_srt(segments)
-        
+
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(srt_content)
-        
+
         logger.info(f"✅ File SRT salvato: {output_path}")
         return True
-        
+
     except Exception as e:
         logger.error(f"❌ Errore salvataggio SRT: {e}")
         return False
@@ -623,29 +272,37 @@ def save_srt_file(segments: List[Dict], output_path: Path) -> bool:
 # ============================================================================
 
 if __name__ == '__main__':
-    """Test transcriber con profili"""
-    
+    """Test facade multi-engine con profili"""
+
     print("\n" + "="*80)
-    print("TEST TRANSCRIBER CON PROFILI DINAMICI")
+    print("TEST TRANSCRIBER FACADE MULTI-ENGINE")
     print("="*80 + "\n")
-    
+
     # Test 1: Inizializzazione con profilo default
     print("Test 1: Inizializzazione...")
     transcriber = Transcriber()
     print(f"✅ Profilo corrente: {transcriber.profile_name}")
     print(f"   - Workers: {transcriber.num_workers}")
     print(f"   - Beam: {transcriber.beam_size}")
-    
+
     # Test 2: Verifica parametri diversi profili
     print("\nTest 2: Verifica parametri profili...")
     from utils.config import get_config
     config = get_config()
-    
+
     for profile in ['fast', 'balanced', 'quality', 'maximum', 'batch']:
         config.set_transcription_profile(profile)
-        transcriber._load_profile_params()
+        transcriber._whisper_engine._load_profile_params()
         print(f"Profilo '{profile}': workers={transcriber.num_workers}, beam={transcriber.beam_size}")
-    
+
+    # Test 3: Routing engine per lingua
+    print("\nTest 3: Routing engine...")
+    from core.engine_router import EngineRouter
+    for lang in ['en', 'it', 'fr', 'fi', 'he', None]:
+        name, reason = EngineRouter.plan(lang)
+        print(f"   {str(lang):5s} → {name} ({reason})")
+
+    transcriber.cleanup()
     print("\n" + "="*80)
     print("✅ Test completato")
     print("="*80)

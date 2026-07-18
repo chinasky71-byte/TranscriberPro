@@ -15,7 +15,8 @@ MODIFICHE v3.1:
 
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QRadioButton,
                              QLabel, QPushButton, QButtonGroup, QFrame,
-                             QScrollArea, QWidget)
+                             QScrollArea, QWidget, QComboBox, QGroupBox,
+                             QCheckBox)
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QFont
 
@@ -115,6 +116,51 @@ class ProfileSelectionDialog(QDialog):
         desc_label.setObjectName("descLabel")
         desc_label.setWordWrap(True)
         body_layout.addWidget(desc_label)
+
+        # ── Motore di trascrizione (sistema multi-engine) ──
+        # Pattern userData: addItem(label, valore_config) + findData/itemData;
+        # salvataggio immediato su cambio (stesso stile embed del resto del tab).
+        engine_group = QGroupBox(tr('engine_group'))
+        engine_layout = QHBoxLayout()
+        engine_label = QLabel(tr('engine_label'))
+        self.engine_combo = QComboBox()
+        self.engine_combo.addItem(tr('engine_auto'),    'auto')
+        self.engine_combo.addItem(tr('engine_canary'),  'canary')
+        self.engine_combo.addItem(tr('engine_qwen3'),   'qwen3')
+        self.engine_combo.addItem(tr('engine_whisper'), 'faster-whisper')
+        self.engine_combo.setToolTip(tr('engine_tip'))
+
+        current_mode = self.config.get_transcription_engine_mode()
+        idx = self.engine_combo.findData(current_mode)
+        if idx < 0:
+            idx = self.engine_combo.findData('auto')
+        self.engine_combo.blockSignals(True)
+        self.engine_combo.setCurrentIndex(max(0, idx))
+        self.engine_combo.blockSignals(False)
+        self.engine_combo.currentIndexChanged.connect(self._on_engine_changed)
+
+        engine_layout.addWidget(engine_label)
+        engine_layout.addWidget(self.engine_combo)
+        engine_layout.addStretch()
+        engine_group.setLayout(engine_layout)
+        body_layout.addWidget(engine_group)
+
+        # ── Stile dialoghi professionale (trattini Netflix) ──
+        # Attiva la diarization automatica + SubtitleFormatter per ogni
+        # trascrizione; persistenza immediata come il resto del tab.
+        dialogue_group = QGroupBox(tr('dialogue_style_group'))
+        dialogue_layout = QHBoxLayout()
+        self.dialogue_checkbox = QCheckBox(tr('dialogue_style_label'))
+        self.dialogue_checkbox.setToolTip(tr('dialogue_style_tip'))
+        self.dialogue_checkbox.blockSignals(True)
+        self.dialogue_checkbox.setChecked(
+            bool(self.config.get('dialogue_style_enabled', True)))
+        self.dialogue_checkbox.blockSignals(False)
+        self.dialogue_checkbox.toggled.connect(self._on_dialogue_style_toggled)
+        dialogue_layout.addWidget(self.dialogue_checkbox)
+        dialogue_layout.addStretch()
+        dialogue_group.setLayout(dialogue_layout)
+        body_layout.addWidget(dialogue_group)
 
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
@@ -265,6 +311,15 @@ class ProfileSelectionDialog(QDialog):
         else:
             return "100%"
     
+    def _on_engine_changed(self, index: int):
+        """Callback cambio motore di trascrizione: persistenza immediata."""
+        mode = self.engine_combo.itemData(index) or 'auto'
+        self.config.set_transcription_engine_mode(mode)
+
+    def _on_dialogue_style_toggled(self, checked: bool):
+        """Callback stile dialoghi professionale: persistenza immediata."""
+        self.config.set('dialogue_style_enabled', bool(checked))
+
     def on_profile_toggled(self, profile_value: str, checked: bool):
         """
         Callback quando un radio button viene toggled

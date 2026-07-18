@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
     QStackedWidget, QWidget, QLabel, QPushButton, QFrame, QSizePolicy,
 )
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QTimer
 from PyQt6.QtGui import QKeySequence, QShortcut
 
 from utils.config import get_config
@@ -233,26 +233,44 @@ class SettingsDialog(QDialog):
             return
         tab_id = _TAB_ORDER[row]
 
-        # Lazy build: istanzia la pagina solo alla prima selezione.
+        # Lazy build DIFFERITO: prima si mostra il placeholder "Caricamento…"
+        # (feedback immediato al click), poi al tick successivo dell'event
+        # loop si costruisce il widget reale. Così anche una pagina lenta
+        # non lascia mai l'utente davanti a un click "morto".
         if not self._page_built[row]:
-            try:
-                widget = self._build_page(tab_id)
-            except Exception as exc:
-                widget = self._build_error_page(tab_id, str(exc))
-            self._pages[tab_id] = widget
             self._page_built[row] = True
-            # Sostituisce il placeholder con il widget reale mantenendo l'indice.
             placeholder = self.stack.widget(row)
-            self.stack.insertWidget(row, widget)
-            self.stack.removeWidget(placeholder)
-            placeholder.deleteLater()
+            if isinstance(placeholder, QWidget) and placeholder.layout() is None:
+                lay = QVBoxLayout(placeholder)
+                lbl = QLabel(tr('loading_preview'))
+                lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                lbl.setStyleSheet("color: #9095a0;")
+                lay.addWidget(lbl)
+            self.stack.setCurrentIndex(row)
+            QTimer.singleShot(0, lambda r=row, t=tab_id: self._deferred_build(r, t))
+        else:
+            self.stack.setCurrentIndex(row)
 
-        self.stack.setCurrentIndex(row)
         # Persisti l'ultima tab visitata
         try:
             self.config.set('ui_settings_last_tab', tab_id)
         except Exception:
             pass
+
+    def _deferred_build(self, row: int, tab_id: str):
+        """Costruisce il widget reale della tab e sostituisce il placeholder."""
+        try:
+            widget = self._build_page(tab_id)
+        except Exception as exc:
+            widget = self._build_error_page(tab_id, str(exc))
+        self._pages[tab_id] = widget
+        was_current = (self.stack.currentIndex() == row)
+        placeholder = self.stack.widget(row)
+        self.stack.insertWidget(row, widget)
+        self.stack.removeWidget(placeholder)
+        placeholder.deleteLater()
+        if was_current:
+            self.stack.setCurrentIndex(row)
 
     # ------------------------------------------------------------------
     # API pubblica

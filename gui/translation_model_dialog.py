@@ -13,12 +13,18 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QRadioButton,
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
 from PyQt6.QtGui import QFont, QIcon
 import shutil
+import sys
 from pathlib import Path
 
 from utils.translations import tr
 from utils.config import get_config
+from utils.logger import setup_logger
 
-# Lazy: core.translator (e transformers) vengono caricati solo quando il dialog è aperto
+logger = setup_logger('gui.translation_model_dialog')
+
+# REGOLA: questo modulo NON deve mai importare core.translator/torch/
+# transformers nel processo GUI (freeze + RAM). Le operazioni ML girano
+# in subprocess via core.env_check_cli (EnvCliWorker).
 
 
 # Stylesheet container coerenti col tema dark globale (theme.qss).
@@ -41,39 +47,61 @@ _SECTION_QSS_PURPLE = _section_qss("#9b6bc7")
 _SECTION_QSS_RED_ORANGE = _section_qss("#ef8a5a")
 
 
-class DownloadWorker(QThread):
-    """Worker thread per download asincrono modello Aya"""
-    
-    progress_updated = pyqtSignal(str, int)
-    download_completed = pyqtSignal(bool, str)
-    
+class EnvCliWorker(QThread):
+    """Esegue core.env_check_cli in subprocess e streamma le righe di stato.
+
+    Il vecchio DownloadWorker importava core.translator (torch+transformers)
+    nel processo GUI; ora il lavoro ML gira in un processo separato che
+    muore alla fine restituendo RAM/VRAM all'OS, e il thread GUI non viene
+    mai toccato dagli import ML.
+    """
+
+    line_out = pyqtSignal(str)      # riga di stato dal CLI
+    finished_code = pyqtSignal(int)  # exit code (0 = ok)
+
+    def __init__(self, command: str, parent=None):
+        super().__init__(parent)
+        self._command = command
+
     def run(self):
+        import os
+        import subprocess
+        import threading
+
+        root = Path(__file__).resolve().parent.parent
+        env = os.environ.copy()
+        env['PYTHONIOENCODING'] = 'utf-8'
+        env['TP_SUBPROCESS'] = '1'
+        env['TQDM_DISABLE'] = '1'
+        flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
         try:
-            from core.translator import get_translator
-            
-            self.progress_updated.emit("Avvio caricamento modello Aya-23-8B...", 0)
-            
-            config = get_config()
-            if not config.is_huggingface_token_set():
-                self.progress_updated.emit("Token HuggingFace non rilevato. Tentativo anonimo...", 10)
-            
-            self.progress_updated.emit("Download in corso (può richiedere alcuni minuti)...", 20)
-            
-            translator = get_translator(model_type='aya')
-            
-            if translator is not None:
-                self.progress_updated.emit("Modello caricato in memoria.", 100)
-                self.download_completed.emit(True, "[OK] Download completato!")
-            else:
-                self.download_completed.emit(False, "[X] Caricamento fallito")
-                
-        except ImportError:
-            self.download_completed.emit(False, "[X] Impossibile trovare 'get_translator'")
+            proc = subprocess.Popen(
+                [sys.executable, '-m', 'core.env_check_cli', self._command],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                cwd=str(root), env=env, text=True, encoding='utf-8',
+                errors='replace', bufsize=1, creationflags=flags)
         except Exception as e:
-            error_message = str(e)
-            if "GatedRepo" in error_message or "401" in error_message:
-                error_message = "Errore autenticazione. Token HuggingFace non valido."
-            self.download_completed.emit(False, f"[X] Errore: {error_message}")
+            self.line_out.emit(f"❌ Avvio subprocess fallito: {e}")
+            self.finished_code.emit(1)
+            return
+
+        def _drain(stream):
+            # Rumore librerie: solo nel file di log, mai in GUI
+            try:
+                for eline in stream:
+                    eline = eline.rstrip()
+                    if eline:
+                        logger.debug(f"[env-cli-stderr] {eline}")
+            except Exception:
+                pass
+
+        threading.Thread(target=_drain, args=(proc.stderr,),
+                         daemon=True).start()
+        for line in proc.stdout:
+            line = line.strip()
+            if line:
+                self.line_out.emit(line)
+        self.finished_code.emit(proc.wait())
 
 
 class TranslationModelDialog(QDialog):
@@ -86,11 +114,14 @@ class TranslationModelDialog(QDialog):
         self.download_worker = None
         self.embed = embed
 
-        try:
-            from core.translator import BaseTranslator  # noqa: F401
-            _translator_available = True
-        except ImportError:
-            _translator_available = False
+        # Check disponibilità SENZA import reale: importare core.translator
+        # qui caricava torch+transformers sul thread GUI (3.7-9s di freeze
+        # misurati dalla telemetria [UI-STALL]). find_spec verifica solo che
+        # il pacchetto esista sul disco, costo ~0.
+        import importlib.util
+        _translator_available = (
+            importlib.util.find_spec('transformers') is not None
+            and importlib.util.find_spec('torch') is not None)
 
         if not embed:
             self.setWindowTitle(tr('tmd_title'))
@@ -797,30 +828,32 @@ class TranslationModelDialog(QDialog):
             )
             return
         
+        if self.download_worker is not None and self.download_worker.isRunning():
+            return  # download già in corso
+
         self.aya_progress.setVisible(True)
         self.aya_progress.setRange(0, 0)  # Indeterminate
-        
-        self.download_worker = DownloadWorker()
-        self.download_worker.progress_updated.connect(self.on_progress_update)
-        self.download_worker.download_completed.connect(self.on_download_complete)
+
+        self._aya_last_line = ''
+        self.download_worker = EnvCliWorker('aya-download')
+        self.download_worker.line_out.connect(self._on_aya_line)
+        self.download_worker.finished_code.connect(self.on_download_complete)
         self.download_worker.start()
-    
-    def on_progress_update(self, message: str, percent: int):
-        """Aggiorna progresso download"""
-        if percent > 0:
-            self.aya_progress.setRange(0, 100)
-            self.aya_progress.setValue(percent)
-    
-    def on_download_complete(self, success: bool, message: str):
-        """Gestisce completamento download"""
+
+    def _on_aya_line(self, line: str):
+        self._aya_last_line = line
+
+    def on_download_complete(self, exit_code: int):
+        """Gestisce completamento download (subprocess terminato)"""
         self.aya_progress.setVisible(False)
-        
-        if success:
+
+        if exit_code == 0:
             self.config.settings['aya_model_download_status'] = True
             self.config.save()
-            QMessageBox.information(self, "Successo", message)
+            QMessageBox.information(self, "Successo", "[OK] Download completato!")
         else:
-            QMessageBox.critical(self, "Errore", message)
+            detail = self._aya_last_line or "Caricamento fallito"
+            QMessageBox.critical(self, "Errore", f"[X] {detail}")
     
     def get_selected_model(self) -> str:
         """Restituisce il modello selezionato"""
@@ -1060,71 +1093,40 @@ class TranslationModelDialog(QDialog):
             self.diarization_test_label.setStyleSheet("color: red; font-size: 11px;")
             return
 
-        self.diarization_test_label.setText("⏳ Download in corso (prima volta: ~1 GB)...")
+        # Il test gira in SUBPROCESS (core.env_check_cli): prima importava
+        # torch+pyannote nel thread GUI congelando l'interfaccia per decine
+        # di secondi. La GUI resta fluida e mostra le righe di progresso.
+        if (getattr(self, '_diar_test_worker', None) is not None
+                and self._diar_test_worker.isRunning()):
+            return  # test già in corso
+
+        self.diarization_test_label.setText(
+            "⏳ Test avviato in background (prima volta: download ~1 GB)...")
         self.diarization_test_label.setStyleSheet("color: #555; font-size: 11px;")
-        from PyQt6.QtWidgets import QApplication
-        QApplication.processEvents()
 
-        try:
-            import warnings, torch, numpy as np, tempfile, os
-            import soundfile as sf
-            warnings.filterwarnings("ignore", message="torchcodec is not installed")
-            from pyannote.audio import Pipeline
+        self._diar_test_lines = []
+        self._diar_test_worker = EnvCliWorker('diarization-test')
+        self._diar_test_worker.line_out.connect(self._on_diar_test_line)
+        self._diar_test_worker.finished_code.connect(self._on_diar_test_done)
+        self._diar_test_worker.start()
 
-            self.diarization_test_label.setText("⏳ Caricamento pipeline pyannote...")
-            QApplication.processEvents()
+    def _on_diar_test_line(self, line: str):
+        self._diar_test_lines.append(line)
+        # Durante il run mostra l'ultima riga di stato
+        self.diarization_test_label.setText(line)
 
-            pipeline = Pipeline.from_pretrained(
-                "pyannote/speaker-diarization-3.1",
-                token=token
-            )
-            if torch.cuda.is_available():
-                pipeline = pipeline.to(torch.device("cuda"))
-
-            # Audio sintetico: 4 secondi, 2 "parlanti" (toni diversi)
-            sr = 16000
-            t = np.linspace(0, 4.0, sr * 4, dtype=np.float32)
-            audio = np.concatenate([
-                0.3 * np.sin(2 * np.pi * 200 * t[:sr * 2]),
-                0.3 * np.sin(2 * np.pi * 600 * t[sr * 2:]),
-            ])
-
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
-                tmp_path = f.name
-            sf.write(tmp_path, audio, sr)
-
-            try:
-                import torchaudio
-                waveform, sample_rate = torchaudio.load(tmp_path)
-                output = pipeline({'waveform': waveform, 'sample_rate': sample_rate})
-                annotation = getattr(output, 'speaker_diarization', output)
-                turns = list(annotation.itertracks(yield_label=True))
-                del pipeline
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                self.diarization_test_label.setText(
-                    f"✅ Modello OK! Trovati {len(turns)} turni sul test audio.\n"
-                    "Puoi abilitare la diarization."
-                )
-                self.diarization_test_label.setStyleSheet("color: green; font-size: 11px;")
-            finally:
-                os.unlink(tmp_path)
-
-        except Exception as e:
-            err = str(e)
-            if "403" in err or "gated" in err.lower() or "restricted" in err.lower():
-                msg = (
-                    "❌ Accesso negato (403).\n"
-                    "Accetta i termini su:\n"
-                    "  huggingface.co/pyannote/speaker-diarization-3.1\n"
-                    "  huggingface.co/pyannote/segmentation-3.0"
-                )
-            elif "401" in err or "token" in err.lower():
-                msg = "❌ Token non valido o scaduto. Controllalo su huggingface.co/settings/tokens"
-            else:
-                msg = f"❌ Errore: {err}"
-            self.diarization_test_label.setText(msg)
-            self.diarization_test_label.setStyleSheet("color: red; font-size: 11px;")
+    def _on_diar_test_done(self, exit_code: int):
+        # A fine run mostra il messaggio completo (il CLI emette le stesse
+        # righe finali del vecchio test in-process: OK/403/401/errore).
+        # Le righe di progresso "⏳" non fanno parte del verdetto.
+        final_lines = [l for l in self._diar_test_lines
+                       if not l.startswith('⏳')]
+        tail = "\n".join(final_lines[-4:]) if final_lines \
+            else "❌ Nessun output dal test."
+        self.diarization_test_label.setText(tail)
+        color = "green" if exit_code == 0 else "red"
+        self.diarization_test_label.setStyleSheet(
+            f"color: {color}; font-size: 11px;")
 
     # ── Gender Correction ─────────────────────────────────────────────────
 

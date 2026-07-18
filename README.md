@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.6.0-orange)
+![Version](https://img.shields.io/badge/Version-1.9.2-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -29,8 +29,9 @@ Transcriber Pro takes any video file and produces clean `.srt` subtitle files th
 ## Features
 
 ### Transcription & Translation
-- **Automatic transcription** via Faster-Whisper `large-v3` (99 languages, VAD filter)
+- **Multi-engine transcription with automatic language routing** — NVIDIA Canary-Qwen-2.5B (English only, best WER; optional, requires a dedicated `venv_canary` with NeMo 2.7.3), Qwen3-ASR-1.7B + Qwen3-ForcedAligner-0.6B (11 languages with word-level timestamps: zh, en, yue, fr, de, it, ja, ko, pt, ru, es; native language auto-detect), Faster-Whisper `large-v3` as guaranteed universal fallback (99 languages, VAD filter) — the pipeline never fails because of a new engine. Only one ASR engine in VRAM at a time. Engine selector in profile settings (`transcription_engine_mode`: auto / canary / qwen3 / faster-whisper)
 - **Multiple translation engines**: NLLB-200-3.3B, NLLB fine-tuned, Aya-23-8B, Claude Sonnet API, OpenAI GPT-4o-mini
+- **Professional dialogue style (Netflix)** — "- " dashes only when two speakers share the same SRT block (one line per speaker); speaker diarization extended to all engines (`dialogue_style_enabled`, default ON, requires a HuggingFace token); dashes preserved in translated SRTs across all 4 translation backends; `core/subtitle_formatter.py` handles CPL 42, anti-flash, fragment merging and dialogue grouping
 - **Vocal separation** via Meta Demucs — isolates speech before transcription for better accuracy
 - **Intelligent audio chunking** — splits at silence points for accurate timestamp alignment
 - **Transcription profiles** — Fast / Balanced / Quality / Maximum / Batch presets
@@ -66,7 +67,8 @@ Transcriber Pro takes any video file and produces clean `.srt` subtitle files th
 - **Unified Settings dialog** — sidebar + stacked content: General, Transcription, Translation, Adaptive Batch, OpenSubtitles, **Subtitle OCR** (new)
 - **SVG icon system** — 38 vector icons, theme-aware
 - **Real-time resource monitor** — GPU / CPU / RAM usage during processing
-- **GPU memory management** — sequential model loading/unloading; Demucs, Whisper, and translation model never run simultaneously; cuBLAS workspace cleanup
+- **GPU memory management** — sequential model loading/unloading; Demucs, ASR engine, and translation model never run simultaneously; cuBLAS workspace cleanup; Demucs tensors kept on CPU (only the segment being processed moves to GPU) → constant ~0.6 GB VRAM peak regardless of file length
+- **Freeze-free startup** — torch is never imported in the GUI process (environment check via external CLI); async I/O; splash in ~2 s, Translation tab from 3719 ms to 15 ms
 - **Embedded subtitle extraction** — skips transcription when clean text subtitles already exist; bitmap-only streams trigger the OCR pipeline instead
 - **Immediate stop** — confirmation dialog; kills FFmpeg / Demucs / Whisper within seconds; cleans temp files automatically
 - **Processing queue** — Queued / Active / Completed / Failed filters with live badges
@@ -94,6 +96,8 @@ Transcriber Pro takes any video file and produces clean `.srt` subtitle files th
 - **Tesseract OCR 5+** with `ita` and `eng` traineddata from [tessdata_best](https://github.com/tesseract-ocr/tessdata_best) (required for the OCR pipeline)
 - **MKVToolNix** (`mkvextract`) — required for VOBSUB extraction only
 - **Git** (for cloning)
+
+> The Qwen3 ASR engine is installed with the standard dependencies (`qwen-asr` pip package, already in `requirements.txt`). The NVIDIA Canary engine is **optional** and lives in a dedicated `venv_canary` virtual environment with NeMo 2.7.3 (its dependencies conflict with the app's pinned ones); if absent, the router simply falls back to Qwen3 / Faster-Whisper.
 
 ---
 
@@ -172,7 +176,9 @@ All credentials are optional except for the translation model you choose to use.
 
 | Model | Type | Size | VRAM | Quality | Speed |
 |-------|------|------|------|---------|-------|
-| Faster-Whisper large-v3 | Transcription | 1.5 B params | ~4 GB | ★★★★★ | ★★★★☆ |
+| Faster-Whisper large-v3 | Transcription (universal fallback) | 1.5 B params | ~4 GB | ★★★★★ | ★★★★☆ |
+| Qwen3-ASR-1.7B + ForcedAligner-0.6B | Transcription (11 languages, word-level timestamps) | 1.7 B + 0.6 B params | ~5 GB | ★★★★★ | ★★★★☆ |
+| NVIDIA Canary-Qwen-2.5B | Transcription (English only, optional venv) | 2.5 B params | ~6 GB | ★★★★★ | ★★★★☆ |
 | NLLB-200-3.3B | Translation (local) | 3.3 B params | ~5 GB | ★★★☆☆ | ★★★★★ |
 | NLLB-200 fine-tuned | Translation (local) | 3.3 B params | ~5 GB | ★★★★☆ | ★★★★★ |
 | Aya-23-8B | Translation (local) | 8 B params | ~8 GB | ★★★★☆ | ★★★☆☆ |
@@ -265,6 +271,33 @@ This project is licensed under the MIT License.
 ---
 
 ## Changelog
+
+### v1.9.2
+- **Subtitles anchored to lines** — the anti-fragment rule now merges a short tail only when it is a true fragment of the same sentence (pause ≤ 0.8 s and unfinished sentence) — no more blocks joining two distant lines on the same row.
+- **Adaptive transcription batch fix** — memory read at device level, batch cap at 16, VRAM-aware ceiling also in classic mode (on Windows/WDDM exceeding VRAM does not raise OOM but silently spills into shared RAM).
+- **Progress bar no longer interrupted** by batch-adjustment log lines.
+
+### v1.9.1
+- **Demucs memory peak optimization** — tensors stay resident on CPU (`apply_model` moves only the segment being processed to the GPU) → constant VRAM peak (~0.6 GB) regardless of file duration (before: >21 GB GPU committed on an 83-min episode, with spillover into shared RAM).
+- **Early unload** of Demucs and Whisper at the end of STEP 3 when the planned engine is Qwen3 / Canary.
+
+### v1.9.0
+- **Professional dialogue style (Netflix)** — "- " dashes only when two speakers share the same SRT block (one line per speaker); speaker diarization extended to all engines (`dialogue_style_enabled` option, default ON, requires HuggingFace token); dashes preserved in translated SRTs too (all 4 translation backends).
+- **New `core/subtitle_formatter.py`** — CPL 42, anti-flash, fragment merging, dialogue grouping.
+
+### v1.8.1
+- Fix: the gender corrector no longer runs on native Italian transcriptions (no translation involved).
+
+### v1.8.0
+- **Multi-engine transcription system with automatic language routing**: NVIDIA Canary-Qwen-2.5B (English only, best WER; requires a dedicated `venv_canary` with NeMo 2.7.3 — optional), Qwen3-ASR-1.7B + Qwen3-ForcedAligner-0.6B (11 languages with word-level timestamps: zh, en, yue, fr, de, it, ja, ko, pt, ru, es; native language auto-detect), Faster-Whisper large-v3 as guaranteed universal fallback — the pipeline never fails because of a new engine.
+- **Only one ASR engine in VRAM at a time.**
+- New config keys: `transcription_engine_mode` (auto / canary / qwen3 / faster-whisper), `canary_enabled`, `qwen3_enabled`; engine selection combo in profile settings.
+
+### v1.7.0
+- **Freeze-free startup** — Translation tab from 3719 ms to 15 ms, async I/O, torch never imported in the GUI process (environment check via external CLI), splash in ~2 s.
+
+### v1.6.1
+- Fix (GUI): removed "(LLM)" from the gender-correction checkbox label.
 
 ### v1.6.0
 - **Gender Corrector v2 — complete redesign (audio-driven, deterministic)** — the LLM corrector (Qwen2.5-14B GGUF) was measured as ineffective (+0.66pt) and fully replaced. The speaker's gender is now detected **from the voice** (pyannote diarization + ECAPA classifier, 95% acc) and only 1st/2nd-person forms are rewritten via a deterministic morphological flip guarded by a validator — no LLM, no extra VRAM, hallucinations impossible by construction. First-person feminine accuracy: 19% → 87% (corpus), 0% → 60% on a real full-pipeline episode; masculine never degraded.
@@ -389,8 +422,9 @@ Transcriber Pro produce file `.srt` attraverso due pipeline complementari:
 ## Funzionalità
 
 ### Trascrizione e Traduzione
-- **Trascrizione automatica** via Faster-Whisper `large-v3` (99 lingue, filtro VAD)
+- **Trascrizione multi-engine con routing automatico per lingua** — NVIDIA Canary-Qwen-2.5B (solo inglese, WER migliore; opzionale, richiede un `venv_canary` dedicato con NeMo 2.7.3), Qwen3-ASR-1.7B + Qwen3-ForcedAligner-0.6B (11 lingue con timestamp word-level: zh, en, yue, fr, de, it, ja, ko, pt, ru, es; auto-detect lingua nativo), Faster-Whisper `large-v3` come fallback universale garantito (99 lingue, filtro VAD) — la pipeline non fallisce mai per colpa di un engine nuovo. Un solo engine ASR in VRAM per volta. Selettore engine nelle impostazioni profilo (`transcription_engine_mode`: auto / canary / qwen3 / faster-whisper)
 - **Motori di traduzione multipli**: NLLB-200-3.3B, NLLB finetuned, Aya-23-8B, Claude Sonnet API, OpenAI GPT-4o-mini
+- **Stile dialoghi professionale (Netflix)** — trattini "- " solo quando due parlanti condividono lo stesso blocco SRT (una battuta per riga); speaker diarization estesa a tutti gli engine (opzione `dialogue_style_enabled`, default ON, richiede token HuggingFace); trattini preservati anche negli SRT tradotti su tutti e 4 i backend di traduzione; `core/subtitle_formatter.py` gestisce CPL 42, anti-flash, merge frammenti e raggruppamento dialoghi
 - **Separazione vocale** via Meta Demucs — isola la voce prima della trascrizione per maggiore accuratezza
 - **Chunking audio intelligente** — divide ai punti di silenzio per timestamp precisi
 - **Profili di trascrizione** — Fast / Balanced / Quality / Maximum / Batch
@@ -425,7 +459,8 @@ Transcriber Pro produce file `.srt` attraverso due pipeline complementari:
 - **Dialog Impostazioni unificato** — sidebar + contenuto: Generale, Trascrizione, Traduzione, Batch Adattivo, OpenSubtitles, **OCR Sottotitoli** (nuovo)
 - **Sistema icone SVG** — 38 icone vettoriali, adattive al tema
 - **Monitor risorse in tempo reale** — GPU / CPU / RAM durante l'elaborazione
-- **Gestione memoria GPU** — caricamento/scaricamento sequenziale; Demucs, Whisper e traduttore non girano mai contemporaneamente
+- **Gestione memoria GPU** — caricamento/scaricamento sequenziale; Demucs, engine ASR e traduttore non girano mai contemporaneamente; tensori Demucs residenti su CPU (solo il segmento in lavorazione va sulla GPU) → picco VRAM costante ~0,6 GB indipendente dalla durata del file
+- **Avvio senza freeze** — torch mai importato nel processo GUI (check ambiente via CLI esterna); I/O asincrono; splash in ~2 s, tab Traduzione da 3719 ms a 15 ms
 - **Estrazione sottotitoli embedded** — salta la trascrizione se esistono sub testo; le tracce solo-bitmap avviano la pipeline OCR
 - **Stop immediato** — dialog di conferma; termina FFmpeg / Demucs / Whisper in pochi secondi; pulizia temp automatica
 - **Coda di processamento** — filtri In coda / Attivi / Completati / Errori con badge live
@@ -453,6 +488,8 @@ Transcriber Pro produce file `.srt` attraverso due pipeline complementari:
 - **Tesseract OCR 5+** con traineddata `ita` e `eng` da [tessdata_best](https://github.com/tesseract-ocr/tessdata_best) (richiesto per la pipeline OCR)
 - **MKVToolNix** (`mkvextract`) — solo per l'estrazione VOBSUB
 - **Git**
+
+> L'engine ASR Qwen3 si installa con le dipendenze standard (pacchetto pip `qwen-asr`, già in `requirements.txt`). L'engine NVIDIA Canary è **opzionale** e vive in un ambiente virtuale dedicato `venv_canary` con NeMo 2.7.3 (le sue dipendenze confliggono con quelle bloccate dell'app); se assente, il router ripiega semplicemente su Qwen3 / Faster-Whisper.
 
 ---
 
@@ -531,7 +568,9 @@ Tutte le credenziali sono opzionali tranne quella del motore di traduzione scelt
 
 | Modello | Tipo | Dimensione | VRAM | Qualità | Velocità |
 |---------|------|-----------|------|---------|---------|
-| Faster-Whisper large-v3 | Trascrizione | 1,5 B params | ~4 GB | ★★★★★ | ★★★★☆ |
+| Faster-Whisper large-v3 | Trascrizione (fallback universale) | 1,5 B params | ~4 GB | ★★★★★ | ★★★★☆ |
+| Qwen3-ASR-1.7B + ForcedAligner-0.6B | Trascrizione (11 lingue, timestamp word-level) | 1,7 B + 0,6 B params | ~5 GB | ★★★★★ | ★★★★☆ |
+| NVIDIA Canary-Qwen-2.5B | Trascrizione (solo inglese, venv opzionale) | 2,5 B params | ~6 GB | ★★★★★ | ★★★★☆ |
 | NLLB-200-3.3B | Traduzione (locale) | 3,3 B params | ~5 GB | ★★★☆☆ | ★★★★★ |
 | NLLB-200 finetuned | Traduzione (locale) | 3,3 B params | ~5 GB | ★★★★☆ | ★★★★★ |
 | Aya-23-8B | Traduzione (locale) | 8 B params | ~8 GB | ★★★★☆ | ★★★☆☆ |
@@ -552,6 +591,33 @@ Questo progetto è distribuito con licenza MIT.
 ---
 
 ## Changelog
+
+### v1.9.2
+- **Sottotitoli ancorati alle battute** — la regola anti-frammento riunisce la coda corta solo se è un vero frammento della stessa frase (pausa ≤ 0,8 s e frase non conclusa) — niente più blocchi con due battute distanti nella stessa riga.
+- **Fix batch adattivo trascrizione** — lettura memoria a livello device, cap batch 16, tetto VRAM-aware anche in modalità classica (su Windows/WDDM lo sforamento VRAM non dà OOM ma spillover silenzioso in RAM condivisa).
+- **Barra di progresso non più interrotta** dai log di aggiustamento batch.
+
+### v1.9.1
+- **Ottimizzazione picco memoria Demucs** — tensori residenti su CPU (`apply_model` sposta sulla GPU solo il segmento in lavorazione) → picco VRAM costante (~0,6 GB) indipendente dalla durata del file (prima: >21 GB GPU committed su un episodio da 83 min, con spillover in RAM condivisa).
+- **Unload anticipato** di Demucs e Whisper a fine STEP 3 quando l'engine pianificato è Qwen3 / Canary.
+
+### v1.9.0
+- **Stile dialoghi professionale (Netflix)** — trattini "- " solo quando due parlanti condividono lo stesso blocco SRT (una battuta per riga); speaker diarization estesa a tutti gli engine (opzione `dialogue_style_enabled`, default ON, richiede token HuggingFace); trattini preservati anche negli SRT tradotti (tutti e 4 i backend di traduzione).
+- **Nuovo `core/subtitle_formatter.py`** — CPL 42, anti-flash, merge frammenti, raggruppamento dialoghi.
+
+### v1.8.1
+- Fix: il gender corrector non gira più sulle trascrizioni in italiano nativo (senza traduzione).
+
+### v1.8.0
+- **Sistema di trascrizione multi-engine con routing automatico per lingua**: NVIDIA Canary-Qwen-2.5B (solo inglese, WER migliore; richiede un `venv_canary` dedicato con NeMo 2.7.3 — opzionale), Qwen3-ASR-1.7B + Qwen3-ForcedAligner-0.6B (11 lingue con timestamp word-level: zh, en, yue, fr, de, it, ja, ko, pt, ru, es; auto-detect lingua nativo), Faster-Whisper large-v3 come fallback universale garantito — la pipeline non fallisce mai per colpa di un engine nuovo.
+- **Un solo engine ASR in VRAM per volta.**
+- Nuove chiavi config: `transcription_engine_mode` (auto / canary / qwen3 / faster-whisper), `canary_enabled`, `qwen3_enabled`; combo di selezione engine nelle impostazioni profilo.
+
+### v1.7.0
+- **Avvio senza freeze UI** — tab Traduzione da 3719 ms a 15 ms, I/O asincrono, torch mai importato nel processo GUI (check ambiente via CLI esterna), splash in ~2 s.
+
+### v1.6.1
+- Fix (GUI): rimosso "(LLM)" dall'etichetta della checkbox correzione genere.
 
 ### v1.6.0
 - **Correzione Genere v2 — redesign completo (audio-driven, deterministico)** — il correttore LLM (Qwen2.5-14B GGUF), misurato inefficace (+0,66pt), è stato interamente sostituito. Il genere del parlante ora si deduce **dalla voce** (diarization pyannote + classificatore ECAPA, 95%) e si riscrivono solo le forme di 1ª/2ª persona con un flip morfologico deterministico protetto da validatore — niente LLM, niente VRAM extra, allucinazioni impossibili per costruzione. Accuratezza femminile in 1ª persona: 19% → 87% (corpus), 0% → 60% su un episodio reale da pipeline completa; maschile mai degradato.

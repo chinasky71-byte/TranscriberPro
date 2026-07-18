@@ -3,6 +3,66 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.9.2] — 2026-07
+
+### Ancoraggio sottotitoli alle battute + fix batch adattivo
+- La regola anti-frammento riunisce la coda corta solo se è un vero frammento
+  della stessa frase (pausa ≤ 0,8 s e frase non conclusa) — niente più blocchi
+  con due battute distanti nella stessa riga.
+- Fix batch adattivo trascrizione: lettura memoria a livello device, cap batch
+  16, tetto VRAM-aware anche in modalità classica (su Windows/WDDM lo
+  sforamento VRAM non dà OOM ma spillover silenzioso in RAM condivisa).
+- Barra di progresso non più interrotta dai log di aggiustamento batch.
+
+## [1.9.1] — 2026-07
+
+### Ottimizzazione picco memoria Demucs
+- Tensori residenti su CPU: `apply_model` sposta sulla GPU solo il segmento in
+  lavorazione → picco VRAM costante (~0,6 GB) indipendente dalla durata del
+  file (prima: >21 GB GPU committed su un episodio da 83 min).
+- Unload anticipato di Demucs e Whisper a fine STEP 3 quando l'engine
+  pianificato è Qwen3 / Canary.
+
+## [1.9.0] — 2026-07
+
+### Stile dialoghi professionale (Netflix)
+- Trattini "- " solo quando due parlanti condividono lo stesso blocco SRT
+  (una battuta per riga); speaker diarization estesa a tutti gli engine
+  (opzione `dialogue_style_enabled`, default ON, richiede token HuggingFace).
+- Trattini preservati anche negli SRT tradotti (tutti e 4 i backend).
+- Nuovo `core/subtitle_formatter.py`: CPL 42, anti-flash, merge frammenti,
+  raggruppamento dialoghi.
+
+## [1.8.1] — 2026-07
+
+- Fix: il gender corrector non gira più sulle trascrizioni in italiano nativo
+  (senza traduzione).
+
+## [1.8.0] — 2026-07
+
+### Trascrizione multi-engine con routing automatico per lingua
+- **NVIDIA Canary-Qwen-2.5B** (solo inglese, WER migliore; opzionale, richiede
+  `venv_canary` dedicato con NeMo 2.7.3).
+- **Qwen3-ASR-1.7B + Qwen3-ForcedAligner-0.6B** (pacchetto pip `qwen-asr`):
+  11 lingue con timestamp word-level (zh, en, yue, fr, de, it, ja, ko, pt, ru,
+  es), auto-detect lingua nativo.
+- **Faster-Whisper large-v3** come fallback universale garantito: la pipeline
+  non fallisce mai per colpa di un engine nuovo.
+- Un solo engine ASR in VRAM per volta.
+- Nuove chiavi config: `transcription_engine_mode` (auto / canary / qwen3 /
+  faster-whisper), `canary_enabled`, `qwen3_enabled`; combo di selezione
+  engine nelle impostazioni profilo.
+
+## [1.7.0] — 2026-07-16
+
+### Avvio senza freeze UI
+- Tab Traduzione da 3719 ms a 15 ms; I/O asincrono; torch mai importato nel
+  processo GUI (check ambiente via CLI esterna); splash in ~2 s.
+
+## [1.6.1] — 2026-07-15
+
+- Fix (GUI): rimosso "(LLM)" dall'etichetta della checkbox correzione genere.
+
 ## [1.6.0] — 2026-07-15
 
 ### Gender Corrector v2 — redesign completo (audio-driven, deterministico)

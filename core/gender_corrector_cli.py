@@ -129,4 +129,10 @@ if __name__ == '__main__':
     if str(_project_root) not in sys.path:
         sys.path.insert(0, str(_project_root))
 
+    # Niente flash di finestre console: le librerie del diarizer
+    # (speechbrain/torchaudio) e il selettore spaCy spawnano subprocess
+    # senza CREATE_NO_WINDOW. Stesso monkeypatch di pipeline_cli.
+    from core.pipeline_cli import _suppress_subprocess_windows
+    _suppress_subprocess_windows()
+
     sys.exit(main(sys.argv))

@@ -30,6 +30,8 @@ sentencepiece==0.2.1
 bitsandbytes==0.49.2
 numba==0.64.0
 llvmlite==0.46.0
+# Engine ASR Qwen3 (multi-engine, v1.8.0+): Qwen3-ASR-1.7B + Qwen3-ForcedAligner-0.6B
+qwen-asr==0.0.6
 
 # --- Audio processing ---
 torchaudio==2.8.0+cu126

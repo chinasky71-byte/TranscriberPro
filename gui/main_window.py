@@ -24,7 +24,8 @@ from datetime import datetime
 
 from gui.widgets import ResourceMonitorWidget, ElideLabel
 from gui.icons import svg_icon
-from gui.workers import ProcessingWorker, PosterLoaderWorker
+from gui.workers import (ProcessingWorker, PosterLoaderWorker,
+                         FileSizeWorker, FolderScanWorker)
 from gui.profile_dialog import ProfileSelectionDialog
 from gui.translation_model_dialog import TranslationModelDialog
 from gui.library_scanner_widget import LibraryScannerWidget
@@ -153,6 +154,8 @@ class MainWindow(QMainWindow):
         self.poster_loading = False
         self.last_loaded_file = None
         self.poster_worker = None
+        self._io_workers = []          # FileSizeWorker/FolderScanWorker attivi
+        self._folder_scan_worker = None
         self.compact_log_enabled = False
         self.resource_monitor = ResourceMonitorWidget()
 
@@ -375,6 +378,7 @@ class MainWindow(QMainWindow):
             tr(f"profile_{self.config.get_transcription_profile()}_name")
         )
         self._diag_traduttore._val.setText(self.config.get_translation_model())
+        self._diag_engine._val.setText(self._engine_mode_label())
 
         # Sync checkbox upload OS (può essere cambiato dal settings dialog)
         self.opensubtitles_checkbox.blockSignals(True)
@@ -660,7 +664,24 @@ class MainWindow(QMainWindow):
         diag_row2.addWidget(self._diag_traduttore)
         layout.addLayout(diag_row2)
 
+        diag_row3 = QHBoxLayout()
+        diag_row3.setSpacing(6)
+        self._diag_engine = self._make_diag_tile(
+            self._engine_mode_label(), "Engine", 'chip')
+        diag_row3.addWidget(self._diag_engine)
+        layout.addLayout(diag_row3)
+
         return panel
+
+    def _engine_mode_label(self) -> str:
+        """Etichetta breve della modalità engine di trascrizione corrente."""
+        labels = {
+            'auto': 'Auto',
+            'canary': 'Canary',
+            'qwen3': 'Qwen3-ASR',
+            'faster-whisper': 'Faster-Whisper',
+        }
+        return labels.get(self.config.get_transcription_engine_mode(), 'Auto')
 
     def _make_log_stat(self, value: str, label: str) -> QFrame:
         tile = QFrame()
@@ -800,18 +821,9 @@ class MainWindow(QMainWindow):
     # File list helpers
     # ------------------------------------------------------------------
 
-    def _format_file_size(self, path: str) -> str:
-        try:
-            s = float(Path(path).stat().st_size)
-            for unit in ('B', 'KB', 'MB', 'GB'):
-                if s < 1024:
-                    return f'{s:.0f} {unit}'
-                s /= 1024
-            return f'{s:.1f} TB'
-        except Exception:
-            return ''
-
-    def _make_file_item(self, path: str):
+    def _make_file_item(self, path: str, size: str = ''):
+        # size arriva DOPO, da FileSizeWorker/FolderScanWorker: Path.stat()
+        # qui sul thread GUI bloccava l'interfaccia (SMB/NAS in standby).
         from PyQt6.QtWidgets import QListWidgetItem
         item = QListWidgetItem(Path(path).name)
         item.setData(Qt.ItemDataRole.UserRole, {
@@ -819,9 +831,36 @@ class MainWindow(QMainWindow):
             'filename': Path(path).name,
             'status':   'queued',
             'progress': 0,
-            'size':     self._format_file_size(path),
+            'size':     size,
         })
         return item
+
+    # --- I/O file asincrono (size, scansione cartelle) -----------------
+
+    def _load_sizes_async(self, paths: list):
+        if not paths:
+            return
+        worker = FileSizeWorker(paths)
+        worker.size_ready.connect(self._on_size_ready)
+        worker.finished.connect(lambda w=worker: self._untrack_io_worker(w))
+        self._io_workers.append(worker)
+        worker.start()
+
+    def _on_size_ready(self, path: str, size: str):
+        item = self._find_item_by_path(path)
+        if not item:
+            return
+        data = item.data(Qt.ItemDataRole.UserRole) or {}
+        data['size'] = size
+        item.setData(Qt.ItemDataRole.UserRole, data)
+        if item is self.file_list.currentItem():
+            self._update_overlay()
+
+    def _untrack_io_worker(self, worker):
+        try:
+            self._io_workers.remove(worker)
+        except ValueError:
+            pass
 
     def _find_item_by_path(self, file_path: str):
         """Restituisce il QListWidgetItem corrispondente al path, o None."""
@@ -918,44 +957,71 @@ class MainWindow(QMainWindow):
         files, _ = QFileDialog.getOpenFileNames(self, tr('select_video_files'), self.config.get('last_input_folder', ''), "Video Files (*.mp4 *.mkv *.avi *.mov *.wmv *.flv *.webm *.m4v)")
         if files:
             self.config.set('last_input_folder', str(Path(files[0]).parent))
+            added = []
             with QMutexLocker(self.queue_mutex):
                 for f in files:
                     if f not in self.processing_queue:
                         self.processing_queue.append(f)
                         self.file_list.addItem(self._make_file_item(f))
+                        added.append(f)
             self.update_remaining_files_label()
             self._update_filter_badges()
             self.file_list.setCurrentRow(self.file_list.count() - 1)
+            self._load_sizes_async(added)
 
     def add_folder(self):
         folder = QFileDialog.getExistingDirectory(self, tr('select_folder'), self.config.get('last_input_folder', ''))
-        if folder:
-            self.config.set('last_input_folder', folder)
-            exts = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v']
-            with QMutexLocker(self.queue_mutex):
-                for f_path in Path(folder).rglob('*'):
-                    if f_path.suffix.lower() in exts and str(f_path) not in self.processing_queue:
-                        self.processing_queue.append(str(f_path))
-                        self.file_list.addItem(self._make_file_item(str(f_path)))
-            self.update_remaining_files_label()
-            self._update_filter_badges()
-            if self.file_list.count() > 0:
-                self.file_list.setCurrentRow(self.file_list.count() - 1)
+        if not folder:
+            return
+        self.config.set('last_input_folder', folder)
+        if self._folder_scan_worker and self._folder_scan_worker.isRunning():
+            self.log_message("⚠️ Scansione cartella già in corso, attendi il completamento.")
+            return
+        # Enumerazione in background: rglob su share SMB bloccava il thread
+        # GUI per l'intera scansione dell'albero.
+        exts = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v']
+        self.log_message(f"🔍 Scansione cartella in corso: {folder}")
+        worker = FolderScanWorker(folder, exts)
+        worker.file_found.connect(self._on_scan_file_found)
+        worker.scan_done.connect(self._on_scan_done)
+        worker.finished.connect(lambda w=worker: self._untrack_io_worker(w))
+        self._folder_scan_worker = worker
+        self._io_workers.append(worker)
+        worker.start()
+
+    def _on_scan_file_found(self, path: str, size: str):
+        with QMutexLocker(self.queue_mutex):
+            if path in self.processing_queue:
+                return
+            self.processing_queue.append(path)
+            self.file_list.addItem(self._make_file_item(path, size))
+        self.update_remaining_files_label()
+
+    def _on_scan_done(self, count: int):
+        self._folder_scan_worker = None
+        self.update_remaining_files_label()
+        self._update_filter_badges()
+        if self.file_list.count() > 0:
+            self.file_list.setCurrentRow(self.file_list.count() - 1)
+        self.log_message(f"✅ Scansione cartella completata: {count} file video trovati.")
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls(): event.acceptProposedAction()
 
     def dropEvent(self, event: QDropEvent):
+        added = []
         with QMutexLocker(self.queue_mutex):
             for url in event.mimeData().urls():
                 f_path = url.toLocalFile()
                 if Path(f_path).is_file() and f_path not in self.processing_queue:
                     self.processing_queue.append(f_path)
                     self.file_list.addItem(self._make_file_item(f_path))
+                    added.append(f_path)
         self.update_remaining_files_label()
         self._update_filter_badges()
         if self.file_list.count() > 0:
             self.file_list.setCurrentRow(self.file_list.count() - 1)
+        self._load_sizes_async(added)
 
     def load_poster(self, video_path: str):
         if video_path == self.last_loaded_file: return
@@ -1013,6 +1079,7 @@ class MainWindow(QMainWindow):
         self._diag_tempo._val.setText("00:00")
         self._diag_modello._val.setText(tr(f"profile_{self.config.get_transcription_profile()}_name"))
         self._diag_traduttore._val.setText(self.config.get_translation_model())
+        self._diag_engine._val.setText(self._engine_mode_label())
         if self._proc_elapsed_timer:
             self._proc_elapsed_timer.stop()
         self._proc_elapsed_timer = QTimer(self)
