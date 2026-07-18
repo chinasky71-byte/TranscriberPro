@@ -188,13 +188,21 @@ class Diarizer:
             return [result]
 
         # Passo 5: costruisce sotto-segmenti per ogni run
+        #
+        # Join robusto multi-engine: whisper incorpora lo spazio ad inizio
+        # parola (" trasferita"), Qwen3/Canary restituiscono parole nude
+        # ("trasferita", spazio implicito nel join di _words_to_segments).
+        # strip() per-parola + join con spazio esplicito normalizza
+        # entrambe le convenzioni — un '' .join() ingenuo (come prima)
+        # produceva testo con parole incollate su segmenti Qwen3/Canary.
         sub_segs = []
         for start_i, end_i, spk in merged_runs:
             run_words = words[start_i:end_i + 1]
+            text = ' '.join(w['word'].strip() for w in run_words if w['word'].strip())
             sub_segs.append({
                 'start':   run_words[0]['start'],
                 'end':     run_words[-1]['end'],
-                'text':    ''.join(w['word'] for w in run_words).strip(),
+                'text':    text,
                 'speaker': spk,
             })
 
