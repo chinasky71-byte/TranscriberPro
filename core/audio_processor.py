@@ -255,15 +255,21 @@ class AudioProcessor:
         """
         STANDARD PATH: Split automatico Demucs per file medi (5-90 min)
         Usa il sistema di split integrato di Demucs
+
+        MEMORIA: input e output restano su CPU (keep_on_cpu=True) — con
+        device diverso da mix.device, apply_model sposta su GPU solo il
+        segmento (~8s) in lavorazione e accumula il risultato su CPU.
+        Il picco VRAM è così indipendente dalla durata del file (misurato:
+        prima 21,8 GB GPU committed su 83 min, con l'intero wav su GPU).
         """
         try:
             from demucs.apply import apply_model
-            
+
             self._log("    ⚙️ Processing con split automatico...")
-            
-            # Prepare audio
-            wav = self._prepare_audio_for_demucs(wav, sr)
-            
+
+            # Prepare audio (residente su CPU: la GPU vede solo i segmenti)
+            wav = self._prepare_audio_for_demucs(wav, sr, keep_on_cpu=True)
+
             # Separazione con split automatico
             with torch.no_grad():
                 sources = apply_model(
@@ -273,14 +279,16 @@ class AudioProcessor:
                     split=True,        # ✅ Split automatico
                     overlap=0.25       # 25% overlap per continuità
                 )[0]
-            
-            vocals = sources[3].cpu()
+
+            # clone(): stacca i vocals dallo storage a 4 sorgenti (~7 GB su
+            # 83 min) così del sources libera davvero la RAM
+            vocals = sources[3].clone()
             self._log("    ✅ Standard path completato")
-            
+
             # Cleanup
             del sources
             self._cleanup_gpu_memory()
-            
+
             return vocals
             
         except RuntimeError as e:
@@ -328,18 +336,22 @@ class AudioProcessor:
                 chunk_wav = wav[:, start:end].clone()
 
                 try:
-                    # Prepare chunk
-                    chunk_wav = self._prepare_audio_for_demucs(chunk_wav, sr)
+                    # Prepare chunk (residente su CPU — vedi standard path)
+                    chunk_wav = self._prepare_audio_for_demucs(chunk_wav, sr, keep_on_cpu=True)
 
-                    # Separazione chunk
+                    # Separazione chunk: split=True come lo standard path —
+                    # la GPU lavora un segmento (~8s) per volta anche qui
                     with torch.no_grad():
                         sources = apply_model(
                             self.demucs_model,
                             chunk_wav.unsqueeze(0),
-                            device=self.device
+                            device=self.device,
+                            split=True,
+                            overlap=0.25
                         )[0]
 
-                    chunk_vocals = sources[3].cpu()
+                    # clone(): stacca dallo storage a 4 sorgenti (libera RAM)
+                    chunk_vocals = sources[3].clone()
 
                     # Rimuovi overlap (tranne primo e ultimo)
                     if i > 0:
@@ -408,23 +420,31 @@ class AudioProcessor:
             self._log(f"    ❌ Robust path fallito: {str(e)}")
             return None
     
-    def _prepare_audio_for_demucs(self, wav: torch.Tensor, sr: int) -> torch.Tensor:
-        """Prepara audio per Demucs (resample + stereo + device)"""
+    def _prepare_audio_for_demucs(self, wav: torch.Tensor, sr: int,
+                                  keep_on_cpu: bool = False) -> torch.Tensor:
+        """
+        Prepara audio per Demucs (resample + stereo + device)
+
+        keep_on_cpu=True: il tensore NON viene spostato su GPU — apply_model
+        (chiamato con device='cuda' su input CPU) trasferisce da solo i
+        segmenti in lavorazione e tiene il resto in RAM. Usato da standard
+        e robust path per avere un picco VRAM indipendente dalla durata.
+        """
         # Resample se necessario
         if sr != self.demucs_model.samplerate:
             resampler = torchaudio.transforms.Resample(sr, self.demucs_model.samplerate)
-            if self.device == 'cuda':
+            if self.device == 'cuda' and not keep_on_cpu:
                 resampler = resampler.to(self.device)
                 wav = wav.to(self.device)
             wav = resampler(wav)
         else:
-            if self.device == 'cuda':
+            if self.device == 'cuda' and not keep_on_cpu:
                 wav = wav.to(self.device)
-        
+
         # Ensure stereo
         if wav.shape[0] == 1:
             wav = wav.repeat(2, 1)
-        
+
         return wav
     
     def _save_vocals(self, vocals: torch.Tensor, audio_path: Path) -> Optional[Path]:

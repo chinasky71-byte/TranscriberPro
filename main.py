@@ -49,7 +49,7 @@ from utils.translations import init_language, tr
 
 
 # ── Versione applicazione — unica fonte di verità ─────────────────────────────
-APP_VERSION = "1.6.1"
+APP_VERSION = "1.9.2"
 
 PROJECT_ROOT      = Path(__file__).resolve().parent
 ASSETS_FONTS_DIR  = PROJECT_ROOT / 'assets' / 'fonts'
@@ -159,6 +159,12 @@ def main():
     # Chiude splash e mostra la finestra principale
     splash.finish(main_window)
     main_window.show()
+
+    # Telemetria TEMPORANEA Fase 0 (revisione freeze): logga stack del main
+    # thread quando la GUI resta bloccata >300ms. Rimuovere a fine revisione.
+    from utils.ui_stall_monitor import UiStallMonitor
+    _stall_monitor = UiStallMonitor(main_window)
+    _stall_monitor.start()
 
     logger.info("Interfaccia grafica inizializzata")
     sys.exit(app.exec())

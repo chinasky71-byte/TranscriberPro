@@ -108,6 +108,80 @@ class PosterLoaderWorker(QThread):
         self.is_cancelled = True
 
 
+def format_file_size(nbytes: float) -> str:
+    """500 → '500 B', 1536 → '2 KB', ... Stringa vuota per valori negativi."""
+    if nbytes < 0:
+        return ''
+    s = float(nbytes)
+    for unit in ('B', 'KB', 'MB', 'GB'):
+        if s < 1024:
+            return f'{s:.0f} {unit}'
+        s /= 1024
+    return f'{s:.1f} TB'
+
+
+class FileSizeWorker(QThread):
+    """Calcola le dimensioni file in background.
+
+    Path.stat() sul thread GUI blocca l'interfaccia per secondi quando i
+    file stanno su share SMB con dischi NAS in standby (spin-up 5-15s):
+    gli item vengono creati subito senza size, che arriva appena pronta.
+    """
+
+    size_ready = pyqtSignal(str, str)   # (path, size leggibile es. "2 GB")
+
+    def __init__(self, paths: List[str], parent=None):
+        super().__init__(parent)
+        self._paths = list(paths)
+
+    def run(self):
+        for p in self._paths:
+            try:
+                size = format_file_size(Path(p).stat().st_size)
+            except Exception:
+                size = ''
+            self.size_ready.emit(p, size)
+
+
+class FolderScanWorker(QThread):
+    """Enumera ricorsivamente i video di una cartella in background.
+
+    rglob() sul thread GUI congela l'interfaccia per l'intera scansione
+    dell'albero SMB. Emette un file alla volta (path + size già calcolata
+    qui, siamo già fuori dal thread GUI) e il totale a fine scansione.
+    """
+
+    file_found = pyqtSignal(str, str)   # (path, size leggibile)
+    scan_done = pyqtSignal(int)         # file trovati in totale
+
+    def __init__(self, folder: str, extensions: List[str], parent=None):
+        super().__init__(parent)
+        self._folder = folder
+        self._exts = [e.lower() for e in extensions]
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def run(self):
+        found = 0
+        try:
+            for f_path in Path(self._folder).rglob('*'):
+                if self._cancelled:
+                    break
+                if f_path.suffix.lower() not in self._exts:
+                    continue
+                try:
+                    size = format_file_size(f_path.stat().st_size)
+                except Exception:
+                    size = ''
+                found += 1
+                self.file_found.emit(str(f_path), size)
+        except Exception as e:
+            logger.warning(f"FolderScanWorker: errore scansione: {e}")
+        self.scan_done.emit(found)
+
+
 class ProcessingWorker(QThread):
     """
     Worker thread per elaborazione video
@@ -140,7 +214,6 @@ class ProcessingWorker(QThread):
         self.queue_mutex = queue_mutex  # âœ… Mutex condiviso con UI
         
         self.is_cancelled = False
-        self.pipeline = None          # usato solo nel percorso in-process (legacy/opt-out)
         self._current_proc = None     # subprocess pipeline_cli in corso (isolamento)
 
         # Contatori per statistiche
@@ -246,26 +319,44 @@ class ProcessingWorker(QThread):
                 f"{tr('worker_stats_total').format(n=self.completed_files + self.failed_files)}\n"
                 f"{'='*70}"
             )
-        
+
+        # Cache modelli HF/torch: pulizia UNA volta sola qui, a coda conclusa
+        # (fine naturale o "Ferma"). Prima stava in pipeline._cleanup() e
+        # girava a ogni file, riscaricando gli stessi modelli decine di volte.
+        # cache_cleaner importa solo shutil/pathlib: nessun costo ML nel
+        # processo GUI.
+        try:
+            from utils.cache_cleaner import cleanup_non_italian_caches
+
+            def _cache_log(m):
+                self.log_message.emit(m)   # log a schermo
+                logger.info(m)             # e nel file di log
+
+            res = cleanup_non_italian_caches(log_callback=_cache_log)
+            if res['removed']:
+                _cache_log(
+                    f"🗑️ Cache modelli liberata a fine coda: "
+                    f"{len(res['removed'])} elementi")
+            if res['failed']:
+                logger.warning(
+                    f"Cache cleanup parziale: {len(res['failed'])} "
+                    f"elementi non rimossi")
+        except Exception as e:
+            logger.warning(f"Errore cache cleanup a fine coda: {e}")
+
         self.finished.emit()
     
     def _process_single_file(self, video_path: str) -> bool:
         """
-        Dispatcher: sceglie tra elaborazione ISOLATA in subprocess (default) e
-        legacy in-process, in base al flag config 'pipeline_subprocess_isolation'.
+        Elabora un file in subprocess ISOLATO (core.pipeline_cli).
 
-        L'isolamento in subprocess evita l'accumulo di RAM su code lunghe: ogni
-        film gira in un processo Python che muore a fine elaborazione, così l'OS
-        recupera tutta la RAM/VRAM degli allocatori nativi ML.
+        L'isolamento evita l'accumulo di RAM su code lunghe (ogni film gira
+        in un processo che muore a fine elaborazione) e tiene torch fuori
+        dal processo GUI. Il vecchio percorso legacy in-process (flag
+        'pipeline_subprocess_isolation') è stato ritirato: caricava lo stack
+        ML nel processo GUI.
         """
-        try:
-            from utils.config import get_config
-            use_subprocess = get_config().get('pipeline_subprocess_isolation', True)
-        except Exception:
-            use_subprocess = True
-        if use_subprocess:
-            return self._process_single_file_subprocess(video_path)
-        return self._process_single_file_inprocess(video_path)
+        return self._process_single_file_subprocess(video_path)
 
     def _process_single_file_subprocess(self, video_path: str) -> bool:
         """Elabora il film in un subprocess isolato (core.pipeline_cli)."""
@@ -467,153 +558,9 @@ class ProcessingWorker(QThread):
                     pass
 
     def cancel(self):
-        """Richiesta di cancellazione dal main thread: kill del subprocess in
-        corso (isolamento) e/o cancel della pipeline in-process (legacy)."""
+        """Richiesta di cancellazione dal main thread: kill dell'albero del
+        subprocess pipeline in corso."""
         self.is_cancelled = True
         proc = self._current_proc
         if proc is not None:
             self._kill_proc_tree(proc)
-        if self.pipeline is not None:
-            try:
-                self.pipeline.cancel()
-            except Exception:
-                pass
-
-    def _process_single_file_inprocess(self, video_path: str) -> bool:
-        """
-        Elabora singolo file video IN-PROCESS (percorso legacy / opt-out).
-
-        Args:
-            video_path: Path del file da elaborare
-
-        Returns:
-            True se successo, False altrimenti
-        """
-        filename = Path(video_path).name
-        
-        try:
-            # Check cancellazione prima di iniziare
-            if self.is_cancelled:
-                return False
-            
-            # Lazy import: torch e tutti i moduli ML vengono caricati solo alla prima elaborazione
-            from core.pipeline import ProcessingPipeline
-            # Crea pipeline
-            self.pipeline = ProcessingPipeline(video_path)
-
-            # Mappa STEP-numero → percentuale per progress inline nella file_list
-            _STEP_PCT = {
-                '0': 2, '1': 5, '2': 15, '2.5': 25, '3': 40,
-                '4': 60, '4.2': 68, '4.5': 74, '5': 80, '5.5': 83,
-                '6': 88, '6.5': 93, '7': 97, '8': 99, '9': 100,
-            }
-            _step_re = re.compile(r'\n?(\d+(?:\.\d+)?)\.\s')
-
-            # Log callback con intercettazione step per file_progress
-            def log_callback(msg):
-                if not self.is_cancelled:
-                    self.log_message.emit(msg)
-                    if '[DIAG-RAM]' not in msg:
-                        m = _step_re.search(msg)
-                        if m:
-                            pct = _STEP_PCT.get(m.group(1))
-                            if pct is not None:
-                                self.file_progress.emit(video_path, pct)
-
-            self.pipeline.set_log_callback(log_callback)
-
-            # Inietta contesto batch per OOM prevention (fatigue tracking)
-            files_done = self.completed_files + self.failed_files
-            self.pipeline.set_batch_context(files_processed=files_done)
-            
-            # Elabora (SINGOLO TENTATIVO - NO RETRY)
-            self.log_message.emit(tr('worker_start_single'))
-            from utils.config import get_config
-            target_language = get_config().get_target_language()
-            _t0 = time.time()
-            success = self.pipeline.process(target_language=target_language)
-            _duration = time.time() - _t0
-
-            # Gestisci risultato
-            if success and not self.is_cancelled:
-                self.log_message.emit(tr('worker_completed').format(filename=filename))
-                try:
-                    srt_path = str(self.pipeline.last_output_path) \
-                        if self.pipeline.last_output_path else ''
-                    self.file_history_entry.emit({
-                        'name': Path(video_path).name,
-                        'date_iso': datetime.now().isoformat(timespec='seconds'),
-                        'src_lang': 'auto',
-                        'dst_lang': target_language,
-                        'duration_seconds': round(_duration),
-                        'size_bytes': Path(video_path).stat().st_size,
-                        'srt_path': srt_path,
-                        'video_path': video_path,
-                    })
-                except Exception:
-                    pass
-                return True
-            
-            elif self.is_cancelled:
-                self.log_message.emit(tr('worker_cancelled_file').format(filename=filename))
-                return False
-            
-            else:
-                self.log_message.emit(tr('worker_failed').format(filename=filename))
-                self.log_message.emit(tr('worker_hint'))
-                return False
-            
-        except Exception as e:
-            # Errore critico
-            error_msg = tr('worker_critical_error').format(filename=filename, error=str(e))
-            self.log_message.emit(error_msg)
-            logger.error(f"Critical error processing {video_path}: {e}", exc_info=True)
-            
-            # Emetti segnale errore
-            self.error.emit(error_msg)
-            
-            return False
-        
-        finally:
-            # CLEANUP OBBLIGATORIO dopo ogni file
-            self._cleanup_pipeline()
-    
-    def _cleanup_pipeline(self):
-        """
-        Cleanup pipeline e risorse
-        CHIAMATO SEMPRE dopo ogni file
-        """
-        try:
-            if self.pipeline:
-                logger.info("🧹 Cleanup pipeline...")
-                self.pipeline.cleanup()
-                self.pipeline = None
-
-                # Garbage collection + VRAM cleanup aggressivo tra i file
-                import gc
-                gc.collect()
-
-                try:
-                    import torch
-                    if torch.cuda.is_available():
-                        torch.cuda.synchronize()
-                        torch.cuda.empty_cache()
-                        gc.collect()
-                        torch.cuda.empty_cache()
-                        logger.info("🧹 VRAM cache cleared between files")
-                except Exception:
-                    pass
-
-                # Cintura di sicurezza: pipeline.cleanup() ha già chiamato
-                # release_ram_to_os(), ma il worker ha eseguito un ulteriore
-                # gc.collect() dopo. Ri-eseguiamo il trim per restituire all'OS
-                # la RAM liberata da quest'ultimo passaggio (EmptyWorkingSet).
-                try:
-                    from utils.resource_monitor import release_ram_to_os
-                    release_ram_to_os()
-                except Exception:
-                    pass
-
-                logger.info("✅ Pipeline cleanup completato")
-        except Exception as e:
-            logger.error(f"❌ Errore durante cleanup: {e}")

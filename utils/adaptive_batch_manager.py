@@ -128,19 +128,23 @@ class AdaptiveBatchSizeManager:
             self._log(f"  Warm-up: [{bar}] {pct}%  (batch={self.current_batch_size}, mem={mem:.0%})")
             self._warmup_count += 1
         else:
-            # Steady-state: adatta in base alla memoria
+            # Steady-state: adatta in base alla memoria.
+            # Gli aggiustamenti ±1 vanno SOLO sul file di log: a schermo si
+            # intercalerebbero tra gli aggiornamenti della barra di progresso
+            # impedendone la sovrascrittura in-place (decine di righe/file).
+            # Restano a schermo gli eventi importanti: OOM e riepilogo finale.
             mem = self._get_memory_usage()
             if mem > self.high_threshold:
                 new_size = max(self.min_size, self.current_batch_size - 2)
                 if new_size != self.current_batch_size:
-                    self._log(
+                    logger.info(
                         f"  Memoria alta ({mem:.0%}): batch {self.current_batch_size} → {new_size}"
                     )
                     self.current_batch_size = new_size
                     self._adjustments += 1
             elif mem < self.low_threshold and self.current_batch_size < self.max_size:
                 new_size = min(self.current_batch_size + 1, self.max_size)
-                self._log(
+                logger.info(
                     f"  Memoria bassa ({mem:.0%}): batch {self.current_batch_size} → {new_size}"
                 )
                 self.current_batch_size = new_size
@@ -370,13 +374,16 @@ class AdaptiveBatchSizeManager:
             except Exception:
                 pass
 
-        # 2. torch CUDA
+        # 2. torch CUDA — mem_get_info è a livello DEVICE (vede anche le
+        # allocazioni ctranslate2 e degli altri processi); memory_allocated
+        # vedrebbe SOLO i tensori torch del processo → sottostima enorme
+        # durante la trascrizione whisper e batch gonfiato fino allo
+        # spillover WDDM in RAM condivisa
         if _TORCH_AVAILABLE and self.use_gpu:
             try:
-                allocated = torch.cuda.memory_allocated(0)
-                total = torch.cuda.get_device_properties(0).total_memory
-                if total > 0:
-                    return allocated / total
+                free_b, total_b = torch.cuda.mem_get_info(0)
+                if total_b > 0:
+                    return (total_b - free_b) / total_b
             except Exception:
                 pass
 

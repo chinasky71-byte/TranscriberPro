@@ -78,6 +78,39 @@ class _NotifyWorker(QThread):
             self.done.emit(False)
 
 
+class _ApiCallWorker(QThread):
+    """Chiamata API Library Scanner in background.
+
+    Le requests sincrone sul thread GUI (timeout 10-15s) congelavano
+    l'interfaccia se il server era lento o spento. done(0, msg) = errore
+    di connessione; altrimenti (status_code, body).
+    """
+    done = pyqtSignal(int, str)
+
+    def __init__(self, method: str, url: str, api_key: str,
+                 json_body=None, params=None, timeout: int = 10):
+        super().__init__()
+        self._method = method
+        self._url = url
+        self._api_key = api_key
+        self._json = json_body
+        self._params = params
+        self._timeout = timeout
+
+    def run(self):
+        try:
+            import requests
+            r = requests.request(
+                self._method, self._url,
+                json=self._json, params=self._params,
+                headers={"X-API-Key": self._api_key},
+                timeout=self._timeout,
+            )
+            self.done.emit(r.status_code, r.text)
+        except Exception as e:
+            self.done.emit(0, str(e))
+
+
 class _NumericTableWidgetItem(QTableWidgetItem):
     """QTableWidgetItem con ordinamento numerico (intero) invece di lessicografico."""
     def __lt__(self, other):
@@ -100,6 +133,7 @@ class LibraryScannerWidget(QFrame):
         self.is_loaded = False
         self.worker = None
         self.videos_data = []
+        self._api_workers = []          # _ApiCallWorker attivi (no GC finché girano)
         self._ocr_deferred_queue = []   # job OCR in attesa che la pipeline principale si liberi
         if hasattr(main_window, 'processing_done'):
             main_window.processing_done.connect(self._drain_deferred_ocr)
@@ -786,42 +820,51 @@ class LibraryScannerWidget(QFrame):
 
     def _start_ass_conversion(self, video_ids: list):
         """Avvia la conversione ASS/SSA→SRT sul server Library Scanner.
-        video_ids vuota = converti tutti i pending (stessa semantica del server)."""
+        video_ids vuota = converti tutti i pending (stessa semantica del server).
+        La POST gira in un _ApiCallWorker: il thread GUI non aspetta il server."""
         url     = self.config.get('library_scanner_url', '').strip().rstrip('/')
         api_key = self.config.get('library_scanner_api_key', '').strip()
         if not url or not api_key:
             QMessageBox.warning(self, "Conversione ASS/SSA",
                                 "Library Scanner non configurato (URL o API key mancante).")
             return
-        try:
-            import requests
-            # Corpo vuoto = server converte tutti i pending; IDs specifici = solo quei file
-            body = {"video_ids": video_ids} if video_ids else {}
-            resp = requests.post(
-                f"{url}/api/subtitles/convert/start",
-                json=body,
-                headers={"X-API-Key": api_key},
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                if video_ids:
-                    desc = f"{len(video_ids)} file"
-                    self._log(f"⚙️ Conversione ASS→SRT avviata sul server: {desc}")
-                else:
-                    desc = "tutti i file pending"
-                    self._log("⚙️ Conversione ASS→SRT avviata sul server (tutti i pending)")
-                QMessageBox.information(
-                    self, "Conversione ASS/SSA",
-                    f"Conversione avviata sul server per {desc}.\n"
-                    "Controlla lo stato nell'interfaccia web Library Scanner.")
+        # Corpo vuoto = server converte tutti i pending; IDs specifici = solo quei file
+        body = {"video_ids": video_ids} if video_ids else {}
+        worker = _ApiCallWorker('post', f"{url}/api/subtitles/convert/start",
+                                api_key, json_body=body, timeout=10)
+        worker.done.connect(
+            lambda status, text, vids=list(video_ids):
+                self._on_ass_conversion_reply(status, text, vids))
+        worker.finished.connect(lambda w=worker: self._untrack_api_worker(w))
+        self._api_workers.append(worker)
+        worker.start()
+
+    def _on_ass_conversion_reply(self, status: int, text: str, video_ids: list):
+        if status == 200:
+            if video_ids:
+                desc = f"{len(video_ids)} file"
+                self._log(f"⚙️ Conversione ASS→SRT avviata sul server: {desc}")
             else:
-                self._log(f"⚠ Conversione ASS: errore server {resp.status_code}")
-                QMessageBox.warning(self, "Conversione ASS/SSA",
-                                    f"Errore dal server: {resp.status_code}\n{resp.text[:200]}")
-        except Exception as e:
-            self._log(f"⚠ Conversione ASS: errore connessione: {e}")
+                desc = "tutti i file pending"
+                self._log("⚙️ Conversione ASS→SRT avviata sul server (tutti i pending)")
+            QMessageBox.information(
+                self, "Conversione ASS/SSA",
+                f"Conversione avviata sul server per {desc}.\n"
+                "Controlla lo stato nell'interfaccia web Library Scanner.")
+        elif status == 0:
+            self._log(f"⚠ Conversione ASS: errore connessione: {text}")
             QMessageBox.warning(self, "Conversione ASS/SSA",
-                                f"Errore di connessione al server:\n{e}")
+                                f"Errore di connessione al server:\n{text}")
+        else:
+            self._log(f"⚠ Conversione ASS: errore server {status}")
+            QMessageBox.warning(self, "Conversione ASS/SSA",
+                                f"Errore dal server: {status}\n{text[:200]}")
+
+    def _untrack_api_worker(self, worker):
+        try:
+            self._api_workers.remove(worker)
+        except ValueError:
+            pass
 
     # ========================================================================
     # OCR PGS → SRT
@@ -1042,17 +1085,32 @@ class LibraryScannerWidget(QFrame):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if reply != QMessageBox.StandardButton.Yes:
             return
-        import requests
-        headers = {"X-API-Key": api_key}
-        try:
-            resp = requests.get(f"{url}/api/subtitles/list",
+        # GET in background (_ApiCallWorker): con il server lento/spento la
+        # richiesta sincrona bloccava il thread GUI fino a 15s.
+        self._log("⚡ Superpower: recupero lista bitmap dalla Library Scanner...")
+        worker = _ApiCallWorker('get', f"{url}/api/subtitles/list", api_key,
                                 params={"issue_type": "bitmap", "limit": 500},
-                                headers=headers, timeout=15)
-            resp.raise_for_status()
-            data = resp.json()
+                                timeout=15)
+        worker.done.connect(self._on_superpower_list_reply)
+        worker.finished.connect(lambda w=worker: self._untrack_api_worker(w))
+        self._api_workers.append(worker)
+        worker.start()
+
+    def _on_superpower_list_reply(self, status: int, text: str):
+        if getattr(self, '_ocr_worker', None) is not None:
+            QMessageBox.information(self, "⚡ Superpower", "Un OCR è già in corso.")
+            return
+        if status != 200:
+            err = text if status == 0 else f"HTTP {status}: {text[:200]}"
+            QMessageBox.warning(self, "⚡ Superpower",
+                                f"Errore recupero lista dalla Library Scanner:\n{err}")
+            return
+        try:
+            import json as _json
+            data = _json.loads(text)
         except Exception as e:
             QMessageBox.warning(self, "⚡ Superpower",
-                                f"Errore recupero lista dalla Library Scanner:\n{e}")
+                                f"Risposta del server non valida:\n{e}")
             return
         items = []
         for v in data.get("videos", []):

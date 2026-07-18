@@ -66,7 +66,16 @@ class Config:
         
         # Transcription method
         'transcription_method': 'faster-whisper',
-        
+
+        # Sistema multi-engine trascrizione (routing automatico per lingua)
+        'transcription_engine_mode': 'auto',   # 'auto' | 'canary' | 'qwen3' | 'faster-whisper'
+        'canary_enabled': True,                # Canary-Qwen-2.5B (solo inglese, venv dedicato)
+        'qwen3_enabled': True,                 # Qwen3-ASR-1.7B + ForcedAligner-0.6B
+        'qwen3_asr_model_id': 'Qwen/Qwen3-ASR-1.7B',
+        'qwen3_aligner_model_id': 'Qwen/Qwen3-ForcedAligner-0.6B',
+        'canary_model_id': 'nvidia/canary-qwen-2.5b',
+        'canary_python_path': '',              # vuoto = auto (<progetto>/venv_canary/Scripts/python.exe)
+
         # FFmpeg whisper settings (solo se transcription_method == 'ffmpeg')
         'ffmpeg_model_path': '',
         'ffmpeg_queue_size': 30,
@@ -116,6 +125,11 @@ class Config:
         'enable_diarization': False,
         'diarization_num_speakers': 0,   # 0 = auto-detect
 
+        # Stile dialoghi professionale (trattini Netflix su cambio parlante):
+        # attiva automaticamente la diarization per ogni trascrizione e la
+        # formattazione SubtitleFormatter (richiede token HuggingFace)
+        'dialogue_style_enabled': True,
+
         # Forced Alignment (whisperx + wav2vec2)
         'enable_forced_alignment': False,
 
@@ -136,6 +150,9 @@ class Config:
     
     # Profili validi
     VALID_PROFILES = ['fast', 'balanced', 'quality', 'maximum', 'batch']
+
+    # Engine di trascrizione validi (sistema multi-engine)
+    VALID_TRANSCRIPTION_ENGINE_MODES = ['auto', 'canary', 'qwen3', 'faster-whisper']
     
     def __init__(self):
         self.settings: Dict[str, Any] = {}
@@ -201,7 +218,12 @@ class Config:
             if value not in self.VALID_PROFILES:
                 print(f"⚠️ Profilo '{value}' non valido. Uso 'balanced'.")
                 value = 'balanced'
-        
+
+        if key == 'transcription_engine_mode':
+            if value not in self.VALID_TRANSCRIPTION_ENGINE_MODES:
+                print(f"⚠️ Engine '{value}' non valido. Uso 'auto'.")
+                value = 'auto'
+
         self.settings[key] = value
         if save:
             self.save()
@@ -306,6 +328,33 @@ class Config:
     def get_available_profiles(self) -> list:
         """Ottieni lista profili disponibili"""
         return self.VALID_PROFILES.copy()
+
+    # ========================================================================
+    # METODI HELPER per Engine di Trascrizione (NUOVO - sistema multi-engine)
+    # ========================================================================
+
+    def get_transcription_engine_mode(self) -> str:
+        """Ottieni la modalità engine di trascrizione corrente
+        ('auto' = routing automatico per lingua)."""
+        mode = self.get('transcription_engine_mode', 'auto')
+
+        if mode not in self.VALID_TRANSCRIPTION_ENGINE_MODES:
+            print(f"⚠️ Engine '{mode}' non valido. Uso 'auto'.")
+            mode = 'auto'
+            self.set('transcription_engine_mode', mode)
+
+        return mode
+
+    def set_transcription_engine_mode(self, mode: str):
+        """Imposta la modalità engine di trascrizione con validazione"""
+        if mode not in self.VALID_TRANSCRIPTION_ENGINE_MODES:
+            raise ValueError(
+                f"Engine '{mode}' non valido. "
+                f"Engine disponibili: {', '.join(self.VALID_TRANSCRIPTION_ENGINE_MODES)}"
+            )
+
+        self.set('transcription_engine_mode', mode)
+        print(f"✅ Engine trascrizione impostato: {mode}")
     
     def get_profile_info(self, profile: str = None) -> Dict[str, Any]:
         """

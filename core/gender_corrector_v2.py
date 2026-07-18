@@ -238,6 +238,7 @@ class GenderCorrectorV2:
                 continue
             t0, t1 = _ts_to_sec(start), _ts_to_sec(end)
             new_flat, esito = flat[i], 'unchanged'
+            applied_gender = None    # genere usato per il log (P1 o P2)
             # 1ª persona: genere del PARLANTE
             toks = [tuple(t) for t in tokens_per_line[i]]
             if toks:
@@ -248,6 +249,7 @@ class GenderCorrectorV2:
                     new_flat, esito = apply_rewrite(
                         engine, new_flat, None, gender, toks)
                     stats[esito] += 1
+                    applied_gender = gender
             # 2ª persona: genere dell'INTERLOCUTORE. Priorità:
             # 1. VOCATIVO col cast TMDB ("Sei cresciuta, Veronica") — alta
             #    precisione; 2. turni di dialogo adiacenti (strict).
@@ -264,6 +266,7 @@ class GenderCorrectorV2:
                     stats[esito2] += 1
                     if esito2 == 'rewritten':
                         esito = 'rewritten'
+                        applied_gender = a_gender
             if esito == 'rewritten':
                 # riporta il testo su singola riga corretta preservando
                 # gli a-capo originali quando possibile
@@ -276,7 +279,8 @@ class GenderCorrectorV2:
                 else:
                     new_text = new_flat
                 new_cues[i] = (idx, start, end, new_text)
-                logger.debug(f"Riga {idx}: '{text}' -> '{new_text}' ({gender})")
+                logger.debug(
+                    f"Riga {idx}: '{text}' -> '{new_text}' ({applied_gender})")
 
         output_path.write_text(_generate_srt(new_cues), encoding='utf-8')
 

@@ -2,17 +2,21 @@
 Cache cleaner - cancella modelli HF/torch dalla cache locale dopo uso,
 preservando i modelli marcati come italiani / sempre-necessari.
 
-Chiamato dalla pipeline a fine processing per ogni file (vedi
-ProcessingPipeline._cleanup()).
+Chiamato da ProcessingWorker.run() UNA volta sola a coda conclusa (fine
+naturale o "Ferma") — NON per-file: i modelli (pyannote, ECAPA, Demucs...)
+vengono riusati dagli elementi successivi della coda.
 """
-import logging
 import shutil
 import time
 from pathlib import Path
 
 from utils.cache_bootstrap import HF_HUB_CACHE_DIR, TORCH_HUB_CACHE_DIR
+# setup_logger, NON logging.getLogger: il file handler condiviso viene
+# agganciato solo ai logger creati esplicitamente (altrimenti i warning
+# di cleanup fallito si perderebbero nel vuoto).
+from utils.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger('utils.cache_cleaner')
 
 # Slug HF (org/name) da PRESERVARE. Match substring case-insensitive sullo slug
 # ricostruito dal nome dir HF (`models--ORG--NAME`).

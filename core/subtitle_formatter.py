@@ -5,9 +5,10 @@ File: core/subtitle_formatter.py
 Formatta segmenti diarizzati + allineati in SRT di qualità broadcast/cinema.
 
 Regole implementate:
-1. Trattino intelligente:
-     - Dialogo (2+ speaker in ±DIALOGUE_WIN secondi) → trattino su ogni turno
-     - Monologo (speaker singolo senza alternanza) → nessun trattino
+1. Trattino stile Netflix (STRETTO):
+     - Trattino SOLO quando due parlanti condividono lo stesso blocco SRT
+       (una battuta per riga, entrambe con "- ")
+     - Blocchi con un solo parlante → MAI trattino, anche in contesto dialogo
 2. Raggruppamento dialogo:
      - 2 speaker consecutivi con gap ≤ GAP_GROUP s e testo ≤ CPL_MAX
        → singolo blocco SRT con 2 righe e trattino su entrambe
@@ -228,12 +229,13 @@ class SubtitleFormatter:
 
             else:
                 # ── Blocco singolo (con eventuale wrap CPL) ───────────────────
+                # Stile Netflix STRETTO: trattino solo nei blocchi dialogo a
+                # 2 righe (ramo sopra) — i blocchi singoli non lo ricevono
+                # mai, nemmeno in contesto dialogo.
                 wrapped = self._wrap_cpl(seg['text'])
-                in_dia  = seg.get('_dialogue', False)
                 lines   = [
-                    # Solo la prima riga del turno riceve il trattino
-                    {'text': t, 'dash': in_dia and li == 0}
-                    for li, t in enumerate(wrapped)
+                    {'text': t, 'dash': False}
+                    for t in wrapped
                 ]
                 blocks.append({
                     'start': seg['start'],

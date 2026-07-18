@@ -279,6 +279,15 @@ class ProcessingPipeline:
             self._log(f"   Lingua Target: {target_language.upper()}")
             self._log(f"{'='*80}")
 
+            # Il file può sparire tra l'aggiunta in coda e l'elaborazione
+            # (rinominato/sostituito/share offline). Senza questo check
+            # l'errore emergeva più avanti in forma fuorviante
+            # ("Nessuna traccia audio trovata" da ffprobe su file inesistente).
+            if not Path(self.video_path).exists():
+                self._log(f"❌ File non trovato (rinominato, spostato o share "
+                          f"di rete non raggiungibile):\n   {self.video_path}")
+                return False
+
             # Recupero metadati e temp dir
             self._log("🔍 Ricerca metadati TMDB/IMDb...")
             self.metadata = self.tmdb_client.get_media_info(str(self.video_path))
@@ -411,15 +420,39 @@ class ProcessingPipeline:
                         # viene poi eseguito con ctranslate2 già inizializzato,
                         # senza conflitti. VRAM: ~1.5GB Whisper + ~5GB Demucs
                         # peak = ~6.5GB su 12GB → sicuro.
+                        #
+                        # Multi-engine: whisper viene pre-caricato SEMPRE
+                        # (fallback caldo + ordine CUDA garantito); se il
+                        # routing sceglie Canary/Qwen3, la facade lo scarica
+                        # prima di caricare l'engine nuovo.
                         # ================================================
                         self._log("\n2.5. Pre-caricamento Whisper (prima di Demucs)...")
                         if self._transcriber is None:
                             self._transcriber = Transcriber(log_callback=self._log_callback)
 
+                        # ── Pianificazione engine (sistema multi-engine) ──
+                        # Decide QUI (prima di Demucs) l'engine per la lingua
+                        # della traccia: determina anche la strategia di
+                        # chunking — la modalità batched (file unico) è
+                        # gestibile solo da faster-whisper (Qwen3 max 1200s,
+                        # Canary max ~40s per input).
+                        from core.engine_router import EngineRouter
+                        _planned_lang = self.LANG_MAP_639_2_TO_639_1.get(source_language_639_2)
+                        if _planned_lang == 'und':
+                            _planned_lang = None
+                        _planned_engine, _plan_reason = EngineRouter.plan(_planned_lang, self.config)
+                        _ENGINE_LABELS = {
+                            'canary': 'Canary-Qwen-2.5B',
+                            'qwen3': 'Qwen3-ASR',
+                            'faster-whisper': 'Faster-Whisper',
+                        }
+                        _engine_label = _ENGINE_LABELS.get(_planned_engine, _planned_engine)
+                        self._log(f"🧭 Engine pianificato: {_engine_label} ({_plan_reason})")
+
                         # STEP 3: Processing audio (separazione vocale + chunking)
                         try:
                             from faster_whisper import BatchedInferencePipeline
-                            _use_batched = True
+                            _use_batched = (_planned_engine == 'faster-whisper')
                         except ImportError:
                             _use_batched = False
 
@@ -446,8 +479,28 @@ class ProcessingPipeline:
                                 self._log("⏹ Elaborazione annullata")
                                 return False
 
-                            # STEP 4: Trascrizione
-                            self._log("\n4. Trascrizione audio (Faster-Whisper)...")
+                            # ================================================
+                            # Unload anticipato (solo engine ≠ whisper):
+                            # Demucs e whisper pre-caricato non servono più —
+                            # scaricarli QUI fa partire il load di Qwen3/
+                            # Canary con VRAM massima (niente spillover WDDM).
+                            # Con len==1 la facade forza whisper → non si
+                            # scarica (evita unload/reload inutile).
+                            # Whisper resta ricaricabile per il fallback.
+                            # ================================================
+                            if _planned_engine != 'faster-whisper' and len(chunk_list) > 1:
+                                self._log("🧹 Unload anticipato Demucs + Whisper (engine pianificato: "
+                                          f"{_engine_label})...")
+                                if self._audio_processor:
+                                    self._audio_processor.cleanup_model()
+                                if self._transcriber:
+                                    self._transcriber.unload_engines()
+                                release_ram_to_os()
+
+                            # STEP 4: Trascrizione (engine dal router; su
+                            # errore degli engine nuovi → fallback automatico
+                            # su Faster-Whisper dentro la facade)
+                            self._log(f"\n4. Trascrizione audio ({_engine_label})...")
                             if self._transcriber is None:
                                 # Fallback: non dovrebbe mai entrare qui dopo il pre-load 2.5
                                 self._transcriber = Transcriber(log_callback=self._log_callback)
@@ -518,13 +571,31 @@ class ProcessingPipeline:
                                     aligner.unload()
 
                             # ================================================
-                            # STEP 4.5: Speaker Diarization (opzionale)
+                            # STEP 4.5: Speaker Diarization
+                            #
+                            # Si attiva con 'enable_diarization' (storica) O
+                            # con 'dialogue_style_enabled' (stile dialoghi
+                            # professionale, default ON). Funziona con TUTTI
+                            # gli engine: in modalità batched il vocals è il
+                            # chunk unico; in modalità chunk classici si usa
+                            # il file vocals COMPLETO che Demucs lascia su
+                            # disco (extracted_audio_vocals.wav), con
+                            # fallback sull'audio estratto.
                             # ================================================
-                            enable_diarization = self.config.get('enable_diarization', False)
-                            if enable_diarization and len(chunk_list) == 1:
+                            enable_diarization = (
+                                self.config.get('enable_diarization', False)
+                                or self.config.get('dialogue_style_enabled', True)
+                            )
+                            if enable_diarization:
                                 if self.config.is_huggingface_token_set():
                                     segments_for_diarization = list(self._transcriber._last_segments)
-                                    vocals_path = str(chunk_list[0][0])
+                                    if len(chunk_list) == 1:
+                                        vocals_path = str(chunk_list[0][0])
+                                    else:
+                                        _vocals_candidate = audio_path.parent / f"{audio_path.stem}_vocals.wav"
+                                        vocals_path = str(
+                                            _vocals_candidate if _vocals_candidate.exists()
+                                            else audio_path)
 
                                     # Cleanup modelli (libera VRAM per pyannote)
                                     if self._transcriber:
@@ -645,6 +716,12 @@ class ProcessingPipeline:
             source_language_639_1 = self.LANG_MAP_639_2_TO_639_1.get(source_language_639_2, 'und')
             target_language_639_1 = self.LANG_MAP_639_2_TO_639_1.get(target_language, 'und')
 
+            # Traccia se una traduzione è stata EFFETTIVAMENTE eseguita:
+            # il gender corrector (STEP 6.5) corregge gli errori di genere
+            # introdotti dalla traduzione — su italiano NATIVO (trascrizione
+            # diretta o sottotitoli embedded ita) non deve girare.
+            translation_performed = False
+
             if source_language_639_1 != target_language_639_1:
 
                 self._log(f"\n6. Traduzione ({source_language_639_1} â†’ {target_language_639_1})...")
@@ -671,6 +748,7 @@ class ProcessingPipeline:
                 ):
                     subtitle_path = translated_srt_path
                     final_language_639_1 = target_language_639_1
+                    translation_performed = True
                     self._log("âœ… Traduzione completata con successo.")
                 else:
                     self._log("âŒ Traduzione fallita. Uso i sottotitoli originali.")
@@ -694,6 +772,14 @@ class ProcessingPipeline:
             # parte da CUDA context vergine -> ~11.5 GB liberi per Qwen 14B.
             # ============================================================
             if (final_language_639_1 == 'it'
+                    and not translation_performed
+                    and self.config.get('gender_correction_enabled', False)):
+                # Italiano NATIVO (nessuna traduzione): il corrector sarebbe
+                # inutile (niente errori di genere da traduzione) e costoso.
+                self._log("\n6.5. Correzione genere saltata: italiano nativo, nessuna traduzione.")
+
+            if (final_language_639_1 == 'it'
+                    and translation_performed
                     and self.config.get('gender_correction_enabled', False)):
                 self._log("\n6.5. Correzione genere grammaticale (v2, subprocess)...")
                 try:
@@ -789,11 +875,15 @@ class ProcessingPipeline:
 
                         self._log("   Avvio subprocess Gender Corrector...")
                         try:
+                            # stderr SEPARATO: il rumore di libreria (warning
+                            # transformers/speechbrain/torchaudio) va solo nel
+                            # file di log, mai a schermo (stesso pattern di
+                            # workers._process_single_file_subprocess).
                             proc = subprocess.Popen(
                                 [sys.executable, "-m", "core.gender_corrector_cli",
                                  str(args_path)],
                                 stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT,
+                                stderr=subprocess.PIPE,
                                 cwd=str(project_root),
                                 env=env,
                                 text=True,
@@ -807,6 +897,25 @@ class ProcessingPipeline:
 
                         if proc is not None:
                             self._current_proc = proc
+
+                            # Drena lo stderr del child in un thread: solo nel
+                            # file di log del parent, mai a schermo.
+                            import threading as _threading
+
+                            def _drain_gender_stderr(stream):
+                                try:
+                                    for eline in stream:
+                                        eline = eline.rstrip()
+                                        if eline:
+                                            logger.info(
+                                                f"[gender-stderr] {eline}")
+                                except Exception:
+                                    pass
+
+                            _threading.Thread(
+                                target=_drain_gender_stderr,
+                                args=(proc.stderr,), daemon=True).start()
+
                             try:
                                 # Stream stdout linea per linea -> log GUI.
                                 # Cancel: a ogni linea controlliamo _cancelled.
@@ -823,7 +932,7 @@ class ProcessingPipeline:
                                         break
                                     line = line.rstrip()
                                     if line:
-                                        self._log(f"   [LLM] {line}")
+                                        self._log(f"   [Gender] {line}")
                                 return_code = proc.wait()
                             finally:
                                 self._current_proc = None
@@ -1219,11 +1328,11 @@ class ProcessingPipeline:
             _ram_before = _proc.memory_info().rss / 1024**3
             self._log(f"🧹 Cleanup risorse... (RAM processo: {_ram_before:.2f} GB)")
 
-            # 1. Unload Whisper
+            # 1. Unload engine di trascrizione (whisper + eventuali Canary/Qwen3)
             if self._transcriber:
                 self._transcriber.cleanup()
                 self._transcriber = None
-                self._log("  ✅ Whisper scaricato")
+                self._log("  ✅ Engine trascrizione scaricato")
 
             # 2. Unload Demucs
             if self._audio_processor:
@@ -1255,16 +1364,10 @@ class ProcessingPipeline:
                 self.file_handler.cleanup(self.video_path)
                 self._log("  ✅ File temporanei rimossi")
 
-            # 7. Cleanup cache modelli HF/torch (preserva modelli IT)
-            try:
-                from utils.cache_cleaner import cleanup_non_italian_caches
-                res = cleanup_non_italian_caches(log_callback=self._log)
-                if res['removed']:
-                    self._log(f"  🗑️  Cache modelli liberata: {len(res['removed'])} elementi")
-                if res['failed']:
-                    logger.warning(f"Cache cleanup parziale: {len(res['failed'])} elementi non rimossi")
-            except Exception as e:
-                logger.warning(f"Errore cache cleanup: {e}")
+            # 7. Cache modelli HF/torch: NON si tocca qui. La pulizia gira
+            # UNA volta sola a fine coda (o su "Ferma") in ProcessingWorker:
+            # farla per-file riscaricava gli stessi modelli (pyannote, ECAPA,
+            # Demucs...) a ogni elemento della coda.
 
             self._log("✅ Cleanup completato")
 
