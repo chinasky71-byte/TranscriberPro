@@ -3,6 +3,26 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.9.5] — 2026-07
+
+### Fix batch adattivo di traduzione, seconda puntata
+- Il tetto statico per classe introdotto in v1.9.3 (NLLB `max_size=24`)
+  riduceva ma non eliminava lo sconfinamento sostenuto in RAM condivisa in
+  alcuni run reali, e non era legato alla lingua sorgente come ipotizzato
+  inizialmente: erano due lacune nella logica reattiva del batch manager.
+  (1) Durante il warm-up il manager poteva solo *aumentare* il batch — non
+  controllava mai la pressione di memoria per ridurlo, quindi sui file corti
+  (la maggior parte delle traduzioni gira in meno di 10 batch) l'intero file
+  poteva concludersi con un batch sovradimensionato e la memoria GPU satura.
+  (2) `torch.cuda.empty_cache()` girava solo ogni 10 batch, soglia che quegli
+  stessi file corti non raggiungevano mai, quindi la cache dell'allocator di
+  PyTorch non veniva mai restituita al driver. Entrambi i punti ora reagiscono
+  alla lettura di memoria reale ad ogni batch, warm-up incluso. Verificato
+  sullo stesso file che aveva causato la segnalazione originale: lo step di
+  traduzione è passato da 800 s (13 m 13 s) con 2,44 GB di sconfinamento
+  sostenuto in RAM condivisa a 196 s (3 m 16 s) con solo un picco transitorio
+  di ~19 s.
+
 ## [1.9.4] — 2026-07
 
 ### Fix spaziatura diarization multi-engine

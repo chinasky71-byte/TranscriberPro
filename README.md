@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.9.4-orange)
+![Version](https://img.shields.io/badge/Version-1.9.5-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -271,6 +271,9 @@ This project is licensed under the MIT License.
 ---
 
 ## Changelog
+
+### v1.9.5
+- **Adaptive translation batch fix, take two** — v1.9.3's static per-class batch ceiling (NLLB `max_size=24`) still allowed sustained shared-RAM spillover in some real-world runs, and it wasn't tied to source language as first suspected: it was two gaps in the batch manager's reactive logic. (1) During warm-up the manager only ever *grew* the batch size — it never checked memory pressure to shrink it, so on short files (most translation jobs run in under 10 batches) the whole file could complete while pinned at an oversized batch with GPU memory saturated. (2) `torch.cuda.empty_cache()` only ran on a fixed 10-batch cadence, which those same short files never reached, so PyTorch's caching allocator never released memory back to the driver. Both are now reactive to the live memory reading at every batch, warm-up included. Verified on the exact file that triggered the original report: translation step dropped from 800 s (13 m 13 s) with 2.44 GB sustained shared-memory spillover to 196 s (3 m 16 s) with only a ~19 s transient blip.
 
 ### v1.9.4
 - **Multi-engine diarization spacing fix** — sentences split by speaker diarization on a speaker change could come out with words stuck together ("Sièe trasferitadapoco" instead of "Si è trasferita da poco") when the transcription came from the Qwen3-ASR or Canary engines. Cause: the sub-segment text reconstruction assumed faster-whisper's spacing convention (leading space embedded in each word), which doesn't hold for the other two engines. Fixed with an engine-independent spacing normalization.
@@ -597,6 +600,9 @@ Questo progetto è distribuito con licenza MIT.
 ---
 
 ## Changelog
+
+### v1.9.5
+- **Fix batch adattivo di traduzione, seconda puntata** — il tetto statico per classe introdotto in v1.9.3 (NLLB `max_size=24`) riduceva ma non eliminava lo sconfinamento sostenuto in RAM condivisa in alcuni run reali, e non era legato alla lingua sorgente come ipotizzato inizialmente: erano due lacune nella logica reattiva del batch manager. (1) Durante il warm-up il manager poteva solo *aumentare* il batch — non controllava mai la pressione di memoria per ridurlo, quindi sui file corti (la maggior parte delle traduzioni gira in meno di 10 batch) l'intero file poteva concludersi con un batch sovradimensionato e la memoria GPU satura. (2) `torch.cuda.empty_cache()` girava solo ogni 10 batch, soglia che quegli stessi file corti non raggiungevano mai, quindi la cache dell'allocator di PyTorch non veniva mai restituita al driver. Entrambi i punti ora reagiscono alla lettura di memoria reale ad ogni batch, warm-up incluso. Verificato sullo stesso file che aveva causato la segnalazione originale: lo step di traduzione è passato da 800 s (13 m 13 s) con 2,44 GB di sconfinamento sostenuto in RAM condivisa a 196 s (3 m 16 s) con solo un picco transitorio di ~19 s.
 
 ### v1.9.4
 - **Fix spaziatura diarization multi-engine** — le frasi divise dalla speaker diarization per cambio di parlante potevano comparire con le parole attaccate ("Sièe trasferitadapoco" invece di "Si è trasferita da poco") quando la trascrizione proveniva dagli engine Qwen3-ASR o Canary. Causa: la ricostruzione del testo del sotto-segmento assumeva la convenzione di spaziatura di faster-whisper (spazio incorporato a inizio parola), non valida per gli altri due engine. Corretto con una normalizzazione della spaziatura indipendente dall'engine.
