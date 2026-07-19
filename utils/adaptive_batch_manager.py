@@ -112,10 +112,24 @@ class AdaptiveBatchSizeManager:
         self._total_batches += 1
         self._size_history.append(self.current_batch_size)
 
+        mem = self._get_memory_usage()
+
         if self._warmup_count < self.warmup_batches:
-            # Fase warm-up: aumenta se la memoria lo consente
-            mem = self._get_memory_usage()
-            if mem < self.high_threshold:
+            # Fase warm-up: aumenta se la memoria lo consente, riduce se satura.
+            # GOTCHA (v1.9.5): prima il warm-up controllava la memoria SOLO per
+            # decidere se aumentare — su file con pochi batch totali (es. 9),
+            # l'intero file passava dentro il warm-up a batch già troppo alto
+            # senza mai reagire, fino a spillover WDDM sostenuto (2,44 GB per
+            # 6+ minuti su Petra S02E02). Ora simmetrico allo steady-state.
+            if mem > self.high_threshold:
+                new_size = max(self.min_size, self.current_batch_size - 2)
+                if new_size != self.current_batch_size:
+                    logger.info(
+                        f"  Memoria alta in warm-up ({mem:.0%}): batch {self.current_batch_size} → {new_size}"
+                    )
+                    self.current_batch_size = new_size
+                    self._adjustments += 1
+            elif mem < self.high_threshold:
                 new_size = min(self.current_batch_size + 4, self.max_size)
                 if new_size != self.current_batch_size:
                     self.current_batch_size = new_size
@@ -133,7 +147,6 @@ class AdaptiveBatchSizeManager:
             # intercalerebbero tra gli aggiornamenti della barra di progresso
             # impedendone la sovrascrittura in-place (decine di righe/file).
             # Restano a schermo gli eventi importanti: OOM e riepilogo finale.
-            mem = self._get_memory_usage()
             if mem > self.high_threshold:
                 new_size = max(self.min_size, self.current_batch_size - 2)
                 if new_size != self.current_batch_size:
@@ -150,12 +163,17 @@ class AdaptiveBatchSizeManager:
                 self.current_batch_size = new_size
                 self._adjustments += 1
 
-            # Pulizia periodica cache CUDA
-            if self._batch_count % 10 == 0 and self.use_gpu and _TORCH_AVAILABLE:
-                try:
-                    torch.cuda.empty_cache()
-                except Exception:
-                    pass
+        # Pulizia cache CUDA: reattiva sulla soglia (non più a cadenza fissa
+        # ogni 10 batch). GOTCHA (v1.9.5): la cadenza fissa non scattava mai
+        # sui file con pochi batch totali (la maggioranza delle traduzioni
+        # notturne ne aveva 8-9) — la cache dell'allocator PyTorch non veniva
+        # mai rilasciata, gonfiando mem_get_info indipendentemente dai tensori
+        # realmente attivi e contribuendo allo sconfinamento WDDM.
+        if mem > self.high_threshold and self.use_gpu and _TORCH_AVAILABLE:
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
 
         self._batch_count += 1
         return self.current_batch_size
