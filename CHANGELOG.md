@@ -3,6 +3,43 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.9.7] — 2026-08
+
+### Fix fusione battute nei blocchi dialogo multi-parlante
+- NLLB non garantisce la preservazione dell'a capo quando traduce un blocco
+  di sottotitoli a due parlanti (testo con newline interno tra le due
+  battute): a volte le fondeva in un'unica riga, a volte inseriva persino
+  trattini propri spuri, producendo blocchi come "- Vorrei che tu fossi
+  qui. Anch'io." invece di due righe separate correttamente attribuite. I
+  blocchi dialogo (identificati dai marcatori "- " già tracciati) vengono
+  ora tradotti riga per riga anziché come blocco unico, garantendo per
+  costruzione che il conteggio righe post-traduzione resti sempre fedele
+  all'originale.
+
+## [1.9.6] — 2026-08
+
+### Fix critico: lingua sorgente NLLB ignorata per qualunque lingua diversa dall'inglese
+- Il tokenizer NLLB richiede `tokenizer.src_lang` impostato ad ogni chiamata
+  per taggare correttamente la lingua del testo in input. Questo valore non
+  veniva mai impostato e restava bloccato sul default caricato al momento
+  del `from_pretrained()` (`eng_Latn`) — qualunque traduzione con sorgente
+  diversa dall'inglese (tedesco, francese, spagnolo, russo, ecc.) veniva
+  quindi tokenizzata come se il testo fosse inglese, causando frasi lasciate
+  non tradotte o allucinazioni del modello. Verificato empiricamente su un
+  campione di frasi tedesche: 5/10 non tradotte senza il fix, 0/10 con il
+  fix applicato. Il bug era presente fin dall'introduzione del modulo NLLB e
+  ha interessato ogni traduzione con sorgente non inglese.
+
+### Fix minori (naming file e correzione genere su input .srt)
+- Quando l'input della pipeline è già un file `.srt` con codice lingua nel
+  nome (es. `Movie.en.srt`), il nome del file finale non includeva più
+  correttamente solo la lingua di destinazione (produceva `Movie.en.it.srt`
+  invece di `Movie.it.srt`).
+- La correzione di genere grammaticale (STEP 6.5) andava in errore quando
+  l'input della pipeline era già un `.srt`: tentava di estrarre l'audio con
+  ffmpeg direttamente dal file dei sottotitoli invece di risolvere il video
+  reale corrispondente nella stessa cartella.
+
 ## [1.9.5] — 2026-07
 
 ### Fix batch adattivo di traduzione, seconda puntata

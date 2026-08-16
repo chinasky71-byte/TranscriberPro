@@ -111,6 +111,16 @@ class ProcessingPipeline:
         """
         self.video_path = Path(video_path)
         self.video_name = self.video_path.stem
+        # Se l'input è già un file sottotitolo (es. "Movie.en.srt"), lo stem
+        # include il codice lingua originale ("Movie.en") — va rimosso, altrimenti
+        # il file finale diventa "Movie.en.it.srt" invece di "Movie.it.srt".
+        if self.video_path.suffix.lower() in {'.srt', '.vtt', '.ass', '.ssa', '.sub'}:
+            base, sep, last_seg = self.video_name.rpartition('.')
+            if sep:
+                known_codes = (set(self.LANG_MAP_639_2_TO_639_1.keys())
+                               | set(self.LANG_MAP_639_2_TO_639_1.values()))
+                if last_seg.lower() in known_codes:
+                    self.video_name = base
         self._log_callback = log_callback
         
         self.config = get_config()
@@ -856,10 +866,16 @@ class ProcessingPipeline:
                                     episode=self.metadata.get('episode'))
                             except Exception as e:
                                 logger.warning(f"TMDB cast error: {e}")
+                        # Se l'input della pipeline è già un .srt (non un video),
+                        # self.video_path punta al sottotitolo stesso: la speaker
+                        # gender map ha bisogno dell'audio, quindi va risolto il
+                        # video reale corrispondente (stesso meccanismo usato per
+                        # l'hash upload OpenSubtitles).
+                        _gender_video_path = self._resolve_video_path()
                         args_payload = {
                             "input_srt": str(subtitle_path),
                             "output_srt": str(corrected_path),
-                            "video_path": str(self.video_path),
+                            "video_path": str(_gender_video_path) if _gender_video_path else None,
                             "diarization_json": str(_diar_json) if _diar_json.exists() else None,
                             "character_context": character_context or {},
                         }
@@ -1118,7 +1134,7 @@ class ProcessingPipeline:
             # ============================================================
             # Se l'input era un file sottotitolo (es. .en.srt), cerchiamo
             # il video originale nella stessa cartella per il calcolo dell'hash.
-            video_for_hash = self._resolve_video_path_for_upload()
+            video_for_hash = self._resolve_video_path()
             if video_for_hash is None:
                 self._log("⚠️ Nessun file video trovato per il calcolo dell'hash. Upload saltato.")
                 uploader.logout()
@@ -1147,12 +1163,15 @@ class ProcessingPipeline:
             logger.error(error_msg, exc_info=True)
             self._log(f"❌ {error_msg}")
     
-    def _resolve_video_path_for_upload(self) -> Optional[Path]:
+    def _resolve_video_path(self) -> Optional[Path]:
         """
-        Restituisce il path del file video da usare per il calcolo dell'hash.
+        Restituisce il path del file video reale associato a questa elaborazione.
         Se l'input della pipeline è già un video, lo restituisce direttamente.
         Se l'input è un sottotitolo (es. .en.srt), cerca il video corrispondente
-        nella stessa cartella (stesso nome base, estensione video).
+        nella stessa cartella (stesso nome base, estensione video). Usato sia
+        per l'hash upload OpenSubtitles sia per l'estrazione audio della
+        correzione di genere (entrambi richiedono un video reale, mai il .srt
+        stesso).
         """
         _SUB_EXTS   = {'.srt', '.vtt', '.ass', '.ssa', '.sub'}
         _VIDEO_EXTS = {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.m4v',

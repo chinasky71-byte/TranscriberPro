@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.9.5-orange)
+![Version](https://img.shields.io/badge/Version-1.9.7-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -271,6 +271,13 @@ This project is licensed under the MIT License.
 ---
 
 ## Changelog
+
+### v1.9.7
+- **Dialogue line-merge fix** — NLLB doesn't reliably preserve the embedded newline when translating a two-speaker dialogue block (dashed lines): it sometimes merged both lines into one, and sometimes even inserted its own spurious dashes, producing blocks like "- I wish you were here. Me too." instead of two correctly attributed lines. Dialogue blocks (identified by the already-tracked "- " dash markers) are now translated line by line instead of as a single joined string, guaranteeing by construction that the post-translation line count always matches the original.
+
+### v1.9.6
+- **Critical fix: NLLB source language ignored for every language but English** — the NLLB tokenizer requires `tokenizer.src_lang` to be set on every call to correctly tag the input text's language. This was never set and stayed pinned at whatever default was loaded at `from_pretrained()` time (`eng_Latn`) — any translation with a non-English source (German, French, Spanish, Russian, etc.) was tokenized as if the text were English, causing sentences to be left untranslated or hallucinated. Verified empirically on a sample of German sentences: 5/10 untranslated without the fix, 0/10 with it applied. The bug had been present since the NLLB module was introduced and affected every non-English-source translation.
+- **Minor fixes (file naming and gender correction on .srt input)** — when the pipeline input was already a `.srt` file with a language code in its name (e.g. `Movie.en.srt`), the final output filename no longer correctly contained only the target language (`Movie.en.it.srt` instead of `Movie.it.srt`). Gender correction (STEP 6.5) also failed when the input was already a `.srt`: it tried to extract audio via ffmpeg directly from the subtitle file instead of resolving the real corresponding video in the same folder.
 
 ### v1.9.5
 - **Adaptive translation batch fix, take two** — v1.9.3's static per-class batch ceiling (NLLB `max_size=24`) still allowed sustained shared-RAM spillover in some real-world runs, and it wasn't tied to source language as first suspected: it was two gaps in the batch manager's reactive logic. (1) During warm-up the manager only ever *grew* the batch size — it never checked memory pressure to shrink it, so on short files (most translation jobs run in under 10 batches) the whole file could complete while pinned at an oversized batch with GPU memory saturated. (2) `torch.cuda.empty_cache()` only ran on a fixed 10-batch cadence, which those same short files never reached, so PyTorch's caching allocator never released memory back to the driver. Both are now reactive to the live memory reading at every batch, warm-up included. Verified on the exact file that triggered the original report: translation step dropped from 800 s (13 m 13 s) with 2.44 GB sustained shared-memory spillover to 196 s (3 m 16 s) with only a ~19 s transient blip.
@@ -600,6 +607,13 @@ Questo progetto è distribuito con licenza MIT.
 ---
 
 ## Changelog
+
+### v1.9.7
+- **Fix fusione battute nei blocchi dialogo multi-parlante** — NLLB non garantisce la preservazione dell'a capo quando traduce un blocco di sottotitoli a due parlanti (testo con newline interno tra le due battute): a volte le fondeva in un'unica riga, a volte inseriva persino trattini propri spuri, producendo blocchi come "- Vorrei che tu fossi qui. Anch'io." invece di due righe separate correttamente attribuite. I blocchi dialogo (identificati dai marcatori "- " già tracciati) vengono ora tradotti riga per riga anziché come blocco unico, garantendo per costruzione che il conteggio righe post-traduzione resti sempre fedele all'originale.
+
+### v1.9.6
+- **Fix critico: lingua sorgente NLLB ignorata per qualunque lingua diversa dall'inglese** — il tokenizer NLLB richiede `tokenizer.src_lang` impostato ad ogni chiamata per taggare correttamente la lingua del testo in input. Questo valore non veniva mai impostato e restava bloccato sul default caricato al momento del `from_pretrained()` (`eng_Latn`) — qualunque traduzione con sorgente diversa dall'inglese (tedesco, francese, spagnolo, russo, ecc.) veniva quindi tokenizzata come se il testo fosse inglese, causando frasi lasciate non tradotte o allucinazioni del modello. Verificato empiricamente su un campione di frasi tedesche: 5/10 non tradotte senza il fix, 0/10 con il fix applicato. Il bug era presente fin dall'introduzione del modulo NLLB e ha interessato ogni traduzione con sorgente non inglese.
+- **Fix minori (naming file e correzione genere su input .srt)** — quando l'input della pipeline era già un file `.srt` con codice lingua nel nome (es. `Movie.en.srt`), il nome del file finale non includeva più correttamente solo la lingua di destinazione (produceva `Movie.en.it.srt` invece di `Movie.it.srt`). La correzione di genere grammaticale (STEP 6.5) andava in errore quando l'input della pipeline era già un `.srt`: tentava di estrarre l'audio con ffmpeg direttamente dal file dei sottotitoli invece di risolvere il video reale corrispondente nella stessa cartella.
 
 ### v1.9.5
 - **Fix batch adattivo di traduzione, seconda puntata** — il tetto statico per classe introdotto in v1.9.3 (NLLB `max_size=24`) riduceva ma non eliminava lo sconfinamento sostenuto in RAM condivisa in alcuni run reali, e non era legato alla lingua sorgente come ipotizzato inizialmente: erano due lacune nella logica reattiva del batch manager. (1) Durante il warm-up il manager poteva solo *aumentare* il batch — non controllava mai la pressione di memoria per ridurlo, quindi sui file corti (la maggior parte delle traduzioni gira in meno di 10 batch) l'intero file poteva concludersi con un batch sovradimensionato e la memoria GPU satura. (2) `torch.cuda.empty_cache()` girava solo ogni 10 batch, soglia che quegli stessi file corti non raggiungevano mai, quindi la cache dell'allocator di PyTorch non veniva mai restituita al driver. Entrambi i punti ora reagiscono alla lettura di memoria reale ad ogni batch, warm-up incluso. Verificato sullo stesso file che aveva causato la segnalazione originale: lo step di traduzione è passato da 800 s (13 m 13 s) con 2,44 GB di sconfinamento sostenuto in RAM condivisa a 196 s (3 m 16 s) con solo un picco transitorio di ~19 s.

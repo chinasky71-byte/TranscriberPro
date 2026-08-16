@@ -683,13 +683,81 @@ class NLLBTranslator(BaseTranslator):
             logger.warning(f"Codice lingua '{lang_code}' non trovato in LANGUAGE_CODES")
         return result
 
+    def _build_translation_units(
+        self, batch: List[SRT_SUBTITLE], dash_flags: Dict[int, List[bool]]
+    ) -> Tuple[List[Tuple[int, Optional[int]]], List[str], List[Dict[str, str]], List[bool], List[str]]:
+        """Prepara le unità di traduzione per un batch.
+
+        I blocchi dialogo multi-parlante (dash_flags con più righe, almeno
+        una con trattino) vengono espansi in un'unità di traduzione PER RIGA
+        invece che un'unica stringa con '\\n' embedded: NLLB non garantisce
+        la preservazione del newline nella traduzione di testo multi-riga
+        (verificato empiricamente: a volte fonde le battute di due parlanti
+        in una riga sola, a volte inserisce trattini propri spuri) — questo
+        rompeva il ripristino '- ' basato su posizione in _generate_srt,
+        producendo blocchi come "- Vorrei che tu fossi qui. Anch'io." invece
+        di due righe separate. Tradurre riga per riga elimina il problema per
+        costruzione: il conteggio righe post-traduzione è sempre identico
+        all'originale.
+
+        Returns:
+            unit_specs: un elemento per unità di traduzione, parallelo agli
+                altri elenchi restituiti: (indice nel batch, indice riga o
+                None se l'unità rappresenta l'intero blocco non-dialogo).
+            texts_to_translate, current_batch_placeholders,
+            skip_translation_flags: come nel batch classico, ma a livello di
+                unità anziché di sottotitolo.
+            unit_original_texts: testo originale (fallback) per unità —
+                l'intero blocco per le unità non-dialogo, la singola riga per
+                le unità dialogo.
+        """
+        unit_specs: List[Tuple[int, Optional[int]]] = []
+        texts_to_translate: List[str] = []
+        current_batch_placeholders: List[Dict[str, str]] = []
+        skip_translation_flags: List[bool] = []
+        unit_original_texts: List[str] = []
+
+        for j, (index, start, end, text) in enumerate(batch):
+            flags = dash_flags.get(index) if dash_flags else None
+            is_dialogue_block = bool(flags) and len(flags) > 1 and any(flags)
+
+            if is_dialogue_block:
+                for line_idx, line in enumerate(text.split('\n')):
+                    final_text, placeholders, only_masked = self._mask_text(line, "NLLB")
+                    unit_specs.append((j, line_idx))
+                    texts_to_translate.append(final_text)
+                    current_batch_placeholders.append(placeholders)
+                    skip_translation_flags.append(only_masked)
+                    unit_original_texts.append(line)
+            else:
+                final_text, placeholders, only_masked = self._mask_text(text, "NLLB")
+                unit_specs.append((j, None))
+                texts_to_translate.append(final_text)
+                current_batch_placeholders.append(placeholders)
+                skip_translation_flags.append(only_masked)
+                unit_original_texts.append(text)
+
+        return (unit_specs, texts_to_translate, current_batch_placeholders,
+                skip_translation_flags, unit_original_texts)
+
     def _run_translation(self, texts: List[str], src_lang: str, tgt_lang: str, add_context: bool = True) -> List[str]:
         """
         Esegue traduzione batch con gestione OOM dinamica
         """
         if add_context and self._prepared_context:
             texts = [self._prepared_context + text for text in texts]
-        
+
+        # CRITICO: il tokenizer NLLB usa self.tokenizer.src_lang per decidere
+        # il token di lingua sorgente da anteporre al testo in input. Se non
+        # impostato qui, resta bloccato sul default caricato da from_pretrained
+        # (eng_Latn) per QUALSIASI lingua sorgente — l'input viene taggato come
+        # inglese anche quando è tedesco/francese/ecc., producendo output
+        # allucinati o testo non tradotto (verificato empiricamente: 5/10 frasi
+        # tedesche non tradotte senza questa riga, 0/10 con). Va impostato ad
+        # ogni chiamata (non solo al load) perché lo stesso translator può
+        # essere riusato con lingue sorgente diverse tra un file e l'altro.
+        self.tokenizer.src_lang = src_lang
+
         try:
             inputs = self.tokenizer(
                 texts,
@@ -798,17 +866,9 @@ class NLLBTranslator(BaseTranslator):
                 total_batches = (total + self.current_batch_size - 1) // self.current_batch_size
 
                 batch = parsed_subtitles[i:i + self.batch_manager.get_batch_size()]
-                texts_to_translate: List[str] = []
-                current_batch_placeholders: List[Dict[str, str]] = []
-                skip_translation_flags: List[bool] = []
-                original_texts: List[str] = [item[3] for item in batch]
-
-                for text in original_texts:
-                    final_text, placeholders, only_masked = self._mask_text(text, "NLLB")
-
-                    texts_to_translate.append(final_text)
-                    current_batch_placeholders.append(placeholders)
-                    skip_translation_flags.append(only_masked)
+                (unit_specs, texts_to_translate, current_batch_placeholders,
+                 skip_translation_flags, unit_original_texts) = self._build_translation_units(
+                    batch, dash_flags)
 
                 progress = int((i / total) * 100)
                 if progress != last_progress and not self.batch_manager.is_warming_up:
@@ -834,31 +894,48 @@ class NLLBTranslator(BaseTranslator):
                                                            add_context=is_first_batch)
                         
                         translated_index = 0
-                        post_processed_results = []
-                        for j, (index, start, end, original_text) in enumerate(batch):
-                            final_text_to_translate = texts_to_translate[j]
-                            placeholders_map = current_batch_placeholders[j]
+                        # partial_results[j][line_idx_or_None] = testo tradotto dell'unità.
+                        # Le unità dialogo (line_idx intero) vengono riunite con '\n' DOPO
+                        # questo loop, mantenendo per costruzione lo stesso numero di righe
+                        # dell'originale (vedi _build_translation_units).
+                        partial_results: Dict[int, Dict[Optional[int], str]] = {}
+                        for u, (batch_j, line_idx) in enumerate(unit_specs):
+                            index = batch[batch_j][0]
+                            final_text_to_translate = texts_to_translate[u]
+                            placeholders_map = current_batch_placeholders[u]
+                            unit_original = unit_original_texts[u]
 
-                            if skip_translation_flags[j] or not final_text_to_translate.strip():
-                                post_processed_results.append(original_text)
-                            
+                            if skip_translation_flags[u] or not final_text_to_translate.strip():
+                                unit_result = unit_original
+
                             else:
                                 if translated_index < len(results):
                                     translated_text = results[translated_index]
-                                    
+
                                     if translated_text.strip().lower() == "# non lo so #":
                                          self.log(f"   ATTENZIONE: Rilevata allucinazione per riga {index}. Mantengo originale.")
-                                         post_processed_results.append(original_text)
+                                         unit_result = unit_original
                                     else:
-                                        final_text = self._unmask_text(translated_text, placeholders_map)
-                                        post_processed_results.append(final_text)
-                                        
+                                        unit_result = self._unmask_text(translated_text, placeholders_map)
+
                                     translated_index += 1
-                                    
+
                                 else:
                                     self.log(f"   ATTENZIONE: Nessun output NLLB per riga {index}. Mantengo originale.")
-                                    post_processed_results.append(original_text)
-                                    
+                                    unit_result = unit_original
+
+                            partial_results.setdefault(batch_j, {})[line_idx] = unit_result
+
+                        post_processed_results = []
+                        for j in range(len(batch)):
+                            parts = partial_results.get(j, {})
+                            if None in parts:
+                                post_processed_results.append(parts[None])
+                            else:
+                                n_lines = max(parts.keys()) + 1 if parts else 0
+                                post_processed_results.append(
+                                    '\n'.join(parts.get(li, '') for li in range(n_lines)))
+
                         for j, (index, start, end, _) in enumerate(batch):
                             translated_subtitles.append((index, start, end, post_processed_results[j]))
                         
@@ -874,13 +951,9 @@ class NLLBTranslator(BaseTranslator):
                             self.log(f"   Retry #{retries}/{max_retries_per_batch} con batch size ridotto...")
                             self.current_batch_size = self.batch_manager.current_batch_size
                             batch = parsed_subtitles[i:i + self.current_batch_size]
-                            original_texts = [item[3] for item in batch]
-                            texts_to_translate, current_batch_placeholders, skip_translation_flags = [], [], []
-                            for text in original_texts:
-                                final_text, placeholders, only_masked = self._mask_text(text, "NLLB")
-                                texts_to_translate.append(final_text)
-                                current_batch_placeholders.append(placeholders)
-                                skip_translation_flags.append(only_masked)
+                            (unit_specs, texts_to_translate, current_batch_placeholders,
+                             skip_translation_flags, unit_original_texts) = self._build_translation_units(
+                                batch, dash_flags)
 
                         elif 'Out of Memory - GPU Memoria Insufficiente' in str(e):
                             self.log(f" ERRORE CRITICO: GPU memoria insufficiente. Batch saltato.")
