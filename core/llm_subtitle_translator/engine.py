@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import gc
 import os
+import sys
 from dataclasses import dataclass, field
 from threading import Lock
 from typing import Any, Callable, Dict, List, Optional
@@ -38,6 +39,19 @@ from typing import Any, Callable, Dict, List, Optional
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
+
+# L'allocatore di PyTorch riserva blocchi di dimensione fissa e, quando il
+# batch cambia da una chiamata all'altra, li frammenta: su una scheda da 12 GB
+# occupata per tre quarti dai soli pesi di un 12B quantizzato, la frammentazione
+# basta a far sconfinare l'allocazione successiva nella RAM di sistema. I
+# segmenti espandibili riusano lo stesso blocco invece di chiederne uno nuovo.
+#
+# MISURATO: su Windows non è disponibile — PyTorch lo ignora con
+# "expandable_segments not supported on this platform" (CUDAAllocatorConfig.h).
+# Resta impostato per il ramo Docker headless, che gira su Linux; su Windows
+# l'unico regolatore del picco è quindi il tetto al batch, non l'allocatore.
+if sys.platform != "win32":
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 
 @dataclass(frozen=True)
@@ -69,9 +83,47 @@ class ModelSpec:
     context_window: int = 8192
     # VRAM libera (GB) sotto la quale conviene NF4 invece di bf16.
     bf16_min_free_gb: float = 20.0
+    # Quante conversazioni al massimo nella stessa `generate()`. È il vero
+    # regolatore del picco di VRAM: i pesi sono una costante, mentre la KV
+    # cache e le attivazioni crescono in proporzione al batch. Su WDDM
+    # superare la memoria dedicata non produce un OOM ma uno sconfinamento
+    # silenzioso nella RAM di sistema — nessun errore, solo un rallentamento
+    # di 4-5 volte — quindi il tetto va messo per modello, misurato con
+    # `mt_eval/vram_probe.py`, non lasciato a un valore unico per tutti.
+    max_batch: int = 12
+    # Istruzioni da anteporre al testo dentro il prompt nativo (solo
+    # prompt_style="mt"). Serve ai modelli MT il cui chat template non prevede
+    # un ruolo di sistema: l'unico canale per dargli una regola è il campo del
+    # testo da tradurre. Vuoto = prompt del vendore intatto.
+    mt_prefix: str = ""
     gated: bool = False
     notes: str = ""
 
+
+# Le regole che TranslateGemma può ricevere, e l'unico posto da cui può
+# riceverle. Il suo chat template costruisce da sé l'istruzione di traduzione
+# a partire dai codici lingua e non prevede un ruolo di sistema: il campo
+# `text` è l'unico canale aperto.
+#
+# MISURATO su 40 blocchi di Deadpool 2 (mt_eval/probe_tg_prompt.py), metà con
+# turpiloquio. Senza queste righe il modello conservava 3 volgarità su 20 e
+# rendeva "pumpkin fucker" con "idiota"; con queste, 14 su 20 — quanto il
+# sottotitolo professionale della pellicola, che ne conserva 15. Il rapporto di
+# lunghezza scende da 1,15 a 1,10 volte l'inglese. Costo: due secondi ogni
+# quaranta blocchi.
+#
+# Restano corte di proposito: il testo finisce dentro un'istruzione di
+# traduzione, e più righe si aggiungono più cresce il rischio che il modello le
+# traduca invece di applicarle. Una terza variante che scavalcava del tutto il
+# template per dettare regole più lunghe conservava ancora più volgarità (18 su
+# 20) ma, uscendo dalla forma su cui il modello è addestrato, produceva parole
+# inesistenti ("indemaniato") e concordanze sbagliate: guadagno sul registro,
+# perdita sulla lingua. Scartata.
+TRANSLATEGEMMA_SUBTITLE_RULES = (
+    "Rendi come sottotitolo italiano: più breve dell'originale, "
+    "senza riempitivi, e conserva le parolacce con parolacce italiane "
+    "(fuck→cazzo, shit→merda, asshole→stronzo). Traduci solo la battuta:"
+)
 
 MODEL_SPECS: Dict[str, ModelSpec] = {
     "aya-23-8b": ModelSpec(
@@ -87,6 +139,18 @@ MODEL_SPECS: Dict[str, ModelSpec] = {
         label="Aya Expanse 8B",
         generation=dict(do_sample=False, num_beams=1),
         gated=True,
+        # MISURATO (mt_eval/vram_probe.py). Pesi NF4: 6.241 MiB. Picco e tempo
+        # per blocco sul percorso "adapt" (un solo prompt con dentro tutti i
+        # blocchi):
+        #   batch  8 ->  7.905 MiB (64%)  2,54 s/blocco
+        #   batch 12 ->  9.200 MiB (75%)  2,48 s/blocco   <- scelto
+        #   batch 16 -> 10.512 MiB (86%)  2,45 s/blocco
+        #   batch 20 -> 11.874 MiB (97%)  2,70 s/blocco   SBORDA (66 MiB)
+        # Qui il batch quasi non paga: da 8 a 16 si guadagna il 3,5% di tempo
+        # spendendo 2,6 GB, perché il lavoro è decodifica sequenziale di una
+        # sola risposta lunga. A 20 la curva si inverte — è la firma dello
+        # sconfinamento WDDM: niente errore, solo il tempo che risale.
+        max_batch=12,
         notes="Successore di Aya-23. Licenza CC-BY-NC.",
     ),
     "hunyuan-mt-7b": ModelSpec(
@@ -109,9 +173,25 @@ MODEL_SPECS: Dict[str, ModelSpec] = {
         label="TranslateGemma 12B",
         generation=dict(do_sample=False, num_beams=1),
         prompt_style="mt",
+        mt_prefix=TRANSLATEGEMMA_SUBTITLE_RULES,
         loader="gemma3",
         gated=True,
         context_window=131072,
+        # MISURATO (mt_eval/vram_probe.py, scheda da 12.288 MiB). I soli pesi
+        # in NF4 occupano 8.401 MiB: restano meno di 4 GB per tutto il resto.
+        # Picco di una singola generate() sui 48 blocchi più lunghi del film,
+        # e tempo per blocco:
+        #   batch  4 ->  8.877 MiB (72%)  8,88 s/blocco
+        #   batch  8 ->  9.449 MiB (77%)  4,54 s/blocco
+        #   batch 12 -> 10.133 MiB (82%)  3,20 s/blocco   <- scelto
+        #   batch 16 -> 10.817 MiB (88%)  2,54 s/blocco
+        # Su questo percorso ("mt", una conversazione per battuta in parallelo)
+        # il batch conta davvero: da 4 a 16 il tempo per blocco scende di 3,5
+        # volte. Dodici è il compromesso: 2 GB di margine sulla scheda e il 30%
+        # di tempo in meno rispetto a otto. Oltre non si sale senza rimisurare
+        # su una run intera — il gestore adattivo scende comunque da solo se la
+        # memoria supera il 90%.
+        max_batch=12,
         notes="Addestrato con RL contro la letteralità (MetricX-QE, AutoMQM). "
               "La variante 4B era stata bocciata a luglio; il 12B è la taglia "
               "che nei benchmark supera il baseline Gemma 3 27B.",
@@ -255,6 +335,21 @@ class SubtitleLLMEngine:
             self.log(f"  VRAM libera {free_gb:.1f} GB -> NF4")
             from transformers import BitsAndBytesConfig
             kwargs.update(
+                # `dtype` NON è ridondante con `bnb_4bit_compute_dtype`, ed è
+                # il parametro decisivo: senza, bitsandbytes FORZA float16 su
+                # tutto il modello, sovrascrivendo il bfloat16 dichiarato nel
+                # config (transformers, quantizer_bnb_4bit.py: "We force the
+                # dtype to be float16"). `bnb_4bit_compute_dtype` copre solo i
+                # layer quantizzati; norm, embedding e testa di output restano
+                # in float16.
+                #
+                # Per Gemma3 è fatale: l'output degli embedding è scalato per
+                # sqrt(hidden_size) — 3840 sul 12B — e supera il massimo di
+                # float16 (65504). Le attivazioni vanno a infinito, i logit
+                # diventano NaN, argmax su NaN restituisce l'indice 0 che è
+                # <pad>: il modello genera solo padding senza sollevare alcun
+                # errore. Vedi transformers#36822.
+                dtype=torch.bfloat16,
                 quantization_config=BitsAndBytesConfig(
                     load_in_4bit=True,
                     bnb_4bit_quant_type="nf4",
@@ -301,7 +396,14 @@ class SubtitleLLMEngine:
         pesi, non dello stile che vogliamo ottenere: TranslateGemma vuole un
         `content` strutturato con i codici lingua, gli altri una frase in
         linguaggio naturale. Il resto della pipeline non deve saperlo.
+
+        Se il modello dichiara un `mt_prefix`, le regole del sottotitolo
+        entrano qui — dentro il testo — perché è l'unico varco che il suo chat
+        template lascia aperto.
         """
+        if self.spec.mt_prefix:
+            text = f"{self.spec.mt_prefix}\n{text}"
+
         if self.spec.loader == "gemma3":
             return [{
                 "role": "user",

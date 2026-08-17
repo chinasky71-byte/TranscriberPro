@@ -58,6 +58,8 @@ def main():
     ap.add_argument("--name", default=None)
     ap.add_argument("--batch", type=int, default=12)
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--set", default=EVALSET,
+                    help="JSONL del set; se contiene start/end usa quei tempi")
     args = ap.parse_args()
 
     name = args.name or f"{args.model}_{args.mode}"
@@ -68,7 +70,7 @@ def main():
     from core.llm_subtitle_translator.translator import SubtitleLLMTranslator
     from core.llm_subtitle_translator import postprocess
 
-    items = sorted(load_jsonl(EVALSET), key=lambda x: x["id"])
+    items = sorted(load_jsonl(args.set), key=lambda x: x["id"])
     if args.limit:
         items = items[:args.limit]
 
@@ -82,8 +84,12 @@ def main():
     units = []
     durations = {}
     for it in items:
-        visible = len(it["source"].replace("\n", " "))
-        dur = max(MIN_DUR, visible / CPS)
+        # Tempi reali quando il set li porta (banco su film): solo con quelli
+        # il reading speed è una metrica onesta. Altrimenti simulati a 17 CPS.
+        if "start" in it and "end" in it:
+            dur = max(0.001, float(it["end"]) - float(it["start"]))
+        else:
+            dur = max(MIN_DUR, len(it["source"].replace("\n", " ")) / CPS)
         durations[it["id"]] = dur
         units.append(SubtitleUnit(
             id=it["id"],

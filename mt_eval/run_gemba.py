@@ -180,9 +180,9 @@ def load_translations(path):
     return out
 
 
-def load_evalset():
+def load_evalset(path=None):
     items = []
-    with open(EVALSET, encoding="utf-8") as f:
+    with open(path or EVALSET, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line:
@@ -449,6 +449,9 @@ def main():
                     choices=["anthropic", "openai"])
     ap.add_argument("--model", default=None,
                     help="sovrascrive il modello di default del provider")
+    ap.add_argument("--src", default=None,
+                    help="JSONL del set (source/reference/category); "
+                         "default: il set sintetico")
     args = ap.parse_args()
 
     name_a = args.name_a or os.path.splitext(os.path.basename(args.a))[0]
@@ -473,7 +476,7 @@ def main():
     model = args.model or (MODEL if args.provider == "anthropic"
                            else OPENAI_MODEL)
 
-    items = load_evalset()
+    items = load_evalset(args.src)
     trans_a = load_translations(args.a)
     trans_b = load_translations(args.b)
 
