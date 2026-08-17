@@ -66,11 +66,18 @@ def main():
                          f"ma richiede di accettare la licenza su HuggingFace")
     args = ap.parse_args()
 
-    tr_path = args.tr if os.path.isabs(args.tr) else os.path.join(SCRIPT_DIR, args.tr)
-    out_path = args.out or os.path.join(
+    # Tutti e tre i percorsi si risolvono allo stesso modo: il default di
+    # `--src` è assoluto, ma un valore passato a mano è un nome di file dentro
+    # `mt_eval/` come gli altri, e trattarlo diversamente costava una run.
+    def resolve(p):
+        return p if os.path.isabs(p) else os.path.join(SCRIPT_DIR, p)
+
+    tr_path = resolve(args.tr)
+    src_path = resolve(args.src)
+    out_path = resolve(args.out) if args.out else os.path.join(
         SCRIPT_DIR, "qe_" + os.path.basename(tr_path))
 
-    sources = {d["id"]: d["source"] for d in load_jsonl(args.src)}
+    sources = {d["id"]: d["source"] for d in load_jsonl(src_path)}
     trans = {d["id"]: d.get("text", d.get("reference", ""))
              for d in load_jsonl(tr_path)}
     ids = sorted(i for i in sources if i in trans)

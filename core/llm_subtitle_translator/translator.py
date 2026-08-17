@@ -63,9 +63,16 @@ class SubtitleLLMTranslator:
         self.engine = engine
         self.context = context
         self.fallback = fallback
-        self.batch_size = batch_size
         self.log_callback = log_callback
         self.mode = mode
+
+        # Il tetto lo detta il modello, non il chiamante: un 12B quantizzato
+        # lascia poco più di 4 GB liberi, e lo stesso batch che un 8B regge
+        # senza sforzo lo manda a sconfinare nella RAM di sistema.
+        cap = getattr(getattr(engine, "spec", None), "max_batch", batch_size)
+        self.batch_size = max(MIN_BATCH, min(batch_size, cap))
+        self._batch_cap = cap
+        self._batch_mgr = self._make_batch_manager()
         self.stats = {
             "batch": 0, "retry_prompt": 0, "retry_split": 0,
             "retry_single": 0, "fallback_blocks": 0, "unresolved": 0,
@@ -81,6 +88,65 @@ class SubtitleLLMTranslator:
                 self.log_callback(message)
             except Exception:
                 pass
+
+    # ------------------------------------------------------------------
+    def _make_batch_manager(self):
+        """Riusa il gestore adattivo già in servizio sul ramo NLLB.
+
+        Su WDDM non arriva nessun OOM da intercettare: quando la memoria
+        dedicata finisce, il driver continua ad allocare nella RAM di sistema
+        e l'unico sintomo è il crollo della velocità. Il gestore lavora perciò
+        sulla percentuale di memoria occupata letta tra un batch e l'altro —
+        è lo stesso meccanismo che in v1.9.5 ha eliminato lo sconfinamento su
+        NLLB e Aya, e non c'è ragione di scriverne un secondo.
+        """
+        try:
+            import torch
+            use_gpu = torch.cuda.is_available()
+        except Exception:
+            use_gpu = False
+        if not use_gpu:
+            return None
+        try:
+            from utils.adaptive_batch_manager import AdaptiveBatchSizeManager
+        except Exception as exc:
+            logger.warning(f"Gestore batch adattivo non disponibile: {exc}")
+            return None
+        return AdaptiveBatchSizeManager(
+            device="cuda", use_gpu=True,
+            initial_size=self.batch_size,
+            min_size=MIN_BATCH, max_size=self._batch_cap,
+            # I pesi da soli occupano già il 60-75% della scheda: con la soglia
+            # bassa di serie (0,60) il batch non salirebbe mai, e con l'alta di
+            # serie (0,85) scenderebbe troppo tardi per un 12B.
+            high_threshold=0.90, low_threshold=0.80,
+            warmup_batches=3,
+            log_callback=None,
+        )
+
+    def _record_ok(self) -> None:
+        if self._batch_mgr is not None:
+            self._batch_mgr.record_success()
+
+    def _record_failure(self, exc: Exception) -> None:
+        """Un OOM vero è raro su WDDM ma non impossibile (batch enormi, o un
+        secondo processo che si prende la scheda): quando arriva, il batch va
+        dimezzato subito invece di aspettare la lettura di memoria del giro
+        successivo."""
+        if self._batch_mgr is None:
+            return
+        text = f"{type(exc).__name__} {exc}".lower()
+        if "out of memory" in text or "cuda error" in text:
+            self._batch_mgr.record_oom()
+
+    def _next_batch_size(self) -> int:
+        if self._batch_mgr is None:
+            return self.batch_size
+        size = self._batch_mgr.get_batch_size()
+        if size != self.batch_size:
+            logger.info(f"  Batch LLM {self.batch_size} → {size}")
+            self.batch_size = size
+        return size
 
     def _record(self, issues) -> None:
         for issue in issues:
@@ -212,7 +278,7 @@ class SubtitleLLMTranslator:
 
         i = 0
         while i < total:
-            batch = list(work[i:i + self.batch_size])
+            batch = list(work[i:i + self._next_batch_size()])
             done = self._translate_batch(batch, history, drafts)
             results.update(done)
 
@@ -272,7 +338,7 @@ class SubtitleLLMTranslator:
 
         i = 0
         while i < total:
-            batch = list(units[i:i + self.batch_size])
+            batch = list(units[i:i + self._next_batch_size()])
             self.stats["batch"] += 1
             # Il prompt nativo lo costruisce il motore: TranslateGemma vuole
             # un content strutturato coi codici lingua, gli altri una frase.
@@ -280,9 +346,11 @@ class SubtitleLLMTranslator:
             try:
                 outputs = self.engine.generate(conversations,
                                                max_new_tokens=max_new)
+                self._record_ok()
             except Exception as exc:
                 logger.warning(f"Generazione MT fallita su {len(batch)} "
                                f"blocchi: {exc}")
+                self._record_failure(exc)
                 outputs = [""] * len(batch)
 
             for unit, text in zip(batch, outputs):
@@ -334,7 +402,12 @@ class SubtitleLLMTranslator:
             messages = build_messages(units, self.context, history, retry_note)
 
         max_new = max(MIN_NEW_TOKENS, len(units) * TOKENS_PER_BLOCK)
-        raw = self.engine.generate([messages], max_new_tokens=max_new)[0]
+        try:
+            raw = self.engine.generate([messages], max_new_tokens=max_new)[0]
+            self._record_ok()
+        except Exception as exc:
+            self._record_failure(exc)
+            raise
 
         parsed, parse_issues = parse_response(raw, [u.id for u in units])
         for issue in parse_issues:

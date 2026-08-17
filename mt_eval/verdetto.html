@@ -1,0 +1,760 @@
+<title>Il Banco dei Sottotitoli</title>
+<style>
+  :root {
+    --ground:   #f6f4ef;
+    --surface:  #fffefb;
+    --sunken:   #edeae2;
+    --ink:      #191c1a;
+    --muted:    #6b7370;
+    --hairline: #d8d5cb;
+    --accent:   #1f5f57;
+    --accent-soft: #dfeae7;
+    --over:     #9c3d24;
+    --ontarget: #4a6f2b;
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Consolas", "DejaVu Sans Mono", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:   #101413;
+      --surface:  #181d1c;
+      --sunken:   #0b0f0e;
+      --ink:      #e8e6df;
+      --muted:    #8b948f;
+      --hairline: #2b3331;
+      --accent:   #5fbfad;
+      --accent-soft: #17302c;
+      --over:     #e08a6b;
+      --ontarget: #9dc46a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:   #101413;
+    --surface:  #181d1c;
+    --sunken:   #0b0f0e;
+    --ink:      #e8e6df;
+    --muted:    #8b948f;
+    --hairline: #2b3331;
+    --accent:   #5fbfad;
+    --accent-soft: #17302c;
+    --over:     #e08a6b;
+    --ontarget: #9dc46a;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 4rem 1.5rem 6rem; }
+  .col  { max-width: 40rem; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 1rem;
+  }
+  h1 {
+    font-size: clamp(2.1rem, 5vw, 3rem);
+    line-height: 1.08;
+    letter-spacing: -.022em;
+    font-weight: 700;
+    margin: 0 0 1.2rem;
+    text-wrap: balance;
+  }
+  h2 {
+    font-size: 1.42rem;
+    letter-spacing: -.012em;
+    font-weight: 700;
+    margin: 0 0 .3rem;
+    text-wrap: balance;
+  }
+  h3 {
+    font-family: var(--mono);
+    font-size: .74rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+    margin: 0 0 .9rem;
+  }
+  p { margin: 0 0 1.05rem; }
+  a { color: var(--accent); }
+  strong { font-weight: 700; }
+  code, .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  code { font-size: .88em; background: var(--sunken); padding: .1em .35em; border-radius: 3px; }
+
+  section { margin-top: 3.6rem; }
+  .lede {
+    font-size: 1.16rem;
+    line-height: 1.55;
+    color: var(--ink);
+  }
+  .rule { border: 0; border-top: 1px solid var(--hairline); margin: 3.4rem 0 0; }
+
+  /* verdetto in testa */
+  .verdict {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-left: 4px solid var(--accent);
+    padding: 1.4rem 1.6rem;
+    margin: 2rem 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+  }
+  .verdict .headline {
+    font-family: var(--mono);
+    font-size: 1.02rem;
+    font-weight: 700;
+    letter-spacing: -.01em;
+  }
+  .verdict p { margin: 0; font-size: .96rem; color: var(--muted); }
+
+  /* tabelle */
+  .tablewrap { overflow-x: auto; margin: 1.4rem 0 .6rem; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: var(--mono);
+    font-size: .8rem;
+    font-variant-numeric: tabular-nums;
+  }
+  caption {
+    caption-side: top;
+    text-align: left;
+    font-family: var(--mono);
+    font-size: .7rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding-bottom: .7rem;
+  }
+  th, td { padding: .5rem .7rem; text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  thead th {
+    font-weight: 600;
+    font-size: .7rem;
+    letter-spacing: .05em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--hairline);
+  }
+  tbody tr + tr td { border-top: 1px solid var(--hairline); }
+  tbody tr.pro td { background: var(--accent-soft); font-weight: 700; }
+  tbody tr.win td { font-weight: 700; }
+  td.best { color: var(--ontarget); font-weight: 700; }
+  td.worst { color: var(--over); }
+  .note { font-size: .88rem; color: var(--muted); margin-top: .4rem; }
+
+  /* il righello dei 42 caratteri */
+  .ruler { margin: 1.6rem 0 .4rem; }
+  .ruler-row {
+    display: grid;
+    grid-template-columns: 12.5rem 1fr 4.2rem;
+    align-items: center;
+    gap: .6rem;
+    padding: .28rem 0;
+  }
+  .ruler-scale { padding-bottom: 0; }
+  .ruler-scale .ticks {
+    position: relative;
+    height: 1.05rem;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .ruler-scale .ticks span {
+    position: absolute;
+    bottom: .1rem;
+    font-family: var(--mono);
+    font-size: .62rem;
+    color: var(--muted);
+    transform: translateX(-50%);
+  }
+  .ruler-row .name {
+    font-family: var(--mono);
+    font-size: .76rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .track {
+    position: relative;
+    height: .78rem;
+    background: var(--sunken);
+  }
+  .track .bar { position: absolute; inset: 0 auto 0 0; background: var(--accent); }
+  .track .bar.pro { background: var(--ink); }
+  .track .bar.over { background: var(--over); }
+  .track .limit {
+    position: absolute; top: -.25rem; bottom: -.25rem;
+    width: 2px; background: var(--over);
+  }
+  .ruler-row .val {
+    font-family: var(--mono);
+    font-size: .74rem;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+  }
+  @media (max-width: 620px) {
+    .ruler-row { grid-template-columns: 8rem 1fr 3.4rem; }
+  }
+
+  /* esempi di traduzione */
+  .quotes { display: flex; flex-direction: column; gap: 1.3rem; margin: 1.5rem 0; }
+  .quote {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    padding: .9rem 1.1rem;
+    font-family: var(--mono);
+    font-size: .79rem;
+    line-height: 1.5;
+    display: flex;
+    flex-direction: column;
+    gap: .32rem;
+  }
+  .quote div { display: grid; grid-template-columns: 5.4rem 1fr; gap: .7rem; }
+  .quote .tag { color: var(--muted); font-size: .68rem; letter-spacing: .08em; text-transform: uppercase; padding-top: .12rem; }
+  .quote .pro-line { color: var(--ontarget); }
+  .quote .bad-line { color: var(--over); }
+
+  ul { padding-left: 1.15rem; margin: 0 0 1.05rem; }
+  li { margin-bottom: .45rem; }
+
+  footer {
+    margin-top: 4.5rem;
+    padding-top: 1.6rem;
+    border-top: 1px solid var(--hairline);
+    font-family: var(--mono);
+    font-size: .72rem;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+</style>
+
+<div class="wrap">
+
+<p class="eyebrow">Transcriber Pro · valutazione motori EN→IT · 17 agosto 2026</p>
+<h1>Il banco sintetico aveva torto</h1>
+
+<div class="col">
+<p class="lede">Su trecento segmenti costruiti apposta, TranslateGemma-12B batteva
+NLLB fine-tuned. Su ottocento blocchi presi da due film veri, con accanto i
+sottotitoli di un traduttore professionista, lo perde nettamente. Questo
+documento spiega perché, e cosa resta in mano.</p>
+</div>
+
+<div class="verdict">
+  <span class="headline">Il motore di produzione resta NLLB fine-tuned.</span>
+  <p>Due ibridi con instradamento sono stati costruiti e misurati: entrambi
+  peggiorano il risultato. Un guadagno reale c'è, ed è altrove.</p>
+</div>
+
+<hr class="rule">
+
+<section>
+<h3>Il ribaltamento</h3>
+<h2>Stessi motori, stesso giudice, verdetto opposto</h2>
+<div class="col">
+<p>Il giudizio è GEMBA-MQM: un giudice legge originale, sottotitolo professionale
+e le due traduzioni in ordine casuale e anonimo, marca ogni errore con categoria
+e gravità, e dice quale pubblicherebbe. Il punteggio pesa gli errori
+(<span class="num">lieve 1</span>, <span class="num">grave 5</span>,
+<span class="num">critico 10</span>): più basso è, meglio è.</p>
+</div>
+
+<div class="tablewrap">
+<table>
+  <caption>Banco sintetico — 300 segmenti stratificati</caption>
+  <thead><tr><th>confronto</th><th>n</th><th>MQM NLLB</th><th>MQM sfidante</th><th>preferenza</th></tr></thead>
+  <tbody>
+    <tr class="win"><td>NLLB vs TranslateGemma-12B</td><td>300</td><td class="worst">3,97</td><td class="best">3,56</td><td>41% / 52%</td></tr>
+    <tr><td>NLLB vs Aya Expanse 8B</td><td>300</td><td class="best">3,97</td><td class="worst">4,39</td><td>45% / 42%</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="tablewrap">
+<table>
+  <caption>Film reali — 400 blocchi di Deadpool 2, con sottotitolo professionale</caption>
+  <thead><tr><th>confronto</th><th>n</th><th>MQM NLLB</th><th>MQM sfidante</th><th>preferenza</th></tr></thead>
+  <tbody>
+    <tr class="win"><td>NLLB vs TranslateGemma-12B</td><td>400</td><td class="best">2,15</td><td class="worst">2,72</td><td>48% / 26%</td></tr>
+    <tr class="win"><td>NLLB vs Aya Expanse 8B</td><td>229</td><td class="best">2,08</td><td class="worst">2,97</td><td>46% / 22%</td></tr>
+  </tbody>
+</table>
+<p class="note">Il confronto con Aya si è fermato a 229 segmenti su 400: credito
+API esaurito a metà giudizio. Il margine è largo abbastanza da non dipendere dai
+171 mancanti.</p>
+</div>
+</section>
+
+<section>
+<h3>La causa</h3>
+<h2>TranslateGemma vince due categorie su sette — e il banco gliene dava il 40%</h2>
+<div class="col">
+<p>Il banco sintetico era stratificato per categoria. Rileggendolo categoria per
+categoria, il vantaggio complessivo di TranslateGemma si scioglie: viene tutto
+da <strong>slang e idiomi</strong> e da <strong>monologo</strong>, che insieme
+valevano 120 segmenti su 300.</p>
+</div>
+
+<div class="tablewrap">
+<table>
+  <caption>MQM pesato per categoria — banco sintetico</caption>
+  <thead><tr><th>categoria</th><th>n</th><th>NLLB</th><th>Aya</th><th>TGemma</th><th>Hunyuan</th><th>vince</th></tr></thead>
+  <tbody>
+    <tr><td>dialogo</td><td>70</td><td class="best">2,69</td><td>3,53</td><td>3,01</td><td>3,01</td><td>NLLB</td></tr>
+    <tr><td>monologo</td><td>50</td><td>4,78</td><td>5,00</td><td class="best">3,52</td><td>4,52</td><td>TGemma</td></tr>
+    <tr><td>nomi propri</td><td>30</td><td class="best">2,93</td><td>4,43</td><td>3,13</td><td>4,10</td><td>NLLB</td></tr>
+    <tr><td>numeri e date</td><td>25</td><td class="best">3,92</td><td>4,48</td><td>4,48</td><td>5,00</td><td>NLLB</td></tr>
+    <tr><td>parolacce</td><td>30</td><td class="best">2,23</td><td>3,97</td><td class="worst">5,17</td><td>4,43</td><td>NLLB</td></tr>
+    <tr><td>slang e idiomi</td><td>70</td><td class="worst">6,13</td><td>5,00</td><td class="best">3,39</td><td>4,60</td><td>TGemma</td></tr>
+    <tr><td>testo a schermo</td><td>25</td><td class="best">3,28</td><td>4,28</td><td>3,36</td><td>3,88</td><td>NLLB</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="col">
+<p>In un film vero slang e monologhi sono una minoranza, mentre i difetti di
+TranslateGemma — registro che scivola sul formale, verbosità, censura del
+turpiloquio — valgono su ogni blocco. La lunghezza dei blocchi non c'entra:
+divise le battute in tre fasce (sotto i 30, fra 30 e 50, oltre i 50 caratteri)
+NLLB vince in tutte e tre, e il margine <em>cresce</em> sulle battute lunghe.</p>
+</div>
+
+<div class="quotes">
+  <div class="quote">
+    <div><span class="tag">inglese</span><span>Wait. One of the assholes who killed Vanessa got away.</span></div>
+    <div><span class="tag">umano</span><span class="pro-line">Aspetta. Uno degli stronzi che ha ucciso Vanessa se l'è cavata.</span></div>
+    <div><span class="tag">NLLB</span><span>Un attimo. Uno degli stronzi che hanno ucciso Vanessa è scappato.</span></div>
+    <div><span class="tag">TGemma</span><span class="bad-line">Aspetta. Uno degli individui che hanno ucciso Vanessa è riuscito a scappare.</span></div>
+  </div>
+  <div class="quote">
+    <div><span class="tag">inglese</span><span>I'll burn your balls off!</span></div>
+    <div><span class="tag">umano</span><span class="pro-line">Vi brucio le palle!</span></div>
+    <div><span class="tag">NLLB</span><span>Ti brucio le palle!</span></div>
+    <div><span class="tag">TGemma</span><span class="bad-line">Te ne pentirai!</span></div>
+  </div>
+</div>
+</section>
+
+<section>
+<h3>Il bersaglio</h3>
+<h2>Il sottotitolo professionale è più corto dell'originale</h2>
+<div class="col">
+<p>È il numero che ha sorpreso di più, e si ripete identico sui due film: il
+traduttore umano rende l'italiano a <span class="num">0,94</span> volte i
+caratteri dell'inglese. Non allunga: <em>condensa</em>. Nessuna riga supera i 42
+caratteri, mai.</p>
+<p>Il righello qui sotto mostra la riga media di ogni motore contro il limite dei
+42 caratteri. La barra scura è il professionista.</p>
+</div>
+
+<div class="ruler" id="ruler-deadpool"></div>
+<div class="ruler" id="ruler-otto"></div>
+
+<div class="tablewrap">
+<table>
+  <caption>Aderenza al mestiere — 400 blocchi per film, tempi reali del video</caption>
+  <thead><tr><th>motore</th><th>Deadpool: ×EN</th><th>&gt;42 car</th><th>&gt;17 CPS</th><th>Otto: ×EN</th><th>&gt;42 car</th><th>&gt;17 CPS</th></tr></thead>
+  <tbody>
+    <tr class="pro"><td>professionista</td><td>0,94</td><td>0%</td><td>32%</td><td>0,94</td><td>0%</td><td>20%</td></tr>
+    <tr><td>NLLB fine-tuned</td><td>1,03</td><td>0%</td><td>42%</td><td>0,99</td><td>0%</td><td>26%</td></tr>
+    <tr><td>Aya Expanse 8B</td><td class="best">1,01</td><td>0%</td><td>41%</td><td class="best">0,97</td><td>1%</td><td>24%</td></tr>
+    <tr><td>TranslateGemma 12B</td><td class="worst">1,15</td><td class="worst">5%</td><td class="worst">51%</td><td class="worst">1,09</td><td>1%</td><td class="worst">34%</td></tr>
+  </tbody>
+</table>
+<p class="note">Aya è il motore più vicino al bersaglio di stile pur essendo il
+più debole nel merito: disciplina di forma e correttezza semantica sono assi
+indipendenti.</p>
+</div>
+</section>
+
+<section>
+<h3>L'ibrido</h3>
+<h2>Costruito, misurato, bocciato — due volte</h2>
+<div class="col">
+<p>L'idea era ragionevole: se ogni motore ha una categoria in cui è il migliore,
+si manda ogni blocco al motore giusto. Serve un arbitro che, blocco per blocco,
+dica quale scegliere. Il candidato era CometKiwi, che dà un voto a una traduzione
+senza bisogno di un riferimento umano.</p>
+<p><strong>Primo tentativo — scegliere il motore.</strong> CometKiwi indovina
+quale dei due sia migliore nel <span class="num">59%</span> dei casi. Poco più
+di una monetina: il guadagno finale restava sotto la soglia fissata in partenza.</p>
+<p><strong>Secondo tentativo — dirottare solo i blocchi peggiori.</strong> Più
+modesto e più promettente: si lascia fare tutto a NLLB e si rifà con
+TranslateGemma solo la coda peggiore. Misurato sul film, il risultato è netto e
+va nella direzione sbagliata.</p>
+</div>
+
+<div class="tablewrap">
+<table>
+  <caption>Dirottare a TranslateGemma i blocchi con punteggio QE più basso — Deadpool 2</caption>
+  <thead><tr><th>si dirotta</th><th>blocchi</th><th>MQM NLLB lì</th><th>MQM TGemma lì</th><th>preferenza</th><th>guadagno totale</th></tr></thead>
+  <tbody>
+    <tr><td>5%</td><td>20</td><td class="best">4,30</td><td class="worst">5,65</td><td>70% / 20%</td><td class="worst">−0,07</td></tr>
+    <tr><td>10%</td><td>40</td><td class="best">3,75</td><td class="worst">5,35</td><td>62% / 28%</td><td class="worst">−0,16</td></tr>
+    <tr><td>20%</td><td>80</td><td class="best">3,49</td><td class="worst">4,55</td><td>55% / 34%</td><td class="worst">−0,21</td></tr>
+    <tr><td>30%</td><td>120</td><td class="best">3,44</td><td class="worst">4,14</td><td>54% / 32%</td><td class="worst">−0,21</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="col">
+<p>Il motivo è istruttivo: un punteggio QE basso segnala un blocco
+<em>difficile</em>, non un blocco <em>da slang</em>. E sui blocchi difficili
+l'LLM sbaglia di più, non di meno. Per accendere l'ibrido servirebbe un
+rilevatore di slang — che era la domanda giusta fin dall'inizio, e a cui non ho
+ancora una risposta che funzioni.</p>
+</div>
+</section>
+
+<section>
+<h3>Il guadagno vero</h3>
+<h2>TranslateGemma accetta le regole del sottotitolo</h2>
+<div class="col">
+<p>TranslateGemma girava col prompt nativo del produttore — «traduci questo
+testo» — e non vedeva mai le regole di condensazione né la tabella del
+turpiloquio che su Aya avevano portato le volgarità da 6 a 26 su 30. Il suo chat
+template è rigido: costruisce da sé l'istruzione di traduzione dai codici lingua
+e non prevede un ruolo di sistema. L'unico varco è il campo del testo.</p>
+<p>Provate tre vie su 40 blocchi di Deadpool 2, metà con turpiloquio.</p>
+</div>
+
+<div class="tablewrap">
+<table>
+  <caption>Tre modi di dare le regole a TranslateGemma</caption>
+  <thead><tr><th>variante</th><th>caratteri</th><th>× EN</th><th>turpiloquio</th><th>tempo</th></tr></thead>
+  <tbody>
+    <tr class="pro"><td>professionista</td><td>46,6</td><td>0,87</td><td>15/20</td><td>—</td></tr>
+    <tr><td>A · prompt nativo</td><td>61,8</td><td class="worst">1,15</td><td class="worst">3/20</td><td>31s</td></tr>
+    <tr class="win"><td>B · nativo + regole</td><td>58,8</td><td>1,10</td><td class="best">14/20</td><td>33s</td></tr>
+    <tr><td>C · template scavalcato</td><td>57,8</td><td>1,08</td><td>18/20</td><td>36s</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="quotes">
+  <div class="quote">
+    <div><span class="tag">inglese</span><span>I don't bargain, pumpkin fucker.</span></div>
+    <div><span class="tag">umano</span><span class="pro-line">io non tratto, zuccone del cazzo.</span></div>
+    <div><span class="tag">A nativo</span><span class="bad-line">Non contrattare, idiota.</span></div>
+    <div><span class="tag">B regole</span><span>Non scendo a compromessi, stronzo.</span></div>
+  </div>
+</div>
+
+<div class="col">
+<p>La variante C conserva più volgarità di tutti, professionista compreso, ma
+uscendo dalla forma su cui il modello è addestrato produce parole inesistenti
+(«indemaniato») e concordanze sbagliate: guadagna sul registro e perde sulla
+lingua. <strong>Scelta la B</strong>, ed è ora una proprietà del modello nel
+registro (<code>mt_prefix</code> in <code>MODEL_SPECS</code>), non una modifica
+sparsa nel codice.</p>
+<p>La rimisura completa sui 400 blocchi del film separa nettamente i due difetti:
+uno si chiude del tutto, l'altro non si muove.</p>
+</div>
+
+<div class="tablewrap">
+<table>
+  <caption>Deadpool 2, 400 blocchi — le regole cambiano il registro, non la lunghezza</caption>
+  <thead><tr><th>motore</th><th>× EN</th><th>&gt;42 car</th><th>&gt;17 CPS</th><th>turpiloquio</th><th>tempo</th></tr></thead>
+  <tbody>
+    <tr class="pro"><td>professionista</td><td>0,94</td><td>0%</td><td>32%</td><td>25/33</td><td>—</td></tr>
+    <tr><td>NLLB fine-tuned</td><td>1,03</td><td>0%</td><td>42%</td><td>24/33</td><td>1,2 min</td></tr>
+    <tr><td>TranslateGemma nativo</td><td class="worst">1,15</td><td>5%</td><td>51%</td><td class="worst">4/33</td><td>—</td></tr>
+    <tr class="win"><td>TranslateGemma + regole</td><td class="worst">1,12</td><td>4%</td><td>50%</td><td class="best">25/33</td><td>37,3 min</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="quotes">
+  <div class="quote">
+    <div><span class="tag">inglese</span><span>It's a little hard to hear you with that pity dick in your mouth.</span></div>
+    <div><span class="tag">umano</span><span class="pro-line">Non ti sento con quel cazzetto di commiserazione in bocca.</span></div>
+    <div><span class="tag">TG nativo</span><span class="bad-line">È un po' difficile sentirla con quella gomma in bocca.</span></div>
+    <div><span class="tag">TG + regole</span><span>È un po' difficile sentirti con quel cazzo in bocca.</span></div>
+  </div>
+</div>
+
+<div class="col">
+<p>Il turpiloquio passa da <span class="num">4/33</span> a
+<span class="num">25/33</span>, esattamente il conto del professionista, e con
+esso spariscono errori di senso veri: «quella gomma in bocca» era un controsenso,
+non una scelta di registro. Ma la verbosità non si muove — da
+<span class="num">1,15</span> a <span class="num">1,12</span>, contro lo
+<span class="num">0,94</span> del bersaglio — e resta il difetto peggiore dei
+tre motori.</p>
+<p>Il giudizio GEMBA non si è potuto rifare su questa versione: il credito API si
+è esaurito. Quello che si sa è che il divario sul film veniva per gran parte dai
+blocchi volgari, dove TranslateGemma segnava <span class="num">5,71</span> contro
+<span class="num">2,26</span> di NLLB; sui blocchi senza turpiloquio — l'88% del
+film — NLLB vinceva comunque, <span class="num">2,15</span> contro
+<span class="num">2,43</span>, e le regole lì cambiano poco. <strong>Il verdetto
+non si sposta, ma il motore è migliorato dove era peggiore</strong>, e ci vuole
+un giudizio nuovo per dire di quanto.</p>
+</div>
+</section>
+
+<section>
+<h3>La trappola</h3>
+<h2>Il metro automatico mette il traduttore umano ultimo</h2>
+<div class="col">
+<p>CometKiwi è il metro che avrebbe dovuto arbitrare l'ibrido. Applicato anche al
+sottotitolo professionale, lo classifica sotto <em>tutti</em> i motori, su
+entrambi i film.</p>
+</div>
+
+<div class="tablewrap">
+<table>
+  <caption>CometKiwi — punteggio medio, 400 blocchi per film</caption>
+  <thead><tr><th></th><th>Deadpool 2</th><th>A Man Called Otto</th></tr></thead>
+  <tbody>
+    <tr class="pro"><td>traduttore professionista</td><td class="worst">0,7278</td><td class="worst">0,7367</td></tr>
+    <tr><td>NLLB fine-tuned</td><td class="best">0,8062</td><td class="best">0,8219</td></tr>
+    <tr><td>Aya Expanse 8B</td><td>0,7908</td><td>0,8017</td></tr>
+    <tr><td>TranslateGemma 12B</td><td>0,7944</td><td>0,8213</td></tr>
+    <tr><td>TranslateGemma + regole</td><td class="worst">0,7790</td><td>—</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="col">
+<p>L'ultima riga chiude il ragionamento: la modifica che ha <em>dimostrabilmente</em>
+migliorato l'output — registro ristabilito, controsensi corretti — fa
+<strong>scendere</strong> il punteggio automatico, avvicinandolo a quello del
+professionista. La quality estimation premia la traduzione più letterale e
+penalizza la condensazione, che è esattamente il mestiere del sottotitolatore. È
+lo stesso inganno del chrF, che a luglio aveva bocciato TranslateGemma-4B per i
+motivi sbagliati. <strong>Nessun metro automatico può classificare i motori su
+questo compito</strong>: servono il riferimento umano e un giudice che ragioni
+per categorie di errore.</p>
+</div>
+</section>
+
+<section>
+<h3>Quello che si può costruire</h3>
+<h2>Revisione mirata: leggere il 10% e trovare un errore su due</h2>
+<div class="col">
+<p>Bocciato come arbitro, CometKiwi resta buono come <em>allarme</em>: sono due
+compiti diversi. Per instradare bisogna indovinare quale motore sia migliore;
+per allertare basta riconoscere che il blocco è venuto male, ed è il compito su
+cui la quality estimation è nata.</p>
+<p>Misurato su Deadpool 2, dove 105 blocchi su 400 hanno almeno un errore grave.</p>
+</div>
+
+<div class="tablewrap">
+<table>
+  <caption>Ordinando i blocchi dal punteggio QE più basso</caption>
+  <thead><tr><th>si rivede</th><th>blocchi</th><th>errori gravi trovati</th><th>di cui davvero difettosi</th><th>a caso</th><th>guadagno</th></tr></thead>
+  <tbody>
+    <tr><td>5%</td><td>20</td><td>10%</td><td class="best">55%</td><td>5%</td><td>2,1×</td></tr>
+    <tr class="win"><td>10%</td><td>40</td><td>19%</td><td class="best">50%</td><td>10%</td><td>1,9×</td></tr>
+    <tr><td>20%</td><td>80</td><td>35%</td><td>46%</td><td>20%</td><td>1,8×</td></tr>
+    <tr><td>30%</td><td>120</td><td>52%</td><td>46%</td><td>30%</td><td>1,7×</td></tr>
+  </tbody>
+</table>
+<p class="note">Sui soli errori critici il 5% peggiore ne intercetta il 30%: sei
+volte il caso.</p>
+</div>
+
+<div class="col">
+<p>Non è una rete che prende tutto — quattro errori gravi su cinque restano
+fuori — ma trasforma «rileggere il film» in «rileggere quaranta battute, di cui
+una su due è davvero da correggere».</p>
+</div>
+</section>
+
+<section>
+<h3>La scheda video</h3>
+<h2>Il tetto al batch è l'unico freno che funziona su Windows</h2>
+<div class="col">
+<p>Su WDDM la scheda non va mai in errore: quando la memoria dedicata finisce, il
+driver continua ad allocare nella RAM di sistema. Nessun messaggio, solo un
+rallentamento di quattro o cinque volte. TranslateGemma-12B in NF4 mette
+<span class="num">8.401 MiB</span> di soli pesi su una scheda da
+<span class="num">12.288</span>: restano meno di 4 GB per tutto il resto.</p>
+</div>
+
+<div class="tablewrap">
+<table>
+  <caption>TranslateGemma 12B — pesi 8.401 MiB — percorso a conversazioni parallele</caption>
+  <thead><tr><th>batch</th><th>picco</th><th>% scheda</th><th>sconfina</th><th>per blocco</th></tr></thead>
+  <tbody>
+    <tr><td>4</td><td>8.877 MiB</td><td>72%</td><td>no</td><td>8,88s</td></tr>
+    <tr><td>8</td><td>9.449 MiB</td><td>77%</td><td>no</td><td>4,54s</td></tr>
+    <tr class="win"><td>12</td><td>10.133 MiB</td><td>82%</td><td>no</td><td>3,20s</td></tr>
+    <tr><td>16</td><td>10.817 MiB</td><td>88%</td><td>no</td><td>2,54s</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="tablewrap">
+<table>
+  <caption>Aya Expanse 8B — pesi 6.241 MiB — percorso a prompt unico</caption>
+  <thead><tr><th>batch</th><th>picco</th><th>% scheda</th><th>sconfina</th><th>per blocco</th></tr></thead>
+  <tbody>
+    <tr><td>8</td><td>7.905 MiB</td><td>64%</td><td>no</td><td>2,54s</td></tr>
+    <tr class="win"><td>12</td><td>9.200 MiB</td><td>75%</td><td>no</td><td>2,48s</td></tr>
+    <tr><td>16</td><td>10.512 MiB</td><td>86%</td><td>no</td><td>2,45s</td></tr>
+    <tr><td>20</td><td class="worst">11.874 MiB</td><td class="worst">97%</td><td class="worst">66 MiB</td><td class="worst">2,70s</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="col">
+<p>L'ultima riga è la firma dello sconfinamento: nessun errore, solo il tempo per
+blocco che <em>risale</em> dopo essere sceso. È l'unico sintomo che WDDM
+concede, ed è il motivo per cui un tetto va scelto su una misura e non a
+intuito.</p>
+<p>I due motori si comportano in modo opposto, e per una ragione strutturale.
+TranslateGemma manda una conversazione per battuta e le esegue in parallelo: da
+4 a 16 il tempo per blocco scende di <strong>tre volte e mezzo</strong>. Aya
+mette tutti i blocchi in un prompt solo e ne decodifica una risposta lunga: da 8
+a 16 guadagna il <strong>3,5%</strong> spendendo 2,6 GB. Stesso parametro,
+economia rovesciata — ed è esattamente quello che un tetto unico per tutti i
+modelli non può catturare.</p>
+<ul>
+  <li>I <strong>segmenti espandibili</strong> dell'allocatore PyTorch, la
+  soluzione da manuale alla frammentazione, <strong>non esistono su
+  Windows</strong>: verificato, PyTorch li ignora con un avviso. Restano
+  attivi per il ramo Docker headless, che gira su Linux.</li>
+  <li><strong>Tetto per modello</strong> nel registro
+  (<code>max_batch</code>): 12 per entrambi, per ragioni opposte — a
+  TranslateGemma serve per andare veloce, ad Aya per non sprecare memoria che
+  non le rende nulla.</li>
+  <li>Il traduttore LLM usa ora lo <strong>stesso gestore adattivo</strong> già
+  in servizio sul ramo NLLB dalla v1.9.5, che scende da solo sopra il 90% di
+  occupazione, invece di un batch fisso. Prova di regressione superata: 60
+  blocchi, 5 batch, zero retry, zero ripieghi.</li>
+</ul>
+</div>
+</section>
+
+<hr class="rule">
+
+<section>
+<h3>Se si riprende</h3>
+<div class="col">
+<ul>
+  <li><strong>Un quarto giro di fine-tuning su NLLB.</strong> È il motore che
+  vince e l'infrastruttura esiste. La sua unica categoria davvero debole è slang
+  e idiomi (MQM 6,13, la peggiore di tutte le caselle della tabella): un set di
+  addestramento mirato lì attacca il difetto nel punto esatto.</li>
+  <li><strong>Il rilevatore di slang</strong> resta il pezzo mancante di
+  qualunque ibrido. Senza, non c'è innesco.</li>
+  <li><strong>La revisione mirata</strong> è pronta per essere costruita: il
+  segnale è misurato, il modello gira anche su CPU.</li>
+</ul>
+</div>
+</section>
+
+<footer>
+Banco: <code>mt_eval/</code> — 300 segmenti sintetici stratificati, 400 blocchi
+per film da Deadpool 2 (2018) e A Man Called Otto (2022), allineati ai
+sottotitoli professionali con corrispondenza temporale bidirezionale.
+Giudice GEMBA-MQM su GPT-4o, ordine randomizzato e anonimizzato.
+Quality estimation: <code>Unbabel/wmt22-cometkiwi-da</code>, in
+<code>venv_comet</code>, gira anche su CPU.<br>
+Il credito API è esaurito su entrambi i fornitori: il confronto NLLB / Aya sul
+film si è fermato a 229 segmenti su 400 e la versione con le regole non è stata
+giudicata. Tutte le misure deterministiche — lunghezza, righe, reading speed,
+turpiloquio, quality estimation — sono complete.
+</footer>
+
+</div>
+
+<script>
+(function () {
+  // Il righello è a 46 caratteri per lasciare respiro oltre il limite di 42:
+  // le barre che sforano devono vedersi sforare.
+  var SCALE = 46, LIMIT = 42;
+  var data = {
+    "ruler-deadpool": {
+      titolo: "Deadpool 2 — caratteri per blocco (originale inglese: 31,5)",
+      righe: [
+        ["professionista", 29.7, "pro"],
+        ["Aya Expanse 8B", 31.9, ""],
+        ["NLLB fine-tuned", 32.3, ""],
+        ["TGemma + regole", 35.2, "over"],
+        ["TranslateGemma", 36.2, "over"]
+      ]
+    },
+    "ruler-otto": {
+      titolo: "A Man Called Otto — caratteri per blocco (originale inglese: 30,0)",
+      righe: [
+        ["professionista", 28.2, "pro"],
+        ["Aya Expanse 8B", 29.2, ""],
+        ["NLLB fine-tuned", 29.8, ""],
+        ["TranslateGemma", 32.7, "over"]
+      ]
+    }
+  };
+
+  Object.keys(data).forEach(function (id) {
+    var host = document.getElementById(id);
+    if (!host) return;
+    var d = data[id];
+
+    var cap = document.createElement("p");
+    cap.className = "note";
+    cap.style.marginBottom = ".5rem";
+    cap.textContent = d.titolo;
+    host.appendChild(cap);
+
+    // La riga delle tacche riusa la stessa griglia delle barre: allinearla a
+    // mano con un margine si scollerebbe al primo cambio di colonna.
+    var scale = document.createElement("div");
+    scale.className = "ruler-row ruler-scale";
+    scale.appendChild(document.createElement("div"));
+    var ticks = document.createElement("div");
+    ticks.className = "ticks";
+    [0, 10, 20, 30, 40, LIMIT].forEach(function (t) {
+      var s = document.createElement("span");
+      s.style.left = (t / SCALE * 100) + "%";
+      s.textContent = String(t);
+      if (t === LIMIT) s.style.color = "var(--over)";
+      ticks.appendChild(s);
+    });
+    scale.appendChild(ticks);
+    scale.appendChild(document.createElement("div"));
+    host.appendChild(scale);
+
+    d.righe.forEach(function (r) {
+      var row = document.createElement("div");
+      row.className = "ruler-row";
+
+      var name = document.createElement("div");
+      name.className = "name";
+      name.textContent = r[0];
+
+      var track = document.createElement("div");
+      track.className = "track";
+      var bar = document.createElement("div");
+      bar.className = "bar " + r[2];
+      bar.style.width = (r[1] / SCALE * 100) + "%";
+      track.appendChild(bar);
+      var lim = document.createElement("div");
+      lim.className = "limit";
+      lim.style.left = (LIMIT / SCALE * 100) + "%";
+      track.appendChild(lim);
+
+      var val = document.createElement("div");
+      val.className = "val";
+      val.textContent = r[1].toFixed(1).replace(".", ",");
+
+      row.appendChild(name);
+      row.appendChild(track);
+      row.appendChild(val);
+      host.appendChild(row);
+    });
+  });
+})();
+</script>
