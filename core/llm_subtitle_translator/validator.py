@@ -59,7 +59,7 @@ _WORD_RE = re.compile(r"[a-zàèéìòóùA-ZÀÈÉÌÒÓÙ']+")
 # volgarità vanno rese con severità equivalente.
 #
 # Serve un controllo esplicito perché i modelli chat allineati (misurato su
-# Aya Expanse 8B) attenuano sistematicamente le parolacce anche con la regola
+# i modelli allineati) attenuano sistematicamente le parolacce anche con la regola
 # scritta nel system prompt: 6 rese corrette su 30, contro 26 di NLLB
 # fine-tuned e 17 della traduzione umana. Rafforzare il prompt con esempi
 # few-shot porta a 13/30 — meglio, ma non basta. Questo controllo intercetta

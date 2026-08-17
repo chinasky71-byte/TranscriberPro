@@ -9,7 +9,7 @@ Il processo GUI non deve MAI importare torch/pyannote/transformers
 che muore alla fine restituendo tutto all'OS:
 
     python -m core.env_check_cli diarization-test
-    python -m core.env_check_cli aya-download
+    python -m core.env_check_cli llm-download
 
 Stdout: righe di progresso leggibili, riemesse dalla GUI nella label.
 Exit code: 0 = ok, 1 = errore, 2 = argomenti invalidi.
@@ -89,18 +89,24 @@ def diarization_test() -> int:
         return 1
 
 
-def aya_download() -> int:
-    """Scarica/carica Aya-23-8B (la cache su disco resta, la RAM muore col processo)."""
+def llm_download() -> int:
+    """Scarica/carica il modello LLM di traduzione in uso.
+
+    Gira in sottoprocesso apposta: la cache su disco resta, mentre la memoria
+    occupata dal caricamento muore col processo invece di restare appesa alla
+    GUI. Quale modello venga scaricato lo decide `llm_translator_model`.
+    """
     from utils.config import get_config
 
-    _emit("Avvio caricamento modello Aya-23-8B...")
+    chiave = get_config().get('llm_translator_model') or 'translategemma-12b'
+    _emit(f"Avvio caricamento modello {chiave}...")
     if not get_config().is_huggingface_token_set():
         _emit("Token HuggingFace non rilevato. Tentativo anonimo...")
     _emit("Download in corso (può richiedere alcuni minuti)...")
 
     try:
         from core.translator import get_translator
-        translator = get_translator(model_type='aya')
+        translator = get_translator(model_type='llm')
         if translator is not None:
             _emit("Modello caricato in memoria.")
             return 0
@@ -116,12 +122,15 @@ def aya_download() -> int:
 
 
 def main(argv: list) -> int:
-    if len(argv) < 2 or argv[1] not in ('diarization-test', 'aya-download'):
-        _emit("Uso: python -m core.env_check_cli diarization-test|aya-download")
+    # 'aya-download' resta accettato: se una GUI vecchia resta aperta durante
+    # l'aggiornamento, il pulsante continua a funzionare.
+    if len(argv) < 2 or argv[1] not in ('diarization-test', 'llm-download',
+                                        'aya-download'):
+        _emit("Uso: python -m core.env_check_cli diarization-test|llm-download")
         return 2
     if argv[1] == 'diarization-test':
         return diarization_test()
-    return aya_download()
+    return llm_download()
 
 
 if __name__ == '__main__':

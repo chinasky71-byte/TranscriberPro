@@ -190,8 +190,8 @@ class TranslationModelDialog(QDialog):
         self.setLayout(main_layout)
 
         # Set selezione iniziale
-        if self.selected_model == 'aya':
-            self.aya_radio.setChecked(True)
+        if self.selected_model in ('llm', 'aya'):
+            self.llm_radio.setChecked(True)
         elif self.selected_model == 'claude':
             self.claude_radio.setChecked(True)
         elif self.selected_model == 'nllb_finetuned':
@@ -247,10 +247,10 @@ class TranslationModelDialog(QDialog):
         # Parametri NLLB (condivisi tra NLLB base e Fine-Tuned)
         scroll_layout.addWidget(self.create_nllb_params_section())
 
-        # Aya
-        aya_widget, self.aya_radio = self.create_model_section_aya()
-        scroll_layout.addWidget(aya_widget)
-        self.button_group.addButton(self.aya_radio)
+        # Traduttore LLM locale
+        llm_widget, self.llm_radio = self.create_model_section_llm()
+        scroll_layout.addWidget(llm_widget)
+        self.button_group.addButton(self.llm_radio)
 
         # Claude
         claude_widget, self.claude_radio = self.create_model_section_claude()
@@ -295,7 +295,7 @@ class TranslationModelDialog(QDialog):
         if not checked:
             return
         name = button.objectName()
-        valid = {'nllb', 'nllb_finetuned', 'aya', 'claude', 'opensubtitles', 'openai'}
+        valid = {'nllb', 'nllb_finetuned', 'llm', 'claude', 'opensubtitles', 'openai'}
         if name in valid:
             self.config.set_translation_model(name)
             self.selected_model = name
@@ -484,10 +484,16 @@ class TranslationModelDialog(QDialog):
             self.nllb_ft_status_label.setText(tr('tmd_not_configured'))
             self.nllb_ft_status_label.setStyleSheet("color: orange;")
 
-    def create_model_section_aya(self):
-        """Crea sezione Aya con download"""
+    def create_model_section_llm(self):
+        """Sezione del traduttore LLM locale, col relativo scaricamento.
+
+        Lo slot ospitava Aya, rimossa il 2026-08-18 dopo che aveva perso ogni
+        confronto su film reale e che il suo percorso si era rivelato capace di
+        disallineare battute e tempi. Ora ospita TranslateGemma-12B; quale
+        modello ci sia dentro resta una chiave di configurazione.
+        """
         radio = QRadioButton()
-        radio.setObjectName("aya")
+        radio.setObjectName("llm")
 
         container = QFrame()
         container.setFrameShape(QFrame.Shape.Box)
@@ -495,7 +501,7 @@ class TranslationModelDialog(QDialog):
 
         layout = QVBoxLayout(container)
 
-        title_label = QLabel("Aya-23-8B")
+        title_label = QLabel("TranslateGemma 12B")
         title_label.setStyleSheet("font-size: 16px; font-weight: bold;")
         layout.addWidget(title_label)
 
@@ -531,14 +537,14 @@ class TranslationModelDialog(QDialog):
         layout.addWidget(token_group)
         
         # Download button
-        download_btn = QPushButton(tr('download_aya'))
-        download_btn.clicked.connect(self.start_aya_download)
+        download_btn = QPushButton(tr('download_llm_model'))
+        download_btn.clicked.connect(self.start_llm_download)
         layout.addWidget(download_btn)
         
         # Progress
-        self.aya_progress = QProgressBar()
-        self.aya_progress.setVisible(False)
-        layout.addWidget(self.aya_progress)
+        self.llm_progress = QProgressBar()
+        self.llm_progress.setVisible(False)
+        layout.addWidget(self.llm_progress)
         
         # Wrapper
         main_layout = QHBoxLayout()
@@ -818,8 +824,8 @@ class TranslationModelDialog(QDialog):
             self.claude_status_label.setText(tr('tmd_not_configured'))
             self.claude_status_label.setStyleSheet("color: orange;")
     
-    def start_aya_download(self):
-        """Avvia download Aya"""
+    def start_llm_download(self):
+        """Avvia lo scaricamento del modello LLM in uso."""
         if not self.config.is_huggingface_token_set():
             QMessageBox.warning(
                 self, 
@@ -831,36 +837,34 @@ class TranslationModelDialog(QDialog):
         if self.download_worker is not None and self.download_worker.isRunning():
             return  # download già in corso
 
-        self.aya_progress.setVisible(True)
-        self.aya_progress.setRange(0, 0)  # Indeterminate
+        self.llm_progress.setVisible(True)
+        self.llm_progress.setRange(0, 0)  # Indeterminate
 
-        self._aya_last_line = ''
-        self.download_worker = EnvCliWorker('aya-download')
-        self.download_worker.line_out.connect(self._on_aya_line)
+        self._llm_last_line = ''
+        self.download_worker = EnvCliWorker('llm-download')
+        self.download_worker.line_out.connect(self._on_llm_line)
         self.download_worker.finished_code.connect(self.on_download_complete)
         self.download_worker.start()
 
-    def _on_aya_line(self, line: str):
-        self._aya_last_line = line
+    def _on_llm_line(self, line: str):
+        self._llm_last_line = line
 
     def on_download_complete(self, exit_code: int):
         """Gestisce completamento download (subprocess terminato)"""
-        self.aya_progress.setVisible(False)
+        self.llm_progress.setVisible(False)
 
         if exit_code == 0:
-            self.config.settings['aya_model_download_status'] = True
-            self.config.save()
             QMessageBox.information(self, "Successo", "[OK] Download completato!")
         else:
-            detail = self._aya_last_line or "Caricamento fallito"
+            detail = self._llm_last_line or "Caricamento fallito"
             QMessageBox.critical(self, "Errore", f"[X] {detail}")
     
     def get_selected_model(self) -> str:
         """Restituisce il modello selezionato"""
         if self.claude_radio.isChecked():
             return 'claude'
-        elif self.aya_radio.isChecked():
-            return 'aya'
+        elif self.llm_radio.isChecked():
+            return 'llm'
         elif self.nllb_ft_radio.isChecked():
             return 'nllb_finetuned'
         elif self.os_radio.isChecked():
@@ -935,8 +939,8 @@ class TranslationModelDialog(QDialog):
                 else:
                     QMessageBox.warning(self, "Attenzione", "OpenAI non funzionerà senza API key.")
 
-        elif self.aya_radio.isChecked():
-            selected_model = 'aya'
+        elif self.llm_radio.isChecked():
+            selected_model = 'llm'
         else:
             selected_model = 'nllb'
 
@@ -946,7 +950,7 @@ class TranslationModelDialog(QDialog):
         display_names = {
             'nllb': 'NLLB-200',
             'nllb_finetuned': 'NLLB-200 Fine-Tuned (Plex)',
-            'aya': 'Aya-23-8B',
+            'llm': 'TranslateGemma 12B',
             'claude': 'Claude API',
             'opensubtitles': 'OpenSubtitles AI',
             'openai': 'OpenAI GPT',
@@ -1071,7 +1075,7 @@ class TranslationModelDialog(QDialog):
             QMessageBox.warning(self, "Token non valido", error)
             return
         self.config.set_huggingface_token(token)
-        # Sincronizza anche il campo token nella sezione Aya
+        # Sincronizza anche il campo token nella sezione del traduttore LLM
         if hasattr(self, 'hf_token_input'):
             self.hf_token_input.setText(token)
         self._update_diarization_token_status()
