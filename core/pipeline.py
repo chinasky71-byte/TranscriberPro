@@ -740,21 +740,33 @@ class ProcessingPipeline:
                 selected_model = self.config.get_translation_model()
                 self._log(f"📋 Modello di traduzione selezionato: {selected_model.upper()}")
 
+                # Contesto dell'opera per il traduttore: titolo e trama sono
+                # già in self.metadata e aiutano soprattutto sui nomi propri e
+                # sul registro. I motori che non lo usano lo ignorano.
+                translation_context = None
+                if self.metadata:
+                    _bits = [self.metadata.get('title') or self.metadata.get('name'),
+                             self.metadata.get('overview')]
+                    translation_context = ". ".join(
+                        str(b).strip() for b in _bits if b) or None
+
                 # Usa la factory intelligente passando la scelta esplicita del modello
-                self._translator = get_translator(model_type=selected_model)
+                self._translator = get_translator(model_type=selected_model,
+                                                  context=translation_context)
                 self._translator.set_log_callback(self._log_callback)
 
                 translated_srt_path = self.file_handler.get_temp_path(
-                    self.video_path, 
+                    self.video_path,
                     f"translated_{target_language}.srt"
                 )
-                
+
                 # âœ… FIX v3.7/v3.9: Parametri corretti src_lang e tgt_lang
                 if self._translator.translate_file(
                     input_path=str(subtitle_path),
                     output_path=str(translated_srt_path),
                     src_lang=source_language_639_1,  # âœ… Corretto
-                    tgt_lang=target_language_639_1   # âœ… Corretto
+                    tgt_lang=target_language_639_1,  # âœ… Corretto
+                    context=translation_context
                 ):
                     subtitle_path = translated_srt_path
                     final_language_639_1 = target_language_639_1
