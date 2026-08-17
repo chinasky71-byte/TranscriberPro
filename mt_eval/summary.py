@@ -127,10 +127,14 @@ def main():
     for f, sfida in (
             ("gemba_fnllb_vs_ftg.jsonl", "Deadpool: NLLB vs TGemma"),
             ("gemba_fnllb_vs_ftgr.jsonl", "Deadpool: NLLB vs TGemma+regole"),
-            ("gemba_ftg_vs_ftgr.jsonl", "Deadpool: TGemma vs TGemma+regole"),
+            ("gemba_fnllb_vs_ftgb.jsonl", "Deadpool: NLLB vs TGemma+budget"),
             ("gemba_fnllb_vs_faya.jsonl", "Deadpool: NLLB vs Aya"),
             ("gemba_onllb_vs_otg.jsonl", "Otto: NLLB vs TGemma"),
-            ("gemba_onllb_vs_oaya.jsonl", "Otto: NLLB vs Aya")):
+            ("gemba_onllb_vs_otgb.jsonl", "Otto: NLLB vs TGemma+budget"),
+            ("gemba_onllb_vs_oaya.jsonl", "Otto: NLLB vs Aya"),
+            ("gemba_ftg_vs_ftgr.jsonl", "[testa a testa] TGemma vs +regole"),
+            ("gemba_ftgr_vs_ftgb.jsonl",
+             "[testa a testa] +regole vs +budget")):
         rows = load(f)
         if not rows:
             continue
