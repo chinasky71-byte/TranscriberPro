@@ -232,7 +232,7 @@ class BaseTranslator(ABC):
         Returns:
             Stringa contenuto SRT formattato
         """
-        srt_content = []
+        restored_texts: List[str] = []
         for index, start, end, text in subtitles:
             if dash_flags and index in dash_flags:
                 lines = text.split('\n')
@@ -242,12 +242,49 @@ class BaseTranslator(ABC):
                     has_dash = flags[i] if i < len(flags) else False
                     restored.append(f"- {line}" if has_dash and line.strip() else line)
                 text = '\n'.join(restored)
+            restored_texts.append(text)
+
+        restored_texts = self._polish(restored_texts)
+
+        srt_content = []
+        for (index, start, end, _), text in zip(subtitles, restored_texts):
             srt_content.append(f"{index}")
             srt_content.append(f"{start} --> {end}")
             srt_content.append(text)
             srt_content.append("")
 
         return "\n".join(srt_content)
+
+    # Le convenzioni tipografiche del sottotitolo italiano si applicano
+    # all'uscita di QUALUNQUE motore: disattivabile per classe se un motore
+    # dovesse produrre un formato che non va toccato.
+    POSTPROCESS_OUTPUT = True
+
+    def _polish(self, texts: List[str]) -> List[str]:
+        """Rifinitura tipografica dell'SRT tradotto.
+
+        Colma un buco reale della pipeline: `SubtitleFormatter` viene invocato
+        allo STEP 4.5, cioè PRIMA della traduzione, e dopo non ricontrolla
+        nessuno. L'italiano è mediamente il 15-20% più lungo dell'inglese e su
+        300 blocchi misurati il 59% delle righe usciva oltre i 42 caratteri:
+        applicando queste regole scende sotto il 10%.
+
+        Sono tutte deterministiche — ellissi, punteggiatura doppia, marcatori
+        di continuazione tra blocchi, divisione delle righe a piramide — e non
+        dipendono dalla lingua di partenza né dal motore.
+        """
+        if not self.POSTPROCESS_OUTPUT or not texts:
+            return texts
+        try:
+            from core.llm_subtitle_translator import postprocess
+            polished = postprocess.process(
+                {i: t for i, t in enumerate(texts)},
+                order=list(range(len(texts))),
+            )
+            return [polished.get(i, t) for i, t in enumerate(texts)]
+        except Exception as exc:
+            logger.warning(f"Rifinitura tipografica saltata: {exc}")
+            return texts
 
     def _mask_text(self, text: str, model_prefix: str) -> Tuple[str, Dict[str, str], bool]:
         """
@@ -1019,125 +1056,26 @@ class NLLBTranslator(BaseTranslator):
 # AYA TRANSLATOR (NEW)
 # ============================================================================
 
-# Variabili globali singleton Aya
-_aya_model = None
-_aya_tokenizer = None
-_aya_lock = Lock()
-
-
-def _load_aya_model(model_name: str = "CohereForAI/aya-23-8B"):
-    """
-    Carica il modello e il tokenizer Aya una sola volta (thread-safe)
-    """
-    global _aya_model, _aya_tokenizer
-    
-    if _aya_model is None:
-        with _aya_lock:
-            if _aya_model is not None:
-                return
-
-            try:
-                # --- MODIFICA v5.2: Carica il token dalla config ---
-                token = None
-                if get_config:
-                    try:
-                        config = get_config()
-                        token = config.get_huggingface_token()
-                        if token:
-                            logger.info("  -> Token HuggingFace trovato. Autenticazione in corso...")
-                        else:
-                            logger.warning("  -> Token HuggingFace non trovato. Tentativo anonimo.")
-                    except Exception as e:
-                        logger.error(f"  -> Errore durante il caricamento del config: {e}")
-                else:
-                     logger.warning("  -> get_config non disponibile. Tentativo anonimo.")
-                # --- FINE MODIFICA ---
-                
-                logger.info(f"-> Caricamento modello Aya-23-8B: {model_name}...")
-                if _use_gpu:
-                    torch.cuda.empty_cache()
-                    torch.cuda.synchronize()
-
-                # Carica tokenizer
-                _aya_tokenizer = AutoTokenizer.from_pretrained(
-                    model_name,
-                    trust_remote_code=True,
-                    token=token  # <--- AGGIUNTO TOKEN
-                )
-                
-                logger.info("  -> Caricamento CausalLM (decoder-only)...")
-                
-                # Configurazione 8-bit ottimizzata per RTX 3060 (BitsAndBytesConfig)
-                quantization_config = BitsAndBytesConfig(
-                    load_in_8bit=True,
-                    llm_int8_threshold=6.0,
-                    llm_int8_has_fp16_weight=False,
-                    llm_int8_enable_fp32_cpu_offload=True
-                ) if _use_gpu else None
-                
-                # Gestione memoria: RTX 3060 12GB -> Riserva 10GB per modello, 2GB per overhead
-                max_memory = {0: "10GiB", "cpu": "16GiB"} if _use_gpu else None
-                
-                _aya_model = AutoModelForCausalLM.from_pretrained(
-                    model_name,
-                    quantization_config=quantization_config,
-                    device_map="auto" if _use_gpu else None,
-                    max_memory=max_memory,
-                    low_cpu_mem_usage=True,
-                    trust_remote_code=True,
-                    token=token  # <--- AGGIUNTO TOKEN
-                )
-                
-                # Imposta pad_token se mancante (necessario per batch)
-                if _aya_tokenizer.pad_token is None:
-                    _aya_tokenizer.pad_token = _aya_tokenizer.eos_token
-                    _aya_model.config.pad_token_id = _aya_tokenizer.eos_token_id
-                    logger.info("  -> pad_token configurato")
-                
-                if not _use_gpu and _aya_model:
-                    _aya_model.to(_device)
-                
-                _aya_model.eval()
-
-                logger.info(f"-> Modello Aya caricato su {_device} (8-bit)")
-            except Exception as e:
-                logger.critical(f"Ã¢ÂÅ’ Errore caricamento Aya-23-8B: {e}")
-                _aya_model = None
-                _aya_tokenizer = None
-                raise
-
-
-def _get_aya_translator_resources():
-    """Ritorna modello, tokenizer e device globali Aya"""
-    if _aya_model is None or _aya_tokenizer is None:
-        _load_aya_model()
-    return _aya_model, _aya_tokenizer, _device
-
-
-def _unload_aya_singleton():
-    """Scarica il modello Aya-23-8B dalla VRAM (thread-safe)."""
-    global _aya_model, _aya_tokenizer
-    with _aya_lock:
-        if _aya_model is not None:
-            del _aya_model
-            _aya_model = None
-        if _aya_tokenizer is not None:
-            del _aya_tokenizer
-            _aya_tokenizer = None
-    import gc
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
-        torch.cuda.empty_cache()
-    logger.info("-> Aya-23-8B scaricato dalla VRAM")
-
-
 class AyaTranslator(BaseTranslator):
+    """Traduttore LLM per sottotitoli — adapter sul package
+    `core.llm_subtitle_translator`.
+
+    Storicamente questa classe conteneva il proprio prompt e la propria
+    generazione. Quel percorso aveva quattro difetti che rendevano la misura
+    del modello priva di senso: prompt in raw-completion senza il chat template
+    su cui Aya è addestrato, `padding_side` di default che corrompeva ogni
+    batch maggiore di uno, `output.split('\\n')[0]` che scartava la seconda
+    battuta di ogni dialogo, e un fallback che scriveva la frase inglese
+    originale nell'SRT finale.
+
+    Ora la logica sta nel package, che è model-agnostic: quale modello occupi
+    lo slot è una chiave di configurazione. La facade pubblica —
+    `translate_file(input, output, src_lang, tgt_lang, context)` — non cambia,
+    quindi `core/pipeline.py` continua a funzionare senza sapere nulla di
+    tutto questo.
     """
-    Traduttore Aya-23-8B con BATCH SIZE ADATTIVO
-    """
-    
-    # Mappa codici lingua ISO 639-2/1 → codici Aya
+
+    # Mappa codici lingua ISO 639-2/1 → nomi usati nel prompt
     LANGUAGE_CODES = {
         'eng': 'en', 'en': 'en', 'english': 'en',
         'ita': 'it', 'it': 'it', 'italian': 'it',
@@ -1168,341 +1106,195 @@ class AyaTranslator(BaseTranslator):
         'tha': 'th', 'th': 'th', 'thai': 'th',
         'und': 'en',
     }
-    
-    # Parametri di generazione Aya (Decoder-only) - OTTIMIZZATI per evitare ripetizioni
-    TEMPERATURE = 0.3  # Ridotto per output piÃ¹ deterministico
-    TOP_P = 0.85  # Ridotto leggermente
-    MAX_NEW_TOKENS = 150  # Ridotto per sottotitoli (piÃ¹ appropriato)
-    REPETITION_PENALTY = 1.2  # Penalizza fortemente le ripetizioni
-    NO_REPEAT_NGRAM_SIZE = 3  # Impedisce ripetizione di trigrammi
-    
-    # Batch Size Adattivo (RTX 3060 12GB VRAM)
-    BATCH_SIZE_ADAPTIVE = 8  # Ridotto per maggiore stabilitÃ 
-    MIN_BATCH_SIZE = 1
-    MAX_BATCH_SIZE = 10
 
-    def __init__(self, log_callback: Optional[Callable] = None, context: Optional[str] = None):
-        """Inizializza il traduttore Aya usando l'istanza singleton"""
+    # Il modello è tenuto piccolo apposta: su 12 GB, con NF4, il batch è
+    # limitato dalla lunghezza della risposta, non dai pesi.
+    DEFAULT_BATCH_SIZE = 12
+
+    def __init__(self, log_callback: Optional[Callable] = None,
+                 context: Optional[str] = None):
         super().__init__(log_callback, context)
-        self.model, self.tokenizer, self.device = _get_aya_translator_resources()
+        # Import LAZY: importare il package a livello di modulo tirerebbe
+        # dentro torch/transformers all'avvio della GUI.
+        from core.llm_subtitle_translator.engine import (DEFAULT_MODEL_KEY,
+                                                         get_engine)
+        self._get_engine = get_engine
+        self._model_key = self._configured_model(DEFAULT_MODEL_KEY)
+        self._engine = None
 
-        from utils.adaptive_batch_manager import AdaptiveBatchSizeManager
-        cfg = get_config().get_adaptive_batch_config() if get_config else {}
-        # Cap a MAX_BATCH_SIZE (vedi commento in NLLBTranslator.__init__):
-        # stessa chiave config condivisa, stesso rischio di spillover WDDM.
-        self.batch_manager = AdaptiveBatchSizeManager(
-            device=self.device,
-            use_gpu=self.use_gpu,
-            initial_size=cfg.get('initial_size'),
-            min_size=cfg.get('min_size', self.MIN_BATCH_SIZE),
-            max_size=min(cfg.get('max_size', self.MAX_BATCH_SIZE), self.MAX_BATCH_SIZE),
-            warmup_batches=cfg.get('warmup_batches', 5),
-            high_threshold=cfg.get('high_threshold', 0.85),
-            low_threshold=cfg.get('low_threshold', 0.60),
-            log_callback=self.log,
-        )
-        self.current_batch_size = self.batch_manager.current_batch_size
+    @staticmethod
+    def _configured_model(default_key: str) -> str:
+        """Quale modello occupa lo slot. Chiave di config, così cambiarlo non
+        richiede toccare il codice."""
+        try:
+            if get_config:
+                return get_config().get('llm_translator_model',
+                                        default_key) or default_key
+        except Exception:
+            pass
+        return default_key
 
     def _aya_to_iso(self, lang_code: str) -> Optional[str]:
-        """Converte codice ISO 639-2/1 in codice Aya"""
-        result = self.LANGUAGE_CODES.get(lang_code.lower(), None)
+        result = self.LANGUAGE_CODES.get(lang_code.lower())
         if result is None:
-            logger.warning(f"Codice lingua '{lang_code}' non trovato in LANGUAGE_CODES")
+            logger.warning(f"Codice lingua '{lang_code}' non supportato")
         return result
-    
-    def _create_prompt(self, text: str, src_lang_code: str, tgt_lang_code: str) -> str:
-        """
-        Crea il prompt di traduzione in formato Aya con contesto opzionale.
-        Prompt ottimizzato per evitare allucinazioni e ripetizioni.
-        """
-        src_name = next((k for k, v in self.LANGUAGE_CODES.items() if v == src_lang_code and len(k) > 2), src_lang_code).capitalize()
-        tgt_name = next((k for k, v in self.LANGUAGE_CODES.items() if v == tgt_lang_code and len(k) > 2), tgt_lang_code).capitalize()
 
-        context_prefix = ""
-        if self._prepared_context:
-            context_prefix = self._prepared_context
-
-        # Prompt semplificato e diretto
-        prompt = (
-            f"{context_prefix}Translate from {src_name} to {tgt_name}:\n{text}\nTranslation:"
-        )
-        return prompt
-
-    def _run_translation(self, texts: List[str], src_lang: str, tgt_lang: str) -> List[str]:
-        """
-        Esegue traduzione batch con gestione OOM dinamica e anti-ripetizione (Aya - Decoder Only)
-        """
-        prompts = [self._create_prompt(text, src_lang, tgt_lang) for text in texts]
-        
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _srt_time_to_seconds(value: str) -> float:
+        """'00:01:23,456' → 83.456. Zero se il formato non è riconoscibile."""
         try:
-            inputs = self.tokenizer(
-                prompts,
-                return_tensors="pt",
-                padding=True,
-                truncation=True,
-                max_length=512  # Ridotto per stabilitÃ 
-            ).to(self.device)
-            
-            with torch.no_grad():
-                outputs = self.model.generate(
-                    **inputs,
-                    do_sample=True,  # Abilita sampling per temperatura
-                    temperature=self.TEMPERATURE,
-                    top_p=self.TOP_P,
-                    max_new_tokens=self.MAX_NEW_TOKENS,
-                    repetition_penalty=self.REPETITION_PENALTY,  # Anti-ripetizione
-                    no_repeat_ngram_size=self.NO_REPEAT_NGRAM_SIZE,  # Impedisce ripetizione trigrammi
-                    pad_token_id=self.tokenizer.pad_token_id or self.tokenizer.eos_token_id,
-                    eos_token_id=self.tokenizer.eos_token_id,
-                    early_stopping=True  # Ferma quando genera EOS
-                )
-            
-            # CORREZIONE: Estrai solo i token generati, non l'intero output (prompt + generazione)
-            input_length = inputs.input_ids.shape[1]
-            generated_tokens = outputs[:, input_length:]
-            
-            # Decodifica solo la parte generata
-            decoded_outputs = self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
-            
-            translations = []
-            for i, output in enumerate(decoded_outputs):
-                # Pulisci l'output: prendi solo la prima riga e rimuovi spazi
-                translation = output.split('\n')[0].strip()
-                
-                # CONTROLLI DI QUALITÃ€ per evitare allucinazioni
-                if not translation:
-                    # Se vuoto, usa originale
-                    logger.warning(f"Output vuoto per testo #{i+1}, uso originale")
-                    translations.append(texts[i])
-                    continue
-                
-                # Controlla ripetizioni eccessive (stesso pattern ripetuto >3 volte)
-                words = translation.split()
-                if len(words) > 10:
-                    # Controlla se ci sono pattern ripetitivi
-                    pattern_length = min(5, len(words) // 4)
-                    if pattern_length > 0:
-                        pattern = ' '.join(words[:pattern_length])
-                        pattern_count = translation.count(pattern)
-                        if pattern_count > 3:
-                            logger.warning(f"Rilevata ripetizione eccessiva per testo #{i+1} (pattern '{pattern}' ripetuto {pattern_count} volte), uso originale")
-                            translations.append(texts[i])
-                            continue
-                
-                # Controlla lunghezza anomala (>3x rispetto all'originale)
-                original_length = len(texts[i])
-                if len(translation) > original_length * 3 and original_length > 10:
-                    logger.warning(f"Output anomalo per testo #{i+1} (troppo lungo: {len(translation)} vs {original_length}), uso originale")
-                    translations.append(texts[i])
-                    continue
-                
-                # Se passa tutti i controlli, usa la traduzione
-                translations.append(translation)
+            hms, _, ms = value.strip().replace('.', ',').partition(',')
+            hours, minutes, seconds = (int(p) for p in hms.split(':'))
+            return hours * 3600 + minutes * 60 + seconds + int(ms or 0) / 1000
+        except Exception:
+            return 0.0
 
-            return translations
-            
-        except RuntimeError as e:
-            if "out of memory" in str(e).lower() or "CUDA" in str(e):
-                self.batch_manager.record_oom()
-                self.current_batch_size = self.batch_manager.current_batch_size
+    def _build_document_context(self):
+        """Il contesto TMDB che la pipeline già possiede.
 
-                if self.batch_manager.current_batch_size > self.MIN_BATCH_SIZE or self.current_batch_size > self.MIN_BATCH_SIZE:
-                    raise Exception("Out of Memory - Batch Size Ridotto")
-                else:
-                    self.log(f"   OPS! OOM critico con batch_size=1. Memoria GPU insufficiente.")
-                    raise Exception("Out of Memory - GPU Memoria Insufficiente")
-            else:
-                raise
-
-    def translate_file(self, input_path: Path, output_path: Path, 
-                      src_lang: str, tgt_lang: str, context: Optional[str] = None) -> bool:
+        `BaseTranslator` accetta un `context` testuale da sempre, ma nessun
+        ramo lo passava al modello: qui diventa l'intestazione del prompt, che
+        aiuta soprattutto sui nomi propri e sul registro.
         """
-        Traduce file SRT (Aya-23-8B)
-        """
-        # Converti stringhe a Path se necessario (per compatibilità con pipeline)
+        from core.llm_subtitle_translator.prompt_builder import DocumentContext
+        if not self.context or not str(self.context).strip():
+            return None
+        return DocumentContext(overview=str(self.context).strip())
+
+    def translate_file(self, input_path: Path, output_path: Path,
+                       src_lang: str, tgt_lang: str,
+                       context: Optional[str] = None) -> bool:
         if isinstance(input_path, str):
             input_path = Path(input_path)
         if isinstance(output_path, str):
             output_path = Path(output_path)
-        
         if context is not None:
             self.context = context
-            if context and context.strip():
-                truncated = context[:500].strip()
-                if len(context) > 500:
-                    truncated += "..."
-                self._prepared_context = f"[CONTEXT: {truncated}]\n"
-            else:
-                self._prepared_context = None
-        
+
+        from core.llm_subtitle_translator.prompt_builder import SubtitleUnit
+        from core.llm_subtitle_translator.translator import (
+            SubtitleLLMTranslator)
+
         try:
-            self.log(f" Traduzione Aya-23-8B (8-bit): {src_lang} → {tgt_lang}")
-            
-            src_aya = self._aya_to_iso(src_lang)
-            tgt_aya = self._aya_to_iso(tgt_lang)
-            
-            if not src_aya or not tgt_aya:
-                self.log(f" Codice lingua non supportato: {src_lang} o {tgt_lang}")
+            src = self._aya_to_iso(src_lang)
+            tgt = self._aya_to_iso(tgt_lang)
+            if not src or not tgt:
+                self.log(f" Codice lingua non supportato: {src_lang}/{tgt_lang}")
                 return False
-            
-            parsed_subtitles, dash_flags = self._extract_dash_flags(
-                self._parse_srt(input_path)
-            )
-            total = len(parsed_subtitles)
-            translated_subtitles = []
-            
+            if tgt != 'it':
+                self.log(f" Questo motore produce solo italiano, non '{tgt}'")
+                return False
+
+            subtitles = self._parse_srt(input_path)
+            total = len(subtitles)
             if total == 0:
                 self.log("  File SRT vuoto o parsing fallito")
-                with open(output_path, 'w', encoding='utf-8') as f:
-                    f.write("")
+                output_path.write_text("", encoding='utf-8')
                 return True
-            
-            self.log(f"  Trovati {total} sottotitoli da tradurre")
-            
-            self.batch_manager.reset()
-            self.current_batch_size = self.batch_manager.current_batch_size
 
-            i = 0
-            last_progress = -1
-            max_retries_per_batch = 3
+            self.log(f" Adattamento sottotitoli {src} → {tgt} "
+                     f"({self._model_key})")
+            self.log(f"  Trovati {total} sottotitoli")
 
-            while i < total:
-                self.current_batch_size = self.batch_manager.current_batch_size
-                batch_index = (i // self.current_batch_size) + 1
-                total_batches = (total + self.current_batch_size - 1) // self.current_batch_size
+            # I placeholder proteggono le note musicali dal modello.
+            units, placeholders, passthrough = [], {}, {}
+            for index, start, end, text in subtitles:
+                masked, holders, only_masked = self._mask_text(text, "LLM")
+                if only_masked or not masked.strip():
+                    passthrough[index] = text
+                    continue
+                placeholders[index] = holders
+                duration = max(
+                    0.0,
+                    self._srt_time_to_seconds(end)
+                    - self._srt_time_to_seconds(start))
+                units.append(SubtitleUnit(
+                    id=index, text=masked, duration=duration,
+                    is_dialogue='\n' in masked,
+                ))
 
-                batch = parsed_subtitles[i:i + self.batch_manager.get_batch_size()]
-                texts_to_translate: List[str] = []
-                current_batch_placeholders: List[Dict[str, str]] = []
-                skip_translation_flags: List[bool] = []
-                original_texts: List[str] = [item[3] for item in batch]
+            engine = self._get_engine(self._model_key, self.log_callback)
+            self._engine = engine
 
-                for text in original_texts:
-                    final_text, placeholders, only_masked = self._mask_text(text, "AYA")
+            translator = SubtitleLLMTranslator(
+                engine=engine,
+                context=self._build_document_context(),
+                fallback=None,   # il ripiego gira dopo, a modello scaricato
+                batch_size=self.DEFAULT_BATCH_SIZE,
+                log_callback=self.log,
+            )
+            translated = translator.translate(units)
 
-                    texts_to_translate.append(final_text)
-                    current_batch_placeholders.append(placeholders)
-                    skip_translation_flags.append(only_masked)
+            # Blocchi che il modello non è riuscito a produrre: si affidano al
+            # traduttore di base, ma solo DOPO aver liberato la VRAM — due
+            # modelli da 8B insieme non stanno in 12 GB.
+            unresolved = [u for u in units
+                          if not translated.get(u.id, "").strip()]
+            if unresolved:
+                self.log(f"  {len(unresolved)} blocchi al traduttore di "
+                         f"riserva")
+                self.cleanup()
+                for index, text in self._fallback_translate(
+                        unresolved, src_lang, tgt_lang).items():
+                    translated[index] = text
 
-                progress = int((i / total) * 100)
-                if progress != last_progress and not self.batch_manager.is_warming_up:
-                    self.log(f"   Progresso: {progress}% ({i}/{total})")
-                    last_progress = progress
+            output = []
+            for index, start, end, original in subtitles:
+                if index in passthrough:
+                    output.append((index, start, end, passthrough[index]))
+                    continue
+                text = translated.get(index, "").strip()
+                if not text:
+                    logger.warning(f"Blocco {index} non tradotto")
+                    text = original
+                elif placeholders.get(index):
+                    text = self._unmask_text(text, placeholders[index])
+                output.append((index, start, end, text))
 
-                retries = 0
-                batch_success = False
-                
-                while retries < max_retries_per_batch and not batch_success:
-                    try:
-                        texts_for_aya = [
-                            t for t, skip in zip(texts_to_translate, skip_translation_flags) 
-                            if not skip and t.strip()
-                        ]
-                        
-                        results = []
-                        if texts_for_aya:
-                            results = self._run_translation(texts_for_aya, src_aya, tgt_aya)
-
-                        translated_index = 0
-                        post_processed_results = []
-                        for j, (index, start, end, original_text) in enumerate(batch):
-                            final_text_to_translate = texts_to_translate[j]
-                            placeholders_map = current_batch_placeholders[j]
-
-                            if skip_translation_flags[j] or not final_text_to_translate.strip():
-                                post_processed_results.append(original_text)
-                            else:
-                                if translated_index < len(results):
-                                    translated_text = results[translated_index]
-                                    
-                                    if translated_text.strip().lower() == "# non lo so #":
-                                         self.log(f"   ATTENZIONE: Rilevata allucinazione per riga {index}. Mantengo originale.")
-                                         post_processed_results.append(original_text)
-                                    else:
-                                        final_text = self._unmask_text(translated_text, placeholders_map)
-                                        post_processed_results.append(final_text)
-                                        
-                                    translated_index += 1
-                                else:
-                                    self.log(f"   ATTENZIONE: Nessun output Aya per riga {index}. Mantengo originale.")
-                                    post_processed_results.append(original_text)
-                                    
-                        for j, (index, start, end, _) in enumerate(batch):
-                            translated_subtitles.append((index, start, end, post_processed_results[j]))
-                        
-                        batch_success = True
-                        self.batch_manager.record_success()
-                        i += len(batch)
-
-                    except Exception as e:
-                        retries += 1
-
-                        if 'Out of Memory - Batch Size Ridotto' in str(e):
-                            self.log(f"   Retry #{retries}/{max_retries_per_batch} con batch size ridotto...")
-                            self.current_batch_size = self.batch_manager.current_batch_size
-                            batch = parsed_subtitles[i:i + self.current_batch_size]
-                            original_texts = [item[3] for item in batch]
-                            texts_to_translate, current_batch_placeholders, skip_translation_flags = [], [], []
-                            for text in original_texts:
-                                final_text, placeholders, only_masked = self._mask_text(text, "AYA")
-                                texts_to_translate.append(final_text)
-                                current_batch_placeholders.append(placeholders)
-                                skip_translation_flags.append(only_masked)
-
-                        elif 'Out of Memory - GPU Memoria Insufficiente' in str(e):
-                            self.log(f" ERRORE CRITICO: GPU memoria insufficiente. Batch saltato.")
-                            for item in batch:
-                                translated_subtitles.append(item)
-                            i += len(batch)
-                            break
-
-                        else:
-                            self.log(f" Errore sconosciuto nel batch ({str(e)[:100]}). Batch saltato.")
-                            for item in batch:
-                                translated_subtitles.append(item)
-                            i += len(batch)
-                            break
-
-                if not batch_success and retries >= max_retries_per_batch:
-                    self.log(f" Batch fallito dopo {max_retries_per_batch} tentativi. Mantengo originali.")
-                    for item in batch:
-                        translated_subtitles.append(item)
-                    i += len(batch)
-
-            self.batch_manager.log_summary()
-            self.log(f"   Progresso: 100% ({total}/{total})")
-            srt_content = self._generate_srt(translated_subtitles, dash_flags)
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(srt_content)
-
-            self.log(f" Traduzione Aya completata: {output_path.name}")
-            self.log(f"   Sottotitoli tradotti: {len(translated_subtitles)}/{total}")
-            
+            output_path.write_text(self._generate_srt(output),
+                                   encoding='utf-8')
+            self.log(f"  Sottotitoli scritti: {output_path.name}")
             return True
-            
-        except Exception as e:
-            error_msg = f"  Ã¢ÂÅ’ Errore traduzione file {output_path.name}: {e}"
-            self.log(error_msg)
-            logger.error(error_msg, exc_info=True)
+
+        except Exception as exc:
+            logger.error(f"Errore nella traduzione LLM: {exc}", exc_info=True)
+            self.log(f"  Errore: {exc}")
             return False
-    
-    def cleanup(self):
-        """Scarica modello Aya dalla VRAM.
 
-        Azzera prima le reference dell'istanza (self.model/tokenizer/device)
-        perche' sono copie dirette del singleton: finche' l'istanza le tiene,
-        _unload_aya_singleton() non puo' far scendere il ref count a zero
-        e la VRAM resta stuck (~8 GB bloccati).
-        """
+    def _fallback_translate(self, units, src_lang, tgt_lang) -> Dict[int, str]:
+        """Traduce con NLLB fine-tuned i blocchi che l'LLM non ha risolto."""
         try:
-            self.model = None
-            self.tokenizer = None
-            self.device = None
-            _unload_aya_singleton()
-            self.log("  ✅ Modello Aya scaricato dalla VRAM")
-        except Exception as e:
-            logger.error(f"Errore durante cleanup Aya: {e}")
+            base = NLLBFineTunedTranslator(self.log_callback)
+        except Exception as exc:
+            logger.error(f"Traduttore di riserva non disponibile: {exc}")
+            return {}
 
+        try:
+            src = base._nllb_to_iso(src_lang) if hasattr(
+                base, '_nllb_to_iso') else 'eng_Latn'
+            tgt = 'ita_Latn'
+            texts = [u.text for u in units]
+            results = base._run_translation(texts, src, tgt, add_context=False)
+            return {u.id: t for u, t in zip(units, results)}
+        except Exception as exc:
+            logger.error(f"Traduttore di riserva fallito: {exc}")
+            return {}
+        finally:
+            try:
+                base.cleanup()
+            except Exception:
+                pass
+
+    def cleanup(self):
+        """Libera la VRAM occupata dal modello."""
+        try:
+            from core.llm_subtitle_translator.engine import unload_engine
+            self._engine = None
+            unload_engine()
+        except Exception as exc:
+            logger.error(f"Errore durante cleanup: {exc}")
 
 
 
