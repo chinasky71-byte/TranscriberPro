@@ -283,16 +283,50 @@ e gravità, e dice quale pubblicherebbe. Il punteggio pesa gli errori
 
 <div class="tablewrap">
 <table>
-  <caption>Film reali — 400 blocchi di Deadpool 2, con sottotitolo professionale</caption>
-  <thead><tr><th>confronto</th><th>n</th><th>MQM NLLB</th><th>MQM sfidante</th><th>preferenza</th></tr></thead>
+  <caption>Film reali — 400 blocchi per confronto, con il sottotitolo professionale accanto</caption>
+  <thead><tr><th>confronto</th><th>MQM NLLB</th><th>MQM sfidante</th><th>preferenza</th></tr></thead>
   <tbody>
-    <tr class="win"><td>NLLB vs TranslateGemma-12B</td><td>400</td><td class="best">2,15</td><td class="worst">2,72</td><td>48% / 26%</td></tr>
-    <tr class="win"><td>NLLB vs Aya Expanse 8B</td><td>229</td><td class="best">2,08</td><td class="worst">2,97</td><td>46% / 22%</td></tr>
+    <tr class="win"><td>Deadpool 2 · vs TranslateGemma-12B</td><td class="best">2,15</td><td class="worst">2,72</td><td>48% / 26%</td></tr>
+    <tr class="win"><td>Deadpool 2 · vs Aya Expanse 8B</td><td class="best">2,06</td><td class="worst">2,85</td><td>46% / 24%</td></tr>
+    <tr class="win"><td>A Man Called Otto · vs TranslateGemma-12B</td><td class="best">1,85</td><td class="worst">2,23</td><td>46% / 29%</td></tr>
+    <tr class="win"><td>A Man Called Otto · vs Aya Expanse 8B</td><td class="best">1,66</td><td class="worst">2,38</td><td>48% / 27%</td></tr>
   </tbody>
 </table>
-<p class="note">Il confronto con Aya si è fermato a 229 segmenti su 400: credito
-API esaurito a metà giudizio. Il margine è largo abbastanza da non dipendere dai
-171 mancanti.</p>
+<p class="note">Due film di natura opposta — una commedia turpiloquente e un
+dramma pacato — e due sfidanti diversi. Il verdetto non dipende da un singolo
+titolo né da un singolo motore.</p>
+</div>
+</section>
+
+<section>
+<h3>La trappola del giudice</h3>
+<h2>I punteggi di run diverse non si confrontano</h2>
+<div class="col">
+<p>Vale la pena fermarsi su un inciampo in cui sono caduto, perché è il genere
+di errore che rende un banco inservibile senza che nulla lo segnali.</p>
+<p>Misurando TranslateGemma con e senza le regole di sottotitolo, avevo
+confrontato i loro due punteggi contro NLLB — presi però da <em>due invocazioni
+distinte</em> del giudice. Ne era uscito che le regole facessero danno sui
+blocchi normali. Era un artefatto: fra una run e l'altra la calibrazione si
+sposta, e <strong>NLLB stesso, sugli stessi identici 400 segmenti, è passato da
+2,15 a 1,84</strong>.</p>
+<p>Il confronto valido è quello dove le due rese finiscono nella
+<em>stessa</em> chiamata. Fatto così, il verdetto si rovescia.</p>
+</div>
+
+<div class="tablewrap">
+<table>
+  <caption>TranslateGemma nativo contro TranslateGemma con le regole, testa a testa</caption>
+  <thead><tr><th>blocchi</th><th>n</th><th>nativo</th><th>con regole</th><th>preferenza</th></tr></thead>
+  <tbody>
+    <tr><td>con turpiloquio</td><td>36</td><td class="worst">5,97</td><td class="best">3,89</td><td>25% / <strong>69%</strong></td></tr>
+    <tr><td>senza turpiloquio</td><td>364</td><td>2,23</td><td class="best">2,12</td><td>27% / 31%</td></tr>
+    <tr class="win"><td>tutti</td><td>400</td><td>2,57</td><td class="best">2,28</td><td>27% / 35%</td></tr>
+  </tbody>
+</table>
+<p class="note">Le regole migliorano <em>ovunque</em>: moltissimo dove c'è del
+turpiloquio, poco altrove. La conclusione opposta veniva solo dal confronto fra
+run diverse.</p>
 </div>
 </section>
 
@@ -492,14 +526,146 @@ non una scelta di registro. Ma la verbosità non si muove — da
 <span class="num">1,15</span> a <span class="num">1,12</span>, contro lo
 <span class="num">0,94</span> del bersaglio — e resta il difetto peggiore dei
 tre motori.</p>
-<p>Il giudizio GEMBA non si è potuto rifare su questa versione: il credito API si
-è esaurito. Quello che si sa è che il divario sul film veniva per gran parte dai
-blocchi volgari, dove TranslateGemma segnava <span class="num">5,71</span> contro
-<span class="num">2,26</span> di NLLB; sui blocchi senza turpiloquio — l'88% del
-film — NLLB vinceva comunque, <span class="num">2,15</span> contro
-<span class="num">2,43</span>, e le regole lì cambiano poco. <strong>Il verdetto
-non si sposta, ma il motore è migliorato dove era peggiore</strong>, e ci vuole
-un giudizio nuovo per dire di quanto.</p>
+<p>Il giudizio conferma il guadagno — <span class="num">−0,29</span> di MQM nel
+testa a testa, preferita nel 35% dei casi contro il 27% — ma
+<strong>il verdetto contro NLLB non si sposta</strong>. Restava un difetto
+solo, e serviva un altro film per vederlo.</p>
+</div>
+</section>
+
+<section>
+<h3>La diagnosi</h3>
+<h2>Su un film senza parolacce, capisce quanto NLLB e perde lo stesso</h2>
+<div class="col">
+<p>A Man Called Otto è un dramma pacato: due sole battute volgari in
+quattrocento. Togliendo di mezzo il difetto già risolto, quello che resta si
+legge in chiaro.</p>
+</div>
+
+<div class="tablewrap">
+<table>
+  <caption>A Man Called Otto — error span per 100 segmenti</caption>
+  <thead><tr><th>categoria</th><th>NLLB</th><th>TranslateGemma</th><th>delta</th></tr></thead>
+  <tbody>
+    <tr><td>accuracy</td><td>14,2</td><td>17,2</td><td>+3,0</td></tr>
+    <tr><td>fluency</td><td>1,5</td><td>1,8</td><td>+0,2</td></tr>
+    <tr class="win"><td>style</td><td>53,5</td><td class="worst">66,5</td><td class="worst">+13,0</td></tr>
+    <tr><td>terminology</td><td>3,2</td><td>4,2</td><td>+1,0</td></tr>
+    <tr><td>errori critici</td><td class="worst">11</td><td class="best">7</td><td>−4</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="col">
+<p>Capisce quasi quanto NLLB, sbaglia <em>meno gravemente</em> di NLLB — sette
+errori critici contro undici — e perde lo stesso, per una casella sola.
+<strong>Non è comprensione: è che scrive troppo lungo.</strong></p>
+</div>
+</section>
+
+<section>
+<h3>La leva</h3>
+<h2>Al modello non serve un aggettivo, serve un numero</h2>
+<div class="col">
+<p>La regola generica diceva «più breve dell'originale». Ma ogni battuta ha uno
+spazio suo, che si calcola: la sua durata sullo schermo per 17 caratteri al
+secondo. È l'informazione che il percorso a prompt unico passa da sempre, e che
+quello a conversazioni parallele non aveva mai passato.</p>
+</div>
+
+<div class="tablewrap">
+<table>
+  <caption>60 blocchi «stretti», dove l'inglese già affolla lo spazio disponibile</caption>
+  <thead><tr><th>istruzione</th><th>caratteri</th><th>× EN</th><th>&gt;42 car</th><th>oltre budget</th></tr></thead>
+  <tbody>
+    <tr class="pro"><td>professionista</td><td>43,9</td><td>0,83</td><td>0%</td><td>27%</td></tr>
+    <tr><td>nessuna</td><td>59,0</td><td class="worst">1,11</td><td>65%</td><td>67%</td></tr>
+    <tr><td>«più breve dell'originale»</td><td>54,5</td><td>1,03</td><td>55%</td><td>57%</td></tr>
+    <tr class="win"><td>«non più di N caratteri»</td><td>51,6</td><td class="best">0,97</td><td>52%</td><td>53%</td></tr>
+  </tbody>
+</table>
+<p class="note">Il numero sposta il triplo dell'aggettivo. Ed è
+<em>autolimitante</em>: su una battuta che nello spazio ci sta già, un tetto non
+chiede di tagliare niente, mentre «più breve» lo chiede sempre.</p>
+</div>
+
+<div class="col">
+<p>Rigenerati entrambi i film col budget, il divario di stile sparisce.</p>
+</div>
+
+<div class="tablewrap">
+<table>
+  <caption>Deadpool 2 — tutte le misure oggettive, 400 blocchi</caption>
+  <thead><tr><th>motore</th><th>caratteri</th><th>× EN</th><th>&gt;42 car</th><th>&gt;17 CPS</th><th>turpiloquio</th></tr></thead>
+  <tbody>
+    <tr class="pro"><td>professionista</td><td>29,7</td><td>0,94</td><td>0%</td><td>31%</td><td>25/33</td></tr>
+    <tr><td>NLLB fine-tuned</td><td>32,3</td><td>1,03</td><td>0%</td><td>42%</td><td>24/33</td></tr>
+    <tr><td>TGemma nativo</td><td>36,2</td><td class="worst">1,15</td><td class="worst">5%</td><td class="worst">51%</td><td class="worst">4/33</td></tr>
+    <tr><td>TGemma regole generiche</td><td>35,2</td><td>1,12</td><td>3%</td><td>49%</td><td>25/33</td></tr>
+    <tr class="win"><td>TGemma budget</td><td>31,1</td><td class="best">0,99</td><td class="best">0%</td><td class="best">39%</td><td class="best">26/33</td></tr>
+  </tbody>
+</table>
+<p class="note">Su A Man Called Otto lo stesso: rapporto da 1,09 a 0,98,
+blocchi troppo veloci dal 34% al 25%. Su ogni metrica oggettiva di stile
+TranslateGemma col budget ora batte NLLB.</p>
+</div>
+
+<div class="col">
+<p>Ma le misure di stile dicono che la battuta sta nello spazio, non che il
+senso sia sopravvissuto al taglio. Il giudizio scioglie il dubbio, e non nella
+direzione sperata.</p>
+</div>
+
+<div class="tablewrap">
+<table>
+  <caption>Deadpool 2 — NLLB contro TranslateGemma col budget, 400 segmenti</caption>
+  <thead><tr><th>categoria</th><th>NLLB</th><th>TGemma + budget</th><th>delta</th></tr></thead>
+  <tbody>
+    <tr><td>style</td><td>57,0</td><td class="best">56,2</td><td class="best">−0,8</td></tr>
+    <tr><td>terminology</td><td>6,8</td><td class="best">6,5</td><td class="best">−0,2</td></tr>
+    <tr><td>non_translation</td><td>1,0</td><td class="best">0,2</td><td class="best">−0,8</td></tr>
+    <tr><td>fluency</td><td>2,8</td><td>3,2</td><td>+0,5</td></tr>
+    <tr class="win"><td>accuracy</td><td class="best">9,5</td><td class="worst">23,2</td><td class="worst">+13,8</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="col">
+<p>Il criterio che questo banco si era dato in partenza — che
+<code>fluency+style</code> <em>scendesse</em> — è soddisfatto per la prima
+volta: <span class="num">−0,2</span>. Ma messo davanti a un tetto di caratteri
+il modello <strong>ha tagliato contenuto, non riempitivi</strong>, e
+l'accuratezza è più che raddoppiata. MQM complessivo
+<span class="num">2,12</span> contro <span class="num">2,69</span>, preferenza
+47% contro 29%: <strong>NLLB resta davanti</strong>.</p>
+<p>Sull'altro film la forma è identica: <code>fluency+style</code> a
+<span class="num">0,0</span>, <code>accuracy</code> a
+<span class="num">+8,0</span>, MQM <span class="num">1,69</span> contro
+<span class="num">2,17</span>. Due film di natura opposta, stessa diagnosi.</p>
+</div>
+
+<div class="col">
+<p>Resta da sapere quale delle tre varianti sia davvero la migliore — e la
+risposta non si legge nelle tabelle qui sopra, che vengono da run diverse. Il
+testa a testa fra le due candidate dice che il budget vince, ma di un soffio.</p>
+</div>
+
+<div class="tablewrap">
+<table>
+  <caption>Regole generiche contro budget, giudicate nella stessa chiamata</caption>
+  <thead><tr><th>categoria</th><th>regole generiche</th><th>budget</th><th>delta</th></tr></thead>
+  <tbody>
+    <tr><td>style</td><td>59,2</td><td class="best">49,8</td><td class="best">−9,5</td></tr>
+    <tr><td>fluency</td><td>3,2</td><td class="best">1,8</td><td class="best">−1,5</td></tr>
+    <tr><td>terminology</td><td>6,0</td><td class="best">5,5</td><td class="best">−0,5</td></tr>
+    <tr><td>accuracy</td><td class="best">16,0</td><td class="worst">21,2</td><td class="worst">+5,2</td></tr>
+    <tr class="win"><td>MQM pesato</td><td>2,35</td><td class="best">2,26</td><td>−0,09</td></tr>
+    <tr><td>preferenza</td><td>28%</td><td class="best">32%</td><td>40% pari</td></tr>
+  </tbody>
+</table>
+<p class="note">Uno scambio: guadagno grosso sullo stile, perdita media
+sull'accuratezza, saldo avanti di un soffio. Non una vittoria netta — un baratto
+vantaggioso.</p>
 </div>
 </section>
 
@@ -643,7 +809,16 @@ modelli non può catturare.</p>
 <section>
 <h3>Se si riprende</h3>
 <div class="col">
+<p>Nove confronti da quattrocento segmenti, su due film e tre varianti, lasciano
+il difetto residuo di TranslateGemma ridotto a <strong>una casella sola</strong>:
+omette quando lo si vincola. Ed è un difetto con un rimedio già mezzo scritto.</p>
 <ul>
+  <li><strong>Rendere bloccante il controllo sulle omissioni.</strong>
+  <code>validator.py</code> ce l'ha già (<code>OMISSION_MIN_SRC_LEN</code>) ma
+  sul percorso a conversazioni parallele non blocca. Farlo bloccare, con un
+  secondo tentativo a budget allentato, attacca esattamente il fallimento
+  misurato: <code>accuracy</code> +13,8 e +8,0 sui due film, mentre stile,
+  fluidità e terminologia sono già pari o meglio di NLLB.</li>
   <li><strong>Un quarto giro di fine-tuning su NLLB.</strong> È il motore che
   vince e l'infrastruttura esiste. La sua unica categoria davvero debole è slang
   e idiomi (MQM 6,13, la peggiore di tutte le caselle della tabella): un set di
@@ -663,10 +838,9 @@ sottotitoli professionali con corrispondenza temporale bidirezionale.
 Giudice GEMBA-MQM su GPT-4o, ordine randomizzato e anonimizzato.
 Quality estimation: <code>Unbabel/wmt22-cometkiwi-da</code>, in
 <code>venv_comet</code>, gira anche su CPU.<br>
-Il credito API è esaurito su entrambi i fornitori: il confronto NLLB / Aya sul
-film si è fermato a 229 segmenti su 400 e la versione con le regole non è stata
-giudicata. Tutte le misure deterministiche — lunghezza, righe, reading speed,
-turpiloquio, quality estimation — sono complete.
+Nove confronti da 400 segmenti ciascuno, tutti completi: nessun segmento
+saltato. Le due run interrotte a metà per esaurimento del credito sono state
+riprese dal checkpoint e portate a termine.
 </footer>
 
 </div>
