@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import gc
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 from threading import Lock
@@ -96,6 +97,16 @@ class ModelSpec:
     # un ruolo di sistema: l'unico canale per dargli una regola è il campo del
     # testo da tradurre. Vuoto = prompt del vendore intatto.
     mt_prefix: str = ""
+    # Quando applicare `mt_prefix`. Se resta None il prefisso va su ogni
+    # battuta; con un pattern, solo su quelle che lo contengono. Serve perché
+    # un'istruzione può essere un guadagno su una classe di battute e un danno
+    # su tutte le altre — vedi la tabella su MT_PREFIX_TRIGGER.
+    mt_prefix_when: Optional[Any] = None
+    # Istruzione sul budget di caratteri, con un segnaposto `{budget}`. Va
+    # tenuta separata da `mt_prefix` perché ha una condizione diversa: il
+    # registro serve solo dove c'è del turpiloquio, il budget vale sempre —
+    # è autolimitante, su una battuta corta non chiede di tagliare niente.
+    mt_budget_rule: str = ""
     gated: bool = False
     notes: str = ""
 
@@ -119,11 +130,66 @@ class ModelSpec:
 # 20) ma, uscendo dalla forma su cui il modello è addestrato, produceva parole
 # inesistenti ("indemaniato") e concordanze sbagliate: guadagno sul registro,
 # perdita sulla lingua. Scartata.
+#
+# NOTA: la stringa misurata comprendeva anche "più breve dell'originale, senza
+# riempitivi", che il giudizio ha poi mostrato dannosa sui blocchi normali. Quel
+# pezzo è stato sostituito da MT_BUDGET_RULE, che dice un numero invece di un
+# aggettivo. Qui resta la sola clausola sul registro.
 TRANSLATEGEMMA_SUBTITLE_RULES = (
-    "Rendi come sottotitolo italiano: più breve dell'originale, "
-    "senza riempitivi, e conserva le parolacce con parolacce italiane "
-    "(fuck→cazzo, shit→merda, asshole→stronzo). Traduci solo la battuta:"
+    "Conserva le parolacce con parolacce italiane "
+    "(fuck→cazzo, shit→merda, asshole→stronzo)."
 )
+
+# Su QUALI battute mettere la clausola sul registro.
+#
+# MISURATO col giudizio testa a testa fra le due varianti dello STESSO motore
+# (mt_eval/gemba_ftg_vs_ftgr.jsonl, 400 blocchi di Deadpool 2), che è l'unico
+# confronto valido: le due rese finiscono nella stessa chiamata al giudice.
+#
+#                          nativo   con regole   preferenza
+#   blocchi volgari (36)     5,97      3,89       25% / 69%
+#   blocchi normali (364)    2,23      2,12       27% / 31%
+#   totale (400)             2,57      2,28       27% / 35%
+#
+# ATTENZIONE ALLA TRAPPOLA: confrontando invece DUE RUN SEPARATE contro NLLB il
+# risultato sembrava opposto (le regole apparivano dannose sui blocchi normali).
+# Era un artefatto: fra una run e l'altra la calibrazione del giudice slitta —
+# NLLB stesso, sugli stessi identici segmenti, è passato da 2,15 a 1,84. I
+# punteggi assoluti di run diverse NON si confrontano; solo i confronti interni
+# a una run valgono.
+#
+# La clausola sul registro resta comunque condizionata, ma per un'altra ragione:
+# su una battuta senza parolacce non ha niente da fare, e toglierla accorcia il
+# preambolo — meno testo che il modello possa tradurre invece di applicare. Il
+# guadagno sui blocchi normali veniva dalla parte sulla lunghezza, che ora è
+# MT_BUDGET_RULE e si applica sempre.
+MT_PREFIX_TRIGGER = re.compile(
+    r"\b(fuck\w*|shit\w*|bullshit|asshole|bitch\w*|cunt|dick|prick|"
+    r"motherfuck\w*|goddamn|bastard|cock|pussy|balls|piss\w*|whore|slut|"
+    r"douche\w*|jackass|dumbass|screw you|son of a bitch)\b", re.I)
+
+# Il budget di caratteri della battuta, detto al modello come NUMERO.
+#
+# Il giudizio su un film senza turpiloquio (A Man Called Otto) isola quello che
+# resta a TranslateGemma dopo il turpiloquio: capisce quanto NLLB e sbaglia
+# meno gravemente (7 errori critici contro 11), ma perde su `style` di 13 punti
+# su 100 segmenti. Scrive battute troppo lunghe, e basta.
+#
+# MISURATO (mt_eval/probe_tg_budget.py) su 60 blocchi stretti, cioè quelli in
+# cui l'inglese già affolla lo spazio disponibile:
+#
+#                          caratteri   x EN   >42 car   oltre budget
+#   professionista             43,9    0,83       0%         27%
+#   nessuna regola             59,0    1,11      65%         67%
+#   regola generica            54,5    1,03      55%         57%
+#   budget esplicito           51,6    0,97      52%         53%
+#
+# Un aggettivo ("più breve") sposta poco; un numero sposta il triplo, e porta
+# il rapporto sotto 1,0 per la prima volta. La regola è anche AUTOLIMITANTE: su
+# una battuta che nel budget ci sta già, un tetto non chiede di tagliare
+# niente, mentre "più breve dell'originale" lo chiede sempre.
+MT_BUDGET_RULE = ("Rendi come sottotitolo italiano in non più di {budget} "
+                  "caratteri, tagliando i riempitivi.")
 
 MODEL_SPECS: Dict[str, ModelSpec] = {
     "aya-23-8b": ModelSpec(
@@ -174,6 +240,8 @@ MODEL_SPECS: Dict[str, ModelSpec] = {
         generation=dict(do_sample=False, num_beams=1),
         prompt_style="mt",
         mt_prefix=TRANSLATEGEMMA_SUBTITLE_RULES,
+        mt_prefix_when=MT_PREFIX_TRIGGER,
+        mt_budget_rule=MT_BUDGET_RULE,
         loader="gemma3",
         gated=True,
         context_window=131072,
@@ -389,7 +457,8 @@ class SubtitleLLMEngine:
 
     # -- prompt di traduzione ---------------------------------------------
     def mt_messages(self, text: str, src_lang: str = "en",
-                    tgt_lang: str = "it") -> List[Dict[str, Any]]:
+                    tgt_lang: str = "it",
+                    budget: int = 0) -> List[Dict[str, Any]]:
         """Il prompt di traduzione nativo di QUESTO modello.
 
         Vive qui e non in `prompt_builder` perché è una caratteristica dei
@@ -401,8 +470,19 @@ class SubtitleLLMEngine:
         entrano qui — dentro il testo — perché è l'unico varco che il suo chat
         template lascia aperto.
         """
-        if self.spec.mt_prefix:
-            text = f"{self.spec.mt_prefix}\n{text}"
+        # Una riga sola, composta: due istruzioni su due righe allungano il
+        # preambolo e aumentano la probabilità che il modello le traduca
+        # invece di applicarle.
+        regole: List[str] = []
+        if self.spec.mt_budget_rule and budget > 0:
+            regole.append(self.spec.mt_budget_rule.format(budget=budget))
+        if self.spec.mt_prefix and (
+                self.spec.mt_prefix_when is None
+                or self.spec.mt_prefix_when.search(text)):
+            regole.append(self.spec.mt_prefix)
+        if regole:
+            regole.append("Traduci solo la battuta:")
+            text = " ".join(regole) + "\n" + text
 
         if self.spec.loader == "gemma3":
             return [{

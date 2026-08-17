@@ -124,8 +124,13 @@ def main():
 
     # -- giudizio sui film -------------------------------------------------
     giudizi = []
-    for f, sfida in (("gemba_fnllb_vs_ftg.jsonl", "NLLB vs TranslateGemma"),
-                     ("gemba_fnllb_vs_faya.jsonl", "NLLB vs Aya")):
+    for f, sfida in (
+            ("gemba_fnllb_vs_ftg.jsonl", "Deadpool: NLLB vs TGemma"),
+            ("gemba_fnllb_vs_ftgr.jsonl", "Deadpool: NLLB vs TGemma+regole"),
+            ("gemba_ftg_vs_ftgr.jsonl", "Deadpool: TGemma vs TGemma+regole"),
+            ("gemba_fnllb_vs_faya.jsonl", "Deadpool: NLLB vs Aya"),
+            ("gemba_onllb_vs_otg.jsonl", "Otto: NLLB vs TGemma"),
+            ("gemba_onllb_vs_oaya.jsonl", "Otto: NLLB vs Aya")):
         rows = load(f)
         if not rows:
             continue
@@ -197,12 +202,13 @@ def main():
 
     print()
     print("=" * 78)
-    print("  FILM REALI — giudizio GEMBA (A = NLLB fine-tuned)")
+    print("  FILM REALI — giudizio GEMBA (A = il primo dei due nominati)")
     print("=" * 78)
     for g in giudizi:
-        print(f"  {g['sfida']:<26} n={g['n']:<5} MQM {g['mqm_a']:.2f} vs "
-              f"{g['mqm_b']:.2f} | preferenza {g['pref_a']:.0f}% vs "
-              f"{g['pref_b']:.0f}% (pari {g['pari']:.0f}%)")
+        vince = "A" if g["mqm_a"] < g["mqm_b"] else "B"
+        print(f"  {g['sfida']:<34} n={g['n']:<4} MQM {g['mqm_a']:5.2f} vs "
+              f"{g['mqm_b']:5.2f} | pref {g['pref_a']:3.0f}% vs "
+              f"{g['pref_b']:3.0f}% | vince {vince}")
 
     for f in films:
         print()

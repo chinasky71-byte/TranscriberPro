@@ -23,6 +23,7 @@ import argparse
 import json
 import os
 import random
+import re
 import sys
 import threading
 import time
@@ -41,6 +42,16 @@ OPENAI_MODEL = "gpt-4o"
 MAX_TOKENS = 8000          # thinking + risposta condividono questo tetto
 SEED = 20260816
 MAX_WORKERS = 6
+
+# Token al minuto concessi dall'organizzazione. Il tetto è per ORGANIZZAZIONE,
+# non per processo: due run in parallelo se lo dividono, e superarlo non
+# rallenta le richieste — le RIFIUTA con un 429. Misurato su questo account:
+# 30.000 TPM su gpt-4o.
+DEFAULT_TPM = 30000
+# Costo osservato di un giudizio: ~1.050 token di prompt (di cui ~700 di
+# system) più ~90 di risposta. Si arrotonda per eccesso perché il limitatore
+# deve prenotare PRIMA di sapere quanto consumerà davvero.
+TOKENS_PER_JUDGMENT = 1250
 
 SEVERITY_WEIGHT = {"minor": 1, "major": 5, "critical": 10}
 
@@ -200,6 +211,67 @@ def build_user_message(item, text_1, text_2):
     )
 
 
+class TokenRateLimiter:
+    """Tiene le richieste sotto il tetto di token al minuto dell'account.
+
+    Serve perché il retry da solo non basta: quando il secchiello è vuoto lo
+    resta per decine di secondi, e quattro tentativi con backoff esponenziale
+    si esauriscono in sette. È esattamente così che una run è finita a 229
+    segmenti su 400 — i segmenti falliti venivano saltati, non riprovati, e il
+    confronto restava monco senza che niente lo segnalasse.
+
+    Finestra scorrevole invece di secchiello a gettoni: il limite di OpenAI è
+    calcolato sui token consumati negli ultimi sessanta secondi, e replicarlo
+    con la stessa forma evita di andare a sbattere sul bordo.
+    """
+
+    def __init__(self, tokens_per_minute, safety=0.85):
+        self.budget = max(1, int(tokens_per_minute * safety))
+        self.lock = threading.Lock()
+        self.spent = []          # (istante, token) degli ultimi 60 secondi
+        self.waited = 0.0
+
+    def acquire(self, tokens):
+        while True:
+            with self.lock:
+                now = time.monotonic()
+                self.spent = [(t, n) for t, n in self.spent if now - t < 60]
+                used = sum(n for _, n in self.spent)
+                if used + tokens <= self.budget or not self.spent:
+                    self.spent.append((now, tokens))
+                    return
+                # Aspetta che scada la prenotazione più vecchia: è il primo
+                # istante in cui il budget può essersi liberato.
+                pausa = 60 - (now - self.spent[0][0]) + 0.05
+                self.waited += pausa
+            time.sleep(max(0.05, pausa))
+
+
+class CreditoEsaurito(RuntimeError):
+    """Il conto è a zero: nessun tentativo successivo può riuscire."""
+
+
+def _credito_finito(exc):
+    testo = str(exc).lower()
+    return ("no credits remaining" in testo
+            or "insufficient_quota" in testo
+            or "credit_balance" in testo
+            or "billing" in testo and "hard limit" in testo)
+
+
+def _retry_after_seconds(exc):
+    """Quanto chiede di aspettare il 429, se lo dice.
+
+    Il messaggio di OpenAI porta il tempo esatto ("Please try again in
+    1.634s"); rispettarlo è più preciso di qualunque backoff inventato.
+    """
+    m = re.search(r"try again in ([\d.]+)(ms|s)", str(exc))
+    if not m:
+        return None
+    val = float(m.group(1))
+    return val / 1000 if m.group(2) == "ms" else val
+
+
 def _call_anthropic(client, user_message, model):
     """Ritorna (payload, usage). Il system prompt è messo in cache: è identico
     per tutti i segmenti e vale ~700 token per chiamata."""
@@ -259,7 +331,7 @@ def _call_openai(client, user_message, model):
 
 
 def judge_one(client, item, trans_a, trans_b, rng_seed,
-              provider="anthropic", model=None):
+              provider="anthropic", model=None, limiter=None):
     """Una chiamata al giudice. L'ordine di presentazione dipende dall'id, così
     la randomizzazione è deterministica e la run è riproducibile."""
     rng = random.Random(rng_seed + item["id"])
@@ -274,7 +346,9 @@ def judge_one(client, item, trans_a, trans_b, rng_seed,
     model = model or (MODEL if provider == "anthropic" else OPENAI_MODEL)
 
     last_exc = None
-    for attempt in range(4):
+    for attempt in range(8):
+        if limiter is not None:
+            limiter.acquire(TOKENS_PER_JUDGMENT)
         try:
             payload, usage = call(client, user_message, model)
             break
@@ -283,10 +357,24 @@ def judge_one(client, item, trans_a, trans_b, rng_seed,
             # e i rate limit meritano un altro tentativo.
             if "rifiutato" in str(exc) or "filtro" in str(exc):
                 raise
+            # Il credito finito arriva con lo stesso codice 429 di un limite
+            # di frequenza, ma non è transitorio: riprovarlo significa
+            # macinare a vuoto otto tentativi per quattro giri su ogni
+            # segmento rimasto. Si ferma tutto subito, il checkpoint tiene il
+            # lavoro fatto e basta rilanciare dopo aver ricaricato.
+            if _credito_finito(exc):
+                raise CreditoEsaurito(str(exc)[:200])
             last_exc = exc
-            if attempt == 3:
+            if attempt == 7:
                 raise
-            time.sleep(2 ** attempt + rng.random())
+            # Otto tentativi e non quattro, e attesa fino a un minuto: un
+            # rate limit sui token non si sblocca in sette secondi, ci vuole
+            # che scorra la finestra. Se il server dice quanto aspettare, si
+            # usa quello.
+            suggerito = _retry_after_seconds(exc)
+            pausa = suggerito + 0.5 if suggerito is not None else \
+                min(60.0, 2 ** attempt) + rng.random()
+            time.sleep(pausa)
     else:
         raise last_exc or RuntimeError("retry esauriti")
 
@@ -445,6 +533,11 @@ def main():
     ap.add_argument("--limit", type=int, default=0,
                     help="valuta solo i primi N segmenti (prova a costo basso)")
     ap.add_argument("--workers", type=int, default=MAX_WORKERS)
+    ap.add_argument("--tpm", type=int, default=DEFAULT_TPM,
+                    help=f"tetto di token al minuto dell'account "
+                         f"(default {DEFAULT_TPM}); 0 disattiva il "
+                         f"limitatore. È per ORGANIZZAZIONE: se girano due "
+                         f"run insieme, va dimezzato in entrambe")
     ap.add_argument("--provider", default="anthropic",
                     choices=["anthropic", "openai"])
     ap.add_argument("--model", default=None,
@@ -510,38 +603,82 @@ def main():
     lock = threading.Lock()
     t0 = time.time()
 
+    limiter = TokenRateLimiter(args.tpm) if args.tpm else None
+    if limiter:
+        print(f"Ritmo massimo: {args.tpm} token/min → "
+              f"~{limiter.budget // TOKENS_PER_JUDGMENT} giudizi/min\n")
+
     if todo:
         # La prima chiamata scrive la cache del system prompt: se partissero
         # tutte insieme, ognuna la riscriverebbe a prezzo pieno.
         first = judge_one(client, todo[0], trans_a, trans_b, SEED,
-                          args.provider, model)
+                          args.provider, model, limiter)
         results.append(first)
         with open(out_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(first, ensure_ascii=False) + "\n")
-        rest = todo[1:]
 
+        # Un segmento che fallisce va RIMESSO IN CODA, non saltato: saltandolo
+        # il confronto resta monco e il report lo dichiara completo lo stesso.
+        # È così che una run è finita a 229 segmenti su 400 senza che nulla lo
+        # segnalasse.
+        pendenti = list(todo[1:])
+        fatti = 1
+        a_secco = False
         with open(out_path, "a", encoding="utf-8") as fout:
-            with ThreadPoolExecutor(max_workers=args.workers) as pool:
-                futures = {
-                    pool.submit(judge_one, client, it, trans_a, trans_b,
-                                SEED, args.provider, model): it
-                    for it in rest
-                }
-                for i, fut in enumerate(as_completed(futures), 2):
-                    item = futures[fut]
-                    try:
-                        r = fut.result()
-                    except Exception as exc:
-                        print(f"  [{item['id']}] ERRORE: {exc}")
-                        continue
-                    with lock:
-                        results.append(r)
-                        fout.write(json.dumps(r, ensure_ascii=False) + "\n")
-                        fout.flush()
-                    if i % 20 == 0 or i == len(todo):
-                        el = time.time() - t0
-                        print(f"  [{i:>4}/{len(todo)}] {el:.0f}s trascorsi | "
-                              f"~{el / i * (len(todo) - i):.0f}s rimanenti")
+            for giro in range(1, 5):
+                if not pendenti:
+                    break
+                if giro > 1:
+                    print(f"\n  Giro {giro}: riprovo {len(pendenti)} segmenti "
+                          f"rimasti indietro")
+                    time.sleep(20)
+                falliti = []
+                with ThreadPoolExecutor(max_workers=args.workers) as pool:
+                    futures = {
+                        pool.submit(judge_one, client, it, trans_a, trans_b,
+                                    SEED, args.provider, model, limiter): it
+                        for it in pendenti
+                    }
+                    for fut in as_completed(futures):
+                        item = futures[fut]
+                        try:
+                            r = fut.result()
+                        except CreditoEsaurito as exc:
+                            if not a_secco:
+                                print(f"\n  CREDITO ESAURITO: {exc}")
+                                a_secco = True
+                            falliti.append(item)
+                            continue
+                        except Exception as exc:
+                            print(f"  [{item['id']}] fallito: "
+                                  f"{str(exc)[:120]}")
+                            falliti.append(item)
+                            continue
+                        with lock:
+                            results.append(r)
+                            fout.write(json.dumps(r, ensure_ascii=False) + "\n")
+                            fout.flush()
+                            fatti += 1
+                            n = fatti
+                        if n % 20 == 0 or n == len(todo):
+                            el = time.time() - t0
+                            print(f"  [{n:>4}/{len(todo)}] {el:.0f}s | "
+                                  f"~{el / n * (len(todo) - n):.0f}s rimanenti")
+                pendenti = falliti
+                if a_secco:
+                    break
+
+        if pendenti:
+            motivo = ("credito esaurito" if a_secco
+                      else "quattro giri di tentativi")
+            print(f"\n  ATTENZIONE: {len(pendenti)} segmenti NON giudicati "
+                  f"({motivo}).")
+            print(f"  Il report qui sotto vale sui {len(results)} segmenti "
+                  f"effettivamente valutati, non su tutto il set.")
+            print(f"  Rilanciare lo stesso comando: riprende dal checkpoint.")
+        if limiter and limiter.waited > 1:
+            print(f"  Attesa per il tetto di token: "
+                  f"{limiter.waited / 60:.1f} min")
 
     print(f"\nGiudizi completati in {(time.time() - t0) / 60:.1f} minuti")
     print(f"Risultati: {out_path}\n")

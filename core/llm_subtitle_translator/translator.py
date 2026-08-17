@@ -316,11 +316,21 @@ class SubtitleLLMTranslator:
 
     # ------------------------------------------------------------------
     def _mt_prompt(self, unit: SubtitleUnit):
-        """Delega al motore, che conosce il formato dei propri pesi."""
+        """Delega al motore, che conosce il formato dei propri pesi.
+
+        Il budget di caratteri viaggia insieme al testo: il percorso "adapt" lo
+        passava da sempre dentro il prompt, questo no, ed era il motivo per cui
+        i modelli MT scrivevano battute che non stavano sullo schermo.
+        """
         builder = getattr(self.engine, "mt_messages", None)
-        if builder is not None:
+        if builder is None:
+            return build_mt_messages(unit)
+        try:
+            return builder(unit.text, budget=unit.budget)
+        except TypeError:
+            # Motore con la firma vecchia: meglio un prompt senza budget che
+            # una traduzione mancata.
             return builder(unit.text)
-        return build_mt_messages(unit)
 
     def _translate_mt(self, units: Sequence[SubtitleUnit]) -> Dict[int, str]:
         """Percorso per i modelli MT specializzati.
