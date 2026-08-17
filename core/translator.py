@@ -781,8 +781,30 @@ class NLLBTranslator(BaseTranslator):
         """
         Esegue traduzione batch con gestione OOM dinamica
         """
-        if add_context and self._prepared_context:
-            texts = [self._prepared_context + text for text in texts]
+        # Il contesto NON entra mai qui, e `add_context` resta solo per non
+        # cambiare la firma a chi la chiama.
+        #
+        # MISURATO (mt_eval/validate_pipeline_path.py, 120 blocchi di
+        # Deadpool 2): anteponendo "[CONTEXT: <trama>]\n" a ogni battuta, NLLB
+        # traduceva la trama e restituiva quella. I 24 sottotitoli del primo
+        # batch uscivano tutti identici — "Il mercenario Wade Wilson forma una
+        # squadra per proteggere..." al posto di "Fanculo Wolverine" — e i
+        # tempi restavano giusti, quindi il file sembrava sano.
+        #
+        # Non è un difetto di regolazione, è una categoria sbagliata: NLLB è un
+        # encoder-decoder che traduce UN segmento, non ha un prompt di sistema
+        # in cui infilare informazioni di sfondo. Tutto ciò che gli si mette
+        # davanti è testo da tradurre.
+        #
+        # Il contesto resta utile e resta passato: lo usano i motori che
+        # sanno cosa farsene — il ramo LLM tramite `DocumentContext`, Claude e
+        # OpenAI tramite la sezione CONTEXT del loro prompt.
+        #
+        # Il codice era in `master` da tempo ma non si era mai visto: la
+        # pipeline chiamava `get_translator()` senza contesto, quindi
+        # `_prepared_context` restava None. È bastato cominciare a passarlo
+        # perché il difetto diventasse reale su ogni film.
+        del add_context
 
         # CRITICO: il tokenizer NLLB usa self.tokenizer.src_lang per decidere
         # il token di lingua sorgente da anteporre al testo in input. Se non
@@ -860,8 +882,10 @@ class NLLBTranslator(BaseTranslator):
             self.log(f"  🌐 Traduzione NLLB ({model_label}, {load_mode}): {src_lang} → {tgt_lang} | beams:{num_beams}")
 
             if self._prepared_context:
-                context_preview = self._prepared_context[:70].replace('\n', ' ')
-                self.log(f"  📖 Context attivo: {context_preview}...")
+                # Non "attivo": ricevuto e ignorato di proposito. Vedi la nota
+                # in `_run_translation`.
+                self.log("  📖 Contesto dell'opera ricevuto — NLLB non lo usa "
+                         "(traduce segmento per segmento)")
 
             src_nllb = self._nllb_to_iso(src_lang)
             tgt_nllb = self._nllb_to_iso(tgt_lang)

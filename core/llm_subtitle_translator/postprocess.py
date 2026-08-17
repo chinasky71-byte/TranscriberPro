@@ -162,6 +162,33 @@ def wrap_line(text: str, cpl: int = CPL_MAX) -> List[str]:
     return [" ".join(words[:cut]), " ".join(words[cut:])]
 
 
+# Un secondo trattino DENTRO una riga che ne ha già uno in testa: è una
+# battuta di un altro parlante finita sulla riga sbagliata. Il seguito deve
+# aprire in maiuscola o con una virgoletta — così un inciso ("- Sì - disse
+# lui") o un trattino di lista non vengono scambiati per un cambio di voce.
+_INNER_DASH = re.compile(r"\s+[-–—]\s+(?=[«\"'A-ZÀ-ÖØ-Þ])")
+
+
+def _split_flattened_dialogue(line: str) -> List[str]:
+    """Rimette una battuta per riga quando due parlanti sono finiti su una.
+
+    MISURATO (mt_eval/validate_pipeline_path.py): il ramo NLLB consegna certi
+    blocchi di dialogo già appiattiti — "- Un posto in questo mondo. - Voglio
+    diventare un killer a pagamento." su una riga sola. Non è colpa della
+    rifinitura, che li riceve così, ma è qui che si possono rimettere a posto:
+    dividere sul trattino interno costa nulla e recupera l'unica regola di
+    forma che conta davvero in un dialogo, cioè un parlante per riga.
+    """
+    if not _DASH_PREFIX.match(line):
+        return [line]
+    pezzi = _INNER_DASH.split(line)
+    if len(pezzi) < 2:
+        return [line]
+    fuori = [pezzi[0].strip()]
+    fuori += [f"- {p.strip()}" for p in pezzi[1:] if p.strip()]
+    return fuori
+
+
 def wrap_block(text: str) -> str:
     """Applica il wrapping a un blocco, preservando i dialoghi.
 
@@ -172,6 +199,15 @@ def wrap_block(text: str) -> str:
     lines = [l for l in text.split("\n") if l.strip()]
     if not lines:
         return ""
+
+    # Prima di decidere se è un dialogo, si recuperano le battute appiattite:
+    # altrimenti una riga con due parlanti passa per monologo e viene
+    # rimpaginata a metà di una frase, col trattino del secondo che resta in
+    # fondo alla prima riga.
+    recuperate: List[str] = []
+    for l in lines:
+        recuperate.extend(_split_flattened_dialogue(l))
+    lines = recuperate
 
     is_dialogue = len(lines) > 1 and any(_DASH_PREFIX.match(l) for l in lines)
 
