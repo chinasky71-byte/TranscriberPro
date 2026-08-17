@@ -2,17 +2,19 @@
 Configuration Manager - COMPLETE VERSION WITH PROFILES SYSTEM
 File: utils/config.py
 
-VERSIONE: v4.2 - FIX STATO DOWNLOAD AYA
+VERSIONE: v4.3 - RIMOZIONE AYA, MIGRAZIONE A 'llm'
 
-MODIFICHE v4.2:
-- Aggiunto 'aya_model_download_status' (bool) per tracciare lo stato del download.
-- 'is_aya_model_downloaded' ora legge questo flag (molto piÃ¹ affidabile).
-- 'is_aya_model_downloaded' mantiene il controllo file come fallback
-  per retrocompatibilitÃ  (se il flag Ã¨ False, controlla i file una volta).
-- Aggiunto 'set_aya_model_download_status' per essere chiamato dalla GUI.
+MODIFICHE v4.3:
+- Rimossi i modelli Aya. 'translation_model' accetta ora 'llm' al loro posto,
+  e il valore storico 'aya' viene migrato automaticamente alla lettura.
+- Rimosse le chiavi e i metodi 'aya_model_path' / 'aya_model_download_status',
+  che nessuno chiamava piu (e il flag risultava True col modello NON in cache).
+- Rimossa la definizione DUPLICATA di get/set_translation_model: la seconda
+  copia, senza validazione, sovrascriveva silenziosamente la prima.
+- Nuova chiave 'llm_translator_model' (default 'translategemma-12b').
 
 MODIFICHE v4.1:
-- Supporto Token HuggingFace per modelli gated (Aya-23-8B)
+- Supporto Token HuggingFace per i modelli gated
 """
 
 import json
@@ -100,7 +102,7 @@ class Config:
         # ========================================================================
         # Translation Model Settings (MODIFICATO v5.0 - Claude API Support)
         # ========================================================================
-        'translation_model': 'nllb',  # 'nllb', 'aya', o 'claude'
+        'translation_model': 'nllb',  # vedi VALID_TRANSLATION_MODELS
         'target_language': 'ita',     # ISO 639-2 lingua target sottotitoli
         
         # Claude API (cloud-based translation)
@@ -110,15 +112,17 @@ class Config:
         'openai_api_key': '',
         'openai_model': 'gpt-4o-mini',
         
-        # Aya model
-        'aya_model_download_status': False,
-        'aya_model_path': str(Path.home() / '.cache' / 'huggingface' / 'hub' / 'models--CohereForAI--aya-23-8B'),
+        # Traduttore LLM locale: quale modello occupa lo slot. Le chiavi
+        # 'aya_model_path' e 'aya_model_download_status' sono state rimosse il
+        # 2026-08-18 insieme ai modelli Aya; restano innocue nelle config
+        # esistenti, semplicemente non le legge piu nessuno.
+        'llm_translator_model': 'translategemma-12b',
         
         # NLLB model
         'nllb_model_path': '',  # Vuoto usa default HuggingFace
         'nllb_finetuned_model_path': '',  # Path al modello NLLB fine-tuned locale
         
-        # HuggingFace token (per modelli gated come Aya)
+        # HuggingFace token (per i modelli gated)
         'huggingface_token': '',
 
         # Speaker Diarization (pyannote.audio)
@@ -384,12 +388,26 @@ class Config:
     # METODI HELPER per Translation Models (MODIFICATO v4.2)
     # ========================================================================
     
-    VALID_TRANSLATION_MODELS = ['nllb', 'aya', 'claude', 'nllb_finetuned', 'opensubtitles', 'openai']
+    VALID_TRANSLATION_MODELS = ['nllb', 'nllb_finetuned', 'llm', 'claude',
+                                'opensubtitles', 'openai']
+
+    # Valori salvati da versioni precedenti e il loro equivalente attuale. La
+    # migrazione avviene alla lettura: chi aveva scelto Aya si ritrova il ramo
+    # LLM (oggi TranslateGemma) invece di un errore di validazione seguito da
+    # un ritorno silenzioso a NLLB.
+    LEGACY_TRANSLATION_MODELS = {'aya': 'llm'}
     
     def get_translation_model(self) -> str:
         """Ottieni modello di traduzione corrente"""
         model = self.get('translation_model', 'nllb')
-        
+
+        if model in self.LEGACY_TRANSLATION_MODELS:
+            nuovo = self.LEGACY_TRANSLATION_MODELS[model]
+            logger.info(f"Modello '{model}' rinominato in '{nuovo}': "
+                        f"aggiorno la configurazione")
+            model = nuovo
+            self.set('translation_model', model)
+
         if model not in self.VALID_TRANSLATION_MODELS:
             print(f"⚠️ Modello '{model}' non valido. Uso 'nllb'.")
             model = 'nllb'
@@ -408,58 +426,13 @@ class Config:
         self.set('translation_model', model)
         print(f"✅ Modello traduzione impostato: {model}")
     
-    def get_aya_model_path(self) -> Path:
-        """Ottieni path del modello Aya (usato per fallback check)"""
-        path_str = self.get('aya_model_path')
-        return Path(path_str) if path_str else Path.home() / '.cache' / 'huggingface' / 'hub' / 'models--CohereForAI--aya-23-8B'
-    
-    def set_aya_model_path(self, path: str):
-        """Imposta path del modello Aya"""
-        self.set('aya_model_path', str(path))
-    
-    
-    # --- NUOVA FUNZIONE v4.2 ---
-    def set_aya_model_download_status(self, status: bool):
-        """
-        Imposta il flag di stato del download per Aya.
-        """
-        self.set('aya_model_download_status', status, save=True)
-        logger.info(f"Stato download Aya impostato a: {status}")
+    # RIMOSSI il 2026-08-18 insieme ai modelli Aya: `get_aya_model_path`,
+    # `set_aya_model_path`, `set_aya_model_download_status`,
+    # `is_aya_model_downloaded`. Non erano chiamati da nessuna parte tranne che
+    # dalla GUI del download, ora puntata sul modello LLM in uso. Il flag
+    # `aya_model_download_status` era per giunta inaffidabile: risultava True
+    # con il modello NON in cache.
 
-    # --- FUNZIONE MODIFICATA v4.2 ---
-    def is_aya_model_downloaded(self) -> bool:
-        """
-        Verifica se il modello Aya Ã¨ STATO scaricato (legge flag).
-        
-        NOTA: La vecchia logica (controllo file) Ã¨ stata rimossa perchÃ© 
-        inaffidabile. Ora ci fidiamo di un flag impostato dalla GUI
-        dopo il primo download riuscito.
-        """
-        # 1. Prova a leggere il nuovo flag (metodo affidabile)
-        status = self.get('aya_model_download_status', False)
-        if isinstance(status, bool) and status:
-            return True
-        
-        # 2. --- Logica di fallback per vecchie config ---
-        # Se il nuovo flag Ã¨ False, controlla il vecchio (e inaffidabile) 
-        # metodo di controllo file, nel caso l'utente avesse giÃ  il modello.
-        try:
-            aya_path = self.get_aya_model_path()
-            if (aya_path.exists() and 
-                (aya_path / 'config.json').exists() and
-                (any(aya_path.glob('*.safetensors')) or any(aya_path.glob('*.bin')))):
-                
-                # File trovati! Aggiorna il nuovo flag per il futuro.
-                self.set_aya_model_download_status(True) 
-                logger.info("Trovato modello Aya esistente tramite fallback. Flag aggiornato.")
-                return True
-        except Exception as e:
-            logger.warning(f"Controllo fallback file Aya fallito: {e}")
-            pass # Ignora errori di controllo file
-        
-        # 3. Se entrambi falliscono, non Ã¨ scaricato.
-        return False
-    
     def get_translation_model_info(self) -> Dict[str, Any]:
         """Ottieni informazioni sul modello di traduzione corrente"""
         current_model = self.get_translation_model()
@@ -475,18 +448,17 @@ class Config:
                 'quality': 'Ottima',
                 'status': 'Auto-download da HuggingFace (quantizzazione al volo)'
             }
-        else:  # aya
-            # Ora usa la funzione affidabile
-            is_downloaded = self.is_aya_model_downloaded()
+        else:  # llm — traduttore LLM locale
+            chiave = self.get('llm_translator_model', 'translategemma-12b')
             return {
-                'name': 'Aya-23-8B',
-                'full_name': 'CohereForAI/aya-23-8B',
-                'languages': '23 lingue',
-                'size': '~8B parametri',
-                'vram': '~8-10 GB (FP16)',
-                'speed': 'Media',
-                'quality': 'Eccellente',
-                'status': 'Scaricato' if is_downloaded else 'Da scaricare'
+                'name': 'TranslateGemma 12B',
+                'full_name': f'modello in uso: {chiave}',
+                'languages': 'multilingua',
+                'size': '~12B parametri (quantizzato NF4)',
+                'vram': '~8,4 GB di pesi, picco ~10,1 GB a batch 12',
+                'speed': 'Lenta (circa 3 s per battuta)',
+                'quality': 'Ottima su stile, piu debole su accuratezza',
+                'status': 'Auto-download da HuggingFace (repo gated)'
             }
     
     # ========================================================================
@@ -626,23 +598,12 @@ class Config:
     def set_openai_model(self, model: str):
         self.set('openai_model', model)
 
-    def get_translation_model(self) -> str:
-        """Ottieni modello traduzione selezionato ('nllb', 'aya', 'claude')"""
-        return self.get('translation_model', 'nllb')
-    
-    def set_translation_model(self, model: str):
-        """
-        Imposta modello traduzione
-
-        Args:
-            model: 'nllb', 'aya', 'claude', o 'nllb_finetuned'
-        """
-        valid_models = ['nllb', 'aya', 'claude', 'nllb_finetuned', 'opensubtitles', 'openai']
-        if model not in valid_models:
-            raise ValueError(f"Modello non valido: {model}. Usa: {', '.join(valid_models)}")
-
-        self.set('translation_model', model)
-        logger.info(f"✅ Modello traduzione impostato: {model.upper()}")
+    # `get_translation_model` e `set_translation_model` erano definiti DUE
+    # volte in questo file, e in Python vince l'ultima definizione: la coppia
+    # che stava qui — senza validazione — sovrascriveva silenziosamente quella
+    # completa piu in alto. Rimossa il 2026-08-18. Restano valide le versioni
+    # sopra, che validano contro VALID_TRANSLATION_MODELS e migrano i valori
+    # storici (vedi LEGACY_TRANSLATION_MODELS).
 
     def get_target_language(self) -> str:
         return self.get('target_language', 'ita')
@@ -747,23 +708,16 @@ if __name__ == '__main__':
     profile_info = config.get_profile_info()
     print(f"  - Profilo: {profile_info['name']}")
     
-    # Test 2: Test Logica Download Aya (Simulazione)
+    # Test 2: Migrazione dei valori storici del modello di traduzione
     print("\n" + "-" * 80)
-    print("Test Logica Download Aya (Simulazione):")
-    
-    # Stato iniziale (fallback, i file non esistono)
-    config.set('aya_model_download_status', False, save=True)
-    is_down = config.is_aya_model_downloaded()
-    print(f"  Stato Iniziale (Flag=False, File=No): {is_down} (Atteso: False)")
-    
-    # Simula download
-    config.set_aya_model_download_status(True)
-    is_down = config.is_aya_model_downloaded()
-    print(f"  Stato Post-Download (Flag=True): {is_down} (Atteso: True)")
-    
-    # Resetta
-    config.set_aya_model_download_status(False)
-    
+    print("Test Migrazione 'aya' -> 'llm':")
+
+    precedente = config.get('translation_model', 'nllb')
+    config.set('translation_model', 'aya', save=False)
+    migrato = config.get_translation_model()
+    print(f"  'aya' letto come: {migrato} (Atteso: llm)")
+    config.set('translation_model', precedente, save=True)
+
     print("\n" + "=" * 80)
     print("âœ… TEST COMPLETATI!")
     print("=" * 80 + "\n")

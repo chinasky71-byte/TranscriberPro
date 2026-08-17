@@ -5,12 +5,12 @@ Unico punto del package che conosce i pesi. Il resto della pipeline lavora su
 messaggi in formato chat e non sa quale modello ci sia dietro: cambiare
 occupante dello slot è una riga in MODEL_SPECS.
 
-Rispetto al ramo Aya storico (`core/translator.py`, AyaTranslator) qui sono
-corretti quattro difetti che rendevano la misura di quel motore priva di senso:
+Quattro difetti del ramo LLM storico sono corretti qui, e vale la pena
+tenerli a mente prima di aggiungere un modello nuovo:
 
-1. Il prompt passa da `tokenizer.apply_chat_template()`. Aya-23 è addestrato
-   sul formato Command-R (`<|START_OF_TURN_TOKEN|>`); usarlo in raw completion
-   mode significa valutarlo fuori distribuzione.
+1. Il prompt passa da `tokenizer.apply_chat_template()`. Ogni modello ha il
+   proprio formato di turno; usarlo in raw completion mode significa
+   valutarlo fuori distribuzione.
 2. `padding_side = "left"`. Con il padding a destra (default del tokenizer) e
    batch > 1, lo slice `outputs[:, input_len:]` cade in mezzo al padding e
    restituisce testo corrotto per ogni sequenza più corta della più lunga del
@@ -24,7 +24,7 @@ corretti quattro difetti che rendevano la misura di quel motore priva di senso:
 
 I parametri di generazione sono PER MODELLO e vengono dai rispettivi vendor:
 non vanno trasferiti da un modello all'altro (Hunyuan-MT è calibrato su
-sampling, Tower+ su temperature 0).
+sampling, Tower+ su temperature 0, TranslateGemma su greedy).
 """
 
 from __future__ import annotations
@@ -80,7 +80,7 @@ class ModelSpec:
     #               vuole inoltre un `content` strutturato con i campi
     #               source_lang_code / target_lang_code.
     loader: str = "causal"
-    # Finestra di contesto utile (token). Aya e Tower+ si fermano a 8K.
+    # Finestra di contesto utile (token). Tower+ si ferma a 8K.
     context_window: int = 8192
     # VRAM libera (GB) sotto la quale conviene NF4 invece di bf16.
     bf16_min_free_gb: float = 20.0
@@ -191,34 +191,16 @@ MT_PREFIX_TRIGGER = re.compile(
 MT_BUDGET_RULE = ("Rendi come sottotitolo italiano in non più di {budget} "
                   "caratteri, tagliando i riempitivi.")
 
+# I due modelli Aya sono stati RIMOSSI il 2026-08-18. Non è una preferenza:
+# hanno perso entrambi i confronti su film reale (Deadpool 2 MQM 2,85 contro
+# 2,06 di NLLB, A Man Called Otto 2,38 contro 1,66) e soprattutto il loro
+# percorso "adapt" — un solo prompt con dentro tutti i blocchi, identificati
+# per id — può DISALLINEARE battute e tempi: su blocchi consecutivi il modello
+# fonde due sottotitoli la cui frase prosegue e poi scrive le rese successive
+# sotto gli id sbagliati. Il percorso "mt" di TranslateGemma è immune per
+# costruzione (una conversazione per battuta, nessun id da sbagliare).
+# Dettagli in memory/pipeline_path_defects_2026_08.md.
 MODEL_SPECS: Dict[str, ModelSpec] = {
-    "aya-23-8b": ModelSpec(
-        model_id="CohereForAI/aya-23-8B",
-        label="Aya-23-8B",
-        # Cohere non pubblica parametri specifici per la traduzione; greedy è
-        # lo standard con cui aya-23 viene valutato in letteratura.
-        generation=dict(do_sample=False, num_beams=1),
-        gated=True,
-    ),
-    "aya-expanse-8b": ModelSpec(
-        model_id="CohereLabs/aya-expanse-8b",
-        label="Aya Expanse 8B",
-        generation=dict(do_sample=False, num_beams=1),
-        gated=True,
-        # MISURATO (mt_eval/vram_probe.py). Pesi NF4: 6.241 MiB. Picco e tempo
-        # per blocco sul percorso "adapt" (un solo prompt con dentro tutti i
-        # blocchi):
-        #   batch  8 ->  7.905 MiB (64%)  2,54 s/blocco
-        #   batch 12 ->  9.200 MiB (75%)  2,48 s/blocco   <- scelto
-        #   batch 16 -> 10.512 MiB (86%)  2,45 s/blocco
-        #   batch 20 -> 11.874 MiB (97%)  2,70 s/blocco   SBORDA (66 MiB)
-        # Qui il batch quasi non paga: da 8 a 16 si guadagna il 3,5% di tempo
-        # spendendo 2,6 GB, perché il lavoro è decodifica sequenziale di una
-        # sola risposta lunga. A 20 la curva si inverte — è la firma dello
-        # sconfinamento WDDM: niente errore, solo il tempo che risale.
-        max_batch=12,
-        notes="Successore di Aya-23. Licenza CC-BY-NC.",
-    ),
     "hunyuan-mt-7b": ModelSpec(
         model_id="tencent/Hunyuan-MT-7B",
         label="Hunyuan-MT-7B",
@@ -266,7 +248,7 @@ MODEL_SPECS: Dict[str, ModelSpec] = {
     ),
 }
 
-DEFAULT_MODEL_KEY = "aya-expanse-8b"
+DEFAULT_MODEL_KEY = "translategemma-12b"
 
 
 # --------------------------------------------------------------------------
@@ -587,7 +569,7 @@ class SubtitleLLMEngine:
     def unload(self) -> None:
         """Libera la VRAM. Senza `remove_hook_from_module` gli hook di
         accelerate trattengono i tensori e il modello resta in memoria anche
-        dopo il `del` — è il difetto che il ramo Aya storico aveva rispetto a
+        dopo il `del` — è il difetto che il ramo LLM storico aveva rispetto a
         quello NLLB."""
         if self.model is None and self.tokenizer is None:
             return

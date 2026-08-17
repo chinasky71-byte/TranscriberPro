@@ -16,7 +16,7 @@ CORREZIONI v3.9:
 âœ… FEATURE: AudioTrackSelector con get_selected_language()
 âœ… OPTIMIZATION: Cleanup e logging migliorati
 
-âœ… FIX TRANSLATOR SELECTION: La scelta del traduttore (NLLB/Aya) viene ora passata esplicitamente alla factory get_translator()
+âœ… FIX TRANSLATOR SELECTION: La scelta del traduttore viene passata esplicitamente alla factory get_translator()
                              per evitare fallback involontari sul default (NLLB).
 
 HARDWARE TARGET:

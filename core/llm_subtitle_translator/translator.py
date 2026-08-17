@@ -11,7 +11,7 @@ Politica di retry a scalare, in quest'ordine:
   3. un blocco per volta (elimina il disallineamento per costruzione)
   4. fallback sul traduttore di riserva (NLLB fine-tuned)
 
-Il quarto gradino è quello che rende il tutto utilizzabile: il ramo Aya
+Il quarto gradino è quello che rende il tutto utilizzabile: il ramo LLM
 storico, quando fallisce, scrive nell'SRT la frase inglese originale
 (`core/translator.py`, ramo `translations.append(texts[i])`), lasciando righe
 non tradotte nel file finale.
@@ -98,7 +98,7 @@ class SubtitleLLMTranslator:
         e l'unico sintomo è il crollo della velocità. Il gestore lavora perciò
         sulla percentuale di memoria occupata letta tra un batch e l'altro —
         è lo stesso meccanismo che in v1.9.5 ha eliminato lo sconfinamento su
-        NLLB e Aya, e non c'è ragione di scriverne un secondo.
+        NLLB e sul ramo LLM, e non c'è ragione di scriverne un secondo.
         """
         try:
             import torch
