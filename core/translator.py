@@ -1,5 +1,5 @@
 """
-Translator - MULTI-MODEL ARCHITECTURE (NLLB + Aya-23-8B + Claude API)
+Translator - MULTI-MODEL ARCHITECTURE (NLLB + LLM locale + Claude API)
 File: core/translator.py
 
 VERSIONE: v6.0 - INTEGRAZIONE CLAUDE API
@@ -14,8 +14,8 @@ NUOVO v6.0:
 ✅ Factory get_translator aggiornata per selezione dinamica
 ✅ Config aggiornato con claude_api_key e validazione
 
-VERSIONE: v5.4 - FIX ALLUCINAZIONI E RIPETIZIONI AYA
-(Riscrittura completa della generazione Aya con parametri anti-ripetizione
+VERSIONE: v5.4 - FIX ALLUCINAZIONI E RIPETIZIONI DEL RAMO LLM
+(Riscrittura completa della generazione LLM con parametri anti-ripetizione
 e controlli di qualitÃ  per eliminare allucinazioni e ripetizioni infinite)
 
 CORREZIONI v5.4:
@@ -41,7 +41,7 @@ FUNZIONALITÃ€ v5.2:
 âœ… Impedita l'invio di stringhe vuote/solo contenuti mascherati
 âœ… Controllo esplicito allucinazione ("# non lo so #") con fallback
 âœ… Logica di copia dell'originale gestita robustamente
-âœ… Caricamento token HuggingFace per Aya-23-8B (Gated Repo)
+âœ… Caricamento token HuggingFace per i modelli gated
 """
 import logging
 import torch
@@ -297,7 +297,7 @@ class BaseTranslator(ABC):
 
         Args:
             text: Testo del sottotitolo originale.
-            model_prefix: Prefisso unico per il placeholder (e.g., 'NLLB' o 'AYA').
+            model_prefix: Prefisso unico per il placeholder (e.g., 'NLLB' o 'LLM').
 
         Returns:
             Tuple: (Testo da tradurre, Mappa dei placeholder {placeholder: contenuto originale}, Solo contenuti mascherati)
@@ -313,6 +313,20 @@ class BaseTranslator(ABC):
 
         # Regex (non-greedy, DOTALL) che cattura tutto tra le due note musicali
         masked_text = re.sub(r'♪.*?♪', masking_replacer, text, flags=re.DOTALL)
+
+        # Stessa protezione per la convenzione statunitense, che al posto della
+        # nota musicale usa l'asterisco: '* Every day it's a-getting closer *'.
+        # Le liriche seguono il trattamento di ♪ — si preservano tali e quali,
+        # non si traducono.
+        #
+        # Gli spazi nel pattern non sono decorativi: l'asterisco serve ANCHE a
+        # censurare il turpiloquio nella fonte ('ca***', 'fanc***'), e un
+        # pattern piu' largo spezzerebbe quelle parole a meta'. Richiedere uno
+        # spazio subito dopo l'asterisco di apertura e subito prima di quello
+        # di chiusura separa i due usi: una lirica ha le spaziature, una parola
+        # censurata no.
+        masked_text = re.sub(r'\*\s.*?\s\*', masking_replacer, masked_text,
+                             flags=re.DOTALL)
         
         # 2. Verifica se il testo rimanente, una volta ripulito dagli spazi, ÃƒÂ¨ vuoto.
         text_without_placeholders = masked_text
@@ -320,8 +334,25 @@ class BaseTranslator(ABC):
             text_without_placeholders = text_without_placeholders.replace(placeholder, ' ') 
         
         text_without_placeholders_cleaned = re.sub(r'^-', '', text_without_placeholders).strip()
-        
-        only_masked = text_without_placeholders_cleaned == ""
+
+        # Un blocco senza NESSUNA lettera non ha niente da tradurre: e' un
+        # marcatore, non una battuta. Va lasciato passare intatto.
+        #
+        # Non basta controllare che sia vuoto. Le tracce statunitensi usano
+        # spesso l'asterisco al posto della nota musicale: '**' significa
+        # "musica senza parole". Mandato a un LLM, quel blocco non viene
+        # copiato ma ALLUCINATO — su Brilliant Minds S02E01 tutti e 48 i
+        # marcatori '**' sono diventati frasi inventate, 26 volte la stessa
+        # ("It's not you, it's me."), perche' a input identico il modello
+        # produce sempre la stessa invenzione.
+        #
+        # La regola guarda l'assenza di lettere invece di elencare i simboli:
+        # copre '**', '♪♪', '###', '-- --' e qualunque altra convenzione senza
+        # doverle prevedere una per una.
+        has_letters = re.search(r'[^\W\d_]', text_without_placeholders_cleaned,
+                                flags=re.UNICODE) is not None
+
+        only_masked = (text_without_placeholders_cleaned == "" or not has_letters)
 
         # 3. Pulizia finale del testo che va al modello
         final_text = masked_text.strip()
@@ -1077,23 +1108,28 @@ class NLLBTranslator(BaseTranslator):
 
 
 # ============================================================================
-# AYA TRANSLATOR (NEW)
+# TRADUTTORE LLM LOCALE
 # ============================================================================
 
-class AyaTranslator(BaseTranslator):
-    """Traduttore LLM per sottotitoli — adapter sul package
+class LLMSubtitleTranslator(BaseTranslator):
+    """Traduttore LLM locale per sottotitoli — adapter sul package
     `core.llm_subtitle_translator`.
+
+    Si chiamava `AyaTranslator` finché Aya era l'unico occupante dello slot.
+    Il nome era già impreciso da quando il package è diventato model-agnostic,
+    ed è diventato sbagliato del tutto quando Aya è stata rimossa
+    (2026-08-18): quale modello ci sia dietro è una chiave di configurazione,
+    `llm_translator_model`, oggi TranslateGemma-12B.
 
     Storicamente questa classe conteneva il proprio prompt e la propria
     generazione. Quel percorso aveva quattro difetti che rendevano la misura
     del modello priva di senso: prompt in raw-completion senza il chat template
-    su cui Aya è addestrato, `padding_side` di default che corrompeva ogni
+    su cui il modello è addestrato, `padding_side` di default che corrompeva ogni
     batch maggiore di uno, `output.split('\\n')[0]` che scartava la seconda
     battuta di ogni dialogo, e un fallback che scriveva la frase inglese
     originale nell'SRT finale.
 
-    Ora la logica sta nel package, che è model-agnostic: quale modello occupi
-    lo slot è una chiave di configurazione. La facade pubblica —
+    Ora la logica sta nel package, che è model-agnostic. La facade pubblica —
     `translate_file(input, output, src_lang, tgt_lang, context)` — non cambia,
     quindi `core/pipeline.py` continua a funzionare senza sapere nulla di
     tutto questo.
@@ -1149,16 +1185,29 @@ class AyaTranslator(BaseTranslator):
     @staticmethod
     def _configured_model(default_key: str) -> str:
         """Quale modello occupa lo slot. Chiave di config, così cambiarlo non
-        richiede toccare il codice."""
+        richiede toccare il codice.
+
+        Ricade sul default in due casi, entrambi reali: la chiave assente o
+        nulla (configurazioni anteriori alla sua introduzione) e la chiave che
+        nomina un modello non più nel registro — chi aveva scelto Aya
+        troverebbe altrimenti un errore di modello sconosciuto al primo file
+        della coda.
+        """
+        from core.llm_subtitle_translator.engine import MODEL_SPECS
         try:
             if get_config:
-                return get_config().get('llm_translator_model',
-                                        default_key) or default_key
+                chiave = get_config().get('llm_translator_model', None)
+                if chiave and chiave in MODEL_SPECS:
+                    return chiave
+                if chiave:
+                    logger.warning(
+                        f"Modello LLM '{chiave}' non più disponibile: "
+                        f"uso '{default_key}'")
         except Exception:
             pass
         return default_key
 
-    def _aya_to_iso(self, lang_code: str) -> Optional[str]:
+    def _lang_to_iso(self, lang_code: str) -> Optional[str]:
         result = self.LANGUAGE_CODES.get(lang_code.lower())
         if result is None:
             logger.warning(f"Codice lingua '{lang_code}' non supportato")
@@ -1202,8 +1251,8 @@ class AyaTranslator(BaseTranslator):
             SubtitleLLMTranslator)
 
         try:
-            src = self._aya_to_iso(src_lang)
-            tgt = self._aya_to_iso(tgt_lang)
+            src = self._lang_to_iso(src_lang)
+            tgt = self._lang_to_iso(tgt_lang)
             if not src or not tgt:
                 self.log(f" Codice lingua non supportato: {src_lang}/{tgt_lang}")
                 return False
@@ -1964,17 +2013,18 @@ def get_translator(model_type: Optional[str] = None, context: Optional[str] = No
     Factory function per ottenere il traduttore appropriato.
     
     Args:
-        model_type: 'nllb', 'aya', 'claude', o None (usa config)
+        model_type: 'nllb', 'nllb_finetuned', 'llm', 'claude', 'openai',
+                    'opensubtitles', o None (usa config)
         context: Contesto opzionale (es. sinossi TMDB) per migliorare traduzione
-        use_aya: [DEPRECATED] Usa model_type='aya' invece
-    
+        use_aya: [DEPRECATO] Usa model_type='llm' invece
+
     Returns:
         Istanza del traduttore appropriato
     """
     # Gestisci backward compatibility con use_aya
     if use_aya is not None:
         logger.warning("Parametro 'use_aya' deprecato, usa 'model_type' invece")
-        model_type = 'aya' if use_aya else 'nllb'
+        model_type = 'llm' if use_aya else 'nllb'
     
     # Determina modello da usare
     if model_type is None:
@@ -2007,9 +2057,16 @@ def get_translator(model_type: Optional[str] = None, context: Optional[str] = No
             logger.error("Fallback su NLLBTranslator")
             return NLLBTranslator(context=context)
     
-    elif model_type == 'aya':
-        logger.info("Factory: Creazione AyaTranslator")
-        return AyaTranslator(context=context)
+    elif model_type in ('llm', 'aya'):
+        # 'aya' resta accettata perché è il valore salvato nelle
+        # configurazioni esistenti: chi aveva scelto quel motore non deve
+        # ritrovarsi la traduzione rotta al primo avvio dopo l'aggiornamento.
+        # Il modello che occupa lo slot è `llm_translator_model`.
+        if model_type == 'aya':
+            logger.info("Factory: 'aya' è un valore storico, ora significa "
+                        "'llm' (modello da llm_translator_model)")
+        logger.info("Factory: Creazione LLMSubtitleTranslator")
+        return LLMSubtitleTranslator(context=context)
     
     elif model_type == 'nllb_finetuned':
         logger.info("Factory: Creazione NLLBFineTunedTranslator")
