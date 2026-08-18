@@ -148,6 +148,39 @@ class SubtitleLLMTranslator:
             self.batch_size = size
         return size
 
+    # ------------------------------------------------------------------
+    def _bar(self, fatti: int, totale: int, t0: float,
+             chiuso: bool = False) -> None:
+        """La stessa barra del ramo NLLB, aggiornata sul posto.
+
+        La GUI riscrive in-place le righe che contengono `Traduzione: [`
+        (`main_window.UPDATABLE_PATTERNS`): senza quella sequenza esatta ogni
+        aggiornamento finirebbe su una riga nuova, ed è il motivo per cui il
+        ramo LLM riempiva il registro di righe invece di aggiornarne una.
+
+        Rispetto a NLLB c'è in più la stima del tempo rimanente, che qui serve
+        davvero: un 12B fa circa tre secondi a battuta, quindi un film intero
+        sono ore e non minuti.
+        """
+        import time as _t
+        trascorso = _t.time() - t0
+        if chiuso:
+            m, sec = divmod(int(trascorso), 60)
+            durata = f"{m}m {sec:02d}s" if m else f"{sec}s"
+            self.log(f"  ✅ Traduzione: [██████████] 100% "
+                     f"({totale}/{totale}) │ {durata}")
+            return
+        pct = int(fatti * 100 / totale) if totale else 0
+        pieni = pct // 10
+        barra = "█" * pieni + "░" * (10 - pieni)
+        coda = ""
+        if fatti:
+            manca = trascorso / fatti * (totale - fatti)
+            m = int(manca // 60)
+            coda = f" │ ~{m}m" if m else f" │ ~{int(manca)}s"
+        self.log(f"  🌐 Traduzione: [{barra}] {pct:3d}% ({fatti}/{totale}) "
+                 f"│ batch:{self.batch_size}{coda}")
+
     def _record(self, issues) -> None:
         for issue in issues:
             key = issue.code if issue.blocking else f"~{issue.code}"
@@ -275,6 +308,7 @@ class SubtitleLLMTranslator:
         history: List[Tuple[str, str]] = []
         total = len(work)
         t0 = time.time()
+        self._bar(0, total, t0)
 
         i = 0
         while i < total:
@@ -289,18 +323,14 @@ class SubtitleLLMTranslator:
 
             prev = i
             i += len(batch)
-            # Il decimo si conta sui blocchi attraversati, non sulla
-            # percentuale esatta: con batch da 12 su 370 unità la condizione
-            # `pct % 10 == 0` non si verificava quasi mai e la run sembrava
-            # bloccata.
-            if (i * 10) // total != (prev * 10) // total or i >= total:
-                el = time.time() - t0
-                pct = i * 100 // total
-                rate = el / i if i else 0
-                self.log(f"  Adattamento: {pct:3d}% ({i}/{total}) | "
-                         f"{el:.0f}s | ~{rate * (total - i):.0f}s rimanenti")
+            # Un aggiornamento per punto percentuale, come sul ramo NLLB: la
+            # riga viene riscritta sul posto, quindi costa niente ed evita che
+            # una run lunga sembri bloccata fra un decimo e l'altro.
+            if i * 100 // total != prev * 100 // total or i >= total:
+                self._bar(i, total, t0)
 
         elapsed = time.time() - t0
+        self._bar(total, total, t0, chiuso=True)
         self.log(
             f"  Completato in {elapsed / 60:.1f} min | batch {self.stats['batch']} "
             f"| retry {self.stats['retry_prompt']}+{self.stats['retry_split']}"
@@ -343,6 +373,7 @@ class SubtitleLLMTranslator:
         results: Dict[int, str] = {}
         total = len(units)
         t0 = time.time()
+        self._bar(0, total, t0)
         # Le battute sono corte: il tetto serve solo contro le degenerazioni.
         max_new = 160
 
@@ -386,15 +417,14 @@ class SubtitleLLMTranslator:
                         results[unit.id] = retry.strip()
 
             prev, i = i, i + len(batch)
-            if (i * 10) // total != (prev * 10) // total or i >= total:
-                el = time.time() - t0
-                self.log(f"  Traduzione: {i * 100 // total:3d}% ({i}/{total}) "
-                         f"| {el:.0f}s | ~{el / i * (total - i):.0f}s rimanenti")
+            if i * 100 // total != prev * 100 // total or i >= total:
+                self._bar(i, total, t0)
 
         failed = [u for u in units if not results.get(u.id, "").strip()]
         if failed:
             results.update(self._apply_fallback(failed, {}))
 
+        self._bar(total, total, t0, chiuso=True)
         self.log(f"  Completato in {(time.time() - t0) / 60:.1f} min | "
                  f"batch {self.stats['batch']} | retry "
                  f"{self.stats['retry_single']} | fallback "
