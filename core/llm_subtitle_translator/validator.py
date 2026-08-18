@@ -91,61 +91,6 @@ class Issue:
         return f"[{self.code}] {where}: {self.detail}"
 
 
-def parse_response(raw: str, expected_ids: Sequence[int]) -> Tuple[Dict[int, str], List[Issue]]:
-    """Estrae {id: testo} dalla risposta grezza del modello.
-
-    Tollera il caso comune in cui il modello incornicia il JSON con del testo
-    o con un blocco markdown: recuperare qui evita un retry inutile.
-    """
-    issues: List[Issue] = []
-    text = raw.strip()
-
-    fence = re.search(r"```(?:json)?\s*(.+?)```", text, re.S)
-    if fence:
-        text = fence.group(1).strip()
-
-    start, end = text.find("["), text.rfind("]")
-    if start == -1 or end == -1 or end < start:
-        return {}, [Issue("no_json", "nessun array JSON nella risposta")]
-
-    try:
-        data = json.loads(text[start:end + 1])
-    except json.JSONDecodeError as exc:
-        return {}, [Issue("bad_json", f"JSON non valido: {exc}")]
-
-    if not isinstance(data, list):
-        return {}, [Issue("bad_json", "la risposta non è un array")]
-
-    out: Dict[int, str] = {}
-    for entry in data:
-        if not isinstance(entry, dict):
-            continue
-        try:
-            idx = int(entry.get("id"))
-        except (TypeError, ValueError):
-            continue
-        value = entry.get("it", entry.get("text", ""))
-        if isinstance(value, str):
-            out[idx] = value.strip()
-
-    expected = set(expected_ids)
-    missing = sorted(expected - set(out))
-    extra = sorted(set(out) - expected)
-    if missing:
-        issues.append(Issue(
-            "missing_ids",
-            f"{len(missing)} blocchi assenti nella risposta: {missing[:8]}",
-        ))
-    if extra:
-        issues.append(Issue(
-            "extra_ids", f"id non richiesti nella risposta: {extra[:8]}",
-        ))
-        for idx in extra:
-            out.pop(idx, None)
-
-    return out, issues
-
-
 def _is_degenerate(text: str) -> bool:
     """Loop ripetitivo: stesso n-gramma che ricorre oltre ogni plausibilità."""
     words = text.split()
@@ -299,14 +244,3 @@ def validate(
 
 def blocking(issues: Sequence[Issue]) -> List[Issue]:
     return [i for i in issues if i.blocking]
-
-
-def summarize(issues: Sequence[Issue], limit: int = 3) -> str:
-    """Riassunto compatto da rimandare al modello nel prompt di retry."""
-    hard = blocking(issues)
-    if not hard:
-        return ""
-    parts = [str(i) for i in hard[:limit]]
-    if len(hard) > limit:
-        parts.append(f"e altri {len(hard) - limit} problemi")
-    return "; ".join(parts)

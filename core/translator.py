@@ -827,9 +827,10 @@ class NLLBTranslator(BaseTranslator):
         # in cui infilare informazioni di sfondo. Tutto ciò che gli si mette
         # davanti è testo da tradurre.
         #
-        # Il contesto resta utile e resta passato: lo usano i motori che
-        # sanno cosa farsene — il ramo LLM tramite `DocumentContext`, Claude e
-        # OpenAI tramite la sezione CONTEXT del loro prompt.
+        # Il contesto resta passato perché lo usano i motori cloud, Claude e
+        # OpenAI, nella sezione CONTEXT del loro prompt. Il ramo LLM locale
+        # non lo riceve più: lo consumava solo il percorso "adapt", rimosso il
+        # 2026-08-18.
         #
         # Il codice era in `master` da tempo ma non si era mai visto: la
         # pipeline chiamava `get_translator()` senza contesto, quindi
@@ -1224,18 +1225,6 @@ class LLMSubtitleTranslator(BaseTranslator):
         except Exception:
             return 0.0
 
-    def _build_document_context(self):
-        """Il contesto TMDB che la pipeline già possiede.
-
-        `BaseTranslator` accetta un `context` testuale da sempre, ma nessun
-        ramo lo passava al modello: qui diventa l'intestazione del prompt, che
-        aiuta soprattutto sui nomi propri e sul registro.
-        """
-        from core.llm_subtitle_translator.prompt_builder import DocumentContext
-        if not self.context or not str(self.context).strip():
-            return None
-        return DocumentContext(overview=str(self.context).strip())
-
     def translate_file(self, input_path: Path, output_path: Path,
                        src_lang: str, tgt_lang: str,
                        context: Optional[str] = None) -> bool:
@@ -1293,7 +1282,6 @@ class LLMSubtitleTranslator(BaseTranslator):
 
             translator = SubtitleLLMTranslator(
                 engine=engine,
-                context=self._build_document_context(),
                 fallback=None,   # il ripiego gira dopo, a modello scaricato
                 batch_size=self.DEFAULT_BATCH_SIZE,
                 log_callback=self.log,

@@ -63,15 +63,6 @@ class ModelSpec:
     label: str
     # Parametri passati a model.generate(). Fonte: model card del vendor.
     generation: Dict[str, Any] = field(default_factory=dict)
-    # Come si interroga il modello:
-    #   "adapt" — un prompt di sistema con le regole del sottotitolo e un
-    #             batch di blocchi in JSON. Richiede un modello che segua
-    #             istruzioni complesse.
-    #   "mt"    — il prompt nativo di traduzione del vendor, una battuta per
-    #             chiamata. È il modo in cui un modello MT specializzato è
-    #             stato addestrato, e forzarlo nello schema "adapt" ne spreca
-    #             il vantaggio.
-    prompt_style: str = "adapt"
     # Come si carica il modello:
     #   "causal"  — AutoModelForCausalLM + AutoTokenizer, il caso normale.
     #   "gemma3"  — AutoModelForImageTextToText + AutoProcessor. I modelli
@@ -92,10 +83,10 @@ class ModelSpec:
     # di 4-5 volte — quindi il tetto va messo per modello, misurato con
     # `mt_eval/vram_probe.py`, non lasciato a un valore unico per tutti.
     max_batch: int = 12
-    # Istruzioni da anteporre al testo dentro il prompt nativo (solo
-    # prompt_style="mt"). Serve ai modelli MT il cui chat template non prevede
-    # un ruolo di sistema: l'unico canale per dargli una regola è il campo del
-    # testo da tradurre. Vuoto = prompt del vendore intatto.
+    # Istruzioni da anteporre al testo dentro il prompt nativo. Serve ai
+    # modelli il cui chat template non prevede un ruolo di sistema: l'unico
+    # canale per dargli una regola è il campo del testo da tradurre.
+    # Vuoto = prompt del produttore intatto.
     mt_prefix: str = ""
     # Quando applicare `mt_prefix`. Se resta None il prefisso va su ogni
     # battuta; con un pattern, solo su quelle che lo contengono. Serve perché
@@ -207,20 +198,12 @@ MODEL_SPECS: Dict[str, ModelSpec] = {
         # Raccomandati dalla model card: il modello è RL-tunato su queste.
         generation=dict(do_sample=True, top_k=20, top_p=0.6, temperature=0.7,
                         repetition_penalty=1.05),
-        prompt_style="mt",
         notes="Vincitore traccia constrained WMT25; miglior en-it sotto 20B.",
-    ),
-    "tower-plus-9b": ModelSpec(
-        model_id="Unbabel/Tower-Plus-9B",
-        label="Tower+ 9B",
-        generation=dict(do_sample=False, num_beams=1),
-        notes="Specializzato MT. Licenza CC-BY-NC.",
     ),
     "translategemma-12b": ModelSpec(
         model_id="google/translategemma-12b-it",
         label="TranslateGemma 12B",
         generation=dict(do_sample=False, num_beams=1),
-        prompt_style="mt",
         mt_prefix=TRANSLATEGEMMA_SUBTITLE_RULES,
         mt_prefix_when=MT_PREFIX_TRIGGER,
         mt_budget_rule=MT_BUDGET_RULE,
