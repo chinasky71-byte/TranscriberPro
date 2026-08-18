@@ -460,8 +460,10 @@ class VobSubOcr:
 
     def _writeback_mux(self, srt_file: Path, language: str) -> bool:
         """
-        Aggiunge l'SRT come nuova traccia testo nell'MKV, in-place.
-        Tutte le tracce esistenti (incluso il VOBSUB originale) restano intatte.
+        Rimuxa l'SRT come nuova traccia testo nell'MKV, in-place, AL POSTO della
+        traccia VOBSUB bitmap di origine: `-map "-0:s:{bitmap_rel_idx}"` la
+        esclude esplicitamente dall'output, `-map 1:0` aggiunge il nuovo SRT.
+        Tutte le altre tracce (video, audio, altri sottotitoli) restano intatte.
         """
         if self.video_path.suffix.lower() != ".mkv":
             logger.warning(f"Write-back mux salta {self.video_path.name}: non è MKV")
