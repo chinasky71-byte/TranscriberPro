@@ -1,49 +1,98 @@
-﻿# Crea/aggiorna .gitignore
-@"
+# ---------------------------------------------------------------------------
+# Ambienti virtuali
+#
+# Il pattern deve essere `venv*/` e non `venv/`: in gitignore `venv/` copre
+# solo una cartella chiamata esattamente cosi', e il progetto ne ha tre
+# (`venv_canary` per NeMo/Canary, `venv_comet` per CometKiwi, `.venv_spacy`
+# dentro gender_eval). Con la sola regola `venv/` una sincronizzazione
+# completa della cartella di lavoro avrebbe portato dentro ~9 GB.
+# ---------------------------------------------------------------------------
+venv*/
+.venv*/
+env/
+
+# ---------------------------------------------------------------------------
+# Modelli e pesi
+#
+# I pesi non stanno su git: NLLB fine-tuned e' pubblicato su HuggingFace
+# (Chinasky71/nllb-200-3.3b-it-subtitles) e di NLLB_Tranined/ si tracciano
+# solo tokenizer e configurazione, che servono a far partire il codice.
+# ---------------------------------------------------------------------------
+models/
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
+
+# ---------------------------------------------------------------------------
+# Corpus di addestramento
+#
+# `Gemma training/` contiene il corpus EN->IT (centinaia di MB e in crescita)
+# piu' il censimento dei media, che elenca percorsi della libreria personale.
+# Gli script di raccolta valgono, i dati no.
+# ---------------------------------------------------------------------------
+# Si escludono i DATI, non il codice: gli script di raccolta e il documento di
+# ripresa vanno versionati, perche' sono cio' che permette di ricominciare
+# dopo uno spegnimento. La forma `cartella/*` (invece di `cartella/`) e'
+# necessaria: con la seconda git non entra nemmeno nella cartella e le
+# riammissioni con `!` non verrebbero valutate.
+Gemma training/*
+!Gemma training/*.py
+!Gemma training/*.cmd
+!Gemma training/*.md
+
+# ---------------------------------------------------------------------------
+# Credenziali
+# ---------------------------------------------------------------------------
+*credentials*
+*api_key*
+*.env
+huggingface_download_token.txt
+huggingface_write_token.txt
+*token*.txt
+
+# ---------------------------------------------------------------------------
 # Python
+# ---------------------------------------------------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-venv/
-env/
+build/
+dist/
+*.egg-info/
 
-# Test e Debug
+# ---------------------------------------------------------------------------
+# Script di lavoro, non codice di produzione
+# ---------------------------------------------------------------------------
 test_*.py
 debug_*.py
 check_*.py
 fix_*.py
+speed_fix_*.py
+speed_*.py
 restore_*.py
 *_test.py
 
-# Backup
+# ---------------------------------------------------------------------------
+# Backup e residui
+# ---------------------------------------------------------------------------
 *.backup
+*.bak
+*.jsonl.bak
 *backup*.py
 old_*.py
 bak_*.py
+diagnostica
+diagnostica/
 
-# Credenziali
-*credentials*
-*api_key*
-*.env
-
-# Log
+# ---------------------------------------------------------------------------
+# Log e temporanei
+# ---------------------------------------------------------------------------
 *.log
-
-# Temp
 temp/
 cache/
-"@ | Out-File -FilePath .gitignore -Encoding UTF8
-# Token HuggingFace
-huggingface_download_token.txt
-huggingface_write_token.txt
-
-# Modelli GGUF (troppo grandi per Git)
-*.gguf
-
-# Script di lavoro / speed-fix (non codice di produzione)
-speed_fix_*.py
-speed_*.py
-
-diagnostica
+.claude/
