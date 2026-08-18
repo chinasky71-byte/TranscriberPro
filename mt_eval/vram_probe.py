@@ -150,17 +150,11 @@ def main():
         w.start()
         t0 = time.time()
         try:
-            if spec.prompt_style == "mt":
-                convs = [engine.mt_messages(d["source"]) for d in chunk]
-                engine.generate(convs, max_new_tokens=160)
-            else:
-                # Percorso "adapt": un solo prompt con tutti i blocchi dentro.
-                from core.llm_subtitle_translator.prompt_builder import (
-                    SubtitleUnit, build_messages)
-                units = [SubtitleUnit(id=d["id"], text=d["source"],
-                                      duration=3.0) for d in chunk]
-                engine.generate([build_messages(units)],
-                                max_new_tokens=90 * bs)
+            # Una conversazione per battuta: il batching sta sulla GPU.
+            # Era l'alternativa al percorso "adapt" (un solo prompt con
+            # tutti i blocchi dentro), rimosso il 2026-08-18.
+            convs = [engine.mt_messages(d["source"]) for d in chunk]
+            engine.generate(convs, max_new_tokens=160)
             err = ""
         except Exception as exc:
             err = type(exc).__name__

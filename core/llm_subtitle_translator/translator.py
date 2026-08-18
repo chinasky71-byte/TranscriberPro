@@ -26,9 +26,8 @@ from utils.logger import setup_logger
 
 from . import postprocess
 from .postprocess import DASH_PREFIX
-from .prompt_builder import (DocumentContext, SubtitleUnit, build_mt_messages,
-                             build_messages, build_refine_messages)
-from .validator import blocking, parse_response, summarize, validate
+from .prompt_builder import SubtitleUnit, build_mt_messages
+from .validator import blocking, validate
 
 logger = setup_logger(__name__)
 
@@ -45,26 +44,18 @@ class SubtitleLLMTranslator:
     def __init__(
         self,
         engine,
-        context: Optional[DocumentContext] = None,
         fallback: Optional[Callable[[Sequence[str]], List[str]]] = None,
         batch_size: int = DEFAULT_BATCH,
         log_callback: Optional[Callable] = None,
-        mode: str = "translate",
     ):
         """
         `fallback`: funzione che traduce una lista di testi. Riceve i blocchi
         che l'LLM non è riuscito a produrre. Se assente, quei blocchi restano
         vuoti e vengono segnalati.
-
-        `mode`: "translate" (l'LLM traduce da zero) oppure "refine" (l'LLM
-        riscrive una bozza prodotta dal fallback). La seconda parte da una
-        traduzione già fedele e ne corregge solo la resa.
         """
         self.engine = engine
-        self.context = context
         self.fallback = fallback
         self.log_callback = log_callback
-        self.mode = mode
 
         # Il tetto lo detta il modello, non il chiamante: un 12B quantizzato
         # lascia poco più di 4 GB liberi, e lo stesso batch che un 8B regge
@@ -74,8 +65,8 @@ class SubtitleLLMTranslator:
         self._batch_cap = cap
         self._batch_mgr = self._make_batch_manager()
         self.stats = {
-            "batch": 0, "retry_prompt": 0, "retry_split": 0,
-            "retry_single": 0, "fallback_blocks": 0, "unresolved": 0,
+            "batch": 0, "retry_single": 0,
+            "fallback_blocks": 0, "unresolved": 0,
         }
         # Quali controlli scattano, e quante volte: serve a distinguere un
         # modello che sbaglia da un validatore troppo severo.
@@ -284,63 +275,8 @@ class SubtitleLLMTranslator:
         sources = {u.id: u.text for u in units}
         order = [u.id for u in units]
 
-        # La bozza va chiesta sui blocchi INTERI: il traduttore di base lavora
-        # sul testo originale, non sulle righe che stiamo per separare.
-        raw_drafts: Dict[int, str] = {}
-        if self.mode == "refine":
-            if self.fallback is None:
-                raise ValueError("mode='refine' richiede un traduttore di base")
-            self.log("  Bozza con il traduttore di base...")
-            base = self.fallback([u.text for u in units])
-            raw_drafts = {u.id: t for u, t in zip(units, base)}
-
         work, rebuild = self._expand_dialogue(units)
-        drafts = self._expand_drafts(raw_drafts, rebuild) if raw_drafts else {}
-
-        style = getattr(getattr(self.engine, "spec", None), "prompt_style",
-                        "adapt")
-        if style == "mt":
-            results = self._translate_mt(work)
-            results = self._rebuild_dialogue(results, rebuild)
-            return postprocess.process(results, order=order, sources=sources)
-
-        results: Dict[int, str] = {}
-        history: List[Tuple[str, str]] = []
-        total = len(work)
-        t0 = time.time()
-        self._bar(0, total, t0)
-
-        i = 0
-        while i < total:
-            batch = list(work[i:i + self._next_batch_size()])
-            done = self._translate_batch(batch, history, drafts)
-            results.update(done)
-
-            for u in batch:
-                if u.id in done and done[u.id]:
-                    history.append((u.text, done[u.id]))
-            history = history[-HISTORY_DEPTH:]
-
-            prev = i
-            i += len(batch)
-            # Un aggiornamento per punto percentuale, come sul ramo NLLB: la
-            # riga viene riscritta sul posto, quindi costa niente ed evita che
-            # una run lunga sembri bloccata fra un decimo e l'altro.
-            if i * 100 // total != prev * 100 // total or i >= total:
-                self._bar(i, total, t0)
-
-        elapsed = time.time() - t0
-        self._bar(total, total, t0, chiuso=True)
-        self.log(
-            f"  Completato in {elapsed / 60:.1f} min | batch {self.stats['batch']} "
-            f"| retry {self.stats['retry_prompt']}+{self.stats['retry_split']}"
-            f"+{self.stats['retry_single']} | fallback "
-            f"{self.stats['fallback_blocks']} blocchi"
-        )
-        if self.stats["unresolved"]:
-            self.log(f"  ATTENZIONE: {self.stats['unresolved']} blocchi non "
-                     f"risolti")
-
+        results = self._translate_mt(work)
         results = self._rebuild_dialogue(results, rebuild)
         return postprocess.process(results, order=order, sources=sources)
 
@@ -399,7 +335,7 @@ class SubtitleLLMTranslator:
 
             issues = validate(
                 batch, {u.id: results[u.id] for u in batch},
-                glossary=self.context.glossary if self.context else None)
+                )
             self._record(issues)
 
             # Riprova una volta sola i blocchi difettosi, singolarmente.
@@ -430,136 +366,3 @@ class SubtitleLLMTranslator:
                  f"{self.stats['retry_single']} | fallback "
                  f"{self.stats['fallback_blocks']}")
         return results
-
-    def _generate(self, units: Sequence[SubtitleUnit],
-                  history: Sequence[Tuple[str, str]],
-                  drafts: Dict[int, str],
-                  retry_note: Optional[str] = None) -> Dict[int, str]:
-        """Una chiamata al modello; restituisce ciò che è riuscito a parsare."""
-        if self.mode == "refine":
-            messages = build_refine_messages(units, drafts, self.context)
-        else:
-            messages = build_messages(units, self.context, history, retry_note)
-
-        max_new = max(MIN_NEW_TOKENS, len(units) * TOKENS_PER_BLOCK)
-        try:
-            raw = self.engine.generate([messages], max_new_tokens=max_new)[0]
-            self._record_ok()
-        except Exception as exc:
-            self._record_failure(exc)
-            raise
-
-        parsed, parse_issues = parse_response(raw, [u.id for u in units])
-        for issue in parse_issues:
-            logger.debug(str(issue))
-        return parsed
-
-    def _bad_ids(self, units, results):
-        """Quali blocchi vanno rifatti, e con quale spiegazione.
-
-        Distingue i guasti di BATCH (la risposta non si parsa, mancano gli id)
-        dai guasti di BLOCCO (una singola resa è vuota, degenerata, o attenua
-        il turpiloquio). È la distinzione che rende il retry economico: rifare
-        dodici blocchi perché uno solo è sbagliato costava, alla misura, un
-        fattore tre sul tempo totale.
-        """
-        issues = validate(
-            units, results,
-            glossary=self.context.glossary if self.context else None)
-        self._record(issues)
-        hard = blocking(issues)
-        if not hard:
-            return set(), "", issues
-
-        ids = {i.id for i in hard if i.id is not None}
-        # Un blocco assente dalla risposta è comunque da rifare.
-        ids.update(u.id for u in units
-                   if not results.get(u.id, "").strip())
-        # Guasto senza id (JSON illeggibile): tocca tutto il batch.
-        if not ids:
-            ids = {u.id for u in units}
-
-        note = summarize([i for i in hard if i.id is None or i.id in ids])
-        return ids, note, issues
-
-    def _translate_batch(self, units: Sequence[SubtitleUnit],
-                         history: Sequence[Tuple[str, str]],
-                         drafts: Dict[int, str]) -> Dict[int, str]:
-        """Un batch, con retry mirati e poi la rete di sicurezza."""
-        self.stats["batch"] += 1
-
-        results = self._safe_generate(units, history, drafts)
-        bad, note, _ = self._bad_ids(units, results)
-        if not bad:
-            return results
-
-        # Gradino 1 — si rigenerano SOLO i blocchi difettosi, spiegando
-        # l'errore. Se a fallire è l'intero batch e i blocchi sono molti, la
-        # causa più probabile è una risposta troppo lunga: si dimezza.
-        for _ in range(2):
-            todo = [u for u in units if u.id in bad]
-            if len(todo) == len(units) and len(units) > 3:
-                self.stats["retry_split"] += 1
-                mid = len(units) // 2
-                return {**self._translate_batch(units[:mid], history, drafts),
-                        **self._translate_batch(units[mid:], history, drafts)}
-
-            self.stats["retry_prompt"] += 1
-            logger.info(f"Retry mirato su {len(todo)} blocchi: {note}")
-            redo = self._safe_generate(todo, history, drafts, retry_note=note)
-            for key, value in redo.items():
-                if value.strip():
-                    results[key] = value
-
-            bad, note, _ = self._bad_ids(units, results)
-            if not bad:
-                return results
-
-        # Gradino 2 — un blocco per volta: elimina il disallineamento per
-        # costruzione, perché non c'è più niente da allineare.
-        for unit in [u for u in units if u.id in bad]:
-            self.stats["retry_single"] += 1
-            single = self._safe_generate([unit], history, drafts,
-                                         retry_note=note)
-            text = single.get(unit.id, "")
-            if text.strip() and not blocking(validate([unit], single)):
-                results[unit.id] = text
-
-        # Gradino 3 — fallback sul traduttore di base per ciò che resta.
-        bad, _, _ = self._bad_ids(units, results)
-        failed = [u for u in units if u.id in bad]
-        if failed:
-            results.update(self._apply_fallback(failed, drafts))
-        return results
-
-    def _safe_generate(self, units, history, drafts, retry_note=None):
-        """Un'eccezione del modello non deve far cadere l'intero file."""
-        try:
-            return self._generate(units, history, drafts, retry_note)
-        except Exception as exc:
-            logger.warning(f"Generazione fallita su {len(units)} blocchi: {exc}")
-            return {}
-
-    def _apply_fallback(self, units: Sequence[SubtitleUnit],
-                        drafts: Dict[int, str]) -> Dict[int, str]:
-        # In modalità refine la bozza c'è già: usarla è il fallback naturale.
-        ready = {u.id: drafts[u.id] for u in units
-                 if drafts.get(u.id, "").strip()}
-        missing = [u for u in units if u.id not in ready]
-
-        if missing and self.fallback is not None:
-            self.log(f"  Fallback sul traduttore di base per "
-                     f"{len(missing)} blocchi")
-            try:
-                texts = self.fallback([u.text for u in missing])
-                for unit, text in zip(missing, texts):
-                    ready[unit.id] = text
-            except Exception as exc:
-                logger.error(f"Anche il fallback è fallito: {exc}")
-
-        self.stats["fallback_blocks"] += len(ready)
-        for unit in units:
-            if not ready.get(unit.id, "").strip():
-                self.stats["unresolved"] += 1
-                ready[unit.id] = ""
-        return ready

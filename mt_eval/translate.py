@@ -40,9 +40,9 @@ MIN_DUR = 1.0       # durata minima di un blocco (anti-flash)
 GAP = 0.12          # spazio tra blocchi consecutivi
 
 
-def load_evalset():
+def load_evalset(path=None):
     items = []
-    with open(EVALSET, encoding="utf-8") as f:
+    with open(path or EVALSET, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line:
@@ -59,20 +59,38 @@ def fmt_ts(seconds: float) -> str:
 
 
 def build_srt(items, path):
-    """Un blocco per segmento, indice = id del set."""
+    """Un blocco per segmento, indice = id del set.
+
+    Se il set porta `start`/`end` — il banco costruito su un film reale — si
+    usano quei tempi. È l'unico modo per misurare onestamente il reading
+    speed: con durate dedotte dalla lunghezza dell'inglese, qualunque resa
+    italiana più lunga risulta fuori norma, traduzione umana compresa.
+    Altrimenti si simulano a 17 CPS.
+    """
+    real = bool(items) and all("start" in it and "end" in it for it in items)
     t = 0.0
     blocks = []
     for item in items:
         text = item["source"]
-        visible = len(text.replace("\n", " "))
-        dur = max(MIN_DUR, visible / CPS)
+        if real:
+            start, end = float(item["start"]), float(item["end"])
+        else:
+            dur = max(MIN_DUR, len(text.replace("\n", " ")) / CPS)
+            start, end = t, t + dur
+            t = end + GAP
         blocks.append(f"{item['id']}\n"
-                      f"{fmt_ts(t)} --> {fmt_ts(t + dur)}\n"
+                      f"{fmt_ts(start)} --> {fmt_ts(end)}\n"
                       f"{text}\n")
-        t += dur + GAP
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(blocks))
-    return t
+    return float(items[-1]["end"]) if real else t
+
+
+def block_duration(item) -> float:
+    """Durata reale se il set la porta, altrimenti quella simulata."""
+    if "start" in item and "end" in item:
+        return max(0.001, float(item["end"]) - float(item["start"]))
+    return max(MIN_DUR, len(item["source"].replace("\n", " ")) / CPS)
 
 
 def parse_srt(path):
@@ -101,6 +119,8 @@ def main():
                     help="nllb | nllb_finetuned | aya | claude | openai")
     ap.add_argument("--name", default=None,
                     help="nome del file di output (default: engine)")
+    ap.add_argument("--set", default=EVALSET,
+                    help="JSONL del set; se contiene start/end usa quei tempi")
     args = ap.parse_args()
 
     name = args.name or args.engine
@@ -108,7 +128,7 @@ def main():
     out_srt = os.path.join(SCRIPT_DIR, f"tr_{name}_out.srt")
     out_jsonl = os.path.join(SCRIPT_DIR, f"tr_{name}.jsonl")
 
-    items = load_evalset()
+    items = load_evalset(args.set)
     total_s = build_srt(items, src_srt)
     print(f"SRT sorgente: {src_srt}")
     print(f"  {len(items)} blocchi, durata simulata {total_s / 60:.1f} min\n")
@@ -156,9 +176,7 @@ def main():
             untranslated += 1
         if any(len(line) > 42 for line in text.split("\n")):
             over_cpl += 1
-        visible_src = len(item["source"].replace("\n", " "))
-        dur = max(MIN_DUR, visible_src / CPS)
-        if len(text.replace("\n", " ")) / dur > CPS:
+        if len(text.replace("\n", " ")) / block_duration(item) > CPS:
             over_cps += 1
 
     n = len(items)
