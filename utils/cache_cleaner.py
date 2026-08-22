@@ -35,9 +35,32 @@ def _slug_from_dir(dir_name: str) -> str:
     return dir_name[len('models--'):].replace('--', '/')
 
 
-def _is_preserved(slug: str) -> bool:
+def _production_llm_slug() -> str:
+    """Slug HF del modello LLM che occupa lo slot di produzione (chiave
+    `llm_translator_model` in config, o il default se assente/sconosciuta —
+    stessa logica di ripiego di `LLMSubtitleTranslator._configured_model`).
+
+    Va preservato come i motori ASR: è un download da svariati GB (12B in
+    NF4), non un modello sperimentale usato una volta per un confronto. Import
+    lazy: `engine.py` non porta torch a livello di modulo, ma non c'è motivo
+    di caricarlo se questa funzione non viene chiamata.
+    """
+    try:
+        from utils.config import get_config
+        from core.llm_subtitle_translator.engine import (DEFAULT_MODEL_KEY,
+                                                          MODEL_SPECS)
+        key = (get_config().get('llm_translator_model', '') or '').strip()
+        spec = MODEL_SPECS.get(key) or MODEL_SPECS.get(DEFAULT_MODEL_KEY)
+        return spec.model_id if spec else ''
+    except Exception as e:
+        logger.warning(f"Slug modello LLM produzione non risolto: {e}")
+        return ''
+
+
+def _is_preserved(slug: str, extra_patterns: tuple = ()) -> bool:
     s = slug.lower()
-    return any(p.lower() in s for p in PRESERVE_PATTERNS)
+    patterns = PRESERVE_PATTERNS + tuple(p for p in extra_patterns if p)
+    return any(p.lower() in s for p in patterns)
 
 
 def _try_rmtree(path: Path, retries: int = 2) -> bool:
@@ -65,13 +88,15 @@ def cleanup_non_italian_caches(log_callback=None) -> dict:
     result = {'removed': [], 'preserved': [], 'failed': []}
     log = log_callback or (lambda m: None)
 
+    llm_slug = _production_llm_slug()
+
     hf_root = Path(HF_HUB_CACHE_DIR)
     if hf_root.exists():
         for entry in hf_root.iterdir():
             if not entry.is_dir() or not entry.name.startswith('models--'):
                 continue
             slug = _slug_from_dir(entry.name)
-            if _is_preserved(slug):
+            if _is_preserved(slug, extra_patterns=(llm_slug,)):
                 result['preserved'].append(slug)
                 continue
             if _try_rmtree(entry):
