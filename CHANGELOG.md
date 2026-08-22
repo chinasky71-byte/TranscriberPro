@@ -3,6 +3,20 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.10.1.22.8.26] — 2026-08-22
+
+### Fix: cache del modello LLM di produzione cancellata a ogni fine coda
+- Il modello LLM che occupa lo slot di produzione (oggi TranslateGemma-12B)
+  veniva scaricato nella cache HuggingFace e poi ricancellato a fine coda da
+  `cache_cleaner.py`: la lista di preservazione copriva solo i motori ASR
+  (whisper/wav2vec), non il ramo di traduzione LLM. L'adattatore LoRA
+  fine-tuned promosso in produzione non era coinvolto (vive su disco fuori
+  dalla cache HF). Il cleaner ora risolve a runtime quale modello occupa lo
+  slot (chiave config `llm_translator_model`, con lo stesso ripiego sul
+  default già usato da `LLMSubtitleTranslator`) e lo preserva; i modelli
+  usati solo per confronti sperimentali continuano a essere cancellati come
+  prima.
+
 ## [1.9.7] — 2026-08
 
 ### Fix fusione battute nei blocchi dialogo multi-parlante
