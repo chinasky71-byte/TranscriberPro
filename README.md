@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.9.7-orange)
+![Version](https://img.shields.io/badge/Version-1.10.1-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -274,6 +274,16 @@ This project is licensed under the MIT License.
 
 ### v1.10.1.22.8.26
 - **Fix: production LLM model cache wiped at the end of every queue** — the LLM model occupying the production slot (currently TranslateGemma-12B) was downloaded into the HuggingFace cache and then deleted again once the queue finished: the preserve list only covered the ASR engines (whisper/wav2vec), not the LLM translation branch. The fine-tuned LoRA adapter promoted to production was unaffected (it lives on disk outside the HF cache). The cleaner now resolves at runtime which model occupies the slot (config key `llm_translator_model`) and preserves it; models used only for experimental comparisons are still cleaned up as before.
+
+### v1.10.1
+- **Removed the LLM branch's "adapt" path: it could misalign lines and timestamps** — the LLM branch queried the model two ways: "mt" (one line per conversation, the output is the translation directly) and "adapt" (a batch of blocks as JSON with ids, which the model had to return intact). Below a certain size, models got the ids wrong — merging two blocks and writing subsequent translations under the wrong id, with timestamps still correct, so the file looked healthy but wasn't. The path had become unreachable from the UI after Aya's removal (v1.10.0) and risked being inherited by default by any future model added without explicitly opting out of it. Removed entirely; only "mt" remains, immune to the issue by construction.
+
+### v1.10.0
+- **LLM translation engine rewritten, TranslateGemma-12B replaces Aya** — the LLM branch is now a model-agnostic package with a model registry, fixing four long-standing defects (prompt without chat template, padding that corrupted batches, the second line of a dialogue block getting discarded, an English fallback). Evaluated on a synthetic benchmark and then on real films with professional subtitles as reference (Deadpool 2, A Man Called Otto): the verdict flips from the synthetic benchmark — **NLLB fine-tuned remains the production engine**, ahead of both TranslateGemma-12B and Aya. Aya removed from the registry.
+- **Critical bug found by exercising the pipeline's real code path for the first time** — NLLB was translating the context (the film's plot synopsis) instead of the actual line, invisible until the context started actually being passed through.
+- **US-convention music markers hallucinated 48 times out of 48** — `**text**` wasn't protected the way `♪text♪` was; any block with no letters at all is now passed through untouched.
+- **Shared typographic post-processing** across every engine: out-of-spec lines dropped from 59.3% to 9.7%.
+- `.gitignore`: closed four ~12 GB leaks the `venv/` pattern didn't cover.
 
 ### v1.9.7
 - **Dialogue line-merge fix** — NLLB doesn't reliably preserve the embedded newline when translating a two-speaker dialogue block (dashed lines): it sometimes merged both lines into one, and sometimes even inserted its own spurious dashes, producing blocks like "- I wish you were here. Me too." instead of two correctly attributed lines. Dialogue blocks (identified by the already-tracked "- " dash markers) are now translated line by line instead of as a single joined string, guaranteeing by construction that the post-translation line count always matches the original.
@@ -613,6 +623,16 @@ Questo progetto è distribuito con licenza MIT.
 
 ### v1.10.1.22.8.26
 - **Fix: cache del modello LLM di produzione cancellata a ogni fine coda** — il modello LLM che occupa lo slot di produzione (oggi TranslateGemma-12B) veniva scaricato nella cache HuggingFace e poi ricancellato a fine coda: la lista di preservazione copriva solo i motori ASR (whisper/wav2vec), non il ramo di traduzione LLM. L'adattatore LoRA fine-tuned promosso in produzione non era coinvolto (vive su disco fuori dalla cache HF). Il cleaner ora risolve a runtime quale modello occupa lo slot (chiave config `llm_translator_model`) e lo preserva; i modelli usati solo per confronti sperimentali continuano a essere cancellati come prima.
+
+### v1.10.1
+- **Rimosso il percorso "adapt" del ramo LLM: disallineava battute e tempi** — il ramo LLM interrogava il modello in due modi: "mt" (una battuta per conversazione, output diretto) e "adapt" (blocchi in JSON con id, che il modello doveva restituire intatti). Sotto una certa taglia i modelli sbagliavano gli id, fondendo blocchi e scrivendo le traduzioni successive nel posto sbagliato, coi tempi ancora corretti — il file sembrava sano ma non lo era. Il percorso era ormai irraggiungibile dall'interfaccia dopo la rimozione di Aya (v1.10.0) e rischiava di essere ereditato per difetto da un futuro modello. Rimosso interamente; resta solo "mt", immune al problema per costruzione.
+
+### v1.10.0
+- **Motore di traduzione LLM riscritto, TranslateGemma-12B sostituisce Aya** — il ramo LLM è ora un package model-agnostic con un registro dei modelli, corretti quattro difetti storici (prompt senza chat template, padding che corrompeva i batch, seconda battuta dei dialoghi scartata, fallback in inglese). Valutato su banco sintetico e poi su film reali con sottotitoli professionali come riferimento (Deadpool 2, A Man Called Otto): il verdetto si ribalta rispetto al banco sintetico, **NLLB fine-tuned resta il motore di produzione** davanti a TranslateGemma-12B e Aya. Aya rimossa dal registro.
+- **Bug critico trovato eseguendo per la prima volta il percorso reale della pipeline** — NLLB traduceva il contesto (la trama del film) al posto della battuta stessa, invisibile finché il contesto non ha iniziato a essere passato davvero.
+- **Marcatori musicali in convenzione USA allucinati 48 volte su 48** — `**testo**` non era protetto come `♪testo♪`; ora qualunque blocco senza lettere passa intatto.
+- **Post-processing tipografico condiviso** su tutti i motori: righe fuori norma dal 59,3% al 9,7%.
+- `.gitignore`: chiusi quattro buchi da ~12 GB che il pattern `venv/` non copriva.
 
 ### v1.9.7
 - **Fix fusione battute nei blocchi dialogo multi-parlante** — NLLB non garantisce la preservazione dell'a capo quando traduce un blocco di sottotitoli a due parlanti (testo con newline interno tra le due battute): a volte le fondeva in un'unica riga, a volte inseriva persino trattini propri spuri, producendo blocchi come "- Vorrei che tu fossi qui. Anch'io." invece di due righe separate correttamente attribuite. I blocchi dialogo (identificati dai marcatori "- " già tracciati) vengono ora tradotti riga per riga anziché come blocco unico, garantendo per costruzione che il conteggio righe post-traduzione resti sempre fedele all'originale.
