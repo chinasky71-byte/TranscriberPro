@@ -17,6 +17,69 @@ Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
   usati solo per confronti sperimentali continuano a essere cancellati come
   prima.
 
+## [1.10.1] — 2026-08-18
+
+### Rimosso il percorso "adapt" del ramo LLM: disallineava battute e tempi
+- Il ramo LLM interrogava il modello in due modi: "mt" (una battuta per
+  conversazione, l'output è direttamente la traduzione) e "adapt" (un gruppo
+  di blocchi in JSON con id, che il modello doveva restituire intatti). Sotto
+  una certa taglia i modelli sbagliavano gli id — fondevano due blocchi e
+  scrivevano le traduzioni successive nel posto sbagliato — con i tempi
+  ancora corretti, quindi il file sembrava sano. Il percorso era ormai
+  irraggiungibile dall'interfaccia (nessun motore attivo lo usa più, dopo la
+  rimozione di Aya in v1.10.0) e rischiava di essere ereditato per difetto da
+  un futuro modello aggiunto senza dichiararlo esplicitamente. Rimosso
+  interamente; resta solo "mt", immune al problema per costruzione (una
+  conversazione per battuta, nessun id da sbagliare). Validato end-to-end col
+  modello di produzione su un SRT con tutti i casi (marcatore musicale,
+  lirica, dialogo coi trattini, turpiloquio): zero retry.
+
+## [1.10.0] — 2026-08-17
+
+### Motore di traduzione LLM riscritto, TranslateGemma-12B sostituisce Aya
+- Il ramo LLM (`core/llm_subtitle_translator/`) è stato riscritto come
+  package model-agnostic con un registro `MODEL_SPECS`, correggendo quattro
+  difetti del vecchio ramo Aya che ne rendevano la misura priva di senso:
+  prompt senza chat template, `padding_side` di default che corrompeva ogni
+  batch maggiore di uno, `output.split('\n')[0]` che scartava la seconda
+  battuta di ogni dialogo, fallback che scriveva la frase inglese originale
+  nell'SRT finale.
+- Valutazione su banco sintetico prima e su film reali poi (Deadpool 2, A Man
+  Called Otto, con i sottotitoli professionali come riferimento): il banco
+  sintetico dava TranslateGemma-12B vincente, ma sui blocchi reali il
+  verdetto si ribalta — **NLLB fine-tuned resta il motore di produzione**,
+  davanti a TranslateGemma-12B e Aya su tutte le varianti testate (giudice
+  GEMBA-MQM, 400 segmenti per confronto, due film). Instradamento per quality
+  estimation (CometKiwi) testato e bocciato: indovina il motore migliore solo
+  nel 59% dei casi.
+- Aya rimossa dal registro (perdeva ogni confronto e il suo percorso "adapt"
+  poteva disallineare battute e tempi su blocchi consecutivi, vedi v1.10.1).
+  `DEFAULT_MODEL_KEY` passa a `translategemma-12b`; le configurazioni
+  esistenti con `aya` vengono migrate automaticamente.
+- **Bug critico trovato eseguendo per la prima volta il percorso reale della
+  pipeline** (STEP 6 → `get_translator` → `translate_file` → `_polish`, mai
+  esercitato prima su un file vero): NLLB traduceva il **contesto** (la trama
+  del film) al posto della battuta stessa, non essendo un modello con prompt
+  di sistema. Il contesto resta passato e utile solo ai motori che sanno
+  usarlo (ramo LLM, Claude, OpenAI).
+- Blocchi di dialogo a due voci consegnati appiattiti su una riga sola dal
+  ramo NLLB: nuova riparazione in post-processing che li divide di nuovo sul
+  trattino interno.
+- Marcatori musicali in convenzione USA (`**testo**`, non solo `♪testo♪`)
+  allucinati dal modello TranslateGemma 48 volte su 48 nei test: la maschera
+  che protegge i blocchi non traducibili ora copre qualunque blocco senza
+  nessuna lettera, non solo l'elenco esplicito di simboli.
+- Post-processing tipografico condiviso in `BaseTranslator._generate_srt`:
+  righe fuori norma dal 59,3% al 9,7%, per tutti i motori (NLLB, Claude,
+  OpenAI, ramo LLM).
+- Barra di progresso del ramo LLM allineata a quella di NLLB (si aggiorna
+  in-place invece di riempire il registro riga per riga), con stima del
+  tempo rimanente.
+- `.gitignore`: chiusi quattro buchi da complessivamente ~12 GB
+  (`venv_canary/`, `venv_comet/`, corpus di addestramento Gemma in crescita,
+  checkpoint NLLB fine-tuned) — il pattern copriva solo la cartella `venv/`
+  esatta, non le altre virtual-env del progetto.
+
 ## [1.9.7] — 2026-08
 
 ### Fix fusione battute nei blocchi dialogo multi-parlante
