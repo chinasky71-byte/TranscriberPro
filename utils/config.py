@@ -117,6 +117,16 @@ class Config:
         # 2026-08-18 insieme ai modelli Aya; restano innocue nelle config
         # esistenti, semplicemente non le legge piu nessuno.
         'llm_translator_model': 'translategemma-12b',
+        # Cartella di un adattatore LoRA da applicare sopra il modello
+        # LLM. Vuota = modello base, che e' il comportamento storico.
+        # Serve a mettere in produzione un fine-tuning senza toccare il
+        # codice ne' sostituire i pesi base da 23 GB.
+        'llm_translator_adapter': '',
+        # Cartella locale dei pesi del modello LLM stesso (non l'adattatore).
+        # Vuota = usa il model_id di default in MODEL_SPECS. Permette di
+        # puntare a un merge diverso (es. una nuova promozione) senza
+        # toccare il codice, stesso schema di 'nllb_finetuned_model_path'.
+        'llm_translator_model_path': '',
         
         # NLLB model
         'nllb_model_path': '',  # Vuoto usa default HuggingFace
@@ -610,6 +620,18 @@ class Config:
 
     def set_target_language(self, lang: str) -> None:
         self.set('target_language', lang, save=True)
+
+    # ========================================================================
+    # METODI HELPER per il traduttore LLM locale (TranslateGemma e slot)
+    # ========================================================================
+
+    def get_llm_translator_model_path(self) -> str:
+        """Cartella locale dei pesi del modello LLM, se sovrascritta."""
+        return self.get('llm_translator_model_path', '')
+
+    def set_llm_translator_model_path(self, path: str):
+        """Imposta la cartella locale dei pesi del modello LLM."""
+        self.set('llm_translator_model_path', str(path))
 
     # ========================================================================
     # METODI HELPER per NLLB Fine-Tuned

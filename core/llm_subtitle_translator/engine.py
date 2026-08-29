@@ -34,10 +34,13 @@ import os
 import re
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from threading import Lock
 from typing import Any, Callable, Dict, List, Optional
 
 from utils.logger import setup_logger
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 logger = setup_logger(__name__)
 
@@ -201,7 +204,13 @@ MODEL_SPECS: Dict[str, ModelSpec] = {
         notes="Vincitore traccia constrained WMT25; miglior en-it sotto 20B.",
     ),
     "translategemma-12b": ModelSpec(
-        model_id="google/translategemma-12b-it",
+        # Locale, non hub. Merge dell'adattatore "finale" (promosso il
+        # 20/08/26 via promuovi_produzione.py contro g300k) nel base
+        # TranslateGemma-12B (25/08/26) — NB: "finale" ha perso il banco a
+        # 108 film contro NLLB-FT (41.9% vs 58.1%, z=-7.88); promosso qui
+        # comunque su decisione esplicita dell'utente, non per verdetto
+        # vinto contro il campione di produzione attuale.
+        model_id=str(PROJECT_ROOT / "models" / "translategemma-12b-it-finale"),
         label="TranslateGemma 12B",
         generation=dict(do_sample=False, num_beams=1),
         mt_prefix=TRANSLATEGEMMA_SUBTITLE_RULES,
@@ -220,11 +229,17 @@ MODEL_SPECS: Dict[str, ModelSpec] = {
         #   batch 16 -> 10.817 MiB (88%)  2,54 s/blocco
         # Su questo percorso ("mt", una conversazione per battuta in parallelo)
         # il batch conta davvero: da 4 a 16 il tempo per blocco scende di 3,5
-        # volte. Dodici è il compromesso: 2 GB di margine sulla scheda e il 30%
-        # di tempo in meno rispetto a otto. Oltre non si sale senza rimisurare
-        # su una run intera — il gestore adattivo scende comunque da solo se la
-        # memoria supera il 90%.
-        max_batch=12,
+        # volte. Dodici era il compromesso prudente: fino a qui initial_size E
+        # max_size di SubtitleLLMTranslator coincidevano (12=12), quindi il
+        # gestore adattivo poteva solo RESTRINGERSI, mai crescere — nessuna
+        # run reale ha mai sfruttato il -21% di v1.10.2 già misurato a batch
+        # 16 (2,54 s/blocco, 88% di VRAM, ~1,4 GB liberi). Tetto alzato a 16:
+        # il gestore parte comunque da 12 e sale solo se la memoria letta
+        # resta sotto l'80% (soglia bassa), scendendo da solo sopra il 90% —
+        # stesso meccanismo già validato contro lo sconfinamento WDDM su NLLB
+        # in v1.9.5. Da rivalidare su una run intera reale prima di salire
+        # oltre 16 (unico punto misurato da vram_probe.py finora).
+        max_batch=16,
         notes="Addestrato con RL contro la letteralità (MetricX-QE, AutoMQM). "
               "La variante 4B era stata bocciata a luglio; il 12B è la taglia "
               "che nei benchmark supera il baseline Gemma 3 27B.",
@@ -243,18 +258,25 @@ _engine: Optional["SubtitleLLMEngine"] = None
 
 
 def get_engine(model_key: str = DEFAULT_MODEL_KEY,
-               log_callback: Optional[Callable] = None) -> "SubtitleLLMEngine":
+               log_callback: Optional[Callable] = None,
+               adapter: Optional[str] = None,
+               model_path: Optional[str] = None) -> "SubtitleLLMEngine":
     """Restituisce il motore per `model_key`, caricandolo se serve.
 
     Cambiare modello scarica il precedente: due 8B non stanno in 12 GB.
     """
     global _engine
     with _engine_lock:
-        if _engine is not None and _engine.model_key != model_key:
+        # Anche cambiare adattatore o cartella dei pesi vuol dire ricaricare:
+        # applicarne uno sopra un modello che ne ha gia' un altro darebbe la
+        # somma dei due, e il gradino misurato non sarebbe quello che si crede.
+        if _engine is not None and (_engine.model_key != model_key
+                                    or _engine.adapter != adapter
+                                    or _engine.model_id != (model_path or MODEL_SPECS[model_key].model_id)):
             _engine.unload()
             _engine = None
         if _engine is None:
-            _engine = SubtitleLLMEngine(model_key, log_callback)
+            _engine = SubtitleLLMEngine(model_key, log_callback, adapter, model_path)
         elif log_callback:
             _engine.log_callback = log_callback
         _engine.load()
@@ -284,14 +306,26 @@ class SubtitleLLMEngine:
     """Carica un LLM open-weight e genera completamenti da messaggi chat."""
 
     def __init__(self, model_key: str = DEFAULT_MODEL_KEY,
-                 log_callback: Optional[Callable] = None):
+                 log_callback: Optional[Callable] = None,
+                 adapter: Optional[str] = None,
+                 model_path: Optional[str] = None):
         if model_key not in MODEL_SPECS:
             raise ValueError(
                 f"Modello '{model_key}' sconosciuto. "
                 f"Disponibili: {', '.join(MODEL_SPECS)}"
             )
         self.model_key = model_key
+        # Adattatore LoRA da applicare sopra i pesi base. Assente in
+        # produzione: serve a misurare i checkpoint del fine-tuning con
+        # ESATTAMENTE lo stesso percorso di generazione della pipeline,
+        # perche' un banco che genera per conto suo misura il banco.
+        self.adapter = adapter
         self.spec = MODEL_SPECS[model_key]
+        # Cartella locale che sovrascrive model_id dello spec, se impostata
+        # da config (llm_translator_model_path) - stesso schema del path
+        # override di NLLB fine-tuned, per cambiare i pesi senza toccare
+        # il codice.
+        self.model_id = model_path or self.spec.model_id
         self.log_callback = log_callback
         self.model = None
         self.tokenizer = None
@@ -333,12 +367,12 @@ class SubtitleLLMEngine:
             # tokenizer: caricare solo quest'ultimo darebbe chat_template=None.
             from transformers import AutoProcessor
             self.processor = AutoProcessor.from_pretrained(
-                self.spec.model_id, token=token,
+                self.model_id, token=token,
             )
             self.tokenizer = getattr(self.processor, "tokenizer", None)
         else:
             self.tokenizer = AutoTokenizer.from_pretrained(
-                self.spec.model_id, trust_remote_code=True, token=token,
+                self.model_id, trust_remote_code=True, token=token,
             )
 
         if self.tokenizer is not None:
@@ -396,13 +430,18 @@ class SubtitleLLMEngine:
         if is_gemma3:
             from transformers import AutoModelForImageTextToText
             self.model = AutoModelForImageTextToText.from_pretrained(
-                self.spec.model_id, **kwargs
+                self.model_id, **kwargs
             )
         else:
             from transformers import AutoModelForCausalLM
             self.model = AutoModelForCausalLM.from_pretrained(
-                self.spec.model_id, **kwargs
+                self.model_id, **kwargs
             )
+        if self.adapter:
+            from peft import PeftModel
+            self.log(f"  applico l'adattatore {self.adapter}")
+            self.model = PeftModel.from_pretrained(
+                self.model, self.adapter, is_trainable=False)
         if not use_gpu:
             self.model.to(self.device)
         self.model.eval()
