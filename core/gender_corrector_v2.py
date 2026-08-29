@@ -146,20 +146,16 @@ def _diag_speaker_gender(gmap, t0: float, t1: float):
 
 
 def _diag_addressee_gender(gmap, t0: float, t1: float):
-    """Genere dell'INTERLOCUTORE (2ª persona). Diagnosi più grezza di
-    quella per P1: addressee_gender_for_range() non espone se il
-    fallimento viene da un gruppo ambiguo, da nessun altro parlante nella
-    finestra o dal controllo strict prev/next — tutti questi casi restano
-    sotto 'ambiguous_addressee' senza toccare speaker_gender.py. reason:
-    'no_turn' (parlante corrente non determinabile), 'ambiguous_addressee',
-    'ok'."""
-    spk = gmap.speaker_for_range(t0, t1)
-    if spk is None:
-        return None, None, 0.0, 'no_turn'
-    gender, conf = gmap.addressee_gender_for_range(t0, t1)
-    if gender is None:
-        return spk, None, 0.0, 'ambiguous_addressee'
-    return spk, gender, conf, 'ok'
+    """Genere dell'INTERLOCUTORE (2ª persona), diagnostica fine (piano
+    "Correzione di genere in 2ª persona", Fase 1): usa
+    `addressee_gender_for_range_diag()` (speaker_gender.py) per distinguere
+    'no_turn'/'no_addressee'/'ambiguous_group'/'not_strict_prev'/
+    'not_strict_next'/'not_strict_both'/'low_confidence'/'no_votes'/'ok' —
+    non più tutto appiattito su 'ambiguous_addressee'. Il metodo di
+    produzione `addressee_gender_for_range()` resta invariato."""
+    gender, conf, reason, addressee = gmap.addressee_gender_for_range_diag(t0, t1)
+    spk = addressee if addressee is not None else gmap.speaker_for_range(t0, t1)
+    return spk, gender, conf, reason
 
 
 class GenderCorrectorV2:
@@ -279,7 +275,8 @@ class GenderCorrectorV2:
         stats = {'rewritten': 0, 'unchanged': 0, 'rejected': 0,
                  'no_output': 0, 'unknown': 0, 'dialog': 0}
         diag = {'p1': {'no_turn': 0, 'low_confidence': 0, 'no_votes': 0},
-                'p2': {'no_turn': 0, 'ambiguous_addressee': 0}}
+                'p2': {'no_turn': 0, 'overlapping_scene': 0, 'no_addressee': 0,
+                       'not_strict': 0, 'low_confidence': 0, 'no_votes': 0}}
         new_cues = list(cues)
         for i in candidates:
             idx, start, end, text = cues[i]
@@ -363,7 +360,11 @@ class GenderCorrectorV2:
                       f"low_confidence={p1['low_confidence']}, "
                       f"no_votes={p1['no_votes']}")
             self._log(f"      ↳ 2ª persona incerta: no_turn={p2['no_turn']}, "
-                      f"ambiguous_addressee={p2['ambiguous_addressee']}")
+                      f"overlapping_scene={p2['overlapping_scene']}, "
+                      f"no_addressee={p2['no_addressee']}, "
+                      f"not_strict={p2['not_strict']}, "
+                      f"low_confidence={p2['low_confidence']}, "
+                      f"no_votes={p2['no_votes']}")
         return True
 
     def cleanup(self):
