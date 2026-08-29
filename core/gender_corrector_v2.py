@@ -23,7 +23,6 @@ riscrittura F 19,3%→86,8%, M 89,3%→93,3%.
 from __future__ import annotations
 
 import json
-import logging
 import re
 import subprocess
 import sys
@@ -31,7 +30,14 @@ import tempfile
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
-logger = logging.getLogger(__name__)
+# NON logging.getLogger(__name__): il root logger non viene mai configurato
+# durante l'esecuzione normale, quindi un logger "nudo" eredita il livello
+# WARNING di default e ogni logger.debug() qui dentro veniva scartato PRIMA
+# di raggiungere il file condiviso — stesso difetto già trovato e corretto
+# in utils/adaptive_batch_manager.py.
+from utils.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 SRT_CUE = Tuple[int, str, str, str]   # (index, start, end, text)
 
@@ -116,6 +122,44 @@ def _vocative_gender(line: str, cast_names: dict) -> Optional[str]:
     found = {cast_names[w.lower()] for w in _VOCATIVE_RE.findall(line)
              if w.lower() in cast_names}
     return found.pop() if len(found) == 1 else None
+
+
+# ── Diagnostica Fase 1b (solo lettura, nessuna modifica a speaker_gender.py) ──
+# gmap.gender_for_range()/addressee_gender_for_range() collassano ogni
+# fallimento in (None, 0.0): qui si richiama la stessa API pubblica in due
+# passi per esporre IL MOTIVO, cosa che il log finora non distingueva.
+
+def _diag_speaker_gender(gmap, t0: float, t1: float):
+    """Genere del PARLANTE (1ª persona). Ritorna (speaker_id, gender, conf,
+    reason). reason: 'no_turn' (nessun turno diarizzato sovrapposto),
+    'no_votes' (speaker senza segmenti classificabili), 'low_confidence'
+    (sotto soglia), 'ok'."""
+    spk = gmap.speaker_for_range(t0, t1)
+    if spk is None:
+        return None, None, 0.0, 'no_turn'
+    sg = gmap.speakers.get(spk)
+    if sg is None or sg.gender is None:
+        return spk, None, 0.0, 'no_votes'
+    if sg.confidence < gmap.conf_threshold:
+        return spk, None, sg.confidence, 'low_confidence'
+    return spk, sg.gender, sg.confidence, 'ok'
+
+
+def _diag_addressee_gender(gmap, t0: float, t1: float):
+    """Genere dell'INTERLOCUTORE (2ª persona). Diagnosi più grezza di
+    quella per P1: addressee_gender_for_range() non espone se il
+    fallimento viene da un gruppo ambiguo, da nessun altro parlante nella
+    finestra o dal controllo strict prev/next — tutti questi casi restano
+    sotto 'ambiguous_addressee' senza toccare speaker_gender.py. reason:
+    'no_turn' (parlante corrente non determinabile), 'ambiguous_addressee',
+    'ok'."""
+    spk = gmap.speaker_for_range(t0, t1)
+    if spk is None:
+        return None, None, 0.0, 'no_turn'
+    gender, conf = gmap.addressee_gender_for_range(t0, t1)
+    if gender is None:
+        return spk, None, 0.0, 'ambiguous_addressee'
+    return spk, gender, conf, 'ok'
 
 
 class GenderCorrectorV2:
@@ -221,6 +265,10 @@ class GenderCorrectorV2:
             hf_token, log_callback=self._log,
             conf_threshold=self.conf_threshold)
         gmap = self._mapper.build_map(str(video_path), diarization=diarization)
+        for spk, sg in sorted(gmap.speakers.items()):
+            logger.debug(
+                f"Speaker {spk}: gender={sg.gender} conf={sg.confidence:.2f} "
+                f"n_segments={sg.n_segments} speech_time={sg.speech_time:.1f}s")
 
         # 3. Riscrittura deterministica + validatore
         from core.gender_rewriter import RuleRewriter, apply_rewrite
@@ -230,6 +278,8 @@ class GenderCorrectorV2:
             self._log(f"   Vocativi TMDB attivi: {len(cast_names)} nomi cast")
         stats = {'rewritten': 0, 'unchanged': 0, 'rejected': 0,
                  'no_output': 0, 'unknown': 0, 'dialog': 0}
+        diag = {'p1': {'no_turn': 0, 'low_confidence': 0, 'no_votes': 0},
+                'p2': {'no_turn': 0, 'ambiguous_addressee': 0}}
         new_cues = list(cues)
         for i in candidates:
             idx, start, end, text = cues[i]
@@ -242,28 +292,46 @@ class GenderCorrectorV2:
             # 1ª persona: genere del PARLANTE
             toks = [tuple(t) for t in tokens_per_line[i]]
             if toks:
-                gender, conf = gmap.gender_for_range(t0, t1)
+                spk, gender, conf, reason = _diag_speaker_gender(gmap, t0, t1)
                 if gender is None:
                     stats['unknown'] += 1     # prudenza: riga intatta
+                    diag['p1'][reason] += 1
+                    logger.debug(
+                        f"Riga {idx} P1 [{start}]: speaker={spk} gender=None "
+                        f"conf={conf:.2f} esito=unknown reason={reason}")
                 else:
                     new_flat, esito = apply_rewrite(
                         engine, new_flat, None, gender, toks)
                     stats[esito] += 1
                     applied_gender = gender
+                    logger.debug(
+                        f"Riga {idx} P1 [{start}]: speaker={spk} gender={gender} "
+                        f"conf={conf:.2f} esito={esito} reason={reason}")
             # 2ª persona: genere dell'INTERLOCUTORE. Priorità:
             # 1. VOCATIVO col cast TMDB ("Sei cresciuta, Veronica") — alta
             #    precisione; 2. turni di dialogo adiacenti (strict).
             toks2 = [tuple(t) for t in tokens_p2_per_line[i]]
             if toks2:
                 a_gender = _vocative_gender(flat[i], cast_names)
-                if a_gender is None:
-                    a_gender, a_conf = gmap.addressee_gender_for_range(t0, t1)
+                if a_gender is not None:
+                    a_spk, a_conf, a_reason = None, 1.0, 'vocative'
+                else:
+                    a_spk, a_gender, a_conf, a_reason = _diag_addressee_gender(
+                        gmap, t0, t1)
                 if a_gender is None:
                     stats['unknown'] += 1
+                    if a_reason in diag['p2']:
+                        diag['p2'][a_reason] += 1
+                    logger.debug(
+                        f"Riga {idx} P2 [{start}]: speaker={a_spk} gender=None "
+                        f"conf={a_conf:.2f} esito=unknown reason={a_reason}")
                 else:
                     new_flat, esito2 = apply_rewrite(
                         engine, new_flat, None, a_gender, toks2)
                     stats[esito2] += 1
+                    logger.debug(
+                        f"Riga {idx} P2 [{start}]: speaker={a_spk} gender={a_gender} "
+                        f"conf={a_conf:.2f} esito={esito2} reason={a_reason}")
                     if esito2 == 'rewritten':
                         esito = 'rewritten'
                         applied_gender = a_gender
@@ -289,6 +357,13 @@ class GenderCorrectorV2:
                   f"{stats['unknown']} parlante incerto, "
                   f"{stats['dialog']} dialoghi doppi saltati, "
                   f"{stats['rejected']} respinte dal validatore")
+        if stats['unknown']:
+            p1, p2 = diag['p1'], diag['p2']
+            self._log(f"      ↳ 1ª persona incerta: no_turn={p1['no_turn']}, "
+                      f"low_confidence={p1['low_confidence']}, "
+                      f"no_votes={p1['no_votes']}")
+            self._log(f"      ↳ 2ª persona incerta: no_turn={p2['no_turn']}, "
+                      f"ambiguous_addressee={p2['ambiguous_addressee']}")
         return True
 
     def cleanup(self):

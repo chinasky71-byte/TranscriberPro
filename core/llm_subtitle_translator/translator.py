@@ -47,15 +47,23 @@ class SubtitleLLMTranslator:
         fallback: Optional[Callable[[Sequence[str]], List[str]]] = None,
         batch_size: int = DEFAULT_BATCH,
         log_callback: Optional[Callable] = None,
+        glossary: Optional[Dict[str, str]] = None,
     ):
         """
         `fallback`: funzione che traduce una lista di testi. Riceve i blocchi
         che l'LLM non è riuscito a produrre. Se assente, quei blocchi restano
         vuoti e vengono segnalati.
+
+        `glossary`: rete di sicurezza indipendente dal mascheramento a monte
+        (core/translator.py._mask_glossary) — qui `unit.text` è già la
+        versione mascherata quando il mascheramento riesce, quindi questo
+        controllo scatta solo quando un termine è sfuggito al mascheramento
+        (regex non combaciante) ED è finito nell'output senza la resa fissa.
         """
         self.engine = engine
         self.fallback = fallback
         self.log_callback = log_callback
+        self.glossary = glossary or {}
 
         # Il tetto lo detta il modello, non il chiamante: un 12B quantizzato
         # lascia poco più di 4 GB liberi, e lo stesso batch che un 8B regge
@@ -335,6 +343,7 @@ class SubtitleLLMTranslator:
 
             issues = validate(
                 batch, {u.id: results[u.id] for u in batch},
+                glossary=self.glossary,
                 )
             self._record(issues)
 
@@ -349,7 +358,7 @@ class SubtitleLLMTranslator:
                     continue
                 if retry.strip():
                     single = {unit.id: retry.strip()}
-                    if not blocking(validate([unit], single)):
+                    if not blocking(validate([unit], single, glossary=self.glossary)):
                         results[unit.id] = retry.strip()
 
             prev, i = i, i + len(batch)

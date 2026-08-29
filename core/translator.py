@@ -98,19 +98,23 @@ class BaseTranslator(ABC):
     # Mappa codici lingua ISO 639-2/1 → codici specifici del modello
     LANGUAGE_CODES: Dict[str, str] = {}
     
-    def __init__(self, log_callback: Optional[Callable] = None, context: Optional[str] = None):
+    def __init__(self, log_callback: Optional[Callable] = None, context: Optional[str] = None,
+                 glossary: Optional[Dict[str, str]] = None):
         """
         Inizializza il traduttore
-        
+
         Args:
             log_callback: Callback opzionale per logging verso GUI
             context: Contesto opzionale (es. sinossi film/episodio) per migliorare la traduzione
+            glossary: Resa italiana fissa per termini ricorrenti della serie
+                (es. {"Knight Runner": "Runner dei Cavalieri"}) — vedi core/glossary.py
         """
         self.log_callback = log_callback
         self.use_gpu = torch.cuda.is_available()
         self.device = 'cuda' if self.use_gpu else 'cpu'
         self.context = context
-        
+        self.glossary = glossary or {}
+
         # Prepara contesto troncato se fornito
         self._prepared_context = None
         if context and context.strip():
@@ -307,9 +311,25 @@ class BaseTranslator(ABC):
         # 1. Maschera il testo tra ♪...♪ per impedirne la traduzione e garantirne la copia esatta.
         def masking_replacer(match):
             index = len(placeholders)
-            placeholder = f" <[{model_prefix}_MUSIC_PRESERVE_{index}]> "
-            placeholders[placeholder] = match.group(0)
-            return placeholder
+            # Chiave del dizionario SENZA padding: se il placeholder finisce
+            # per essere l'unico contenuto della riga, il `.strip()` finale
+            # di questo metodo toglie gli spazi ai bordi del testo — una
+            # chiave con gli spazi inclusi non farebbe più match in
+            # _unmask_text (replace() cerca una sottostringa, quindi una
+            # chiave "nuda" funziona sia in mezzo al testo sia da sola).
+            #
+            # Forma "<MUSIC0>" (una sola coppia di parentesi angolari, corpo
+            # alfanumerico) e non "<[PREFIX_MUSIC_PRESERVE_0]>": misurato su
+            # NLLB reale (core/translator.py, glossario "Ark"/"The Ark" su
+            # The Ark) che il secondo formato — parentesi quadre e
+            # underscore multipli — viene quasi sempre alterato dal
+            # tokenizer/decoder durante la generazione (troncato o perso),
+            # mentre il primo sopravvive intatto nella grande maggioranza
+            # dei casi reali. _unmask_text_checked resta comunque la rete di
+            # sicurezza per i casi residui.
+            token = f"<MUSIC{index}>"
+            placeholders[token] = match.group(0)
+            return f" {token} "
 
         # Regex (non-greedy, DOTALL) che cattura tutto tra le due note musicali
         masked_text = re.sub(r'♪.*?♪', masking_replacer, text, flags=re.DOTALL)
@@ -331,8 +351,17 @@ class BaseTranslator(ABC):
         # 2. Verifica se il testo rimanente, una volta ripulito dagli spazi, ÃƒÂ¨ vuoto.
         text_without_placeholders = masked_text
         for placeholder in placeholders:
-            text_without_placeholders = text_without_placeholders.replace(placeholder, ' ') 
-        
+            text_without_placeholders = text_without_placeholders.replace(placeholder, ' ')
+
+        # Anche i placeholder del glossario (_mask_glossary, applicato PRIMA
+        # di questo metodo) vanno tolti dal controllo, anche se non sono nel
+        # dizionario locale `placeholders`: senza questo, una riga fatta
+        # SOLO di un termine di glossario ("Knight Runner") verrebbe letta
+        # come "ha lettere" (il placeholder stesso ne contiene, es.
+        # "GLOSS0") e mandata al modello invece di passare intatta.
+        text_without_placeholders = re.sub(r'<(?:MUSIC|GLOSS)\d+>', ' ',
+                                           text_without_placeholders)
+
         text_without_placeholders_cleaned = re.sub(r'^-', '', text_without_placeholders).strip()
 
         # Un blocco senza NESSUNA lettera non ha niente da tradurre: e' un
@@ -359,16 +388,99 @@ class BaseTranslator(ABC):
         
         return final_text, placeholders, only_masked
 
+    def _unmask_text_checked(self, translated_text: str,
+                             placeholders_map: Dict[str, str]) -> Tuple[str, bool]:
+        """
+        Come `_unmask_text`, ma verifica che OGNI placeholder fosse
+        davvero presente prima di sostituirlo — ritorna (testo, ok).
+
+        Va usato quando `translated_text` è uscito da una generazione VERA
+        del modello (non dal ramo skip, che non tocca mai il testo). Misurato
+        su NLLB reale (glossario "Ark"/"The Ark" su The Ark): un
+        encoder-decoder di traduzione non ha nessuna garanzia di riprodurre
+        verbatim un token sintetico che non riconosce — a volte lo tronca
+        ("<[NLLB_GLOSS_0]>" → "<NLLB_GLOSS_0]>", `_unmask_text` non trova più
+        la chiave e il placeholder rotto resta visibile in output), a volte
+        lo fa sparire senza lasciare traccia (perdita di contenuto silenziosa,
+        ancora peggio). `ok=False` in entrambi i casi: il chiamante deve
+        scartare `translated_text` e ripiegare su qualcosa di sicuro, mai
+        mostrare il risultato di questo metodo quando `ok` è falso.
+        """
+        result = translated_text
+        ok = True
+        for placeholder, original_content in placeholders_map.items():
+            if placeholder not in result:
+                ok = False
+                continue
+            result = result.replace(placeholder, original_content)
+        return result, ok
+
     def _unmask_text(self, translated_text: str, placeholders_map: Dict[str, str]) -> str:
         """
         Re-inserisce il contenuto originale non tradotto dai placeholder.
         """
         post_processed_result = translated_text
-        
+
         for placeholder, original_content in placeholders_map.items():
             post_processed_result = post_processed_result.replace(placeholder, original_content)
-            
+
         return post_processed_result.strip()
+
+    def _mask_glossary(self, text: str, model_prefix: str,
+                       glossary: Dict[str, str]) -> Tuple[str, Dict[str, str]]:
+        """
+        Sostituisce nel testo SORGENTE (inglese) i termini del glossario con
+        placeholder che il modello non tradurrà — esattamente il meccanismo
+        di `_mask_text` per i marcatori musicali, ma la mappa restituita
+        contiene la RESA ITALIANA FISSA, non il testo originale: `_unmask_text`
+        (invariato) la reinserisce al posto del placeholder dopo la
+        traduzione, garantendo la resa per costruzione invece di sperare che
+        il modello la azzecchi.
+
+        Va chiamato PRIMA di `_mask_text` sullo stesso testo, e le due mappe
+        di placeholder vanno unite (chiavi diverse per prefisso, mai in
+        collisione: `_MUSIC_PRESERVE_` vs `_GLOSS_`).
+
+        Match case-insensitive, parola intera (`\\b`); termini più lunghi
+        prima, così un termine che ne contiene un altro ("Silhouette Knight"
+        vs "Knight") non viene spezzato a metà.
+        """
+        placeholders: Dict[str, str] = {}
+        if not glossary:
+            return text, placeholders
+
+        masked_text = text
+        for term in sorted(glossary, key=len, reverse=True):
+            rendering = glossary[term]
+            # NIENTE tolleranza automatica al plurale: provata su Knight's &
+            # Magic (aggiungeva "'?s?" al pattern, mascherando anche "Knight
+            # Runners") ma ritirata dopo il pilota su "The Ark" — lì il
+            # plurale italiano di "Ark" è "Arche", non "Arca"+s: la
+            # tolleranza automatica avrebbe imposto la resa singolare anche
+            # alle occorrenze plurali già corrette da NLLB per conto suo,
+            # introducendo una regressione. Quando plurale e singolare
+            # condividono davvero la stessa resa italiana (tipico dei nomi
+            # tecnici composti, es. "Knight Runners" → ancora "Runner dei
+            # Cavalieri"), il curatore aggiunge una seconda voce esplicita
+            # nel glossario invece di farla assumere al codice.
+            pattern = re.compile(r'\b' + re.escape(term) + r'\b', re.IGNORECASE)
+
+            def _replacer(match, _rendering=rendering):
+                index = len(placeholders)
+                # Chiave senza padding, stesso motivo di _mask_text: se il
+                # placeholder resta l'unico contenuto della riga, lo strip()
+                # a valle in _mask_text toglierebbe gli spazi ai bordi.
+                # Forma "<GLOSS0>", non "<[PREFIX_GLOSS_0]>" — stessa misura
+                # empirica su NLLB reale di masking_replacer in _mask_text:
+                # il formato con parentesi quadre/underscore multipli
+                # sopravvive raramente intatto alla generazione.
+                token = f"<GLOSS{index}>"
+                placeholders[token] = _rendering
+                return f" {token} "
+
+            masked_text = pattern.sub(_replacer, masked_text)
+
+        return masked_text, placeholders
 
 
 # ============================================================================
@@ -709,9 +821,10 @@ class NLLBTranslator(BaseTranslator):
     MIN_BATCH_SIZE = 1
     MAX_BATCH_SIZE = 24
 
-    def __init__(self, log_callback: Optional[Callable] = None, context: Optional[str] = None):
+    def __init__(self, log_callback: Optional[Callable] = None, context: Optional[str] = None,
+                 glossary: Optional[Dict[str, str]] = None):
         """Inizializza il traduttore NLLB usando l'istanza singleton"""
-        super().__init__(log_callback, context)
+        super().__init__(log_callback, context, glossary)
         self.model, self.tokenizer, self.device = _get_nllb_translator_resources()
 
         from utils.adaptive_batch_manager import AdaptiveBatchSizeManager
@@ -791,14 +904,22 @@ class NLLBTranslator(BaseTranslator):
 
             if is_dialogue_block:
                 for line_idx, line in enumerate(text.split('\n')):
-                    final_text, placeholders, only_masked = self._mask_text(line, "NLLB")
+                    gloss_text, gloss_placeholders = self._mask_glossary(
+                        line, "NLLB", self.glossary)
+                    final_text, placeholders, only_masked = self._mask_text(
+                        gloss_text, "NLLB")
+                    placeholders.update(gloss_placeholders)
                     unit_specs.append((j, line_idx))
                     texts_to_translate.append(final_text)
                     current_batch_placeholders.append(placeholders)
                     skip_translation_flags.append(only_masked)
                     unit_original_texts.append(line)
             else:
-                final_text, placeholders, only_masked = self._mask_text(text, "NLLB")
+                gloss_text, gloss_placeholders = self._mask_glossary(
+                    text, "NLLB", self.glossary)
+                final_text, placeholders, only_masked = self._mask_text(
+                    gloss_text, "NLLB")
+                placeholders.update(gloss_placeholders)
                 unit_specs.append((j, None))
                 texts_to_translate.append(final_text)
                 current_batch_placeholders.append(placeholders)
@@ -887,7 +1008,8 @@ class NLLBTranslator(BaseTranslator):
 
 
     def translate_file(self, input_path: Path, output_path: Path,
-                      src_lang: str, tgt_lang: str, context: Optional[str] = None) -> bool:
+                      src_lang: str, tgt_lang: str, context: Optional[str] = None,
+                      glossary: Optional[Dict[str, str]] = None) -> bool:
         """
         Traduce file SRT da lingua sorgente a lingua target
         """
@@ -896,7 +1018,10 @@ class NLLBTranslator(BaseTranslator):
             input_path = Path(input_path)
         if isinstance(output_path, str):
             output_path = Path(output_path)
-        
+
+        if glossary is not None:
+            self.glossary = glossary
+
         if context is not None:
             self.context = context
             if context and context.strip():
@@ -999,7 +1124,17 @@ class NLLBTranslator(BaseTranslator):
                             unit_original = unit_original_texts[u]
 
                             if skip_translation_flags[u] or not final_text_to_translate.strip():
-                                unit_result = unit_original
+                                # Non solo marcatori musicali: una riga fatta
+                                # SOLO di un termine di glossario (es. "Knight
+                                # Runner") arriva qui con skip=True perché non
+                                # c'e' nulla da tradurre — ma la resa fissa va
+                                # comunque applicata, non va copiato l'originale
+                                # inglese. _unmask_text su una riga senza
+                                # placeholder di glossario è un no-op identico
+                                # a `unit_original`.
+                                unit_result = self._unmask_text(
+                                    final_text_to_translate, placeholders_map) \
+                                    if final_text_to_translate.strip() else unit_original
 
                             else:
                                 if translated_index < len(results):
@@ -1009,7 +1144,18 @@ class NLLBTranslator(BaseTranslator):
                                          self.log(f"   ATTENZIONE: Rilevata allucinazione per riga {index}. Mantengo originale.")
                                          unit_result = unit_original
                                     else:
-                                        unit_result = self._unmask_text(translated_text, placeholders_map)
+                                        unit_result, unmask_ok = self._unmask_text_checked(
+                                            translated_text, placeholders_map)
+                                        if not unmask_ok:
+                                            # NLLB non ha riprodotto un placeholder
+                                            # intatto: mai mostrare testo con un
+                                            # frammento di token rotto, meglio
+                                            # l'originale inglese (stesso ripiego
+                                            # già in uso per gli altri fallimenti).
+                                            self.log(f"   ATTENZIONE: placeholder di "
+                                                    f"mascheramento non riprodotto per "
+                                                    f"riga {index}. Mantengo originale.")
+                                            unit_result = unit_original
 
                                     translated_index += 1
 
@@ -1173,8 +1319,9 @@ class LLMSubtitleTranslator(BaseTranslator):
     DEFAULT_BATCH_SIZE = 12
 
     def __init__(self, log_callback: Optional[Callable] = None,
-                 context: Optional[str] = None):
-        super().__init__(log_callback, context)
+                 context: Optional[str] = None,
+                 glossary: Optional[Dict[str, str]] = None):
+        super().__init__(log_callback, context, glossary)
         # Import LAZY: importare il package a livello di modulo tirerebbe
         # dentro torch/transformers all'avvio della GUI.
         from core.llm_subtitle_translator.engine import (DEFAULT_MODEL_KEY,
@@ -1272,13 +1419,16 @@ class LLMSubtitleTranslator(BaseTranslator):
 
     def translate_file(self, input_path: Path, output_path: Path,
                        src_lang: str, tgt_lang: str,
-                       context: Optional[str] = None) -> bool:
+                       context: Optional[str] = None,
+                       glossary: Optional[Dict[str, str]] = None) -> bool:
         if isinstance(input_path, str):
             input_path = Path(input_path)
         if isinstance(output_path, str):
             output_path = Path(output_path)
         if context is not None:
             self.context = context
+        if glossary is not None:
+            self.glossary = glossary
 
         from core.llm_subtitle_translator.prompt_builder import SubtitleUnit
         from core.llm_subtitle_translator.translator import (
@@ -1305,12 +1455,21 @@ class LLMSubtitleTranslator(BaseTranslator):
                      f"({self._model_key})")
             self.log(f"  Trovati {total} sottotitoli")
 
-            # I placeholder proteggono le note musicali dal modello.
+            # I placeholder proteggono le note musicali dal modello, e allo
+            # stesso modo i termini di glossario (resa italiana fissa).
             units, placeholders, passthrough = [], {}, {}
             for index, start, end, text in subtitles:
-                masked, holders, only_masked = self._mask_text(text, "LLM")
+                gloss_text, gloss_holders = self._mask_glossary(
+                    text, "LLM", self.glossary)
+                masked, holders, only_masked = self._mask_text(gloss_text, "LLM")
+                holders.update(gloss_holders)
                 if only_masked or not masked.strip():
-                    passthrough[index] = text
+                    # Come nel ramo NLLB: una riga fatta SOLO di un termine
+                    # di glossario arriva qui con skip=True, ma la resa
+                    # fissa va comunque applicata (_unmask_text su testo
+                    # senza placeholder di glossario è un no-op).
+                    passthrough[index] = (self._unmask_text(masked, holders)
+                                          if masked.strip() else text)
                     continue
                 placeholders[index] = holders
                 duration = max(
@@ -1332,6 +1491,7 @@ class LLMSubtitleTranslator(BaseTranslator):
                 fallback=None,   # il ripiego gira dopo, a modello scaricato
                 batch_size=self.DEFAULT_BATCH_SIZE,
                 log_callback=self.log,
+                glossary=self.glossary,
             )
             translated = translator.translate(units)
 
@@ -1358,7 +1518,15 @@ class LLMSubtitleTranslator(BaseTranslator):
                     logger.warning(f"Blocco {index} non tradotto")
                     text = original
                 elif placeholders.get(index):
-                    text = self._unmask_text(text, placeholders[index])
+                    text, unmask_ok = self._unmask_text_checked(
+                        text, placeholders[index])
+                    if not unmask_ok:
+                        # Stesso ripiego del ramo NLLB: un placeholder non
+                        # riprodotto intatto non deve mai arrivare a schermo.
+                        logger.warning(f"Blocco {index}: placeholder di "
+                                       f"mascheramento non riprodotto, "
+                                       f"mantengo originale")
+                        text = original
                 output.append((index, start, end, text))
 
             output_path.write_text(self._generate_srt(output),
@@ -1767,10 +1935,10 @@ class NLLBFineTunedTranslator(NLLBTranslator):
     invece del modello base da HuggingFace Hub.
     """
 
-    def __init__(self, log_callback=None, context=None):
+    def __init__(self, log_callback=None, context=None, glossary=None):
         # Bypassa NLLBTranslator.__init__ (che carica il modello base)
         # e usa direttamente le risorse fine-tuned
-        BaseTranslator.__init__(self, log_callback, context)
+        BaseTranslator.__init__(self, log_callback, context, glossary)
         self.model, self.tokenizer, self.device = _get_nllb_ft_resources()
 
         from utils.adaptive_batch_manager import AdaptiveBatchSizeManager
@@ -2042,16 +2210,20 @@ Provide translations as a numbered list matching the input format exactly. DO NO
 # FACTORY E LEGACY FUNCTIONS (DA MANTENERE FUORI DALLE CLASSI)
 # ============================================================================
 
-def get_translator(model_type: Optional[str] = None, context: Optional[str] = None, 
-                  use_aya: Optional[bool] = None) -> BaseTranslator:
+def get_translator(model_type: Optional[str] = None, context: Optional[str] = None,
+                  use_aya: Optional[bool] = None,
+                  glossary: Optional[Dict[str, str]] = None) -> BaseTranslator:
     """
     Factory function per ottenere il traduttore appropriato.
-    
+
     Args:
         model_type: 'nllb', 'nllb_finetuned', 'llm', 'claude', 'openai',
                     'opensubtitles', o None (usa config)
         context: Contesto opzionale (es. sinossi TMDB) per migliorare traduzione
         use_aya: [DEPRECATO] Usa model_type='llm' invece
+        glossary: Resa italiana fissa per termini ricorrenti (core/glossary.py).
+            Applicato solo ai motori NLLB e LLM locale: gli altri (Claude,
+            OpenAI, OpenSubtitles) lo ignorano — fuori scope, non richiesto.
 
     Returns:
         Istanza del traduttore appropriato
@@ -2082,7 +2254,7 @@ def get_translator(model_type: Optional[str] = None, context: Optional[str] = No
         if not ANTHROPIC_AVAILABLE:
             logger.error("Libreria 'anthropic' non disponibile, fallback su NLLB")
             logger.error("Installare con: pip install anthropic")
-            return NLLBTranslator(context=context)
+            return NLLBTranslator(context=context, glossary=glossary)
         
         logger.info("Factory: Creazione ClaudeTranslator")
         try:
@@ -2090,7 +2262,7 @@ def get_translator(model_type: Optional[str] = None, context: Optional[str] = No
         except (ImportError, ValueError) as e:
             logger.error(f"Impossibile creare ClaudeTranslator: {e}")
             logger.error("Fallback su NLLBTranslator")
-            return NLLBTranslator(context=context)
+            return NLLBTranslator(context=context, glossary=glossary)
     
     elif model_type in ('llm', 'aya'):
         # 'aya' resta accettata perché è il valore salvato nelle
@@ -2101,16 +2273,16 @@ def get_translator(model_type: Optional[str] = None, context: Optional[str] = No
             logger.info("Factory: 'aya' è un valore storico, ora significa "
                         "'llm' (modello da llm_translator_model)")
         logger.info("Factory: Creazione LLMSubtitleTranslator")
-        return LLMSubtitleTranslator(context=context)
+        return LLMSubtitleTranslator(context=context, glossary=glossary)
     
     elif model_type == 'nllb_finetuned':
         logger.info("Factory: Creazione NLLBFineTunedTranslator")
         try:
-            return NLLBFineTunedTranslator(context=context)
+            return NLLBFineTunedTranslator(context=context, glossary=glossary)
         except Exception as e:
             logger.error(f"Impossibile creare NLLBFineTunedTranslator: {e}")
             logger.error("Fallback su NLLBTranslator base")
-            return NLLBTranslator(context=context)
+            return NLLBTranslator(context=context, glossary=glossary)
 
     elif model_type == 'opensubtitles':
         logger.info("Factory: Creazione OpenSubtitlesAITranslator")
@@ -2123,7 +2295,7 @@ def get_translator(model_type: Optional[str] = None, context: Optional[str] = No
                 creds = {}
             if not creds.get('api_key'):
                 logger.warning("OpenSubtitles AI: credenziali mancanti, fallback su NLLB")
-                return NLLBTranslator(context=context)
+                return NLLBTranslator(context=context, glossary=glossary)
             return OpenSubtitlesAITranslator(
                 api_key=creds['api_key'],
                 username=creds.get('username', ''),
@@ -2134,22 +2306,22 @@ def get_translator(model_type: Optional[str] = None, context: Optional[str] = No
         except Exception as e:
             logger.error(f"Impossibile creare OpenSubtitlesAITranslator: {e}")
             logger.error("Fallback su NLLBTranslator")
-            return NLLBTranslator(context=context)
+            return NLLBTranslator(context=context, glossary=glossary)
 
     elif model_type == 'openai':
         logger.info("Factory: Creazione OpenAITranslator")
         if not OPENAI_AVAILABLE:
             logger.error("Libreria 'openai' non disponibile, fallback su NLLB")
-            return NLLBTranslator(context=context)
+            return NLLBTranslator(context=context, glossary=glossary)
         try:
             return OpenAITranslator(context=context)
         except (ImportError, ValueError) as e:
             logger.error(f"Impossibile creare OpenAITranslator: {e}, fallback su NLLB")
-            return NLLBTranslator(context=context)
+            return NLLBTranslator(context=context, glossary=glossary)
 
     else:  # 'nllb' o default
         logger.info("Factory: Creazione NLLBTranslator")
-        return NLLBTranslator(context=context)
+        return NLLBTranslator(context=context, glossary=glossary)
 
 def get_nllb_translator(log_callback: Optional[Callable] = None, context: Optional[str] = None) -> NLLBTranslator:
     """Legacy function per ottenere solo il traduttore NLLB."""

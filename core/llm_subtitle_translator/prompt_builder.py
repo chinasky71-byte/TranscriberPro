@@ -67,3 +67,46 @@ def build_mt_messages(unit: SubtitleUnit,
             f"without additional explanation.\n\n{unit.text}"
         ),
     }]
+
+
+def rewrite_messages(source_en: str, draft_it: str, budget: int = 0,
+                     loader: str = "gemma3", src_lang: str = "en",
+                     tgt_lang: str = "it") -> List[Dict]:
+    """PROTOTIPO (Fase 3, piano Gender V2.5) — non richiamato dalla pipeline
+    di produzione, solo da mt_eval/probe_rewrite_guard.py.
+
+    Riscrive una bozza IT già tradotta, vincolata al source EN, senza
+    licenza di aggiungere contenuto: non è `translate()` (source→MT in un
+    solo passaggio), è un secondo passaggio "correggi senza inventare".
+
+    Nessun ruolo di sistema (TranslateGemma/gemma3 non ne ha uno praticabile
+    per un'istruzione fuori dal suo chat template di traduzione) — tutto nel
+    canale testo unico, stesso punto d'innesto già usato da
+    mt_prefix/mt_budget_rule in engine.py.mt_messages(): istruzione PRIMA,
+    cortissima; bozza IT SUBITO DOPO (deve dominare l'attenzione del
+    modello); source EN in coda, come riferimento secondario — mai misurato
+    se questo ordine regge su un compito diverso dalla traduzione pura,
+    è esattamente ciò che il probe verifica.
+    """
+    instruction = (
+        "Riscrivi il sottotitolo italiano SOLO se contiene un errore, "
+        "mantenendo ogni informazione dell'originale inglese: non "
+        "aggiungere NULLA che non sia nell'inglese. Se è già corretto, "
+        "restituiscilo identico."
+    )
+    if budget > 0:
+        instruction += f" Non più di {budget} caratteri."
+    text = (f"{instruction}\n\nITALIANO:\n{draft_it}\n\n"
+            f"INGLESE (riferimento):\n{source_en}")
+
+    if loader == "gemma3":
+        return [{
+            "role": "user",
+            "content": [{
+                "type": "text",
+                "source_lang_code": src_lang,
+                "target_lang_code": tgt_lang,
+                "text": text,
+            }],
+        }]
+    return [{"role": "user", "content": text}]
