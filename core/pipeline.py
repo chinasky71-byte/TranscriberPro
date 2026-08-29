@@ -754,9 +754,19 @@ class ProcessingPipeline:
                     translation_context = ". ".join(
                         str(b).strip() for b in _bits if b) or None
 
+                # Glossario a resa fissa per la serie (core/glossary.py):
+                # {} se non esiste, nessun cambio di comportamento.
+                translation_glossary = {}
+                if self.metadata and self.metadata.get('id'):
+                    from core.glossary import load_glossary
+                    translation_glossary = load_glossary(self.metadata['id'])
+                    if translation_glossary:
+                        self._log(f"   Glossario attivo: {len(translation_glossary)} termini")
+
                 # Usa la factory intelligente passando la scelta esplicita del modello
                 self._translator = get_translator(model_type=selected_model,
-                                                  context=translation_context)
+                                                  context=translation_context,
+                                                  glossary=translation_glossary)
                 self._motore_traduzione = selected_model
                 self._translator.set_log_callback(self._log_callback)
 
