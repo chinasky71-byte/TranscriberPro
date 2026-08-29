@@ -84,44 +84,100 @@ class SpeakerGenderMap:
             return None, 0.0
         return self.gender_of(spk)
 
+    def _resolve_addressee(self, start: float, end: float, window: float):
+        """Nucleo condiviso da `addressee_gender_for_range` e dalla sua
+        variante diagnostica. Ritorna (current, prev_spk, next_spk, overlapping).
+
+        RIDISEGNATO (piano "Correzione di genere in 2ª persona", Fase 2b):
+        la versione precedente scartava l'intera cue non appena un QUALSIASI
+        terzo parlante compariva ovunque nella finestra ±8s, anche un
+        personaggio di sfondo che parla una volta sola lontano dalla cue —
+        misurato su Knight's & Magic: 5 candidate P2 su 7 finivano scartate
+        così (`ambiguous_group`), contro 1 sola per il controllo strict
+        prev/next. Ora l'ambiguità vera è misurata solo dalla SOVRAPPOSIZIONE
+        temporale con la cue stessa (qualcuno che parla ESATTAMENTE mentre
+        parla il parlante corrente — scena affollata reale); un terzo
+        parlante isolato prima o dopo, che non è né il più vicino precedente
+        né il più vicino successivo, non blocca più la risoluzione.
+        """
+        current = self.speaker_for_range(start, end)
+        if current is None:
+            return None, None, None, False
+        prev_spk = next_spk = None
+        overlapping = False
+        for t_start, t_end, spk in self.turns:
+            if spk == current:
+                continue
+            if t_start < end and t_end > start:
+                overlapping = True           # sovrapposto: scena affollata
+            elif t_end <= start and start - t_end <= window:
+                prev_spk = spk                # ultimo turno altrui prima
+            elif t_start >= end and t_start - end <= window:
+                if next_spk is None:
+                    next_spk = spk            # primo turno altrui dopo
+            if t_start > end + window:
+                break
+        return current, prev_spk, next_spk, overlapping
+
+    def addressee_gender_for_range_diag(self, start: float, end: float,
+                                        window: float = 8.0,
+                                        strict: bool = True):
+        """Come `addressee_gender_for_range`, ma espone IL MOTIVO del
+        fallimento invece di appiattirlo a `(None, 0.0)` — diagnostica pura,
+        nessun uso in produzione. Ritorna (gender, conf, reason, addressee_id).
+
+        reason: 'no_turn' (parlante corrente non determinabile),
+        'overlapping_scene' (qualcuno parla sovrapposto alla cue: scena
+        affollata reale), 'no_addressee' (nessun altro parlante vicino),
+        'not_strict' (prev e next esistono ma sono parlanti diversi, e
+        `strict=True` richiede che coincidano), 'low_confidence'/'no_votes'
+        (interlocutore identificato, `gender_of()` fallisce), 'ok'.
+        """
+        current, prev_spk, next_spk, overlapping = self._resolve_addressee(
+            start, end, window)
+        if current is None:
+            return None, 0.0, 'no_turn', None
+        if overlapping:
+            return None, 0.0, 'overlapping_scene', None
+        if prev_spk is not None and prev_spk == next_spk:
+            addressee = prev_spk
+        elif strict:
+            if prev_spk is None and next_spk is None:
+                return None, 0.0, 'no_addressee', None
+            return None, 0.0, 'not_strict', None
+        else:
+            addressee = prev_spk or next_spk
+            if addressee is None:
+                return None, 0.0, 'no_addressee', None
+        gender, conf = self.gender_of(addressee)
+        if gender is None:
+            sg = self.speakers.get(addressee)
+            reason = 'no_votes' if (sg is None or sg.gender is None) else 'low_confidence'
+            return None, conf, reason, addressee
+        return gender, conf, 'ok', addressee
+
     def addressee_gender_for_range(self, start: float, end: float,
                                    window: float = 8.0,
                                    strict: bool = True) -> Tuple[Optional[str], float]:
         """Genere dell'INTERLOCUTORE (2ª persona): il parlante dei turni
-        adiacenti. Prudente per costruzione: richiede che nella finestra
-        ±window ci sia UN SOLO altro parlante (dialogo a due localmente);
-        scene di gruppo o contesto ambiguo → (None, 0)."""
-        current = self.speaker_for_range(start, end)
-        if current is None:
+        adiacenti. Prudente per costruzione: una cue con qualcuno che parla
+        SOVRAPPOSTO (scena affollata) resta sempre scartata; altrimenti
+        risolve quando il parlante più vicino prima e quello più vicino dopo
+        la cue coincidono — non basta più che un terzo parlante isolato
+        compaia altrove nella finestra a bloccare la risoluzione (vedi
+        `_resolve_addressee` per la misura che ha motivato il ridisegno)."""
+        current, prev_spk, next_spk, overlapping = self._resolve_addressee(
+            start, end, window)
+        if current is None or overlapping:
             return None, 0.0
-        others = set()
-        prev_spk = next_spk = None
-        for t_start, t_end, spk in self.turns:
-            if spk == current:
-                continue
-            if t_end <= start and start - t_end <= window:
-                prev_spk = spk               # ultimo turno altrui prima
-                others.add(spk)
-            elif t_start >= end and t_start - end <= window:
-                if next_spk is None:
-                    next_spk = spk           # primo turno altrui dopo
-                others.add(spk)
-            elif t_start < end and t_end > start:
-                others.add(spk)              # sovrapposto (parla anche lui)
-            if t_start > end + window:
-                break
-        if len(others) != 1:
-            return None, 0.0                 # gruppo o nessuno: ambiguo
-        addressee = others.pop()
+        if prev_spk is not None and prev_spk == next_spk:
+            return self.gender_of(prev_spk)
         if strict:
-            # richiede l'interlocutore sia PRIMA che DOPO la cue
-            # (conversazione attiva a due, non ingresso/uscita di scena)
-            if prev_spk == addressee and next_spk == addressee:
-                return self.gender_of(addressee)
             return None, 0.0
-        if prev_spk == addressee or next_spk == addressee:
-            return self.gender_of(addressee)
-        return None, 0.0
+        addressee = prev_spk or next_spk
+        if addressee is None:
+            return None, 0.0
+        return self.gender_of(addressee)
 
     def to_json(self) -> str:
         return json.dumps({
