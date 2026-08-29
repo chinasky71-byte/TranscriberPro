@@ -1181,6 +1181,8 @@ class LLMSubtitleTranslator(BaseTranslator):
                                                          get_engine)
         self._get_engine = get_engine
         self._model_key = self._configured_model(DEFAULT_MODEL_KEY)
+        self._adapter = self._configured_adapter()
+        self._model_path = self._configured_model_path()
         self._engine = None
 
     @staticmethod
@@ -1207,6 +1209,49 @@ class LLMSubtitleTranslator(BaseTranslator):
         except Exception:
             pass
         return default_key
+
+    def _configured_adapter(self):
+        """Adattatore LoRA da applicare sopra i pesi base, se configurato.
+
+        Una cartella che non esiste NON e' un errore fatale: si prosegue col
+        modello base e lo si dice a schermo. Far fallire una coda notturna
+        perche' un percorso e' stato spostato costerebbe molto piu' di una
+        traduzione fatta col modello non adattato.
+        """
+        import os
+        try:
+            if not get_config:
+                return None
+            p = (get_config().get('llm_translator_adapter', '') or '').strip()
+        except Exception:
+            return None
+        if not p:
+            return None
+        if not os.path.isdir(p):
+            self.log(f"  adattatore non trovato, uso il modello base: {p}")
+            return None
+        self.log(f"  adattatore LoRA: {os.path.basename(p.rstrip(os.sep))}")
+        return p
+
+    def _configured_model_path(self):
+        """Cartella locale che sovrascrive i pesi base del modello, se
+        configurata (llm_translator_model_path). Stessa logica di
+        _configured_adapter: un percorso inesistente non è fatale, si
+        ricade sul model_id di default dello spec.
+        """
+        import os
+        try:
+            if not get_config:
+                return None
+            p = (get_config().get('llm_translator_model_path', '') or '').strip()
+        except Exception:
+            return None
+        if not p:
+            return None
+        if not os.path.isdir(p):
+            self.log(f"  cartella modello non trovata, uso il default: {p}")
+            return None
+        return p
 
     def _lang_to_iso(self, lang_code: str) -> Optional[str]:
         result = self.LANGUAGE_CODES.get(lang_code.lower())
@@ -1277,7 +1322,9 @@ class LLMSubtitleTranslator(BaseTranslator):
                     is_dialogue='\n' in masked,
                 ))
 
-            engine = self._get_engine(self._model_key, self.log_callback)
+            engine = self._get_engine(self._model_key, self.log_callback,
+                                      adapter=self._adapter,
+                                      model_path=self._model_path)
             self._engine = engine
 
             translator = SubtitleLLMTranslator(

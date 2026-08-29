@@ -484,13 +484,47 @@ class TranslationModelDialog(QDialog):
             self.nllb_ft_status_label.setText(tr('tmd_not_configured'))
             self.nllb_ft_status_label.setStyleSheet("color: orange;")
 
+    def browse_llm_model_path(self):
+        """Apre dialog per selezionare la cartella dei pesi del modello LLM"""
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            tr('select_model_folder'),
+            self.llm_model_path_input.text() or str(Path.home()),
+        )
+        if folder:
+            self.llm_model_path_input.setText(folder)
+
+    def save_llm_model_path(self):
+        """Salva il path della cartella del modello LLM (vuoto = default)"""
+        path = self.llm_model_path_input.text().strip()
+        if path:
+            p = Path(path)
+            if not p.exists():
+                QMessageBox.warning(self, tr('folder_not_found'), f"La cartella non esiste:\n{path}")
+                return
+            if not (p / 'config.json').exists():
+                QMessageBox.warning(
+                    self, tr('folder_invalid'),
+                    "La cartella non sembra contenere un modello HuggingFace valido (config.json non trovato)."
+                )
+                return
+
+        self.config.set_llm_translator_model_path(path)
+        QMessageBox.information(self, tr('path_saved_title'), tr('path_saved_msg'))
+
     def create_model_section_llm(self):
         """Sezione del traduttore LLM locale, col relativo scaricamento.
 
         Lo slot ospitava Aya, rimossa il 2026-08-18 dopo che aveva perso ogni
         confronto su film reale e che il suo percorso si era rivelato capace di
-        disallineare battute e tempi. Ora ospita TranslateGemma-12B; quale
-        modello ci sia dentro resta una chiave di configurazione.
+        disallineare battute e tempi. Ora ospita TranslateGemma-12B con
+        l'adattatore addestrato sul nostro corpus di sottotitoli — da cui
+        il nome "TranslateGemma_finetuned".
+
+        NON si offre anche il modello base: questo software genera solo
+        sottotitoli, e un traduttore non specializzato non ha un caso d'uso.
+        Quale modello e quale adattatore ci siano dentro restano chiavi di
+        configurazione (`llm_translator_model`, `llm_translator_adapter`).
         """
         radio = QRadioButton()
         radio.setObjectName("llm")
@@ -501,21 +535,49 @@ class TranslationModelDialog(QDialog):
 
         layout = QVBoxLayout(container)
 
-        title_label = QLabel("TranslateGemma 12B")
+        title_label = QLabel("TranslateGemma_finetuned")
         title_label.setStyleSheet("font-size: 16px; font-weight: bold;")
         layout.addWidget(title_label)
 
         features = (
             "✅ Locale (GPU)\n"
-            "✅ Qualità superiore\n"
-            "✅ Multilingua avanzato\n"
-            "⚠️ Download 8GB richiesto\n"
+            "✅ Adattato sui sottotitoli\n"
+            "✅ Condensa come un professionista\n"
+            "⚠️ Download 23 GB richiesto\n"
             "⚠️ Più lento di NLLB"
         )
         features_label = QLabel(features)
         features_label.setStyleSheet("font-size: 12px; margin-top: 8px;")
         layout.addWidget(features_label)
-        
+
+        # Cartella del modello (override locale dei pesi base)
+        model_path_group = QGroupBox(tr('model_folder_group'))
+        model_path_layout = QVBoxLayout()
+
+        model_path_row = QHBoxLayout()
+        self.llm_model_path_input = QLineEdit()
+        self.llm_model_path_input.setPlaceholderText(
+            "Vuoto = modello predefinito (TranslateGemma_finetuned)"
+        )
+        current_llm_path = self.config.get_llm_translator_model_path()
+        if current_llm_path:
+            self.llm_model_path_input.setText(current_llm_path)
+
+        browse_llm_btn = QPushButton(tr('browse'))
+        browse_llm_btn.setFixedWidth(90)
+        browse_llm_btn.clicked.connect(self.browse_llm_model_path)
+
+        model_path_row.addWidget(self.llm_model_path_input)
+        model_path_row.addWidget(browse_llm_btn)
+        model_path_layout.addLayout(model_path_row)
+
+        save_llm_path_btn = QPushButton(tr('save_path'))
+        save_llm_path_btn.clicked.connect(self.save_llm_model_path)
+        model_path_layout.addWidget(save_llm_path_btn)
+
+        model_path_group.setLayout(model_path_layout)
+        layout.addWidget(model_path_group)
+
         # Token HuggingFace
         token_group = QGroupBox(tr('hf_token_group'))
         token_layout = QVBoxLayout()
@@ -950,7 +1012,7 @@ class TranslationModelDialog(QDialog):
         display_names = {
             'nllb': 'NLLB-200',
             'nllb_finetuned': 'NLLB-200 Fine-Tuned (Plex)',
-            'llm': 'TranslateGemma 12B',
+            'llm': 'TranslateGemma_finetuned',
             'claude': 'Claude API',
             'opensubtitles': 'OpenSubtitles AI',
             'openai': 'OpenAI GPT',

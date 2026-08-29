@@ -131,6 +131,10 @@ class ProcessingPipeline:
         # Inizializzazione lazy/cleanup
         self._transcriber: Optional[Transcriber] = None
         self._translator: Optional[BaseTranslator] = None
+        # Quale motore ha tradotto, per la firma in coda al file. Resta
+        # None quando non si traduce affatto — sottotitolo gia' nella
+        # lingua di destinazione — e in quel caso la firma non lo cita.
+        self._motore_traduzione: Optional[str] = None
         self._audio_processor: Optional[AudioProcessor] = None
         self.last_execution_time = 0.0
         self.last_output_path: Optional[Path] = None
@@ -753,6 +757,7 @@ class ProcessingPipeline:
                 # Usa la factory intelligente passando la scelta esplicita del modello
                 self._translator = get_translator(model_type=selected_model,
                                                   context=translation_context)
+                self._motore_traduzione = selected_model
                 self._translator.set_log_callback(self._log_callback)
 
                 translated_srt_path = self.file_handler.get_temp_path(
@@ -1002,7 +1007,8 @@ class ProcessingPipeline:
                           f"   Percorso: {final_output_path}\n"
                           f"   Verificare che la cartella di destinazione non sia in sola lettura.")
                 return False
-            self._add_watermark_subtitle(final_output_path)
+            self._add_watermark_subtitle(final_output_path,
+                                         self._motore_traduzione)
 
             self._log(f"✅ File salvato: {final_output_path.name}")
             
@@ -1214,8 +1220,21 @@ class ProcessingPipeline:
         logger.warning(f"⚠️ Nessun video trovato in {parent} per il base_stem '{base_stem}'")
         return None
 
+    # Come si chiama ogni motore nella firma. Nomi CORTI: la riga del
+    # watermark ne ha gia' 40 di caratteri e il limite di un sottotitolo
+    # e' 42, quindi il motore va su una seconda riga e deve starci comodo.
+    _NOMI_MOTORE = {
+        'nllb': 'NLLB-200',
+        'nllb_finetuned': 'NLLB-FT',
+        'llm': 'TGemma',
+        'claude': 'Claude',
+        'openai': 'GPT',
+        'opensubtitles': 'OpenSubtitles',
+    }
+
     @staticmethod
-    def _add_watermark_subtitle(srt_path: Path) -> None:
+    def _add_watermark_subtitle(srt_path: Path,
+                                motore: Optional[str] = None) -> None:
         """
         Inserisce un sottotitolo di attribuzione AI all'inizio del file SRT.
 
@@ -1227,8 +1246,18 @@ class ProcessingPipeline:
         import re
 
         WATERMARK_TEXT = "AI generated subtitles : Transcriber_pro"
+        # Il motore su una riga sua: unito alla prima si sforerebbero i
+        # 42 caratteri per riga. Assente quando non si e' tradotto.
+        _nome = ProcessingPipeline._NOMI_MOTORE.get(motore) if motore else None
+        if _nome:
+            WATERMARK_TEXT += "\n" + _nome
         WATERMARK_END_MS = 10_000
-        MIN_VISIBLE_MS  = 1_000
+        # Sotto questa soglia il watermark si salta invece di comprimerlo:
+        # a 1000ms bastava un recap che parte a 1,09s (comune nelle serie TV,
+        # "Negli episodi precedenti" attacca quasi subito) per saltarlo SEMPRE.
+        # Scesa a 200ms: resta leggibile anche breve, e la copertura reale
+        # sale da "quasi mai sui recap" a "praticamente sempre".
+        MIN_VISIBLE_MS  = 200
 
         # Lettura con fallback di encoding
         content = None

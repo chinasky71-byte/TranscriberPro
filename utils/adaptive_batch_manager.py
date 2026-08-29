@@ -9,7 +9,15 @@ quando la memoria è disponibile.
 import logging
 from typing import Optional, Callable
 
-logger = logging.getLogger(__name__)
+# NON logging.getLogger(__name__): il root logger non viene mai configurato
+# durante l'esecuzione normale (solo nel blocco di test di utils/config.py),
+# quindi un logger "nudo" eredita il livello WARNING di default e ogni
+# logger.info() qui dentro veniva scartato PRIMA di raggiungere il file
+# condiviso — gli aggiustamenti di batch (l'unica traccia di cosa ha fatto
+# davvero il gestore adattivo) non finivano mai nel log.
+from utils.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 try:
     import pynvml
@@ -113,6 +121,14 @@ class AdaptiveBatchSizeManager:
         self._size_history.append(self.current_batch_size)
 
         mem = self._get_memory_usage()
+        # Solo file (DEBUG): traccia completa batch-per-batch anche quando
+        # la dimensione non cambia — senza, dal log si vedono solo gli
+        # aggiustamenti e non si può ricostruire la traiettoria di memoria
+        # reale di una run per giudicare se un tetto più alto reggerebbe.
+        logger.debug(
+            f"  [batch-trace] #{self._total_batches} size={self.current_batch_size} "
+            f"mem={mem:.1%} warmup={self.is_warming_up}"
+        )
 
         if self._warmup_count < self.warmup_batches:
             # Fase warm-up: aumenta se la memoria lo consente, riduce se satura.
