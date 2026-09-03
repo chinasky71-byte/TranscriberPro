@@ -61,3 +61,41 @@ def save_glossary(tmdb_id: Union[int, str], terms: Dict[str, str]) -> Path:
     path.write_text(json.dumps(terms, ensure_ascii=False, indent=2),
                      encoding='utf-8')
     return path
+
+
+def _rotate_backups(path: Path, keep: int = 3) -> None:
+    """tmdb_<id>.json.bak, .bak2, .bak3 — il piu' vecchio (.bak3) viene
+    scartato. Best-effort: un backup fallito non deve mai bloccare il
+    salvataggio del glossario nuovo."""
+    try:
+        for i in range(keep, 1, -1):
+            src = path.with_suffix(f"{path.suffix}.bak{i - 1}" if i > 2
+                                    else f"{path.suffix}.bak")
+            dst = path.with_suffix(f"{path.suffix}.bak{i}")
+            if src.exists():
+                dst.write_bytes(src.read_bytes())
+        if path.exists():
+            first_backup = path.with_suffix(f"{path.suffix}.bak")
+            first_backup.write_bytes(path.read_bytes())
+    except Exception as e:
+        logger.warning(f"Backup glossario {path} fallito (si procede comunque): {e}")
+
+
+def merge_glossary(tmdb_id: Union[int, str], new_terms: Dict[str, str]) -> Path:
+    """Fonde `new_terms` nel glossario esistente per il TMDB id — MAI una
+    sovrascrittura secca: un glossario gia' validato a mano non deve poter
+    essere cancellato da una run automatica successiva. Ogni chiave in
+    `new_terms` sovrascrive la propria voce (i conflitti li risolve
+    l'utente in GUI prima di chiamare questa funzione), le altre voci
+    esistenti restano intatte. Backup ruotato (fino a 3 copie) prima di
+    scrivere. Scrittura atomica (file temporaneo + replace)."""
+    path = glossary_path(tmdb_id)
+    existing = load_glossary(tmdb_id)
+    _rotate_backups(path)
+    merged = {**existing, **{k: v for k, v in new_terms.items() if k and v}}
+    _glossary_dir().mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(merged, ensure_ascii=False, indent=2),
+                         encoding='utf-8')
+    tmp_path.replace(path)
+    return path
