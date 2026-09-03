@@ -338,6 +338,25 @@ class MainWindow(QMainWindow):
 
         self.profile_indicator = self.profile_button  # backward-compat alias
 
+        self.tools_btn = QToolButton()
+        self.tools_btn.setObjectName("titleBarToolsBtn")
+        self.tools_btn.setText('')
+        self.tools_btn.setIcon(svg_icon('settings', 18, '#9095a0'))
+        self.tools_btn.setIconSize(QSize(18, 18))
+        self.tools_btn.setFixedSize(32, 32)
+        self.tools_btn.setToolTip(tr('tools_menu'))
+        self.tools_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.tools_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+
+        tools_menu = QMenu(self.tools_btn)
+        tools_menu.setObjectName("toolsMenu")
+        glossary_action = QAction(tr('tools_glossary'), tools_menu)
+        glossary_action.triggered.connect(self._open_glossary_dialog)
+        tools_menu.addAction(glossary_action)
+        self.tools_btn.setMenu(tools_menu)
+
+        layout.addWidget(self.tools_btn)
+
         self.sync_btn = QToolButton()
         self.sync_btn.setObjectName("titleBarSyncBtn")
         self.sync_btn.setText('')
@@ -1360,6 +1379,20 @@ class MainWindow(QMainWindow):
 
     def open_general_settings(self):
         self.open_settings_dialog(initial_tab=TAB_GENERAL)
+
+    def _open_glossary_dialog(self):
+        """Apre il dialog "Glossario per show" (Strumenti -> Glossario per show).
+        Istanza singola: se gia' aperto (magari con un run in corso) lo
+        riporta in primo piano invece di crearne uno nuovo — due worker
+        paralleli scriverebbero lo stesso args.json/report.json."""
+        from gui.glossary_dialog import GlossaryDialog
+        existing = getattr(self, '_glossary_dialog', None)
+        if existing is not None and not existing.isHidden():
+            existing.raise_()
+            existing.activateWindow()
+            return
+        self._glossary_dialog = GlossaryDialog(self)
+        self._glossary_dialog.exec()
 
     def _open_sync_dialog(self):
         """Apre il dialog di sincronizzazione SRT."""

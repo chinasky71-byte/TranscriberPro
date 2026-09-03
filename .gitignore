@@ -27,6 +27,18 @@ models/
 *.onnx
 
 # ---------------------------------------------------------------------------
+# Glossario per-show — output di lavoro
+#
+# mt_eval/glossary_work/ (estrazioni srt temporanee per show) e i report
+# generati (glossary_report_*.json, glossary_candidates_*.jsonl) sono
+# rigenerabili da una run dello strumento — si versiona il motore
+# (glossary_*.py), non i suoi output per-show.
+# ---------------------------------------------------------------------------
+mt_eval/glossary_work/
+mt_eval/glossary_report_*.json
+mt_eval/glossary_candidates_*.jsonl
+
+# ---------------------------------------------------------------------------
 # Corpus di addestramento
 #
 # `Gemma training/` contiene il corpus EN->IT (centinaia di MB e in crescita)
