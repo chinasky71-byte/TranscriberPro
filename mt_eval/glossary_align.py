@@ -52,18 +52,44 @@ def load(model_name: str = "sentence-transformers/LaBSE", device: str = "cpu"):
 
 def unload():
     """Libera il modello (RAM/eventuale VRAM) prima di caricare Qwen —
-    mai i due modelli insieme in memoria (vedi piano di sviluppo)."""
+    mai i due modelli insieme in memoria (vedi piano di sviluppo).
+
+    gc.collect() + torch.cuda.empty_cache() liberano solo i riferimenti
+    Python: il working set del processo (visibile in Task Manager) non
+    torna all'OS finche' non lo si forza esplicitamente — stesso
+    problema e stessa soluzione di utils/resource_monitor.py
+    (release_ram_to_os), reimplementata qui invece che importata perche'
+    questo processo gira in venv_glossary/, che non ha psutil e non puo'
+    importare il package utils (vedi core/glossary_builder_cli.py)."""
     global _aligner, _aligner_model_name
     _aligner = None
     _aligner_model_name = None
     try:
         import gc
-        gc.collect()
+        for _ in range(3):
+            gc.collect()
         import torch
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
     except Exception:
         pass
+    try:
+        import sys
+        if sys.platform == 'win32':
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            kernel32.SetProcessWorkingSetSize(
+                ctypes.c_void_p(-1), ctypes.c_size_t(-1), ctypes.c_size_t(-1))
+            kernel32.EmptyWorkingSet(ctypes.c_void_p(-1))
+        else:
+            import ctypes.util
+            libc_name = ctypes.util.find_library('c') or 'libc.so.6'
+            libc = ctypes.CDLL(libc_name)
+            libc.malloc_trim.argtypes = [ctypes.c_size_t]
+            libc.malloc_trim.restype = ctypes.c_int
+            libc.malloc_trim(ctypes.c_size_t(0))
+    except Exception:
+        pass  # silenzioso — non critico
 
 
 def _find_term_span(src_tokens: List[str], term: str) -> Optional[Tuple[int, int]]:
