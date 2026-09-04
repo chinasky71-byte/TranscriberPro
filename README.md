@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.10.1-orange)
+![Version](https://img.shields.io/badge/Version-1.11.0-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -30,7 +30,7 @@ Transcriber Pro takes any video file and produces clean `.srt` subtitle files th
 
 ### Transcription & Translation
 - **Multi-engine transcription with automatic language routing** — NVIDIA Canary-Qwen-2.5B (English only, best WER; optional, requires a dedicated `venv_canary` with NeMo 2.7.3), Qwen3-ASR-1.7B + Qwen3-ForcedAligner-0.6B (11 languages with word-level timestamps: zh, en, yue, fr, de, it, ja, ko, pt, ru, es; native language auto-detect), Faster-Whisper `large-v3` as guaranteed universal fallback (99 languages, VAD filter) — the pipeline never fails because of a new engine. Only one ASR engine in VRAM at a time. Engine selector in profile settings (`transcription_engine_mode`: auto / canary / qwen3 / faster-whisper)
-- **Multiple translation engines**: NLLB-200-3.3B, NLLB fine-tuned, Aya-23-8B, Claude Sonnet API, OpenAI GPT-4o-mini
+- **Multiple translation engines**: NLLB-200-3.3B, NLLB fine-tuned, TranslateGemma-12B (LLM branch, optional LoRA adapter and custom local model path), Claude Sonnet API, OpenAI GPT-4o-mini
 - **Professional dialogue style (Netflix)** — "- " dashes only when two speakers share the same SRT block (one line per speaker); speaker diarization extended to all engines (`dialogue_style_enabled`, default ON, requires a HuggingFace token); dashes preserved in translated SRTs across all 4 translation backends; `core/subtitle_formatter.py` handles CPL 42, anti-flash, fragment merging and dialogue grouping
 - **Vocal separation** via Meta Demucs — isolates speech before transcription for better accuracy
 - **Intelligent audio chunking** — splits at silence points for accurate timestamp alignment
@@ -46,6 +46,13 @@ Transcriber Pro takes any video file and produces clean `.srt` subtitle files th
 - **Configurable strategy** — *Targeted review* (OCR + human review UI showing uncertain lines side-by-side with the original bitmap image) or *Automatic* (no review, direct output)
 - **Configurable parallel workers** — slider in Settings → Subtitle OCR; default auto = `min(CPU cores, 8)`
 - **Write-back modes** — remux SRT as new track inside the MKV in-place, or save as sidecar `.srt` next to the video (VOBSUB always sidecar)
+
+### Per-show Glossary (semi-automatic)
+- **Tools → Per-show glossary** — finds terms a translation engine renders inconsistently across a show's episodes (e.g. a proper noun translated one way in one episode, left untranslated in another) and proposes a single fixed rendering, applied automatically to future translations of that show (`core/glossary.py`, matched by TMDB id)
+- **Two independent cross-checking channels** — SimAlign+LaBSE word alignment and a local Qwen span-extraction pass (mechanically validated: a proposed span must be a literal substring of the actual Italian text, never trusted as a judge) — a term is only auto-flagged when both channels agree on the divergence and the dominant rendering
+- **Per-show gate** — a show needs enough translated episodes/blocks before candidates are computed, avoiding false positives on thin data
+- **Review UI** — per-term cards with the proposed rendering (editable), approve/reject, and a merge-not-overwrite save (rotated backup, never a destructive overwrite of an already-validated glossary)
+- **Fully isolated subprocess** — runs in a dedicated `venv_glossary/` (SimAlign/sentence-transformers/torch conflict with the main venv's `transformers==4.57.6`); the GPU-side Qwen channel is delegated back to the main venv via a bridge subprocess so only one model is ever resident at a time
 
 ### Library Scanner Integration
 - **Self-hosted media server integration** (Plex / Jellyfin) — scans the library, shows files without Italian subtitles
@@ -145,13 +152,13 @@ All credentials are entered through the application GUI — no config files to e
 |---|---|---|---|
 | **Claude API Key** | Settings → Translation → Claude | [console.anthropic.com](https://console.anthropic.com) | Claude Sonnet translation |
 | **OpenAI API Key** | Settings → Translation → OpenAI | [platform.openai.com](https://platform.openai.com) | GPT-4o-mini translation |
-| **HuggingFace Token** | Settings → Translation → HuggingFace | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) | Aya-23-8B (gated model) |
+| **HuggingFace Token** | Settings → Translation → HuggingFace | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) | TranslateGemma-12B (gated model), pyannote diarization |
 | **OpenSubtitles credentials** | Settings → OpenSubtitles | [opensubtitles.com](https://www.opensubtitles.com) | Subtitle upload |
 | **TMDB API Key** | Settings → General → TMDB | [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api) | Film metadata |
 | **OMDB API Key** | Settings → General → OMDB | [omdbapi.com/apikey](http://www.omdbapi.com/apikey.aspx) | IMDb metadata fallback |
 | **Library Scanner API Key** | Settings → Library Scanner | Your self-hosted server | Library integration |
 
-All credentials are optional except for the translation model you choose to use. Local models (NLLB, Aya) and the OCR pipeline require no API keys.
+All credentials are optional except for the translation model you choose to use. Local models (NLLB, TranslateGemma) and the OCR pipeline require no API keys.
 
 ---
 
@@ -181,7 +188,7 @@ All credentials are optional except for the translation model you choose to use.
 | NVIDIA Canary-Qwen-2.5B | Transcription (English only, optional venv) | 2.5 B params | ~6 GB | ★★★★★ | ★★★★☆ |
 | NLLB-200-3.3B | Translation (local) | 3.3 B params | ~5 GB | ★★★☆☆ | ★★★★★ |
 | NLLB-200 fine-tuned | Translation (local) | 3.3 B params | ~5 GB | ★★★★☆ | ★★★★★ |
-| Aya-23-8B | Translation (local) | 8 B params | ~8 GB | ★★★★☆ | ★★★☆☆ |
+| TranslateGemma-12B | Translation (local, LLM branch) | 12 B params | ~10 GB | ★★★★☆ | ★★★☆☆ |
 | Claude Sonnet (API) | Translation (cloud) | — | 0 GB | ★★★★★ | ★★★★☆ |
 | GPT-4o-mini (API) | Translation (cloud) | — | 0 GB | ★★★★☆ | ★★★★★ |
 | pyannote 3.1 + ECAPA gender | Gender correction v2 (voice) | — | ~3 GB (transient) | ★★★★☆ | ★★★★☆ |
@@ -207,7 +214,7 @@ Models are loaded and unloaded sequentially to fit within available VRAM.
 │                   CORE PROCESSING LAYER                       │
 │          ProcessingPipeline (audio transcription)             │
 │  SubtitleExtractor · AudioProcessor · Transcriber             │
-│  Translator (NLLB / Aya / Claude / OpenAI)                    │
+│  Translator (NLLB / TranslateGemma / Claude / OpenAI)          │
 │  GenderCorrectorV2 (speaker gender map · selector · rewriter) │
 │                                                               │
 │          PgsOcr · VobSubOcr · BitmapOcrCommon                 │
@@ -271,6 +278,15 @@ This project is licensed under the MIT License.
 ---
 
 ## Changelog
+
+### v1.11.0.4.9.26
+- **Fix: RAM leak in the per-show glossary align phase** — `glossary_align.unload()` only released Python references (`gc.collect` + `torch.cuda.empty_cache`), never returning the `venv_glossary` process's working set to the OS: the RAM used by LaBSE during alignment stayed resident through the whole subsequent Qwen/GPU phase. Fixed with the same `EmptyWorkingSet` trim already used in `utils/resource_monitor.py`, reimplemented inline since `venv_glossary` has no `psutil`.
+
+### v1.11.0
+- **Per-show glossary builder (semi-automatic)** — new `Tools → Per-show glossary` dialog finds candidate terms translated inconsistently across a show and proposes a fixed rendering, cross-checked by two independent channels (SimAlign+LaBSE word alignment + a local Qwen span-extraction pass, mechanically validated rather than trusted as a judge) instead of a single verbatim/absent heuristic that overstated real defects. Runs isolated in a new `venv_glossary/` (conflicts with the main venv's `transformers==4.57.6`); the GPU-side Qwen channel is delegated back to the main venv via a bridge subprocess. Review UI with per-term approve/reject cards and merge-not-overwrite save.
+- **2nd-person addressee resolution fix** — `addressee_gender_for_range()` discarded a cue for *any* isolated third speaker anywhere in the ±8 s window, even when irrelevant to the conversation (measured on Knight's & Magic: 5/7 P2 candidates blocked this way vs. 1/7 from a true strict prev/next check). New shared `_resolve_addressee()`: real ambiguity is direct temporal overlap with the cue, not the mere presence of a third speaker elsewhere. P2 coverage 0/7 → 1/7 with `strict=True` (production setting unchanged).
+- **Production LLM translator: LoRA adapter + custom model path support** — `llm_subtitle_translator` can now load a LoRA adapter and a local model path (config + UI + `translator.py`); the queue log now records which translation engine produced each file.
+- **Fix: adaptive batch manager logger silently dropped info-level logs** — a bare `logging.getLogger()` call in `adaptive_batch_manager` discarded them before they reached the shared log file.
 
 ### v1.10.1.22.8.26
 - **Fix: production LLM model cache wiped at the end of every queue** — the LLM model occupying the production slot (currently TranslateGemma-12B) was downloaded into the HuggingFace cache and then deleted again once the queue finished: the preserve list only covered the ASR engines (whisper/wav2vec), not the LLM translation branch. The fine-tuned LoRA adapter promoted to production was unaffected (it lives on disk outside the HF cache). The cleaner now resolves at runtime which model occupies the slot (config key `llm_translator_model`) and preserves it; models used only for experimental comparisons are still cleaned up as before.
@@ -419,7 +435,7 @@ This project is licensed under the MIT License.
 - [Faster-Whisper](https://github.com/guillaumekln/faster-whisper) — CTranslate2-optimized Whisper
 - [WhisperX](https://github.com/m-bain/whisperX) — forced alignment and word-level timestamps
 - [NLLB-200](https://huggingface.co/facebook/nllb-200-3.3B) — Meta No Language Left Behind
-- [Aya-23-8B](https://huggingface.co/CohereForAI/aya-23-8B) — Cohere multilingual model
+- [Gemma 3](https://huggingface.co/google/gemma-3-12b-it) — Google base model for the fine-tuned LLM translation branch (TranslateGemma)
 - [Demucs](https://github.com/facebookresearch/demucs) — Meta source separation
 - [pgsreader](https://github.com/EzraBC/pgsreader) — PGS subtitle parser (vendored, patched)
 - [VobSub-ML-OCR](https://github.com/vincrichard/VobSub-ML-OCR) — VOBSUB parser ported from Subtitle Edit (vendored)
@@ -452,7 +468,7 @@ Transcriber Pro produce file `.srt` attraverso due pipeline complementari:
 
 ### Trascrizione e Traduzione
 - **Trascrizione multi-engine con routing automatico per lingua** — NVIDIA Canary-Qwen-2.5B (solo inglese, WER migliore; opzionale, richiede un `venv_canary` dedicato con NeMo 2.7.3), Qwen3-ASR-1.7B + Qwen3-ForcedAligner-0.6B (11 lingue con timestamp word-level: zh, en, yue, fr, de, it, ja, ko, pt, ru, es; auto-detect lingua nativo), Faster-Whisper `large-v3` come fallback universale garantito (99 lingue, filtro VAD) — la pipeline non fallisce mai per colpa di un engine nuovo. Un solo engine ASR in VRAM per volta. Selettore engine nelle impostazioni profilo (`transcription_engine_mode`: auto / canary / qwen3 / faster-whisper)
-- **Motori di traduzione multipli**: NLLB-200-3.3B, NLLB finetuned, Aya-23-8B, Claude Sonnet API, OpenAI GPT-4o-mini
+- **Motori di traduzione multipli**: NLLB-200-3.3B, NLLB finetuned, TranslateGemma-12B (ramo LLM, adattatore LoRA opzionale e path modello locale custom), Claude Sonnet API, OpenAI GPT-4o-mini
 - **Stile dialoghi professionale (Netflix)** — trattini "- " solo quando due parlanti condividono lo stesso blocco SRT (una battuta per riga); speaker diarization estesa a tutti gli engine (opzione `dialogue_style_enabled`, default ON, richiede token HuggingFace); trattini preservati anche negli SRT tradotti su tutti e 4 i backend di traduzione; `core/subtitle_formatter.py` gestisce CPL 42, anti-flash, merge frammenti e raggruppamento dialoghi
 - **Separazione vocale** via Meta Demucs — isola la voce prima della trascrizione per maggiore accuratezza
 - **Chunking audio intelligente** — divide ai punti di silenzio per timestamp precisi
@@ -468,6 +484,13 @@ Transcriber Pro produce file `.srt` attraverso due pipeline complementari:
 - **Strategia configurabile** — *Revisione mirata* (UI di revisione che mostra le righe incerte affiancate all'immagine bitmap originale) o *Solo automatico* (nessuna revisione, output diretto)
 - **Worker paralleli configurabili** — slider in Impostazioni → OCR Sottotitoli; default auto = `min(core CPU, 8)`
 - **Modalità write-back** — rimuxa l'SRT come nuova traccia nell'MKV in-place, oppure sidecar `.srt` accanto al video (VOBSUB sempre sidecar)
+
+### Glossario per-show (semi-automatico)
+- **Strumenti → Glossario per show** — trova i termini resi in modo incoerente dal motore di traduzione tra gli episodi di uno show (es. un nome proprio tradotto in un modo in un episodio e lasciato letterale in un altro) e propone una resa fissa, applicata automaticamente alle traduzioni future dello show (`core/glossary.py`, associato al TMDB id)
+- **Due canali indipendenti di verifica incrociata** — allineamento parola-parola SimAlign+LaBSE e un'estrazione locale con Qwen (validata meccanicamente: lo span proposto deve essere una sottostringa letterale del testo italiano reale, mai un giudizio fidato) — un termine viene segnalato in automatico solo se entrambi i canali concordano su incoerenza e resa dominante
+- **Gate per show** — servono abbastanza episodi/blocchi tradotti prima di calcolare i candidati, per evitare falsi positivi su dati scarsi
+- **UI di revisione** — schede per termine con la resa proposta (modificabile), approva/rifiuta, e salvataggio a merge (mai sovrascrittura distruttiva di un glossario già validato, con backup ruotato)
+- **Subprocess completamente isolato** — gira in un `venv_glossary/` dedicato (SimAlign/sentence-transformers/torch confliggono con `transformers==4.57.6` del venv principale); il canale Qwen su GPU viene delegato al venv principale via subprocess-ponte, così un solo modello resta in memoria per volta
 
 ### Integrazione Library Scanner
 - **Integrazione server multimediale self-hosted** (Plex / Jellyfin) — scansiona la libreria, mostra i file senza sottotitoli italiani
@@ -566,13 +589,13 @@ Tutte le credenziali si inseriscono dall'interfaccia — nessun file di configur
 |---|---|---|---|
 | **Claude API Key** | Impostazioni → Traduzione → Claude | [console.anthropic.com](https://console.anthropic.com) | Traduzione Claude Sonnet |
 | **OpenAI API Key** | Impostazioni → Traduzione → OpenAI | [platform.openai.com](https://platform.openai.com) | Traduzione GPT-4o-mini |
-| **Token HuggingFace** | Impostazioni → Traduzione → HuggingFace | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) | Aya-23-8B (modello gated) |
+| **Token HuggingFace** | Impostazioni → Traduzione → HuggingFace | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) | TranslateGemma-12B (modello gated), diarization pyannote |
 | **Credenziali OpenSubtitles** | Impostazioni → OpenSubtitles | [opensubtitles.com](https://www.opensubtitles.com) | Upload sottotitoli |
 | **TMDB API Key** | Impostazioni → Generale → TMDB | [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api) | Metadati film |
 | **OMDB API Key** | Impostazioni → Generale → OMDB | [omdbapi.com/apikey](http://www.omdbapi.com/apikey.aspx) | Fallback metadati IMDb |
 | **Library Scanner API Key** | Impostazioni → Library Scanner | Il tuo server self-hosted | Integrazione libreria |
 
-Tutte le credenziali sono opzionali tranne quella del motore di traduzione scelto. I modelli locali (NLLB, Aya) e la pipeline OCR non richiedono API key.
+Tutte le credenziali sono opzionali tranne quella del motore di traduzione scelto. I modelli locali (NLLB, TranslateGemma) e la pipeline OCR non richiedono API key.
 
 ---
 
@@ -602,7 +625,7 @@ Tutte le credenziali sono opzionali tranne quella del motore di traduzione scelt
 | NVIDIA Canary-Qwen-2.5B | Trascrizione (solo inglese, venv opzionale) | 2,5 B params | ~6 GB | ★★★★★ | ★★★★☆ |
 | NLLB-200-3.3B | Traduzione (locale) | 3,3 B params | ~5 GB | ★★★☆☆ | ★★★★★ |
 | NLLB-200 finetuned | Traduzione (locale) | 3,3 B params | ~5 GB | ★★★★☆ | ★★★★★ |
-| Aya-23-8B | Traduzione (locale) | 8 B params | ~8 GB | ★★★★☆ | ★★★☆☆ |
+| TranslateGemma-12B | Traduzione (locale, ramo LLM) | 12 B params | ~10 GB | ★★★★☆ | ★★★☆☆ |
 | Claude Sonnet (API) | Traduzione (cloud) | — | 0 GB | ★★★★★ | ★★★★☆ |
 | GPT-4o-mini (API) | Traduzione (cloud) | — | 0 GB | ★★★★☆ | ★★★★★ |
 | pyannote 3.1 + ECAPA gender | Correzione genere v2 (voce) | — | ~3 GB (transitori) | ★★★★☆ | ★★★★☆ |
@@ -620,6 +643,15 @@ Questo progetto è distribuito con licenza MIT.
 ---
 
 ## Changelog
+
+### v1.11.0.4.9.26
+- **Fix: leak RAM nella fase di allineamento del glossario per-show** — `glossary_align.unload()` liberava solo i riferimenti Python (`gc.collect` + `torch.cuda.empty_cache`), senza mai restituire il working set del processo `venv_glossary` all'OS: la RAM usata da LaBSE durante l'allineamento restava occupata per tutta la fase Qwen/GPU successiva. Corretto con lo stesso trim `EmptyWorkingSet` già usato in `utils/resource_monitor.py`, reimplementato inline perché `venv_glossary` non ha `psutil`.
+
+### v1.11.0
+- **Costruttore glossario per-show (semi-automatico)** — nuovo dialog `Strumenti → Glossario per show`: trova i termini candidati tradotti in modo incoerente tra gli episodi di uno show e propone una resa fissa, verificata incrociando due canali indipendenti (allineamento parola-parola SimAlign+LaBSE + estrazione locale con Qwen, validata meccanicamente anziché fidata come giudice) al posto di un'unica euristica verbatim/assente che sovrastimava i difetti reali. Gira isolato in un nuovo `venv_glossary/` (confligge con `transformers==4.57.6` del venv principale); il canale Qwen su GPU è delegato al venv principale via subprocess-ponte. UI di revisione con schede approva/rifiuta per termine e salvataggio a merge.
+- **Fix risoluzione dell'interlocutore in 2ª persona** — `addressee_gender_for_range()` scartava la cue per QUALSIASI terzo parlante isolato ovunque nella finestra ±8s, anche se irrilevante alla conversazione (misurato su Knight's & Magic: 5/7 candidate P2 bloccate così contro 1/7 dal vero controllo strict prev/next). Nuovo `_resolve_addressee()` condiviso: l'ambiguità vera è la sovrapposizione temporale diretta con la cue, non la sola presenza di un terzo parlante altrove. Copertura P2 0/7 → 1/7 con `strict=True` (invariato in produzione).
+- **Traduttore LLM di produzione: supporto adattatore LoRA + path modello custom** — `llm_subtitle_translator` può ora caricare un adattatore LoRA e un path modello locale (config + UI + `translator.py`); il log di coda registra ora quale motore di traduzione ha prodotto ciascun file.
+- **Fix: il logger del batch manager adattivo scartava silenziosamente i log info** — una chiamata nuda a `logging.getLogger()` in `adaptive_batch_manager` li scartava prima che raggiungessero il file di log condiviso.
 
 ### v1.10.1.22.8.26
 - **Fix: cache del modello LLM di produzione cancellata a ogni fine coda** — il modello LLM che occupa lo slot di produzione (oggi TranslateGemma-12B) veniva scaricato nella cache HuggingFace e poi ricancellato a fine coda: la lista di preservazione copriva solo i motori ASR (whisper/wav2vec), non il ramo di traduzione LLM. L'adattatore LoRA fine-tuned promosso in produzione non era coinvolto (vive su disco fuori dalla cache HF). Il cleaner ora risolve a runtime quale modello occupa lo slot (chiave config `llm_translator_model`) e lo preserva; i modelli usati solo per confronti sperimentali continuano a essere cancellati come prima.
@@ -768,7 +800,7 @@ Questo progetto è distribuito con licenza MIT.
 - [Faster-Whisper](https://github.com/guillaumekln/faster-whisper) — Whisper ottimizzato con CTranslate2
 - [WhisperX](https://github.com/m-bain/whisperX) — allineamento forzato e timestamp a livello parola
 - [NLLB-200](https://huggingface.co/facebook/nllb-200-3.3B) — Meta No Language Left Behind
-- [Aya-23-8B](https://huggingface.co/CohereForAI/aya-23-8B) — modello multilingua Cohere
+- [Gemma 3](https://huggingface.co/google/gemma-3-12b-it) — modello base Google per il ramo di traduzione LLM fine-tuned (TranslateGemma)
 - [Demucs](https://github.com/facebookresearch/demucs) — separazione sorgenti Meta
 - [pgsreader](https://github.com/EzraBC/pgsreader) — parser PGS (vendorizzato, con patch)
 - [VobSub-ML-OCR](https://github.com/vincrichard/VobSub-ML-OCR) — parser VOBSUB portato da Subtitle Edit (vendorizzato)
