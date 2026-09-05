@@ -148,6 +148,7 @@ class MainWindow(QMainWindow):
         self.processing_queue = []
         self.queue_mutex = QMutex()
         self.is_processing = False
+        self._glossary_worker_active = False
         self.worker = None
         self.file_handler = FileHandler()
         self.tmdb_client = get_tmdb_client()
@@ -350,9 +351,9 @@ class MainWindow(QMainWindow):
 
         tools_menu = QMenu(self.tools_btn)
         tools_menu.setObjectName("toolsMenu")
-        glossary_action = QAction(tr('tools_glossary'), tools_menu)
-        glossary_action.triggered.connect(self._open_glossary_dialog)
-        tools_menu.addAction(glossary_action)
+        self.glossary_action = QAction(tr('tools_glossary'), tools_menu)
+        self.glossary_action.triggered.connect(self._open_glossary_dialog)
+        tools_menu.addAction(self.glossary_action)
         self.tools_btn.setMenu(tools_menu)
 
         layout.addWidget(self.tools_btn)
@@ -1071,7 +1072,12 @@ class MainWindow(QMainWindow):
                                 "Una conversione OCR è in corso.\n"
                                 "Attendere il completamento prima di avviare la trascrizione.")
             return
+        if self._glossary_worker_active:
+            QMessageBox.warning(self, tr('tools_glossary'),
+                                 tr('glossary_running_blocks_processing'))
+            return
         self.is_processing = True
+        self.glossary_action.setEnabled(False)
         self.worker = ProcessingWorker(self.processing_queue, self.queue_mutex)
         self.worker.progress.connect(self.update_progress)
         self.worker.log_message.connect(self.log_message)
@@ -1198,6 +1204,7 @@ class MainWindow(QMainWindow):
 
     def processing_finished(self):
         self.is_processing = False
+        self.glossary_action.setEnabled(True)
         self.processing_done.emit()   # notifica widget in attesa (es. OCR differito)
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
@@ -1385,6 +1392,10 @@ class MainWindow(QMainWindow):
         Istanza singola: se gia' aperto (magari con un run in corso) lo
         riporta in primo piano invece di crearne uno nuovo — due worker
         paralleli scriverebbero lo stesso args.json/report.json."""
+        if self.is_processing:
+            QMessageBox.warning(self, tr('tools_glossary'),
+                                 tr('glossary_blocked_processing'))
+            return
         from gui.glossary_dialog import GlossaryDialog
         existing = getattr(self, '_glossary_dialog', None)
         if existing is not None and not existing.isHidden():

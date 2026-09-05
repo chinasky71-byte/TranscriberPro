@@ -60,16 +60,42 @@ class GlossaryBuilderWorker(QThread):
                 proc.terminate()
             except Exception:
                 pass
+        self._kill_qwen_gpu_subprocess()
+
+    def _kill_qwen_gpu_subprocess(self):
+        """`terminate()` sopra colpisce solo il processo venv_glossary
+        diretto: su Windows non propaga ai discendenti. Se il canale Qwen
+        (glossary_qwen_bridge.py) aveva gia' lanciato il subprocess GPU sul
+        venv principale, quello resterebbe orfano con ~9GB di modello
+        ancora in VRAM — esattamente la contesa che il blocco 'pipeline in
+        corso' vuole evitare. taskkill /T uccide l'intero albero; lanciato
+        con Popen (mai wait) per restare non bloccante come `cancel()`."""
+        pid_path = self._work_dir / "glossary_qwen_gpu_pid.txt"
+        try:
+            pid_text = pid_path.read_text(encoding='utf-8').strip()
+        except Exception:
+            return
+        try:
+            subprocess.Popen(
+                ["taskkill", "/F", "/T", "/PID", pid_text],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        except Exception as e:
+            logger.warning(f"Kill subprocess Qwen GPU fallito: {e}")
 
     def _cleanup_work_dir(self):
         """Un run annullato non deve lasciare args.json/temp che poi
         confondano il run successivo o restino orfani su disco."""
-        try:
-            args_path = self._work_dir / "glossary_builder_args.json"
-            if args_path.exists():
-                args_path.unlink()
-        except Exception as e:
-            logger.warning(f"Cleanup work_dir dopo cancel fallito: {e}")
+        for filename in ("glossary_builder_args.json",
+                          "glossary_qwen_gpu_request.json",
+                          "glossary_qwen_gpu_result.json",
+                          "glossary_qwen_gpu_pid.txt"):
+            try:
+                path = self._work_dir / filename
+                if path.exists():
+                    path.unlink()
+            except Exception as e:
+                logger.warning(f"Cleanup work_dir dopo cancel fallito ({filename}): {e}")
 
     def run(self):
         if not venv_glossary_available():

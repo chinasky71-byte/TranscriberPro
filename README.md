@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.12.1-orange)
+![Version](https://img.shields.io/badge/Version-1.12.2-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -278,6 +278,12 @@ This project is licensed under the MIT License.
 ---
 
 ## Changelog
+
+### v1.12.2
+- **Per-show glossary tool: fixed wrong TMDB ID silently written on Plex-style libraries (`V:\Show\Season N\...`)** — when the folder picked in the "Per-show glossary" dialog was the *season* subfolder rather than the show folder, its name ("Season 2") degraded to "Season" through filename parsing and matched an unrelated TMDB result — a wrong `tmdb_id` written into the glossary with no warning. The dialog now recognizes season/specials-style folder names in several languages, and derives a real title candidate list (parent folder name, then the show name parsed from the first episode file found) before ever calling `search_tv()`.
+- **Fix: orphaned GPU subprocess left ~9GB resident in VRAM after cancelling the glossary builder** — the Qwen channel launches its GPU-side pass as a subprocess on the main venv (bridged from the tool's own isolated `venv_glossary`); cancelling only terminated the direct child, which on Windows doesn't propagate to a subprocess's own descendants. Now tracks the GPU subprocess's PID and kills the whole process tree (`taskkill /T`) on cancel.
+- **Glossary tool and the main transcription/translation queue are now mutually exclusive** — both can use the GPU; running one while the other starts would contend for the same VRAM. Each now refuses to start while the other is active, with a clear message instead of silent slowdown or an OOM.
+- `qwen_n_gpu_layers` is now a configurable per-show setting for the glossary builder's Qwen channel (previously hardcoded).
 
 ### v1.12.1
 - **Adaptive batch manager: don't shrink the batch when the memory pressure isn't ours** — measured on a real run (two NLLB translations launched in parallel): memory jumped from 50% to 85% while our own batch stayed at 24, and the manager reduced it anyway — reducing a batch doesn't free memory another process is holding, and measurably made things 62% slower per sentence (0.271s → 0.438s). New `_external_pressure_gb()` compares `torch.cuda.memory_reserved()` (this process's own allocation) against total used memory; when the gap exceeds 1.5GB the manager holds size and logs a warning instead of shrinking. **A real bug was found and fixed in this same guard during review**: it only sampled pressure inside the `mem > high_threshold` branch, so on a file that starts clean and hits contention mid-run, the *first* sample already lands during the contention and gets recorded as the baseline — pressure reads as zero and the guard is inert on exactly the case it exists for. Fixed by sampling every batch.
@@ -654,6 +660,12 @@ Questo progetto è distribuito con licenza MIT.
 ---
 
 ## Changelog
+
+### v1.12.2
+- **Strumento glossario per-show: corretto tmdb_id sbagliato scritto in silenzio su librerie in stile Plex (`V:\Show\Season N\...`)** — quando la cartella scelta nel dialog "Glossario per show" era la sottocartella stagione invece della cartella show, il suo nome ("Season 2") degradava a "Season" nel parsing del nome file e trovava corrispondenza con un risultato TMDB estraneo — un `tmdb_id` sbagliato scritto nel glossario senza alcun avviso. Il dialog ora riconosce i nomi di cartelle stagione/speciali in diverse lingue, e costruisce una lista di titoli candidati reali (nome della cartella padre, poi il titolo dello show estratto dal primo file episodio trovato) prima di chiamare `search_tv()`.
+- **Fix: subprocess GPU orfano lasciava ~9GB residenti in VRAM annullando lo strumento glossario** — il canale Qwen lancia la sua fase lato GPU come subprocess sul venv principale (collegato dal venv isolato `venv_glossary` dello strumento); l'annullamento terminava solo il figlio diretto, che su Windows non si propaga ai discendenti del subprocess. Ora traccia il PID del subprocess GPU e uccide l'intero albero di processi (`taskkill /T`) all'annullamento.
+- **Strumento glossario e coda principale di trascrizione/traduzione ora mutuamente esclusivi** — entrambi possono usare la GPU; farne partire uno mentre l'altro è attivo genererebbe contesa sulla stessa VRAM. Ognuno ora rifiuta di partire mentre l'altro è attivo, con un messaggio chiaro invece di rallentamento silenzioso o un OOM.
+- `qwen_n_gpu_layers` è ora un'impostazione per-show configurabile per il canale Qwen dello strumento glossario (prima cablata nel codice).
 
 ### v1.12.1
 - **Batch manager adattivo: non ridurre il batch quando la pressione di memoria non è nostra** — misurato su un run reale (due traduzioni NLLB lanciate in parallelo): la memoria è salita dal 50% all'85% mentre il nostro batch restava fermo a 24, e il gestore lo riduceva comunque — ridurre un batch non libera memoria tenuta da un altro processo, e ha misurabilmente peggiorato il tempo per frase del 62% (0,271s → 0,438s). Nuovo `_external_pressure_gb()`: confronta `torch.cuda.memory_reserved()` (quanto allocato da questo processo) con la memoria totale usata; se il divario supera 1,5GB il gestore tiene la dimensione e logga un avviso invece di ridurre. **Un bug reale è stato trovato e corretto in questa stessa guardia durante la revisione**: campionava la pressione solo dentro il ramo `mem > high_threshold`, quindi su un file che parte pulito e incontra la contesa a metà, la PRIMA lettura cade già durante la contesa e diventa la linea di base — la pressione risulta zero e la guardia è inerte esattamente sul caso per cui esiste. Corretto campionando a ogni batch.

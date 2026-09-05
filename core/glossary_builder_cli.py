@@ -29,6 +29,7 @@ Formato args.json:
       "use_qwen": true,
       "qwen_model_path": "C:\\...\\qwen2.5-14b.gguf",
       "align_device": "cpu",
+      "qwen_n_gpu_layers": -1,
       "exclude_episodes": [[1, 1], [1, 2]]
     }
 
@@ -77,6 +78,9 @@ def main(argv: list) -> int:
 
     tmdb_id = args.get('tmdb_id')
     exclude_keys = {tuple(k) for k in args.get('exclude_episodes', [])}
+    qwen_n_gpu_layers = args.get('qwen_n_gpu_layers')
+    if qwen_n_gpu_layers is None:
+        qwen_n_gpu_layers = -1
 
     mt_eval_dir = str(Path(__file__).resolve().parent.parent / 'mt_eval')
     if mt_eval_dir not in sys.path:
@@ -111,6 +115,7 @@ def main(argv: list) -> int:
             use_qwen=args.get('use_qwen', True),
             qwen_model_path=args.get('qwen_model_path'),
             align_device=args.get('align_device', 'cpu'),
+            qwen_n_gpu_layers=qwen_n_gpu_layers,
             exclude_keys=exclude_keys,
             max_candidates=args.get('max_candidates', 25),
             log=_log, progress_cb=_progress_cb,

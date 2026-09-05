@@ -211,26 +211,37 @@ class Translations:
 
             # ── opensubtitles_settings_widget ─────────────────────────────
             'os_upload_group':          '📤 OpenSubtitles Upload',
-            'os_credentials_group':     '🔑 Credentials',
+            'os_credentials_group_org': '🔑 .org Credentials (XML-RPC — used for upload)',
+            'os_credentials_group_com': '🔑 .com Credentials (REST + "OpenSubtitles AI" translator)',
             'os_username_ph':           'OpenSubtitles Username',
             'os_password_ph':           'Password',
             'os_apikey_ph':             'REST API Key (from opensubtitles.com/consumers)',
             'os_save_creds':            '💾 Save Credentials',
             'os_settings_group':        '⚙️ Settings',
-            'os_auto_upload':           'Automatic upload after processing',
-            'os_auto_upload_tip':       (
-                'Automatically upload after each transcription/translation.\n'
-                'If disabled, upload only on manual request.'
-            ),
-            'os_check_duplicates':      'Check for duplicates before upload',
-            'os_check_dup_tip':         (
-                'Checks if the subtitle already exists in the database\n'
-                'before uploading.'
-            ),
             'os_api_method':            'API Method:',
             'os_api_method_tip':        (
-                'XML-RPC: classic API (opensubtitles.org) — recommended.\n'
-                'REST: new API (opensubtitles.com) — requires API Key.'
+                'opensubtitles.org and opensubtitles.com are SEPARATE accounts '
+                'with their own credentials, even under the same username.\n'
+                'XML-RPC (opensubtitles.org): works for upload, needs your .org '
+                'credentials.\n'
+                'REST (opensubtitles.com): upload is not enabled for regular API '
+                'keys today (returns "uploads_not_enabled") — use it only if '
+                'OpenSubtitles has explicitly enabled it for your key.'
+            ),
+            'os_xmlrpc_tooltip':        (
+                'Needs the credentials of YOUR opensubtitles.org account — '
+                'separate from the opensubtitles.com ones used for REST, even '
+                'if the username is the same.'
+            ),
+            'os_rest_tooltip':          (
+                'Upload via REST returns "uploads_not_enabled" for regular API '
+                'keys as of today: OpenSubtitles must explicitly enable it for '
+                'your key before this works for upload.'
+            ),
+            'os_xmlrpc_org_com_hint':   (
+                'opensubtitles.org and opensubtitles.com are separate accounts: '
+                'make sure you entered your .org credentials here, not the '
+                '.com ones used for REST.'
             ),
             'os_test_conn':             '🔍 Test Connection',
             'os_test_conn_tip':         'Verify authentication with OpenSubtitles',
@@ -382,6 +393,9 @@ class Translations:
             'tools_menu':                '🛠️ Tools',
             'tools_glossary':            'Per-show glossary...',
             'glossary_dialog_title':     'Per-show glossary',
+            'glossary_blocked_processing': 'Transcription/translation queue is running: the glossary tool uses the same GPU and cannot be used at the same time. Try again once the queue finishes.',
+            'glossary_qwen_channel_failed': '⚠️ Qwen channel skipped ({msg}) — results below rely only on the alignment channel, review is recommended.',
+            'glossary_running_blocks_processing': 'The glossary tool is running and is using the GPU: wait for it to finish before starting the transcription/translation queue.',
             'glossary_venv_missing':     'venv_glossary not found: create the dedicated venv before using this tool.',
             'glossary_show_folder':      'Show folder:',
             'glossary_browse':           'Browse...',
@@ -606,26 +620,37 @@ class Translations:
 
             # ── opensubtitles_settings_widget ─────────────────────────────
             'os_upload_group':          '📤 OpenSubtitles Upload',
-            'os_credentials_group':     '🔑 Credenziali',
+            'os_credentials_group_org': '🔑 Credenziali .org (XML-RPC — usate per l\'upload)',
+            'os_credentials_group_com': '🔑 Credenziali .com (REST + traduttore "OpenSubtitles AI")',
             'os_username_ph':           'Username OpenSubtitles',
             'os_password_ph':           'Password',
             'os_apikey_ph':             'REST API Key (da opensubtitles.com/consumers)',
             'os_save_creds':            '💾 Salva Credenziali',
             'os_settings_group':        '⚙️ Impostazioni',
-            'os_auto_upload':           'Upload automatico al termine elaborazione',
-            'os_auto_upload_tip':       (
-                'Esegui automaticamente l\'upload dopo ogni trascrizione/traduzione.\n'
-                'Se disabilitato, upload solo su richiesta manuale.'
-            ),
-            'os_check_duplicates':      'Verifica duplicati prima dell\'upload',
-            'os_check_dup_tip':         (
-                'Controlla se il sottotitolo esiste già nel database\n'
-                'prima di effettuare l\'upload.'
-            ),
             'os_api_method':            'Metodo API:',
             'os_api_method_tip':        (
-                'XML-RPC: API classica (opensubtitles.org) — consigliata.\n'
-                'REST: nuova API (opensubtitles.com) — richiede API Key.'
+                'opensubtitles.org e opensubtitles.com sono account SEPARATI '
+                'con credenziali proprie, anche a parità di username.\n'
+                'XML-RPC (opensubtitles.org): funziona per l\'upload, richiede '
+                'le tue credenziali .org.\n'
+                'REST (opensubtitles.com): oggi l\'upload non è abilitato per '
+                'le API key normali (risponde "uploads_not_enabled") — usala '
+                'solo se OpenSubtitles te l\'ha abilitato esplicitamente.'
+            ),
+            'os_xmlrpc_tooltip':        (
+                'Richiede le credenziali del TUO account opensubtitles.org — '
+                'separato da quello opensubtitles.com usato per REST, anche '
+                'se l\'username coincide.'
+            ),
+            'os_rest_tooltip':          (
+                'L\'upload via REST risponde "uploads_not_enabled" per le API '
+                'key normali ad oggi: OpenSubtitles deve abilitarlo '
+                'esplicitamente sulla tua key prima che funzioni per l\'upload.'
+            ),
+            'os_xmlrpc_org_com_hint':   (
+                'opensubtitles.org e opensubtitles.com sono account separati: '
+                'verifica di aver inserito qui le credenziali .org, non '
+                'quelle .com usate per REST.'
             ),
             'os_test_conn':             '🔍 Test Connessione',
             'os_test_conn_tip':         'Verifica autenticazione con OpenSubtitles',
@@ -777,6 +802,9 @@ class Translations:
             'tools_menu':                '🛠️ Strumenti',
             'tools_glossary':            'Glossario per show...',
             'glossary_dialog_title':     'Glossario per show',
+            'glossary_blocked_processing': 'La coda di trascrizione/traduzione è in corso: lo strumento glossario usa la stessa GPU e non può essere usato in contemporanea. Riprova a fine coda.',
+            'glossary_qwen_channel_failed': '⚠️ Canale Qwen saltato ({msg}) — i risultati sotto si basano solo sul canale di allineamento, revisione consigliata.',
+            'glossary_running_blocks_processing': 'Lo strumento glossario è in esecuzione e sta usando la GPU: attendi che finisca prima di avviare la coda di trascrizione/traduzione.',
             'glossary_venv_missing':     'venv_glossary non trovato: crea il venv dedicato prima di usare questo strumento.',
             'glossary_show_folder':      'Cartella show:',
             'glossary_browse':           'Sfoglia...',
