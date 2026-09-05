@@ -3,6 +3,34 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.15.0] — 2026-09-06
+
+### Fix: correzione della diagnosi PAL/NTSC della v1.14.0 — il drift non era il problema, era il gate
+- **Origine**: l'utente ha messo in dubbio la voce "drift PAL/NTSC non gestito"
+  della v1.14.0, facendo notare che gli anchor sono timestamp VERI per-riga
+  presi dalla traccia embedded del video stesso (o da Whisper sul suo
+  audio), non un offset/fattore di scala globale — quindi il matching
+  per-riga dovrebbe essere di per sé immune al drift.
+- **Verificato con un bugcheck dedicato**: con un matcher semanticamente
+  perfetto (zero allucinazioni, solo drift PAL simulato) e il gate di
+  offset DISATTIVATO: 100% esatto, errore massimo 0,0s. Confermato: il
+  gate introdotto nei round precedenti confrontava ogni timestamp
+  candidato con la posizione ORIGINALE (sempre più sbagliata su un file
+  con drift) del sottotitolo esterno, scartando come "implausibili" match
+  CORRETTI verso la fine del film; la stessa cattura delle finestre non
+  proponeva il 65% delle righe di fine film alla finestra giusta.
+- **Fix implementato**: `core/subtitle_synchronizer.py` — nuovo modello di
+  shift lineare (`_expected_shift`/`_learn_shift`, fit Theil-Sen sui match
+  già accettati, raffinato finestra dopo finestra, con controllo di
+  qualità obbligatorio che disattiva il modello — comportamento identico a
+  prima — se il fit non è affidabile). Il gate di plausibilità e lo slack
+  di cattura ora confrontano con la posizione ATTESA (appresa) invece di
+  quella originale grezza.
+- **Verificato**: drift PAL puro (matcher perfetto) → 100% esatto, errore
+  massimo 0,0s, pendenza appresa 0,0427 (vero rapporto 25/23,976); nessun
+  drift + 100% allucinazioni → modello resta disattivato, comportamento
+  identico a prima (nessuna regressione).
+
 ## [1.14.0] — 2026-09-05
 
 ### Fix: sincronizzazione SRT "Anchor & Match" — mai validata prima, tre giri di revisione

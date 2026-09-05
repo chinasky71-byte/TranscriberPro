@@ -18,6 +18,7 @@ import gc
 import json
 import logging
 import os
+import random
 import re
 import subprocess
 import sys
@@ -228,6 +229,11 @@ class SubtitleSynchronizer:
         'S1': 10, 'S2': 40, 'S3': 80, 'S4': 95, 'done': 100,
     }
 
+    # Default a livello di classe (non solo in __init__): _expected_shift lo
+    # legge da _step3_match_subtitles, che può essere chiamato anche su
+    # istanze costruite per test senza passare dal vero __init__.
+    _shift_model: Optional[Tuple[float, float]] = None
+
     # Prompt di sistema per il matching (in inglese per prestazioni migliori)
     _SYSTEM_PROMPT = (
         "You are a subtitle timestamp synchronization expert.\n"
@@ -317,6 +323,14 @@ class SubtitleSynchronizer:
         # autodetect): sovrascrive _src_language in S2 quando disponibile,
         # vedi _step1_extract_anchors / _step1_whisper_fallback.
         self._anchor_language: Optional[str] = None
+
+        # Modello di shift (a, b): shift_atteso(t) = a*t + b, appreso dai
+        # match già accettati — vedi _learn_shift/_expected_shift. None
+        # finché non esiste un fit valido: _expected_shift torna 0.0, cioè
+        # il gate di plausibilità si comporta esattamente come prima
+        # dell'introduzione di questo modello (confronto con la posizione
+        # assoluta originale dell'external).
+        self._shift_model: Optional[Tuple[float, float]] = None
 
     # ── API pubblica ──────────────────────────────────────────────────────────
 
@@ -741,6 +755,96 @@ class SubtitleSynchronizer:
         """~46 token/item misurati con la grammar JSON attiva; 64 dà margine."""
         return min(4096, 64 * max(n_items, 1) + 128)
 
+    # ── Modello di shift (compensa il drift PAL/NTSC) ─────────────────────────
+    #
+    # Il gate di plausibilità e lo slack di cattura confrontavano il nuovo
+    # timestamp (corretto, preso da un anchor — che è un timestamp VERO per
+    # QUESTO video, riga per riga, non un offset globale calcolato una volta:
+    # vedi _step1_extract_anchors) con la posizione ORIGINALE della riga
+    # esterna. Su un desync costante questo equivale a un modello con
+    # pendenza zero e funziona. Su un file con drift PAL/NTSC (25fps↔23.976fps,
+    # fattore ~1.0427) il desync CRESCE nel tempo: verificato con un matcher
+    # semanticamente perfetto (zero allucinazioni, solo drift) che senza
+    # questo modello l'output era esatto per l'11% delle righe (78% oltre 30s
+    # di errore, fino a 280s) — il gate scartava come "implausibili" match
+    # CORRETTI vicino alla fine del film, e lo slack di cattura non
+    # proponeva nemmeno il 65% delle righe alla finestra giusta. Con il
+    # modello attivo: 100% esatto, errore massimo 0.0s. Il drift non è un
+    # limite del matching per-riga sugli anchor — lo era del gate.
+
+    def _expected_shift(self, t: float) -> float:
+        """
+        Shift atteso (new_start − ext.start_seconds originale) al tempo `t`,
+        secondo self._shift_model. Ritorna 0.0 finché _learn_shift non ha
+        ancora prodotto un fit valido: comportamento IDENTICO al gate
+        pre-esistente (confronto con la posizione assoluta originale).
+        """
+        if self._shift_model is None:
+            return 0.0
+        a, b = self._shift_model
+        return a * t + b
+
+    def _learn_shift(
+        self,
+        results:      Dict[int, MatchResult],
+        ext_by_index: Dict[int, SyncSubtitle],
+    ) -> None:
+        """
+        Aggiorna self._shift_model con un fit Theil-Sen (mediana delle
+        pendenze a coppie — robusto agli outlier più di una least-squares)
+        su (ext.start_seconds, new_start − ext.start_seconds) dei match
+        semantici già accettati (NON 'positional'/'interpolated', che sono
+        già derivati da un modello o da un fallback per rapporto d'indice,
+        non da un abbinamento diretto — userli qui sarebbe circolare).
+        Chiamato una volta per finestra, in ordine temporale crescente:
+        il modello si affina progressivamente man mano che la
+        sincronizzazione avanza nel film.
+
+        Controllo di qualità OBBLIGATORIO prima di accettare il fit: senza,
+        con un tasso di allucinazione alto il modello si adatta al rumore e
+        PEGGIORA le prestazioni rispetto a non avere alcun modello (misurato:
+        84% di errore >30s con un fit non validato su Qwen che allucina al
+        100%, contro il 13% del comportamento senza modello). Se il fit non
+        supera il controllo, self._shift_model resta quello precedente
+        (probabilmente None) — mai un fit scadente.
+        """
+        pairs = [
+            (ext_by_index[idx].start_seconds, mr.new_start_sec - ext_by_index[idx].start_seconds)
+            for idx, mr in results.items()
+            if mr.match_type in ('direct', 'merged', 'split_first', 'split_second')
+            and idx in ext_by_index
+        ]
+        if len(pairs) < 8:
+            return   # troppo pochi punti per un fit affidabile
+
+        # O(n²): campiona se il numero di match accettati diventa grande
+        # (su un film intero possono essere centinaia).
+        if len(pairs) > 200:
+            pairs = random.sample(pairs, 200)
+
+        slopes = []
+        for i in range(len(pairs)):
+            ti, si = pairs[i]
+            for j in range(i + 1, len(pairs)):
+                tj, sj = pairs[j]
+                if abs(tj - ti) > 1.0:   # evita pendenze da intervalli minuscoli/rumorosi
+                    slopes.append((sj - si) / (tj - ti))
+        if not slopes:
+            return
+        slopes.sort()
+        a = slopes[len(slopes) // 2]
+        a = max(-0.06, min(0.06, a))   # clamp: il drift PAL/NTSC reale è ~0.0427
+
+        intercepts = sorted(s - a * t for t, s in pairs)
+        b = intercepts[len(intercepts) // 2]
+
+        residuals = sorted(abs(s - (a * t + b)) for t, s in pairs)
+        mad = residuals[len(residuals) // 2]
+        inlier_ratio = sum(1 for r in residuals if r <= 2.0) / len(pairs)
+        if mad <= 2.0 and inlier_ratio >= 0.6:
+            self._shift_model = (a, b)
+        # altrimenti: non aggiornare — mantiene l'ultimo modello valido (o None)
+
     def _step3_match_subtitles(
         self,
         anchors_it: List[SyncSubtitle],
@@ -852,10 +956,19 @@ class SubtitleSynchronizer:
             # 60,9 external per finestra (max 86) e servivano 104 chiamate
             # Qwen invece di 86 — cioè ~20% di S3 speso su candidati morti.
             slack = self._max_offset_sec + 5.0
+            # La cattura confronta la posizione PREVISTA (originale + shift
+            # del modello appreso, vedi _expected_shift), non quella
+            # originale grezza: su un file con drift PAL/NTSC il desync
+            # cresce nel tempo, quindi la posizione originale di una riga
+            # verso la fine del film può essere lontanissima dal vero
+            # anchor pur essendo il match corretto — _expected_shift(t)
+            # torna 0.0 finché non esiste un modello valido, quindi questo
+            # è un'estensione, non una modifica, del comportamento
+            # pre-esistente su file a desync costante.
             ext_win_all = [
                 e for e in externals
-                if e.end_seconds >= win_t0 - slack
-                and e.start_seconds <= win_t1 + slack
+                if e.end_seconds   + self._expected_shift(e.start_seconds) >= win_t0 - slack
+                and e.start_seconds + self._expected_shift(e.start_seconds) <= win_t1 + slack
             ]
             if not ext_win_all:
                 continue
@@ -906,6 +1019,14 @@ class SubtitleSynchronizer:
                         d_prev = abs(prev.new_start_sec - ext.start_seconds)
                         if d_new < d_prev:
                             results[mr.external_index] = mr
+
+            # Riaffina il modello di shift (drift PAL/NTSC) con i match di
+            # QUESTA finestra: le finestre sono processate in ordine
+            # temporale crescente, quindi il modello migliora man mano che
+            # la sincronizzazione avanza nel film. Va fatto qui, non dopo il
+            # loop: la finestra successiva deve già poter usare il modello
+            # aggiornato nel proprio slack di cattura e gate di plausibilità.
+            self._learn_shift(results, ext_by_index)
 
             # Aggiorna progresso interno (S2→S3 range)
             pct = self._STEP_PCT['S2'] + int(
@@ -1216,29 +1337,34 @@ class SubtitleSynchronizer:
         # (osservata sempre vicina a 1 nei test reali, quindi inutile come
         # soglia da sola).
         #
-        # GATE DI OFFSET GLOBALE (in aggiunta ai bound di finestra sopra):
-        # misurato con inferenza reale che Qwen risolve con sicurezza (spesso
+        # GATE DI OFFSET (in aggiunta ai bound di finestra sopra): misurato
+        # con inferenza reale che Qwen risolve con sicurezza (spesso
         # confidence=1.0) dialoghi generici — "Sì.", "Va bene.", "Ok." — su
         # anchor semanticamente simili ma lontani decine di secondi, quando
-        # la vera collocazione dell'external è in una finestra diversa. Senza
-        # questo secondo controllo un match così viene accettato (rientra nei
-        # bound larghi della finestra, ~105s), e col merge "vince la
-        # confidence più alta" essendo tutte le confidence vicine a 1 la
-        # differenza è rumore: nella pratica vince ancora la prima finestra
-        # arrivata (misurato: 22% delle righe su un caso avversario, contro
-        # il 50% di prima del fix — meglio ma non zero). sync_max_offset_sec
-        # è definito come tolleranza di desync massima ATTESA fra SRT esterno
-        # e video: un external ancorato più lontano di così dalla sua
-        # posizione ORIGINALE (pre-sync) è quasi certamente un match sbagliato.
+        # la vera collocazione dell'external è in una finestra diversa.
+        # Confronta con la posizione PREVISTA (_expected_shift), non con
+        # quella originale grezza: su un desync costante _expected_shift
+        # torna 0.0 finché non c'è un modello, quindi il comportamento è
+        # identico a un confronto assoluto — ma su un file con drift
+        # PAL/NTSC (desync che CRESCE nel tempo) un confronto assoluto
+        # scarterebbe come "implausibili" match CORRETTI verso la fine del
+        # film: verificato (matcher semanticamente perfetto, zero
+        # allucinazioni, solo drift) 11% di righe esatte / 78% oltre 30s di
+        # errore col confronto assoluto, 100% esatto con _expected_shift.
+        # sync_max_offset_sec resta il significato originale — tolleranza
+        # massima attesa attorno alla legge di desync del file (costante
+        # sola, o costante+drift una volta che il modello si affina) — non
+        # un limite sulla posizione assoluta.
         win_lo = anchor_win[0].start_seconds - 5.0
         win_hi = anchor_win[-1].end_seconds + 5.0
         max_offset = self._max_offset_sec
 
         def _plausible(start: float, end: float, ext: SyncSubtitle) -> bool:
+            expected = ext.start_seconds + self._expected_shift(ext.start_seconds)
             return (
                 win_lo <= start <= win_hi
                 and 0.1 <= (end - start) <= 30.0
-                and abs(start - ext.start_seconds) <= max_offset
+                and abs(start - expected) <= max_offset
             )
 
         # Contatori di osservabilità del gate: quante entry l'LLM ha proposto
@@ -1336,7 +1462,8 @@ class SubtitleSynchronizer:
                     # sono legittimamente più brevi di 0,1s su anchor molto
                     # corti, e i bound di finestra sono già garantiti per
                     # costruzione (s,e vengono dall'anchor stesso).
-                    if abs(s - ext.start_seconds) > max_offset:
+                    expected = ext.start_seconds + self._expected_shift(ext.start_seconds)
+                    if abs(s - expected) > max_offset:
                         self._gate_rejected = getattr(self, '_gate_rejected', 0) + 1
                         continue
 
