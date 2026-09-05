@@ -63,7 +63,6 @@ from utils.file_handler import FileHandler
 from utils.config import get_config
 from utils.tmdb_client import get_tmdb_client
 from utils.subtitle_uploader_interface import UploaderFactory, SubtitleMetadata
-from utils.opensubtitles_config import get_opensubtitles_config
 from utils.logger import setup_logger
 from utils.resource_monitor import release_ram_to_os
 
@@ -87,18 +86,40 @@ class ProcessingPipeline:
     6. Upload OpenSubtitles (opzionale)
     """
     
-    # Mappa ISO 639-2 (3 lettere) â†’ ISO 639-1 (2 lettere)
+    # Mappa ISO 639-2 (3 lettere) → ISO 639-1 (2 lettere)
     LANG_MAP_639_2_TO_639_1 = {
         'ita': 'it', 'eng': 'en', 'spa': 'es', 'fra': 'fr', 'fre': 'fr',
-        'deu': 'de', 'ger': 'de', 'por': 'pt', 'rus': 'ru', 'jpn': 'ja', 
+        'deu': 'de', 'ger': 'de', 'por': 'pt', 'rus': 'ru', 'jpn': 'ja',
         'kor': 'ko', 'chi': 'zh', 'zho': 'zh', 'ara': 'ar', 'hin': 'hi',
         'pol': 'pl', 'tur': 'tr', 'nld': 'nl', 'dut': 'nl', 'swe': 'sv',
-        'dan': 'da', 'danish': 'da', 'nor': 'no', 'fin': 'fi', 'ces': 'cs', 
-        'cze': 'cs', 'hun': 'hu', 'ron': 'ro', 'rum': 'ro', 'ukr': 'uk', 
+        'dan': 'da', 'nor': 'no', 'fin': 'fi', 'ces': 'cs',
+        'cze': 'cs', 'hun': 'hu', 'ron': 'ro', 'rum': 'ro', 'ukr': 'uk',
         'ell': 'el', 'gre': 'el', 'heb': 'he', 'vie': 'vi', 'tha': 'th',
         'srp': 'sr', 'hrv': 'hr', 'bos': 'bs', 'slk': 'sk', 'slv': 'sl',
         'bul': 'bg', 'cat': 'ca', 'lit': 'lt', 'lav': 'lv', 'est': 'et',
         'und': 'und'
+    }
+
+    # Direzione inversa (ISO 639-1 → 639-2) esplicita, NON auto-generata dalla
+    # mappa sopra: quest'ultima contiene coppie /B e /T per lo stesso codice
+    # (es. 'ger'/'deu' → 'de'), e invertirla con una dict-comprehension farebbe
+    # dipendere il risultato dall'ordine di dichiarazione — fragile anche se
+    # per le lingue attuali il risultato coincideva già con quello giusto (la
+    # vera voce rotta era 'danish': 'da', rimossa sopra: 6 caratteri, scartata
+    # da SubtitleMetadata.validate() perché non è un codice ISO 639-2 valido).
+    # Qui il codice /B (quello atteso da OpenSubtitles come sublanguageid, e a
+    # cui utils/opensubtitles_rest_uploader._LANG3_TO_LANG2 sa fare da inverso)
+    # è scelto esplicitamente per ogni lingua ambigua, senza dipendere da un
+    # ordine implicito.
+    ISO_639_1_TO_639_2 = {
+        'it': 'ita', 'en': 'eng', 'es': 'spa', 'fr': 'fre', 'de': 'ger',
+        'pt': 'por', 'ru': 'rus', 'ja': 'jpn', 'ko': 'kor', 'zh': 'chi',
+        'ar': 'ara', 'hi': 'hin', 'pl': 'pol', 'tr': 'tur', 'nl': 'dut',
+        'sv': 'swe', 'da': 'dan', 'no': 'nor', 'fi': 'fin', 'cs': 'cze',
+        'hu': 'hun', 'ro': 'rum', 'uk': 'ukr', 'el': 'gre', 'he': 'heb',
+        'vi': 'vie', 'th': 'tha', 'sr': 'srp', 'hr': 'hrv', 'bs': 'bos',
+        'sk': 'slo', 'sl': 'slv', 'bg': 'bul', 'ca': 'cat', 'lt': 'lit',
+        'lv': 'lav', 'et': 'est',
     }
     
     def __init__(self, video_path: str, log_callback: Optional[Callable] = None):
@@ -126,8 +147,7 @@ class ProcessingPipeline:
         self.config = get_config()
         self.tmdb_client = get_tmdb_client()
         self.file_handler = FileHandler()
-        self.os_config = get_opensubtitles_config()
-        
+
         # Inizializzazione lazy/cleanup
         self._transcriber: Optional[Transcriber] = None
         self._translator: Optional[BaseTranslator] = None
@@ -251,15 +271,40 @@ class ProcessingPipeline:
         Tesseract mancante, errore), così il chiamante può ripiegare sulla
         trascrizione da audio. L'OCR gira in AUTO (nessuna UI di revisione: la
         pipeline è headless nel subprocess).
+
+        Side effect: imposta self._ocr_upload_srt al path del sidecar
+        ".it.srt" prodotto, così il chiamante può proporlo per l'upload
+        OpenSubtitles. Resta None in modalità mux (il risultato è incorporato
+        nel video: non c'è alcun file sidecar da caricare — in tal caso viene
+        solo loggato che l'upload da OCR richiede la modalità "sidecar").
+        Il file viene accettato solo se scritto DOPO l'avvio di questa
+        chiamata: un `<stem>.it.srt` più vecchio (es. lasciato da un upload
+        precedente via STEP 8, o da una run OCR passata) non è il risultato
+        di questa OCR e non va proposto per l'upload.
         """
         from core.ocr_auto import make_bitmap_ocr, run_ocr_auto
         from core.pgs_ocr import BitmapNotSupported as PgsNotSupported
         from core.vobsub_ocr import BitmapNotSupported as VobNotSupported
-        from core.pgs_types import UnsupportedLanguage
+        from core.pgs_types import UnsupportedLanguage, CFG_WRITEBACK, WRITEBACK_MUX
+        self._ocr_upload_srt: Optional[Path] = None
+        _ocr_started_at = time.time()
         try:
             self._ocr = make_bitmap_ocr(
                 self.video_path, self.config, kind, log_callback=self._log_callback)
-            return bool(run_ocr_auto(self._ocr, log_callback=self._log_callback))
+            ok = bool(run_ocr_auto(self._ocr, log_callback=self._log_callback))
+            if ok:
+                is_mux = self._ocr._cfg(CFG_WRITEBACK, WRITEBACK_MUX) == WRITEBACK_MUX
+                if is_mux:
+                    self._log("ℹ️ Upload OpenSubtitles da OCR non disponibile in modalità "
+                               "\"mux\" (nessun sidecar prodotto): passa a \"sidecar\" in "
+                               "Opzioni se vuoi che l'SRT OCR venga proposto per l'upload.")
+                else:
+                    it_srt = self.video_path.with_name(f"{self.video_path.stem}.it.srt")
+                    # Margine di 2s per differenze di risoluzione del filesystem
+                    # tra time.time() e mtime.
+                    if it_srt.exists() and it_srt.stat().st_mtime >= _ocr_started_at - 2:
+                        self._ocr_upload_srt = it_srt
+            return ok
         except (PgsNotSupported, VobNotSupported) as e:
             self._log(f"⚠️ Nessun sottotitolo bitmap OCR-abile: {e}")
             return False
@@ -307,9 +352,9 @@ class ProcessingPipeline:
             self.metadata = self.tmdb_client.get_media_info(str(self.video_path))
             imdb_id = self.metadata.get('imdb_id') if self.metadata else None
             if imdb_id:
-                self._log(f"âœ… Metadati trovati. IMDb ID: {imdb_id}")
+                self._log(f"✅ Metadati trovati. IMDb ID: {imdb_id}")
             else:
-                self._log("âš ï¸ Metadati non trovati. Upload OpenSubtitles disabilitato.")
+                self._log("⚠️ Metadati non trovati. Upload OpenSubtitles disabilitato.")
                 
             temp_dir = self.file_handler.get_temp_dir(self.video_path)
             
@@ -362,6 +407,8 @@ class ProcessingPipeline:
                     self._log(f"\n1b. Sottotitoli bitmap italiani ({kind.upper()}) → OCR...")
                     if self._run_bitmap_ocr(kind):
                         self._log("✅ OCR bitmap completato.")
+                        if self._ocr_upload_srt is not None:
+                            self._upload_opensubtitles(self._ocr_upload_srt, 'it', imdb_id)
                         return True
                     self._log("⚠️ OCR bitmap non riuscito.")
                     if selected_stream:  # ripiega sul testo non italiano, se presente
@@ -386,6 +433,8 @@ class ProcessingPipeline:
                         self._log(f"\n1b. Sottotitoli bitmap ({kind.upper()}) → OCR + traduzione...")
                         if self._run_bitmap_ocr(kind):
                             self._log("✅ OCR bitmap completato.")
+                            if self._ocr_upload_srt is not None:
+                                self._upload_opensubtitles(self._ocr_upload_srt, 'it', imdb_id)
                             return True
                         self._log("⚠️ OCR bitmap non riuscito. Procedo con trascrizione.")
                     else:
@@ -1061,90 +1110,68 @@ class ProcessingPipeline:
         Returns:
             Codice ISO 639-2 (es: 'ita', 'eng')
         """
-        # Mappa inversa: da 639-1 a 639-2
-        reverse_map = {v: k for k, v in self.LANG_MAP_639_2_TO_639_1.items()}
-        return reverse_map.get(lang_639_1, 'und')
+        return self.ISO_639_1_TO_639_2.get(lang_639_1, 'und')
     
     def _upload_opensubtitles(
-        self, 
-        subtitle_path: Path, 
-        language_code_639_1: str, 
+        self,
+        subtitle_path: Path,
+        language_code_639_1: str,
         imdb_id: Optional[str]
     ):
         """
         Gestisce l'upload a OpenSubtitles con supporto REST e XML-RPC
-        
+
         Implementazione robusta da v3.8 con:
         - Verifica credenziali
         - Supporto multi-implementazione (REST/XML-RPC)
         - Gestione errori completa
         - Logout automatico
-        
+
         Args:
             subtitle_path: Path file .srt da caricare
             language_code_639_1: Codice lingua ISO 639-1 (2 lettere)
             imdb_id: ID IMDb del video (obbligatorio)
         """
-        
+
         # ============================================================
         # CHECK 1: Upload abilitato da configurazione?
         # ============================================================
         if not self.config.get('opensubtitles_upload_enabled'):
-            self._log("❌ Upload OpenSubtitles disabilitato da configurazione. Salto.")
+            self._log("ℹ️ Upload OpenSubtitles non attivo "
+                       "(Opzioni → OpenSubtitles → \"Upload OpenSubtitles\"). Salto.")
             return
-        
+
         # ============================================================
-        # CHECK 2: Credenziali configurate?
+        # CHECK 2: Credenziali configurate per l'implementazione scelta?
         # ============================================================
         if not self.config.is_opensubtitles_configured():
-            self._log("âš ï¸ Credenziali OpenSubtitles non configurate. Salto upload.")
+            self._log("⚠️ Credenziali OpenSubtitles non configurate (Opzioni → OpenSubtitles). Salto upload.")
             return
 
         # ============================================================
         # CHECK 3: IMDb ID disponibile? (obbligatorio)
         # ============================================================
         if not imdb_id:
-            self._log("âš ï¸ IMDb ID non disponibile. Upload OpenSubtitles saltato (obbligatorio).")
+            self._log("⚠️ IMDb ID non disponibile. Upload OpenSubtitles saltato (obbligatorio).")
             return
 
         self._log("\n8. Upload OpenSubtitles...")
-        
+
         try:
             # Importa moduli per garantire registrazione factory
             import utils.opensubtitles_rest_uploader
             import utils.opensubtitles_xmlrpc_uploader
-            
-            # ============================================================
-            # STEP 8.1: Inizializzazione Uploader
-            # ============================================================
-            implementation = self.config.get('opensubtitles_preferred_implementation', 'xmlrpc')
-            
-            creds = self.config.get_opensubtitles_credentials()
-            if not creds:
-                self._log("âŒ Credenziali non disponibili. Salto upload.")
-                return
-            
-            uploader = UploaderFactory.create_uploader(
-                implementation=implementation,
-                **creds
-            )
-            
-            self._log(f"ðŸ”§ Implementazione: {uploader.get_implementation_name()}")
-            
-            # ============================================================
-            # STEP 8.2: Login
-            # ============================================================
-            self._log("ðŸ”‘ Autenticazione OpenSubtitles...")
-            if not uploader.authenticate():
-                self._log(f"❌ Login fallito. Salto upload.")
-                uploader.logout()
-                return
 
-            self._log("✅ Login riuscito")
-            
-            # ============================================================
-            # STEP 8.3: Prepara Metadata
-            # ============================================================
+            implementation = self.config.get('opensubtitles_preferred_implementation', 'xmlrpc')
+            # opensubtitles.org (xmlrpc) e opensubtitles.com (rest) sono
+            # account separati con credenziali proprie: niente di
+            # intercambiabile tra i due set.
+            creds = (
+                self.config.get_opensubtitles_xmlrpc_credentials()
+                if implementation == 'xmlrpc'
+                else self.config.get_opensubtitles_credentials()
+            )
+
             # Converte 639-1 in 639-2 per OpenSubtitles API
             lang_639_2 = self._convert_639_1_to_639_2(language_code_639_1)
 
@@ -1156,40 +1183,76 @@ class ProcessingPipeline:
                 movie_year=self.metadata.get('year'),
                 movie_kind=self.metadata.get('type', 'movie')
             )
-            
-            # ============================================================
-            # STEP 8.4: Upload
-            # ============================================================
+
             # Se l'input era un file sottotitolo (es. .en.srt), cerchiamo
             # il video originale nella stessa cartella per il calcolo dell'hash.
             video_for_hash = self._resolve_video_path()
             if video_for_hash is None:
                 self._log("⚠️ Nessun file video trovato per il calcolo dell'hash. Upload saltato.")
-                uploader.logout()
                 return
 
-            self._log(f" Avvio upload per {language_code_639_1} ({lang_639_2})...")
-            success, url_or_error = uploader.upload(
-                video_path=video_for_hash,
-                subtitle_path=subtitle_path,
-                metadata=metadata
+            success, url_or_error = self._try_upload_with(
+                implementation, creds, metadata, video_for_hash,
+                subtitle_path, language_code_639_1, lang_639_2
             )
 
+            # NESSUN fallback automatico REST↔XML-RPC: sono due account
+            # separati con credenziali proprie (vedi sopra), quindi un
+            # fallimento sull'uno non è "riprovabile" con le credenziali
+            # dell'altro. In più, a oggi, l'endpoint di upload della REST
+            # API v1 (POST /api/v1/subtitles/upload) risponde 403
+            # "uploads_not_enabled" per i consumer normali: va richiesta
+            # l'abilitazione a OpenSubtitles prima che REST sia utilizzabile
+            # per l'upload, indipendentemente da credenziali/API key.
+
             if success:
-                self._log(f"✅Upload completato! URL: {url_or_error}")
+                # url_or_error è già un messaggio descrittivo restituito
+                # dall'uploader ("Upload riuscito", "GIÀ PRESENTE - <url>", ecc.):
+                # non anteporgli "Upload completato", sarebbe fuorviante nel
+                # caso "già presente" (non è stato caricato nulla di nuovo).
+                self._log(f"✅ OpenSubtitles: {url_or_error}")
             else:
-                self._log(f"âŒ Upload fallito: {url_or_error}")
-            
-            # ============================================================
-            # STEP 8.5: Logout e cleanup
-            # ============================================================
-            uploader.logout()
-            self._log("✅ Logout completato")
-            
+                self._log(f"❌ Upload fallito: {url_or_error}")
+
         except Exception as e:
-            error_msg = f"❌Errore upload OpenSubtitles: {e}"
+            error_msg = f"Errore upload OpenSubtitles: {e}"
             logger.error(error_msg, exc_info=True)
             self._log(f"❌ {error_msg}")
+
+    def _try_upload_with(
+        self, implementation: str, creds: dict, metadata: SubtitleMetadata,
+        video_for_hash: Path, subtitle_path: Path,
+        language_code_639_1: str, lang_639_2: str
+    ):
+        """
+        Autentica, esegue l'upload e fa logout per UNA implementazione.
+        Isolato in un metodo a parte perché _upload_opensubtitles lo
+        richiama due volte nel percorso di fallback XML-RPC → REST.
+
+        Niente controllo duplicati esplicito qui: XML-RPC lo fa già
+        internamente (TryUploadSubtitles prima di UploadSubtitles, dentro
+        upload()) — richiamarlo a parte raddoppierebbe hash+rete per nulla —
+        e la REST API non espone alcun endpoint dedicato per farlo (il suo
+        check_exists() è un no-op che ritorna sempre False).
+
+        Returns:
+            (success, message) — message è già pronto per il log.
+        """
+        uploader = UploaderFactory.create_uploader(implementation=implementation, **creds)
+        self._log(f"🔧 Implementazione: {uploader.get_implementation_name()}")
+
+        self._log("🔑 Autenticazione OpenSubtitles...")
+        if not uploader.authenticate():
+            self._log("❌ Login fallito.")
+            return False, "Login fallito"
+
+        self._log("✅ Login riuscito")
+        try:
+            self._log(f" Avvio upload per {language_code_639_1} ({lang_639_2})...")
+            return uploader.upload(video_path=video_for_hash, subtitle_path=subtitle_path, metadata=metadata)
+        finally:
+            uploader.logout()
+            self._log("🔓 Sessione OpenSubtitles chiusa")
     
     def _resolve_video_path(self) -> Optional[Path]:
         """

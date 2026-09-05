@@ -2,7 +2,9 @@
 Utils Package Initialization
 File: utils/__init__.py
 
-VERSIONE: v4.0 - Complete Utils Package
+VERSIONE: v4.4 - Rimossi opensubtitles_client/opensubtitles_integration/
+opensubtitles_config (mai realmente usati in produzione, fuorvianti: il
+secondo fingeva sempre successo senza chiamare alcuna API)
 
 Esporta tutti i componenti utility:
 - Configurazione
@@ -11,8 +13,10 @@ Esporta tutti i componenti utility:
 - Resource monitoring
 - TMDB client
 - IMDb client
-- OpenSubtitles integration
+- OpenSubtitles upload (REST/XML-RPC)
 """
+
+import logging
 
 # Core utilities
 from .resource_monitor import ResourceMonitor
@@ -28,47 +32,35 @@ from .transcription_profiles import ProfileConfig, TranscriptionProfile
 
 # Optional imports (possono non essere presenti)
 try:
-    from .opensubtitles_client import OpenSubtitlesClient, get_opensubtitles_client
-except ImportError:
-    OpenSubtitlesClient = None
-    get_opensubtitles_client = None
-
-try:
     from .imdb_client import IMDbClient, get_imdb_client
 except ImportError:
     IMDbClient = None
     get_imdb_client = None
 
 try:
-    from .opensubtitles_config import OpenSubtitlesConfig, get_opensubtitles_config
-except ImportError:
-    OpenSubtitlesConfig = None
-    get_opensubtitles_config = None
-
-try:
-    from .opensubtitles_integration import OpenSubtitlesIntegration
-except ImportError:
-    OpenSubtitlesIntegration = None
-
-try:
     from .subtitle_uploader_interface import (
         SubtitleUploaderInterface,
         SubtitleMetadata,
-        UploaderFactory
+        UploaderFactory,
+        OPENSUBTITLES_USER_AGENT
     )
-except ImportError:
+except ImportError as e:
+    logging.getLogger(__name__).warning(f"subtitle_uploader_interface non disponibile: {e}")
     SubtitleUploaderInterface = None
     SubtitleMetadata = None
     UploaderFactory = None
+    OPENSUBTITLES_USER_AGENT = None
 
 try:
     from .opensubtitles_xmlrpc_uploader import OpenSubtitlesXMLRPCUploader
-except ImportError:
+except ImportError as e:
+    logging.getLogger(__name__).warning(f"OpenSubtitlesXMLRPCUploader non disponibile: {e}")
     OpenSubtitlesXMLRPCUploader = None
 
 try:
     from .opensubtitles_rest_uploader import OpenSubtitlesRESTUploader
-except ImportError:
+except ImportError as e:
+    logging.getLogger(__name__).warning(f"OpenSubtitlesRESTUploader non disponibile: {e}")
     OpenSubtitlesRESTUploader = None
 
 
@@ -86,20 +78,11 @@ __all__ = [
 ]
 
 # Add optional exports if available
-if OpenSubtitlesClient is not None:
-    __all__.extend(['OpenSubtitlesClient', 'get_opensubtitles_client'])
-
 if IMDbClient is not None:
     __all__.extend(['IMDbClient', 'get_imdb_client'])
 
-if OpenSubtitlesConfig is not None:
-    __all__.extend(['OpenSubtitlesConfig', 'get_opensubtitles_config'])
-
-if OpenSubtitlesIntegration is not None:
-    __all__.append('OpenSubtitlesIntegration')
-
 if SubtitleUploaderInterface is not None:
-    __all__.extend(['SubtitleUploaderInterface', 'SubtitleMetadata', 'UploaderFactory'])
+    __all__.extend(['SubtitleUploaderInterface', 'SubtitleMetadata', 'UploaderFactory', 'OPENSUBTITLES_USER_AGENT'])
 
 if OpenSubtitlesXMLRPCUploader is not None:
     __all__.append('OpenSubtitlesXMLRPCUploader')

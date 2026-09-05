@@ -23,6 +23,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from .subtitle_uploader_interface import OPENSUBTITLES_USER_AGENT
+
 logger = logging.getLogger(__name__)
 
 # Import necessario per delegare la logica dei profili
@@ -56,16 +58,27 @@ class Config:
         'last_input_folder': '',
         'shutdown_after_processing': False,
         
-        # OpenSubtitles Upload Settings
+        # OpenSubtitles Upload Settings.
+        # ATTENZIONE: opensubtitles.org (XML-RPC) e opensubtitles.com (REST)
+        # sono DUE ACCOUNT SEPARATI con credenziali proprie, anche se il
+        # nome utente coincide — non è garantito che coincida anche la
+        # password. Da qui i due set di credenziali distinti sotto.
         'opensubtitles_upload_enabled': True,
-        'opensubtitles_auto_upload': True,
-        'opensubtitles_check_duplicates': True,
+        # Credenziali .com (REST + traduttore "OpenSubtitles AI")
         'opensubtitles_username': '',
         'opensubtitles_password': '',
-        'opensubtitles_user_agent': 'TranscriberPro v1.1.0',
-        'opensubtitles_api_key': '',  
+        'opensubtitles_api_key': '',
+        # Credenziali .org (XML-RPC)
+        'opensubtitles_xmlrpc_username': '',
+        'opensubtitles_xmlrpc_password': '',
+        'opensubtitles_user_agent': OPENSUBTITLES_USER_AGENT,
+        # 'xmlrpc': la REST API v1 non ha oggi un upload abilitato per i
+        # consumer normali (l'endpoint esiste ma risponde 403
+        # "uploads_not_enabled" finché OpenSubtitles non lo whitelista su
+        # richiesta) — XML-RPC resta l'unica via realmente funzionante,
+        # purché configurato con le credenziali .org (non quelle .com).
         'opensubtitles_preferred_implementation': 'xmlrpc',
-        
+
         # Transcription method
         'transcription_method': 'faster-whisper',
 
@@ -262,47 +275,98 @@ class Config:
     # ========================================================================
     
     def is_opensubtitles_configured(self) -> bool:
-        """Verifica se OpenSubtitles Ã¨ configurato correttamente per REST."""
-        username = self.get('opensubtitles_username', '')
-        password = self.get('opensubtitles_password', '')
-        api_key = self.get('opensubtitles_api_key', '')
-        return bool(username and password and api_key)
-    
-    def get_opensubtitles_credentials(self) -> Optional[Dict[str, str]]:
-        """Ottiene credenziali OpenSubtitles"""
-        if not self.is_opensubtitles_configured():
-            return None
-        
+        """
+        Verifica se OpenSubtitles è configurato per l'implementazione
+        attualmente selezionata. opensubtitles.org (xmlrpc) e
+        opensubtitles.com (rest) sono account separati con credenziali
+        proprie: questo controllo guarda SOLO al set di credenziali
+        rilevante per l'implementazione scelta.
+        """
+        if self.get('opensubtitles_preferred_implementation', 'xmlrpc') == 'rest':
+            return bool(
+                self.get('opensubtitles_username', '')
+                and self.get('opensubtitles_password', '')
+                and self.get('opensubtitles_api_key', '')
+            )
+        return bool(
+            self.get('opensubtitles_xmlrpc_username', '')
+            and self.get('opensubtitles_xmlrpc_password', '')
+        )
+
+    def is_opensubtitles_rest_configured(self) -> bool:
+        """
+        Verifica se sono presenti le credenziali per la REST API di
+        opensubtitles.com a prescindere dall'implementazione preferita per
+        l'upload. Usato dal motore di traduzione "OpenSubtitles AI"
+        (core/translator.py, OpenSubtitlesAITranslator), che è sempre REST e
+        richiede sempre l'api_key — a differenza di is_opensubtitles_configured(),
+        che per l'upload la richiede solo se 'xmlrpc' non è selezionato.
+        """
+        return bool(
+            self.get('opensubtitles_username', '')
+            and self.get('opensubtitles_password', '')
+            and self.get('opensubtitles_api_key', '')
+        )
+
+    def get_opensubtitles_credentials(self) -> Dict[str, str]:
+        """
+        Ottiene le credenziali .com (REST + traduttore "OpenSubtitles AI"),
+        sempre come dict anche se incomplete o vuote. Per sapere se sono
+        sufficienti per fare upload usare is_opensubtitles_configured(): i
+        due controlli sono volutamente disaccoppiati (un consumatore può
+        aver bisogno di un solo campo, es. la sola api_key per il
+        traduttore AI). Per le credenziali .org (XML-RPC) vedi
+        get_opensubtitles_xmlrpc_credentials(): sono un account separato,
+        non intercambiabile con questo.
+        """
         return {
-            'username': self.get('opensubtitles_username'),
-            'password': self.get('opensubtitles_password'),
-            'user_agent': self.get('opensubtitles_user_agent', 'TranscriberPro v1.1.0'),
-            'api_key': self.get('opensubtitles_api_key')
+            'username': self.get('opensubtitles_username', ''),
+            'password': self.get('opensubtitles_password', ''),
+            'user_agent': self.get('opensubtitles_user_agent', OPENSUBTITLES_USER_AGENT),
+            'api_key': self.get('opensubtitles_api_key', '')
         }
-    
+
     def set_opensubtitles_credentials(self, username: str, password: str, api_key: str,
                                      user_agent: str = None):
-        """Imposta credenziali OpenSubtitles"""
+        """Imposta le credenziali .com (REST + traduttore AI)."""
         self.set('opensubtitles_username', username, save=False)
         self.set('opensubtitles_password', password, save=False)
         self.set('opensubtitles_api_key', api_key, save=False)
-        
+
         if user_agent:
             self.set('opensubtitles_user_agent', user_agent, save=False)
-        
+
         self.save()
-    
+
+    def get_opensubtitles_xmlrpc_credentials(self) -> Dict[str, str]:
+        """
+        Ottiene le credenziali .org (XML-RPC), sempre come dict anche se
+        incomplete o vuote. Account separato da quello .com: stesso
+        username non implica stessa password (vedi is_opensubtitles_configured).
+        """
+        return {
+            'username': self.get('opensubtitles_xmlrpc_username', ''),
+            'password': self.get('opensubtitles_xmlrpc_password', ''),
+            'user_agent': self.get('opensubtitles_user_agent', OPENSUBTITLES_USER_AGENT),
+        }
+
+    def set_opensubtitles_xmlrpc_credentials(self, username: str, password: str):
+        """Imposta le credenziali .org (XML-RPC)."""
+        self.set('opensubtitles_xmlrpc_username', username, save=False)
+        self.set('opensubtitles_xmlrpc_password', password, save=False)
+        self.save()
+
     def get_opensubtitles_config(self) -> Dict[str, Any]:
         """Ottiene tutta la configurazione OpenSubtitles"""
         return {
             'upload_enabled': self.get('opensubtitles_upload_enabled', True),
-            'auto_upload': self.get('opensubtitles_auto_upload', True),
-            'check_duplicates': self.get('opensubtitles_check_duplicates', True),
             'username': self.get('opensubtitles_username', ''),
             'password': self.get('opensubtitles_password', ''),
             'api_key': self.get('opensubtitles_api_key', ''),
-            'user_agent': self.get('opensubtitles_user_agent', 'TranscriberPro v1.1.0'),
-            'preferred_implementation': self.get('opensubtitles_preferred_implementation', 'rest')
+            'xmlrpc_username': self.get('opensubtitles_xmlrpc_username', ''),
+            'xmlrpc_password': self.get('opensubtitles_xmlrpc_password', ''),
+            'user_agent': self.get('opensubtitles_user_agent', OPENSUBTITLES_USER_AGENT),
+            'preferred_implementation': self.get('opensubtitles_preferred_implementation', 'xmlrpc')
         }
     
     def print_config_safe(self) -> str:

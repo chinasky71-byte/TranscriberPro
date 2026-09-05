@@ -13,6 +13,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# User-Agent unico condiviso da tutte le implementazioni e dal config.
+# Deve corrispondere ESATTAMENTE a quello registrato su
+# https://www.opensubtitles.org/addons/new, altrimenti il server OS
+# blocca gli upload XML-RPC pur autenticando (login 401 + token).
+OPENSUBTITLES_USER_AGENT = "TranscriberPro v1.0.0"
+
 
 class SubtitleMetadata:
     """
@@ -48,19 +54,19 @@ class SubtitleMetadata:
         Valida che i metadati minimi siano presenti
         """
         if not self.imdb_id:
-            return False, "IMDb ID Ã¨ obbligatorio"
-        
+            return False, "IMDb ID è obbligatorio"
+
         if not self.imdb_id.startswith('tt'):
             return False, "IMDb ID deve iniziare con 'tt'"
-        
+
         if not self.language_code:
-            return False, "Codice lingua Ã¨ obbligatorio"
+            return False, "Codice lingua è obbligatorio"
         
         if len(self.language_code) != 3:
             return False, "Codice lingua deve essere ISO 639-2 (3 lettere)"
         
         if not self.release_name:
-            return False, "Nome release Ã¨ obbligatorio"
+            return False, "Nome release è obbligatorio"
         
         return True, ""
 
@@ -134,7 +140,7 @@ class UploaderFactory:
     @classmethod
     def create_uploader(
         cls,
-        implementation: str = 'xmlrpc',
+        implementation: str = 'rest',
         **kwargs
     ) -> SubtitleUploaderInterface:
         """

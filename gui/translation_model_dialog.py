@@ -733,7 +733,10 @@ class TranslationModelDialog(QDialog):
 
     def update_os_status(self):
         """Aggiorna indicatore stato credenziali OpenSubtitles"""
-        if self.config.is_opensubtitles_configured():
+        # Il motore di traduzione "OpenSubtitles AI" è sempre REST e richiede
+        # sempre l'api_key, indipendentemente da quale implementazione sia
+        # selezionata per l'upload dei sottotitoli (che può essere xmlrpc).
+        if self.config.is_opensubtitles_rest_configured():
             self.os_status_label.setText(tr('tmd_creds_configured'))
             self.os_status_label.setStyleSheet("color: green; font-weight: bold;")
         else:
@@ -975,7 +978,8 @@ class TranslationModelDialog(QDialog):
 
         elif self.os_radio.isChecked():
             selected_model = 'opensubtitles'
-            if not self.config.is_opensubtitles_configured():
+            # Motore di traduzione: sempre REST, richiede sempre l'api_key.
+            if not self.config.is_opensubtitles_rest_configured():
                 reply = QMessageBox.question(
                     self,
                     "Credenziali mancanti",
