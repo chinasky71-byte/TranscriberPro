@@ -138,10 +138,16 @@ class _LocalQwenMatcher:
             return False
         try:
             self._log("  Caricamento Qwen in VRAM...")
+            # n_ctx=8192 (non 4096): con finestre dense il prompt da solo può
+            # superare i 2000 token e lasciare troppo poco spazio alla
+            # risposta — il limite che tronca la risposta JSON a metà è
+            # n_ctx (prompt+risposta), non max_tokens da solo. Qwen2.5-14B
+            # supporta nativamente fino a 131072 token, il costo VRAM
+            # aggiuntivo è trascurabile rispetto ai ~9GB dei pesi.
             self._llm = _Llama(
                 model_path=self._model_path,
                 n_gpu_layers=-1,
-                n_ctx=4096,
+                n_ctx=8192,
                 n_batch=512,
                 verbose=False,
             )
@@ -162,7 +168,7 @@ class _LocalQwenMatcher:
             self._log(f"  Errore caricamento Qwen: {e}")
             return False
 
-    def match_window(self, system_prompt: str, user_prompt: str) -> Optional[str]:
+    def match_window(self, system_prompt: str, user_prompt: str, max_tokens: int = 2048) -> Optional[str]:
         """
         Chiama Qwen via create_chat_completion.
         Restituisce il testo grezzo della risposta o None su eccezione.
@@ -178,7 +184,7 @@ class _LocalQwenMatcher:
                 temperature=0.1,
                 top_p=0.9,
                 repeat_penalty=1.05,
-                max_tokens=2048,
+                max_tokens=max_tokens,
             )
             if self._grammar is not None:
                 kwargs['grammar'] = self._grammar
@@ -267,10 +273,20 @@ class SubtitleSynchronizer:
             self._output_path = Path(output_path)
         else:
             stem = self.external_srt_path.stem
-            # Rimuove estensione lingua se presente (es. "film.it" → "film")
+            # Rimuove SOLO un suffisso lingua noto (es. "film.it" → "film"),
+            # non un segmento qualunque ≤5 caratteri: un file come
+            # "Movie.2019.1080p.x264.srt" ha stem "Movie.2019.1080p.x264",
+            # e ".x264" (4 char) veniva troncato per errore, perdendo
+            # informazione nel nome del file di output.
+            _KNOWN_LANG_SUFFIXES = {
+                'it', 'ita', 'italian', 'en', 'eng', 'english',
+                'es', 'spa', 'fr', 'fre', 'fra', 'de', 'deu', 'ger',
+                'pt', 'por', 'ru', 'rus', 'ja', 'jpn',
+            }
             if '.' in stem:
                 base, lang = stem.rsplit('.', 1)
-                stem = base if len(lang) <= 5 else stem
+                if lang.lower() in _KNOWN_LANG_SUFFIXES:
+                    stem = base
             self._output_path = (
                 self.external_srt_path.parent / f"{stem}.synced.it.srt"
             )
@@ -290,8 +306,17 @@ class SubtitleSynchronizer:
         self._cleanup_done: bool = False
 
         # Parametri da config
-        self._window_size: int = self.config.get('sync_llm_window_size', 20)
+        # max(2, ...): 4 chiavi sync_* non hanno UI (si editano solo a mano
+        # in config.json) — un window_size <= 0 farebbe sollevare IndexError
+        # su anchor_win[0] dentro _step3_match_subtitles, con un messaggio
+        # "ERRORE CRITICO" incomprensibile invece di un fallimento chiaro.
+        self._window_size: int = max(2, int(self.config.get('sync_llm_window_size', 20)))
         self._src_language: str = self.config.get('sync_src_language', 'en')
+        self._max_offset_sec: float = float(self.config.get('sync_max_offset_sec', 30))
+        # Lingua realmente rilevata per l'anchor (stream embedded o Whisper
+        # autodetect): sovrascrive _src_language in S2 quando disponibile,
+        # vedi _step1_extract_anchors / _step1_whisper_fallback.
+        self._anchor_language: Optional[str] = None
 
     # ── API pubblica ──────────────────────────────────────────────────────────
 
@@ -316,9 +341,17 @@ class SubtitleSynchronizer:
             # ── S1: Ancoraggio ────────────────────────────────────────────
             self._log("\n1. Ancoraggio — estrazione timing di riferimento...")
             anchors = self._step1_extract_anchors()
-            if anchors is None or self._cancelled:
-                if not self._cancelled:
-                    self._log("ERRORE S1: impossibile estrarre timing di riferimento.")
+            if self._cancelled:
+                return False
+            # `anchors` può essere una lista VUOTA (embedded estratti ma
+            # senza cue validi, o trascrizione Whisper senza risultati) e
+            # non solo None: senza questo controllo il fallback posizionale
+            # a valle produce un intero SRT con i timestamp originali
+            # (sbagliati) e la pipeline dichiara comunque "completato".
+            # Una manciata di anchor non basta nemmeno a coprire una sola
+            # finestra in modo significativo: soglia minima 10.
+            if not anchors or len(anchors) < 10:
+                self._log(f"ERRORE S1: anchor insufficienti ({len(anchors or [])}, minimo 10).")
                 return False
             self._log(f"  Anchor estratti: {len(anchors)} segmenti.")
             self._report_progress(self._STEP_PCT['S1'])
@@ -340,9 +373,18 @@ class SubtitleSynchronizer:
             matches = self._step3_match_subtitles(anchors_it, externals)
             if self._cancelled:
                 return False
-            direct  = sum(1 for m in matches if m.match_type == 'direct')
-            pos     = sum(1 for m in matches if m.match_type == 'positional')
-            self._log(f"  Match: {direct} diretti, {pos} posizionali su {len(matches)} totali.")
+            tipi = {}
+            for m in matches:
+                tipi[m.match_type] = tipi.get(m.match_type, 0) + 1
+            # 'interpolated' e 'positional' sono i due segnali di quanto
+            # fidarsi del file: il primo giro di fix aveva un log che
+            # contava solo 'direct'/'positional', nascondendo il fatto che
+            # 'interpolated' era diventato il fallback principale — un file
+            # con molte righe interpolate può comunque essere corretto (lo
+            # shift è dedotto dai vicini risolti) ma è un segnale che
+            # l'utente deve poter vedere, non solo dedurre dal codice.
+            riepilogo = ", ".join(f"{v} {k}" for k, v in sorted(tipi.items(), key=lambda kv: -kv[1]))
+            self._log(f"  Match: {riepilogo} (totale {len(matches)}).")
             self._report_progress(self._STEP_PCT['S3'])
 
             # ── S4: Rifinitura ────────────────────────────────────────────
@@ -385,6 +427,46 @@ class SubtitleSynchronizer:
 
     # ── STEP 1 ────────────────────────────────────────────────────────────────
 
+    # Lingue accettate come anchor, in ordine di preferenza, con TUTTI gli
+    # alias di codice noti (ISO 639-1, 639-2/B, 639-2/T) — un confronto per
+    # prefisso ('por'[:2]=='po' combacerebbe con 'pol' polacco; 'deu'[:2]
+    # non combacia con 'ger') produce falsi positivi/negativi, quindi qui
+    # si usa appartenenza a un set esplicito.
+    _ANCHOR_LANG_ALIASES: Dict[str, Set[str]] = {
+        'eng': {'eng', 'en'},
+        'spa': {'spa', 'es'},
+        'fra': {'fra', 'fre', 'fr'},
+        'deu': {'deu', 'ger', 'de'},
+        'por': {'por', 'pt', 'pob'},
+        'rus': {'rus', 'ru'},
+        'jpn': {'jpn', 'ja'},
+    }
+    _ITALIAN_LANG_ALIASES: Set[str] = {'ita', 'it', 'italian'}
+
+    @classmethod
+    def _canon_lang(cls, tag: Optional[str]) -> Optional[str]:
+        """
+        Normalizza un tag lingua GREZZO (da ffprobe o da Whisper) al codice
+        che `core.translator.BaseTranslator.LANGUAGE_CODES` sa riconoscere.
+        Necessario perché passare il tag grezzo (com'era subito dopo il
+        primo giro di fix) è una regressione: tag reali come 'pob'
+        (portoghese brasiliano, comune nei rip), 'pt-BR', 'en-US', 'it_IT'
+        NON sono chiavi di LANGUAGE_CODES — non vengono tradotti "con la
+        lingua sbagliata" come col vecchio default fisso 'en', l'intera
+        traduzione NLLB di S2 FALLISCE e la sincronizzazione si interrompe
+        del tutto. Qui si normalizza il separatore regionale (- o _) e si
+        mappano gli alias noti dei /B code (pob/pt-BR -> por, ecc.).
+        """
+        if not tag:
+            return None
+        base = re.split(r'[-_]', tag.lower())[0]
+        if base in cls._ITALIAN_LANG_ALIASES:
+            return 'ita'
+        for canon, aliases in cls._ANCHOR_LANG_ALIASES.items():
+            if base in aliases:
+                return canon
+        return base or None
+
     def _step1_extract_anchors(self) -> Optional[List[SyncSubtitle]]:
         """
         Path primario: SubtitleExtractor → embedded SRT.
@@ -396,35 +478,41 @@ class SubtitleSynchronizer:
 
         Fallback: AudioTrackSelector → AudioProcessor → Transcriber (Whisper).
 
-    	quindi usare anchor non italiani migliora il matching semantico.
-
-    	Fallback:
-        	AudioTrackSelector → AudioProcessor → Transcriber (Whisper).
-    	"""
+        Side effect: imposta self._anchor_language alla lingua realmente
+        usata per l'anchor (embedded o rilevata da Whisper), così S2 può
+        tradurre con la lingua sorgente corretta invece del default fisso
+        di configurazione.
+        """
         from core.subtitle_extractor import SubtitleExtractor
 
         extractor = SubtitleExtractor(str(self.video_path))
         streams   = extractor.detect_subtitles()
 
-        # Lingue accettate come anchor, in ordine di preferenza.
-        # L'italiano è ESCLUSO: usarlo come anchor creerebbe un matching
-        # IT-embedded → IT-esterno ambiguo e renderebbe inutile il bridge NLLB.
         ANCHOR_PRIORITY = ['eng', 'spa', 'fra', 'deu', 'por', 'rus', 'jpn']
-        ITALIAN_PREFIXES = ('ita', 'it')
+
+        def _lang_is(tag: str, aliases: Set[str]) -> bool:
+            """Confronto per appartenenza esatta (+ prefisso su varianti
+            regionali tipo 'it-IT' O 'it_IT', entrambi i separatori),
+            non per prefisso su TUTTA la stringa: evita falsi
+            positivi/negativi come 'por'[:2]=='po' (polacco) o 'deu' che
+            non combacia con l'alias 'ger'."""
+            tag = tag.lower()
+            base = re.split(r'[-_]', tag)[0]
+            return tag in aliases or base in aliases
 
         # Stream validi: no forced, no bitmap, no italiano
         valid_streams = [
             s for s in streams
             if not s['forced']
             and s['codec'].lower() not in extractor.BITMAP_CODECS
-            and not s['language'].lower().startswith(ITALIAN_PREFIXES)
+            and not _lang_is(s['language'], self._ITALIAN_LANG_ALIASES)
         ]
 
         discarded_it = [
             s for s in streams
             if not s['forced']
             and s['codec'].lower() not in extractor.BITMAP_CODECS
-            and s['language'].lower().startswith(ITALIAN_PREFIXES)
+            and _lang_is(s['language'], self._ITALIAN_LANG_ALIASES)
         ]
         if discarded_it:
             self._log(
@@ -441,7 +529,7 @@ class SubtitleSynchronizer:
         for lang in ANCHOR_PRIORITY:
             lang_subs = [
                 s for s in valid_streams
-                if s['language'].lower().startswith(lang[:2])
+                if _lang_is(s['language'], self._ANCHOR_LANG_ALIASES[lang])
             ]
             if not lang_subs:
                 continue
@@ -474,6 +562,7 @@ class SubtitleSynchronizer:
             if extractor.extract_subtitle(temp_srt, selected['index']):
                 subs = self._parse_srt_file(temp_srt)
                 if subs:
+                    self._anchor_language = self._canon_lang(selected.get('language'))
                     self._log(
                         f"  {len(subs)} anchor embedded estratti "
                         f"(lingua: {selected.get('language', '?').upper()})."
@@ -528,11 +617,19 @@ class SubtitleSynchronizer:
             self.video_path, "anchor_transcribed.srt"
         )
         self._transcriber = Transcriber(log_callback=self._log_callback)
-        success, _ = self._transcriber.transcribe_chunks(
+        # whisper_language=None -> autodetect: forzare 'en' fisso (il default
+        # di sync_src_language, senza UI per cambiarlo) su un film NON in
+        # inglese produce anchor spazzatura senza errore visibile — il ponte
+        # NLLB parte già dalla lingua sbagliata. La lingua rilevata alimenta
+        # S2 tramite self._anchor_language.
+        success, detected_lang = self._transcriber.transcribe_chunks(
             audio_chunks=chunks,
             output_path=str(transcribed_srt),
-            whisper_language=self._src_language,
+            whisper_language=None,
         )
+        if detected_lang:
+            self._anchor_language = self._canon_lang(detected_lang)
+            self._log(f"  Lingua rilevata da Whisper: {detected_lang.upper()}")
         if not success or not transcribed_srt.exists():
             self._log("  Trascrizione Whisper fallita.")
             return None
@@ -556,12 +653,30 @@ class SubtitleSynchronizer:
 
         self._write_srt_file(anchors, temp_in)
 
+        # Preferisce la lingua REALMENTE rilevata per l'anchor (stream
+        # embedded o Whisper autodetect, impostata in S1) al default fisso
+        # di configurazione: quest'ultimo esiste solo perché non c'è modo
+        # di sapere in anticipo, prima di S1, quale lingua verrà usata.
+        src_lang = self._anchor_language or self._src_language
+
         self._nllb_translator = get_translator(model_type='nllb')
+
+        # Rete di sicurezza: _canon_lang normalizza i tag noti, ma un
+        # autodetect Whisper su una lingua rara/un tag non censito può
+        # ancora produrre un codice che NLLB non riconosce — senza questo
+        # controllo l'intera sincronizzazione si interromperebbe (S2
+        # fallisce) invece di procedere con una traduzione sub-ottimale ma
+        # funzionante.
+        if hasattr(self._nllb_translator, '_nllb_to_iso') and self._nllb_translator._nllb_to_iso(src_lang) is None:
+            self._log(f"  ⚠️ Lingua anchor '{src_lang}' non riconosciuta da NLLB — uso il default '{self._src_language}'.")
+            src_lang = self._src_language
+
+        self._log(f"  Lingua sorgente per la traduzione: {src_lang.upper()}")
         try:
             ok = self._nllb_translator.translate_file(
                 input_path=str(temp_in),
                 output_path=str(temp_out),
-                src_lang=self._src_language,
+                src_lang=src_lang,
                 tgt_lang='it',
             )
         except Exception as e:
@@ -600,6 +715,32 @@ class SubtitleSynchronizer:
 
     # ── STEP 3 ────────────────────────────────────────────────────────────────
 
+    # Numero massimo di external per singola chiamata Qwen: il system prompt
+    # impone "un'entry per OGNI ext_id" e con finestre dense il conteggio di
+    # external può eccedere il budget di token della risposta (n_ctx) e
+    # troncarla a metà JSON — vedi _LocalQwenMatcher.load() (n_ctx=8192) e
+    # _qwen_max_tokens_for(). Oltre questa soglia l'ext_win viene spezzato in
+    # più chiamate sulla STESSA finestra di anchor invece di allargare la
+    # singola chiamata.
+    #
+    # 32 e non 25 per ridurre il NUMERO di chiamate, non perché una finestra
+    # ci stia dentro: misurato su un episodio reale (794 cue in 41 min, 19
+    # cue/min, window=20, slack=max_offset+5) gli external per finestra vanno
+    # da 24 a 61, media 44,8 — il 95% delle finestre eccede 32 e viene
+    # comunque spezzata in 2 chiamate. Il guadagno reale è 86 chiamate contro
+    # 95 a cap 25 (e contro 104 con il vecchio slack 2×). Non alzare oltre
+    # senza rimisurare i token: 64*32+128 = 2176 di risposta più il prompt
+    # (20 anchor + 32 external) resta dentro n_ctx=8192, un cap doppio no.
+    # NOTA: le due metà di uno split che cadono in sotto-batch diversi non si
+    # vedono (`_find_split_partner` lavora sugli item di UNA sola chiamata),
+    # quindi meno sotto-batch = meno split spezzati.
+    _MAX_EXT_PER_CALL = 32
+
+    @staticmethod
+    def _qwen_max_tokens_for(n_items: int) -> int:
+        """~46 token/item misurati con la grammar JSON attiva; 64 dà margine."""
+        return min(4096, 64 * max(n_items, 1) + 128)
+
     def _step3_match_subtitles(
         self,
         anchors_it: List[SyncSubtitle],
@@ -608,9 +749,15 @@ class SubtitleSynchronizer:
         """
         Abbina i segmenti anchor-IT a quelli external-IT usando Qwen locale.
         Processing SEQUENZIALE per finestre overlap (GPU singola).
-        Fallback posizionale per entry non risolte o se Qwen non disponibile.
+        Fallback per interpolazione (vicini risolti) per entry non risolte,
+        posizionale totale (per rapporto d'indice) solo se Qwen non è
+        disponibile o il rapporto anchor/external è troppo asimmetrico per
+        fidarsi del semantic matching.
         """
-        model_path = self.config.get('gender_correction_model_path', '')
+        model_path = (
+            self.config.get('sync_qwen_model_path', '')
+            or self.config.get('gender_correction_model_path', '')
+        )
         qwen_ok = False
 
         if model_path:
@@ -621,7 +768,13 @@ class SubtitleSynchronizer:
             qwen_ok = self._qwen_matcher.load()
 
         if not qwen_ok:
-            self._log("  Qwen non disponibile — abbinamento posizionale totale.")
+            self._log(
+                "  ⚠️ Qwen non disponibile — abbinamento POSIZIONALE TOTALE "
+                "(per rapporto d'indice, non semantico): l'output può avere "
+                "errori di decine di secondi su singole righe. Configura "
+                "'sync_qwen_model_path' (o 'gender_correction_model_path') "
+                "per un matching affidabile."
+            )
             return self._positional_fallback(anchors_it, externals, set())
 
         # Controllo rapporto asimmetrico
@@ -640,10 +793,24 @@ class SubtitleSynchronizer:
             return self._positional_fallback(anchors_it, externals, set())
 
         results: Dict[int, MatchResult] = {}
-        step     = max(1, self._window_size - 2)   # overlap=2 invece di 5 → ~16% meno finestre
-        n_anc    = len(anchors_it)
-        wins     = list(range(0, max(1, n_anc - 4), step))
-        n_wins   = len(wins)
+        ext_by_index = {e.index: e for e in externals}   # per il tie-break del merge sotto
+        self._llm_entries   = 0
+        self._gate_rejected = 0
+        step  = max(1, self._window_size - 2)   # overlap=2 invece di 5 → ~16% meno finestre
+        n_anc = len(anchors_it)
+
+        if n_anc <= self._window_size:
+            wins = [0]
+        else:
+            wins = list(range(0, n_anc - self._window_size + 1, step))
+            # L'ultima finestra generata da range() può lasciare scoperti
+            # gli ultimi 1-2 anchor (n_anc ≡ 4,5 mod step): non è un caso
+            # raro (~11% dei file con window=20), e quegli anchor non
+            # vengono mai proposti all'LLM. Garantisce sempre una finestra
+            # che tocca la fine.
+            if wins[-1] + self._window_size < n_anc:
+                wins.append(n_anc - self._window_size)
+        n_wins = len(wins)
 
         self._log(f"  Finestre da elaborare: {n_wins} (window={self._window_size}, step={step})")
 
@@ -656,29 +823,89 @@ class SubtitleSynchronizer:
             win_t0     = anchor_win[0].start_seconds
             win_t1     = anchor_win[-1].end_seconds
 
-            ext_win = [
+            # Slack di CATTURA (quali external proporre a questa finestra) e
+            # gate di PLAUSIBILITÀ (self._max_offset_sec, applicato dentro
+            # _parse_llm_match_response) sono deliberatamente disaccoppiati e
+            # diversi: lo slack qui resta largo (2×) per non perdere external
+            # con desync vicino al limite — un external appena fuori da uno
+            # slack stretto non verrebbe MAI proposto a nessuna finestra e
+            # cadrebbe subito nel fallback per interpolazione, anche quando
+            # l'LLM lo avrebbe risolto correttamente. È il gate a valle a
+            # scartare i match implausibili (allucinazioni su dialogo
+            # generico, verificate con inferenza reale), non la riduzione
+            # dello slack di cattura: stringere lo slack da solo (come nel
+            # primo giro di fix, ±60s→±30s) riduceva l'esposizione alle
+            # allucinazioni solo per via statistica, a costo di perdere
+            # copertura reale su desync 30-60s.
+            #
+            # Il valore giusto è però `max_offset + 5`, non `2*max_offset`:
+            # è il limite ESATTO oltre il quale il gate non può comunque
+            # accettare nulla. Un match è accettabile solo se esiste uno
+            # new_start con win_lo <= new_start <= win_hi (bound di finestra,
+            # ±5s) E |new_start - ext.start| <= max_offset; combinando le due,
+            # servono ext.start <= win_t1 + 5 + max_offset e
+            # ext.start >= win_t0 - 5 - max_offset. Tutto ciò che sta oltre
+            # viene catturato, speso in token di prompt e poi scartato dal
+            # gate: misurato su un episodio reale (794 cue, 41 min, 19
+            # cue/min) con 2*max_offset il 28% degli external proposti era
+            # matematicamente impossibile da accettare, la media saliva a
+            # 60,9 external per finestra (max 86) e servivano 104 chiamate
+            # Qwen invece di 86 — cioè ~20% di S3 speso su candidati morti.
+            slack = self._max_offset_sec + 5.0
+            ext_win_all = [
                 e for e in externals
-                if e.end_seconds >= win_t0 - 60.0
-                and e.start_seconds <= win_t1 + 60.0
+                if e.end_seconds >= win_t0 - slack
+                and e.start_seconds <= win_t1 + slack
             ]
-            if not ext_win:
+            if not ext_win_all:
                 continue
 
-            user_prompt = self._build_window_prompt(anchor_win, ext_win)
-            raw_response = self._qwen_matcher.match_window(
-                self._SYSTEM_PROMPT, user_prompt
-            )
-
-            if raw_response:
-                win_results = self._parse_llm_match_response(
-                    raw_response, anchor_win, ext_win
+            # Spezza in sotto-batch per non troncare la risposta JSON (vedi
+            # _MAX_EXT_PER_CALL) — più chiamate sulla STESSA finestra di
+            # anchor invece di una chiamata monolitica.
+            win_results: List[MatchResult] = []
+            for bstart in range(0, len(ext_win_all), self._MAX_EXT_PER_CALL):
+                if self._cancelled:
+                    break
+                ext_batch = ext_win_all[bstart:bstart + self._MAX_EXT_PER_CALL]
+                user_prompt = self._build_window_prompt(anchor_win, ext_batch)
+                max_tokens  = self._qwen_max_tokens_for(len(ext_batch))
+                raw_response = self._qwen_matcher.match_window(
+                    self._SYSTEM_PROMPT, user_prompt, max_tokens=max_tokens
                 )
-            else:
-                win_results = []
+                if raw_response:
+                    win_results.extend(self._parse_llm_match_response(
+                        raw_response, anchor_win, ext_batch
+                    ))
 
+            # Vince il match migliore fra finestre sovrapposte, non la prima
+            # arrivata: un external "preso in prestito" da una finestra che
+            # non conteneva il suo vero anchor non produce più un match
+            # 'positional' spurio, quindi qui
+            # arrivano solo match semantici. `confidence` da sola NON basta
+            # come criterio (misurato: Qwen la riporta quasi sempre vicina a
+            # 1 anche su match sbagliati, quindi un `>` stretto degenera
+            # verso "vince la prima finestra" nella pratica) — a parità
+            # effettiva di confidence, a spuntarla è il match il cui nuovo
+            # start è più vicino allo start ORIGINALE della riga: un match
+            # corretto sposta la riga di poco (l'offset di desync reale),
+            # uno sbagliato la sposta di molto (vedi il gate di plausibilità
+            # in _parse_llm_match_response, che comunque scarta la maggior
+            # parte di questi casi PRIMA di arrivare qui).
             for mr in win_results:
-                if mr.external_index not in results:
+                prev = results.get(mr.external_index)
+                if prev is None:
                     results[mr.external_index] = mr
+                    continue
+                if mr.confidence > prev.confidence + 1e-6:
+                    results[mr.external_index] = mr
+                elif abs(mr.confidence - prev.confidence) <= 1e-6:
+                    ext = ext_by_index.get(mr.external_index)
+                    if ext is not None:
+                        d_new  = abs(mr.new_start_sec - ext.start_seconds)
+                        d_prev = abs(prev.new_start_sec - ext.start_seconds)
+                        if d_new < d_prev:
+                            results[mr.external_index] = mr
 
             # Aggiorna progresso interno (S2→S3 range)
             pct = self._STEP_PCT['S2'] + int(
@@ -694,11 +921,35 @@ class SubtitleSynchronizer:
         self._qwen_matcher = None
         self._clear_vram()
 
-        # Fallback posizionale per external non risolti
+        # Tasso di scarto del gate: se l'LLM propone abbondantemente ma quasi
+        # nulla passa, la causa quasi sempre è che il desync reale del file
+        # supera `sync_max_offset_sec` (default 30s, senza UI: si edita solo
+        # a mano in config.json). Senza questa riga il sintomo è muto — si
+        # vede solo un file interamente 'interpolated' o 'positional' e non
+        # se ne capisce il motivo.
+        entries  = getattr(self, '_llm_entries', 0)
+        rejected = getattr(self, '_gate_rejected', 0)
+        if entries and rejected / entries > 0.5:
+            self._log(
+                f"  ⚠️ Il gate di plausibilità ha scartato {rejected}/{entries} "
+                f"proposte dell'LLM ({100 * rejected / entries:.0f}%): il desync "
+                f"del file supera probabilmente 'sync_max_offset_sec' "
+                f"({self._max_offset_sec:.0f}s) — alzalo in config.json e riprova."
+            )
+        elif entries:
+            self._log(
+                f"  Gate di plausibilità: {rejected}/{entries} proposte scartate "
+                f"({100 * rejected / entries:.0f}%)."
+            )
+
+        # Fallback per interpolazione (dai vicini risolti) per external non
+        # risolti da nessuna finestra: MAI _positional_fallback qui, che
+        # sparge un sottoinsieme sparso su TUTTO l'arco degli anchor (vedi
+        # _interpolate_fallback).
         unresolved = [e for e in externals if e.index not in results]
         if unresolved:
-            self._log(f"  Fallback posizionale per {len(unresolved)} sottotitoli non abbinati.")
-            for mr in self._positional_fallback(anchors_it, unresolved, set(results)):
+            self._log(f"  Fallback per interpolazione per {len(unresolved)} sottotitoli non abbinati.")
+            for mr in self._interpolate_fallback(externals, results, anchors_it):
                 results[mr.external_index] = mr
 
         return [results[k] for k in sorted(results)]
@@ -711,32 +962,99 @@ class SubtitleSynchronizer:
         matches:   List[MatchResult],
     ) -> bool:
         """
-        Applica i nuovi timestamp, formatta con SubtitleFormatter, scrive output.
-        Gestisce la split di anchor per 2 external ↔ 1 anchor.
+        Applica i nuovi timestamp e scrive l'output. NON usa SubtitleFormatter:
+        quel formatter è pensato per l'output di un aligner (fonde cue vicine,
+        ritaglia a capo le righe lunghe, ricalcola durate minime, ripulisce
+        tag) — qui il testo è già italiano corretto scritto dall'utente e il
+        contratto della feature è "cambia SOLO i tempi". Passarlo da
+        SubtitleFormatter fondeva cue con timestamp identici (conseguenza di
+        BUG 3) perdendo battute, e alterava testo/formattazione che non
+        andava toccato. Gestisce la split di anchor per 2 external ↔ 1
+        anchor: new_start_sec/new_end_sec sono già calcolati correttamente da
+        _parse_llm_match_response.
         """
-        from core.subtitle_formatter import SubtitleFormatter
+        if not matches:
+            self._log("  ERRORE: nessun match prodotto — output non scritto.")
+            return False
 
         match_map = {mr.external_index: mr for mr in matches}
+        clamped = 0
 
-        # Gestione speciale split: i match split_first/split_second devono
-        # essere applicati in coppia; qui usiamo new_start_sec/new_end_sec
-        # già calcolati correttamente da _parse_llm_match_response.
         for ext in externals:
             mr = match_map.get(ext.index)
             if mr:
                 ext.update_times(mr.new_start_sec, mr.new_end_sec)
 
-        segments = [
-            {'start': s.start_seconds, 'end': s.end_seconds, 'text': s.text}
-            for s in sorted(externals, key=lambda x: x.start_seconds)
-        ]
+        ordered = sorted(externals, key=lambda x: x.start_seconds)
 
-        formatter = SubtitleFormatter(log_callback=self._log)
-        srt_str   = formatter.format_srt(segments)
+        # Passata di sanità: un match sbagliato (LLM o fallback) può produrre
+        # un end &lt;= start, o un overlap ampio con la cue successiva — non i
+        # micro-overlap da arrotondamento che SubtitleFormatter._fix_overlaps
+        # era pensato a coprire. Qui si limita il danno invece di scrivere un
+        # SRT malformato; ogni clamp è un segnale che il matching per quella
+        # riga è dubbio, quindi va loggato per intero, non silenziato.
+        # Le cue con start quasi identici si trattano in BLOCCO, non a
+        # coppie. A coppie (com'era) l'intervallo utile della prima veniva
+        # tagliato dal confine con la TERZA, che nella pila ha lo stesso
+        # start: span_end collassava sullo start stesso e la prima cue
+        # tornava a durare 0,1s, cioè invisibile a schermo — esattamente il
+        # difetto che il trattamento a coppie doveva risolvere (verificato:
+        # 3 cue sullo stesso start davano 0,100s / 2,450s / 2,450s; 5 ne
+        # davano tre da 0,100s). Le pile di 3+ non sono un caso di
+        # laboratorio: _positional_fallback assegna lo stesso anchor — quindi
+        # gli stessi identici timestamp — a tutti gli external che cadono
+        # nello stesso rapporto d'indice.
+        i = 0
+        while i < len(ordered):
+            s = ordered[i]
+            if s.end_seconds <= s.start_seconds:
+                clamped += 1
+                s.update_times(s.start_seconds, s.start_seconds + 1.0)
+
+            # Raccoglie la pila: cue consecutive che iniziano entro 0,2s
+            # dalla prima.
+            j = i + 1
+            while j < len(ordered) and ordered[j].start_seconds - s.start_seconds < 0.2:
+                j += 1
+
+            if j > i + 1:
+                run = ordered[i:j]
+                clamped += len(run) - 1
+                span_end = max(x.end_seconds for x in run)
+                if j < len(ordered):
+                    # `ordered[j]` non è ancora stato toccato e per
+                    # costruzione inizia almeno 0,2s dopo: il confine è reale.
+                    span_end = min(span_end, ordered[j].start_seconds)
+                if span_end <= s.start_seconds:
+                    span_end = s.start_seconds + 0.1 * len(run)
+                width = (span_end - s.start_seconds) / len(run)
+                t = s.start_seconds
+                for x in run:
+                    x.update_times(t, t + width)
+                    t += width
+                i = j
+                continue
+
+            if i + 1 < len(ordered):
+                nxt = ordered[i + 1]
+                if s.end_seconds > nxt.start_seconds:
+                    clamped += 1
+                    new_end = max(s.start_seconds + 0.05, nxt.start_seconds - 0.020)
+                    s.update_times(s.start_seconds, new_end)
+            i += 1
+
+        for n, s in enumerate(ordered, start=1):
+            s.index = n
+
+        if clamped:
+            self._log(
+                f"  ⚠️ {clamped} timestamp corretti per inversione/overlap "
+                f"dopo il matching — segnale di match dubbi, verifica il file."
+            )
 
         try:
             self._output_path.parent.mkdir(parents=True, exist_ok=True)
-            self._output_path.write_text(srt_str, encoding='utf-8')
+            self._write_srt_file(ordered, self._output_path)
             self._log(f"  Scritto: {self._output_path}")
         except Exception as e:
             self._log(f"  Errore scrittura: {e}")
@@ -773,8 +1091,14 @@ class SubtitleSynchronizer:
         for m in re.finditer(pattern, content, re.MULTILINE):
             text = m.group(4).strip()
             if text:
+                # Indice POSIZIONALE (len(subs)+1), non quello dichiarato nel
+                # file: `index` è usato come chiave nei dizionari di matching
+                # (results/anchor_map/external_map) in tutta la pipeline —
+                # un SRT con numerazione duplicata o che riparte da 1 (capita
+                # su file scaricati/concatenati) farebbe collidere due cue
+                # distinte sulla stessa chiave, perdendone una in silenzio.
                 subs.append(SyncSubtitle(
-                    index=int(m.group(1)),
+                    index=len(subs) + 1,
                     start_time=m.group(2).strip(),
                     end_time=m.group(3).strip(),
                     text=text,
@@ -814,6 +1138,30 @@ class SubtitleSynchronizer:
             f"Match each EXTERNAL to its ANCHOR(s) and provide correct timestamps."
         )
 
+    @staticmethod
+    def _find_split_partner(items: list, anc_key: str, ext_id: str) -> Optional[str]:
+        """
+        Trova l'ext_id dell'altra metà di uno split_first/split_second sullo
+        stesso anchor. Sostituisce una comprehension annidata che ricalcolava
+        un set filtrando l'intero `items` per OGNI entry di split (O(n²)) e
+        che testava `if anchor_ids` (la variabile dell'item CORRENTE, sempre
+        vera a quel punto — un copia-incolla che non proteggeva nulla) invece
+        di controllare gli anchor_ids dell'item `it` in esame.
+        """
+        for it in items:
+            if str(it.get('match_type', '')) not in ('split_first', 'split_second'):
+                continue   # un 'direct'/'merged' che referenzia lo stesso
+                           # anchor non è il partner dello split: usarlo
+                           # calcolerebbe il rapporto di caratteri sul
+                           # testo sbagliato (osservato: pescava un match
+                           # 'direct' genuino sullo stesso anchor)
+            aids = it.get('anchor_ids') or []
+            if not aids:
+                continue
+            if str(aids[0]) == anc_key and str(it.get('ext_id', '')) != ext_id:
+                return str(it.get('ext_id', ''))
+        return None
+
     def _parse_llm_match_response(
         self,
         raw: str,
@@ -821,9 +1169,23 @@ class SubtitleSynchronizer:
         external_win: List[SyncSubtitle],
     ) -> List[MatchResult]:
         """
-        Pulisce la risposta e fa json.loads().
-        Gestisce backtick Markdown, calcola split proporzionali.
-        Fallback posizionale su parse error.
+        Pulisce la risposta e fa json.loads(). Gestisce backtick Markdown,
+        calcola split proporzionali.
+
+        Le entry non risolte in QUESTA finestra (no_match, ext_id non
+        trovato, JSON non parsabile) restano fuori dal risultato invece di
+        ricevere un fallback posizionale ristretto agli anchor della
+        finestra — quel fallback ristretto è quello che produceva errori di
+        decine di secondi su righe "prese in prestito" da una finestra
+        adiacente, che qui non possono essere risolte perché il loro vero
+        anchor non è nel prompt. Le entry davvero irrisolte le recupera
+        _interpolate_fallback a fine _step3_match_subtitles, con visibilità
+        sull'intero file — non esiste (né è mai esistito un chiamante per)
+        una modalità che estenda questo fallback all'intera finestra qui
+        dentro: se in futuro serve, va reintrodotta con un parametro
+        esplicito, non lasciata "disponibile ma inutilizzata" (rischio di
+        essere riattivata per errore, come il ramo split che il primo giro
+        di fix ha trovato reso permanentemente morto dallo stesso pattern).
         """
         anchor_map   = {f"A{a.index}": a for a in anchor_win}
         external_map = {f"E{e.index}": e for e in external_win}
@@ -844,12 +1206,53 @@ class SubtitleSynchronizer:
             items = json.loads(cleaned)
         except Exception as e:
             logger.warning(f"Parse JSON risposta Qwen fallito: {e} — raw: {raw[:200]}")
-            return self._positional_fallback(
-                list(anchor_win), list(external_win), set()
+            return []
+
+        # Bound geometrici della finestra (+5s di margine): un timestamp
+        # dell'LLM fuori da questo intervallo, o con durata assurda, è
+        # un'allucinazione — capita anche con la grammar GBNF attiva, che
+        # forza il formato JSON ma non la plausibilità dei valori. Questo
+        # controllo non dipende dall'onestà auto-riportata di `confidence`
+        # (osservata sempre vicina a 1 nei test reali, quindi inutile come
+        # soglia da sola).
+        #
+        # GATE DI OFFSET GLOBALE (in aggiunta ai bound di finestra sopra):
+        # misurato con inferenza reale che Qwen risolve con sicurezza (spesso
+        # confidence=1.0) dialoghi generici — "Sì.", "Va bene.", "Ok." — su
+        # anchor semanticamente simili ma lontani decine di secondi, quando
+        # la vera collocazione dell'external è in una finestra diversa. Senza
+        # questo secondo controllo un match così viene accettato (rientra nei
+        # bound larghi della finestra, ~105s), e col merge "vince la
+        # confidence più alta" essendo tutte le confidence vicine a 1 la
+        # differenza è rumore: nella pratica vince ancora la prima finestra
+        # arrivata (misurato: 22% delle righe su un caso avversario, contro
+        # il 50% di prima del fix — meglio ma non zero). sync_max_offset_sec
+        # è definito come tolleranza di desync massima ATTESA fra SRT esterno
+        # e video: un external ancorato più lontano di così dalla sua
+        # posizione ORIGINALE (pre-sync) è quasi certamente un match sbagliato.
+        win_lo = anchor_win[0].start_seconds - 5.0
+        win_hi = anchor_win[-1].end_seconds + 5.0
+        max_offset = self._max_offset_sec
+
+        def _plausible(start: float, end: float, ext: SyncSubtitle) -> bool:
+            return (
+                win_lo <= start <= win_hi
+                and 0.1 <= (end - start) <= 30.0
+                and abs(start - ext.start_seconds) <= max_offset
             )
 
+        # Contatori di osservabilità del gate: quante entry l'LLM ha proposto
+        # e quante ne sono state scartate. Un tasso di scarto alto è il
+        # segnale — altrimenti invisibile — che `sync_max_offset_sec` è
+        # tarato più stretto del desync reale del file: in quel caso il gate
+        # rifiuta OGNI match e la pipeline scivola sul fallback posizionale
+        # totale senza che nulla lo spieghi. Vedi il riepilogo in
+        # _step3_match_subtitles.
+        self._llm_entries = getattr(self, '_llm_entries', 0) + len(items)
+
         results: List[MatchResult] = []
-        already_split: Dict[str, Tuple[float, float]] = {}
+        already_split:    Dict[str, float] = {}       # anc_key -> punto di split
+        split_roles_used: Dict[str, Set[str]] = {}     # anc_key -> {'split_first','split_second'} già emessi
 
         for item in items:
             try:
@@ -864,61 +1267,40 @@ class SubtitleSynchronizer:
                 if ext is None:
                     continue
 
-                # Usa valori LLM se plausibili (> 0 e start < end)
-                if new_start >= 0.0 and new_end > new_start:
-                    results.append(MatchResult(
-                        external_index=ext.index,
-                        anchor_indices=[
-                            int(aid[1:]) for aid in anchor_ids if aid in anchor_map
-                        ],
-                        new_start_sec=new_start,
-                        new_end_sec=new_end,
-                        match_type=match_type,
-                        confidence=confidence,
-                    ))
-                    continue
+                # match_type PRIMA della scorciatoia sui timestamp: la
+                # grammar GBNF rende new_start_sec/new_end_sec obbligatori,
+                # quindi anche un 'no_match' esplicito o uno split arrivano
+                # sempre con timestamp validi (spesso IDENTICI per le due
+                # metà di uno split) — controllarli per primi li accettava
+                # come match diretto, rendendo il ramo split sotto codice
+                # morto e onorando 'no_match' solo per caso (quando l'LLM
+                # emetteva 0.0/0.0).
+                if match_type == 'no_match':
+                    continue   # resta irrisolto -> _interpolate_fallback
 
-                # LLM non ha fornito timestamp: calcoliamo noi in base al match_type
-                if not anchor_ids:
-                    continue
-                first_anc = anchor_map.get(anchor_ids[0])
-                if first_anc is None:
-                    continue
+                if match_type in ('split_first', 'split_second'):
+                    if not anchor_ids:
+                        continue
+                    anc_key = anchor_ids[0]
+                    anc     = anchor_map.get(anc_key)
+                    if anc is None:
+                        continue
 
-                if match_type in ('direct', 'merged'):
-                    last_anc = anchor_map.get(anchor_ids[-1], first_anc)
-                    results.append(MatchResult(
-                        external_index=ext.index,
-                        anchor_indices=[int(a[1:]) for a in anchor_ids if a in anchor_map],
-                        new_start_sec=first_anc.start_seconds,
-                        new_end_sec=last_anc.end_seconds,
-                        match_type=match_type,
-                        confidence=confidence,
-                    ))
-
-                elif match_type in ('split_first', 'split_second'):
-                    anc      = first_anc
-                    anc_key  = anchor_ids[0]
-                    duration = anc.end_seconds - anc.start_seconds
+                    # 3+ split sullo stesso anchor: already_split memorizza
+                    # UN solo punto di taglio binario, un terzo/quarto
+                    # richiedente riceverebbe timestamp duplicati con un
+                    # altro. Meglio lasciarlo irrisolto (interpolato dopo)
+                    # che scrivere due cue identiche.
+                    if match_type in split_roles_used.get(anc_key, set()):
+                        continue
 
                     if anc_key in already_split:
-                        split_pt = already_split[anc_key][1]
+                        split_pt    = already_split[anc_key]
+                        newly_split = False
                     else:
-                        # Cerca il partner (split_second o split_first)
-                        partner_ext = next(
-                            (
-                                e for e in external_win
-                                if e.index != ext.index
-                                and f"E{e.index}" in {
-                                    str(it.get('ext_id', ''))
-                                    for it in items
-                                    if anchor_ids
-                                    and str(it.get('anchor_ids', [''])[0]) == anc_key
-                                    and it.get('ext_id') != ext_id
-                                }
-                            ),
-                            None,
-                        )
+                        partner_id  = self._find_split_partner(items, anc_key, ext_id)
+                        partner_ext = external_map.get(partner_id) if partner_id else None
+                        duration    = anc.end_seconds - anc.start_seconds
                         len_self    = len(ext.text)
                         len_partner = len(partner_ext.text) if partner_ext else len_self
                         ratio_self  = len_self / max(len_self + len_partner, 1)
@@ -931,37 +1313,107 @@ class SubtitleSynchronizer:
                                 anc.start_seconds + 0.1,
                                 min(raw_split, anc.end_seconds - 0.1),
                             )
-                        already_split[anc_key] = (anc.start_seconds, split_pt, anc.end_seconds)
+                        newly_split = True
 
                     if match_type == 'split_first':
                         s, e = anc.start_seconds, split_pt
                     else:
                         s, e = split_pt, anc.end_seconds
 
+                    # GATE DI OFFSET ANCHE SUGLI SPLIT. Il gate `_plausible`
+                    # sotto copre solo i rami direct/merged: uno split
+                    # allucinato — stesso identico errore, ma dichiarato con
+                    # un altro match_type — passava del tutto libero, perché
+                    # i suoi timestamp sono ricavati dall'anchor e quindi
+                    # sempre dentro i bound della finestra. Misurato in
+                    # simulazione avversaria (1200 righe, desync 9,5s,
+                    # allucinazioni al 30%): errore massimo 176s e 14% delle
+                    # righe oltre 30s, contro i 38,5s di errore massimo
+                    # (= max_offset + desync reale, il limite matematico del
+                    # gate) quando le stesse allucinazioni escono come
+                    # 'direct'. Qui si applica SOLO il vincolo di offset e
+                    # non `_plausible` per intero: le due metà di uno split
+                    # sono legittimamente più brevi di 0,1s su anchor molto
+                    # corti, e i bound di finestra sono già garantiti per
+                    # costruzione (s,e vengono dall'anchor stesso).
+                    if abs(s - ext.start_seconds) > max_offset:
+                        self._gate_rejected = getattr(self, '_gate_rejected', 0) + 1
+                        continue
+
+                    # Lo stato di split si registra SOLO su un match
+                    # accettato: memorizzare il punto di taglio di uno split
+                    # poi scartato lo farebbe riusare tale e quale dal
+                    # partner legittimo, che invece deve ricalcolarlo sul
+                    # proprio testo.
+                    if newly_split:
+                        already_split[anc_key] = split_pt
+                    split_roles_used.setdefault(anc_key, set()).add(match_type)
+
                     results.append(MatchResult(
                         external_index=ext.index,
-                        anchor_indices=[int(anc_key[1:])],
+                        anchor_indices=[anc.index],
                         new_start_sec=s,
                         new_end_sec=e,
                         match_type=match_type,
                         confidence=confidence,
                     ))
+                    continue
+
+                # direct / merged / qualunque altro valore: usa i timestamp
+                # dell'LLM SOLO se geometricamente plausibili rispetto alla
+                # finestra E all'offset atteso, altrimenti ricalcola dagli
+                # anchor indicati.
+                if _plausible(new_start, new_end, ext):
+                    results.append(MatchResult(
+                        external_index=ext.index,
+                        anchor_indices=[
+                            int(aid[1:]) for aid in anchor_ids if aid in anchor_map
+                        ],
+                        new_start_sec=new_start,
+                        new_end_sec=new_end,
+                        match_type=match_type,
+                        confidence=confidence,
+                    ))
+                    continue
+
+                if not anchor_ids:
+                    self._gate_rejected = getattr(self, '_gate_rejected', 0) + 1
+                    continue
+                first_anc = anchor_map.get(anchor_ids[0])
+                if first_anc is None:
+                    self._gate_rejected = getattr(self, '_gate_rejected', 0) + 1
+                    continue
+                last_anc = anchor_map.get(anchor_ids[-1], first_anc)
+                # 'merged' deve coprire anchor ADIACENTI (l'external combina
+                # righe consecutive) — un merge fra anchor lontani nella
+                # finestra è la stessa allucinazione del gate sopra, solo
+                # senza timestamp diretti da controllare. Senza questo
+                # controllo un 'merged' con anchor_ids sbagliati produce
+                # comunque un intervallo enorme (osservato: 52s), che il
+                # gate su new_start/new_end non intercetta perché qui non
+                # stiamo usando i timestamp dell'LLM ma quelli ricalcolati.
+                if match_type == 'merged' and abs(last_anc.index - first_anc.index) > 2:
+                    self._gate_rejected = getattr(self, '_gate_rejected', 0) + 1
+                    continue
+                if not _plausible(first_anc.start_seconds, last_anc.end_seconds, ext):
+                    self._gate_rejected = getattr(self, '_gate_rejected', 0) + 1
+                    continue
+                results.append(MatchResult(
+                    external_index=ext.index,
+                    anchor_indices=[int(a[1:]) for a in anchor_ids if a in anchor_map],
+                    new_start_sec=first_anc.start_seconds,
+                    new_end_sec=last_anc.end_seconds,
+                    match_type=match_type,
+                    confidence=confidence,
+                ))
 
             except Exception as parse_err:
                 logger.debug(f"Skip item malformato: {parse_err}")
                 continue
 
-        # Entry no_match o con ext_id non trovato → fallback posizionale
-        resolved     = {mr.external_index for mr in results}
-        unresolved_w = [e for e in external_win if e.index not in resolved]
-        if unresolved_w:
-            results.extend(
-                self._positional_fallback(list(anchor_win), unresolved_w, resolved)
-            )
-
         return results
 
-    # ── Helper: fallback posizionale ──────────────────────────────────────────
+    # ── Helper: fallback posizionale / interpolazione ────────────────────────
 
     def _positional_fallback(
         self,
@@ -991,6 +1443,71 @@ class SubtitleSynchronizer:
             ))
         return results
 
+    def _interpolate_fallback(
+        self,
+        all_externals: List[SyncSubtitle],
+        results:       Dict[int, MatchResult],
+        anchors:       List[SyncSubtitle],
+    ) -> List[MatchResult]:
+        """
+        Fallback per i sottotitoli esterni non risolti da nessuna finestra
+        Qwen: interpola lo SHIFT (nuovo_start − vecchio_start) dai vicini
+        RISOLTI più prossimi, ordinati per posizione originale — non per
+        rapporto d'indice sul sottoinsieme dei non risolti
+        (_positional_fallback), che sparge un pugno di righe sparse su TUTTO
+        l'arco degli anchor: con un solo external non risolto in tutto il
+        file, quel calcolo lo sposta sempre all'inizio (ratio=0/max(0,1)=0),
+        qualunque fosse la sua posizione reale. La durata originale della
+        riga viene conservata (non quella dell'anchor, che può essere molto
+        diversa).
+        """
+        order = sorted(all_externals, key=lambda e: e.start_seconds)
+        shifts: List[Tuple[int, float]] = [
+            (i, results[e.index].new_start_sec - e.start_seconds)
+            for i, e in enumerate(order)
+            if e.index in results
+        ]
+        if not shifts:
+            # Nessun vicino risolto in TUTTO il file: non c'è nulla da
+            # interpolare — ultima spiaggia il posizionale totale (per
+            # rapporto d'indice, senza alcuna garanzia semantica). Logga
+            # esplicitamente: il chiamante annuncia genericamente "fallback
+            # per interpolazione", che qui sarebbe fuorviante — è il
+            # caso peggiore della pipeline, non un'interpolazione affidabile.
+            self._log(
+                "  ⚠️ Nessun sottotitolo risolto da Qwen in tutto il file — "
+                "fallback POSIZIONALE TOTALE (per rapporto d'indice, senza "
+                "garanzia semantica): il file va verificato a mano."
+            )
+            return self._positional_fallback(anchors, all_externals, set(results))
+
+        out: List[MatchResult] = []
+        for i, e in enumerate(order):
+            if e.index in results:
+                continue
+            prev_shift = next(((j, s) for j, s in reversed(shifts) if j <= i), None)
+            next_shift = next(((j, s) for j, s in shifts if j >= i), None)
+            if prev_shift and next_shift:
+                (jp, sp), (jn, sn) = prev_shift, next_shift
+                shift = sp if jp == jn else sp + (i - jp) / (jn - jp) * (sn - sp)
+            elif prev_shift:
+                shift = prev_shift[1]
+            elif next_shift:
+                shift = next_shift[1]
+            else:
+                shift = 0.0
+            dur = e.end_seconds - e.start_seconds
+            new_start = max(0.0, e.start_seconds + shift)
+            out.append(MatchResult(
+                external_index=e.index,
+                anchor_indices=[],
+                new_start_sec=new_start,
+                new_end_sec=new_start + dur,
+                match_type='interpolated',
+                confidence=0.3,
+            ))
+        return out
+
     # ── Helper: gender correction ─────────────────────────────────────────────
 
     def _run_gender_correction(self) -> None:
@@ -1002,10 +1519,23 @@ class SubtitleSynchronizer:
             args_path = self.file_handler.get_temp_path(
                 self.video_path, "sync_gender_args.json"
             )
+            # "original_srt"/"character_context" sono chiavi del vecchio
+            # motore, ignorate da core/gender_corrector_cli.py (v2): la
+            # chiave che serve davvero è "video_path", da cui si costruisce
+            # la speaker gender map dall'audio. Senza — come prima di questo
+            # fix — gender_corrector_v2 non ha nulla da cui correggere,
+            # ritorna comunque successo (exit 0) copiando il file INVARIATO,
+            # e questo metodo lo registrava come "Correzione genere
+            # applicata" quando in realtà non aveva fatto nulla, pagando
+            # comunque lo spawn del subprocess + venv NLP per zero risultato.
+            # character_context vuoto (qui non c'è metadata TMDB, a
+            # differenza della pipeline principale) degrada solo i vocativi
+            # di 2a persona, non la correzione di 1a persona dall'audio.
             args_payload = {
                 "input_srt":         str(self._output_path),
                 "output_srt":        str(corrected),
-                "original_srt":      None,
+                "video_path":        str(self.video_path),
+                "diarization_json":  None,
                 "character_context": {},
             }
             args_path.write_text(
@@ -1048,8 +1578,20 @@ class SubtitleSynchronizer:
 
             if not self._cancelled and return_code == 0 and corrected.exists():
                 import shutil
+                # gender_corrector_v2 ritorna successo anche quando non ha
+                # potuto correggere nulla (es. video_path assente), copiando
+                # il file INVARIATO: un confronto dei byte distingue una
+                # correzione vera da un no-op silenzioso, invece di
+                # dichiarare sempre "applicata".
+                try:
+                    unchanged = corrected.read_bytes() == self._output_path.read_bytes()
+                except Exception:
+                    unchanged = False
                 shutil.copy2(str(corrected), str(self._output_path))
-                self._log("  Correzione genere applicata.")
+                if unchanged:
+                    self._log("  Correzione genere: nessuna modifica necessaria.")
+                else:
+                    self._log("  Correzione genere applicata.")
             elif not self._cancelled:
                 self._log(
                     f"  ⚠️ Correzione genere fallita (exit {return_code}). Uso originale."
