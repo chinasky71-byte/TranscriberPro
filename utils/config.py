@@ -155,6 +155,17 @@ class Config:
         # Gender Correction (LLM post-traduzione)
         'gender_correction_enabled': False,
         'gender_correction_model_path': '',
+        # Serbatoio di traduzione (L3): modello Qwen di ripiego per le righe
+        # che sopravvivono a unmask tollerante + retry senza masking. Vuota
+        # per default -> get_fallback_translator_model_path() ricade sul
+        # modello del gender corrector (stesso GGUF, nessun download extra).
+        'fallback_translator_model_path': '',
+
+        # Motore del serbatoio: 'auto' lascia scegliere alla classe del
+        # motore primario (ramo LLM -> NLLB fine-tuned, ramo NLLB -> Qwen),
+        # che è sempre un modello DIVERSO da quello che ha già fallito.
+        # 'qwen' o 'nllb_ft' forzano la scelta.
+        'reservoir_engine': 'auto',
 
         # Subtitle Synchronization ("Anchor & Match" pipeline)
         'sync_src_language':           'en',   # lingua embedded anchor (ISO 639-1)
@@ -668,6 +679,35 @@ class Config:
             return False
         p = self.get('gender_correction_model_path', '')
         return bool(p) and Path(p).exists()
+
+    def get_fallback_translator_model_path(self) -> str:
+        """Modello Qwen del serbatoio di traduzione (L3). Se non configurato
+        esplicitamente ricade sul modello del gender corrector: stesso GGUF,
+        stessa infrastruttura di caricamento, nessun download aggiuntivo per
+        chi non ha mai toccato questa chiave."""
+        p = self.get('fallback_translator_model_path', '')
+        if p and Path(p).exists():
+            return p
+        return self.get('gender_correction_model_path', '')
+
+    def set_fallback_translator_model_path(self, path: str):
+        self.set('fallback_translator_model_path', str(path))
+
+    VALID_RESERVOIR_ENGINES = ('auto', 'qwen', 'nllb_ft')
+
+    def get_reservoir_engine(self) -> str:
+        """Motore del serbatoio di traduzione (L3). Vedi la nota sulla chiave
+        nei default: 'auto' delega alla classe del motore primario."""
+        v = str(self.get('reservoir_engine', 'auto') or 'auto').lower()
+        return v if v in self.VALID_RESERVOIR_ENGINES else 'auto'
+
+    def set_reservoir_engine(self, engine: str):
+        e = str(engine or 'auto').lower()
+        if e not in self.VALID_RESERVOIR_ENGINES:
+            raise ValueError(
+                f"Motore del serbatoio non valido: {engine}. "
+                f"Ammessi: {', '.join(self.VALID_RESERVOIR_ENGINES)}")
+        self.set('reservoir_engine', e)
 
     # ========================================================================
     # METODI HELPER per Adaptive Batch Size

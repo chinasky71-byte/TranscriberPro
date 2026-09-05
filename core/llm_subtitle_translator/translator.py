@@ -37,6 +37,18 @@ TOKENS_PER_BLOCK = 70      # stima larga: una battuta italiana sta in molto meno
 MIN_NEW_TOKENS = 256
 HISTORY_DEPTH = 4
 
+# Issue bloccanti che rendono l'output INSERVIBILE (non solo imperfetto): un
+# blocco che le porta ancora dopo il retry singolo va segnalato al chiamante
+# invece di restare silenziosamente nei risultati con il testo del primo
+# tentativo. Deliberatamente stretto: `too_short`/`too_long` premiano/puniscono
+# la condensazione (vedi il commento in testa a validator.py sulla soglia
+# 0.35 ritirata perché puniva la condensazione corretta), `over_budget` lo
+# sistema il post-processing, `softened_profanity`/`glossary` sono difetti di
+# resa, non di traduzione mancata: allargare questo insieme moltiplicherebbe
+# il traffico verso i livelli di recupero successivi per comportamenti che
+# non sono il bug che stiamo chiudendo.
+UNUSABLE_CODES = {"empty", "wrong_language", "copy_through", "degenerate"}
+
 
 class SubtitleLLMTranslator:
     """Traduce una lista di blocchi con un LLM, con rete di sicurezza."""
@@ -79,6 +91,13 @@ class SubtitleLLMTranslator:
         # Quali controlli scattano, e quante volte: serve a distinguere un
         # modello che sbaglia da un validatore troppo severo.
         self.issue_counts: Dict[str, int] = {}
+        # Id dei blocchi il cui output resta INSERVIBILE (UNUSABLE_CODES)
+        # anche dopo il retry singolo — o il cui output è vuoto. Popolato da
+        # `_translate_mt`, consumato dal chiamante (`core/translator.py`,
+        # `LLMSubtitleTranslator.translate_file`) per instradarli ai livelli
+        # di recupero successivi (L2/L3) invece di lasciarli silenziosamente
+        # nel dict dei risultati con il testo del primo tentativo fallito.
+        self.unresolved_ids: set = set()
 
     def log(self, message: str) -> None:
         logger.info(message)
@@ -161,6 +180,14 @@ class SubtitleLLMTranslator:
         davvero: un 12B fa circa tre secondi a battuta, quindi un film intero
         sono ore e non minuti.
         """
+        # Modalità silenziosa: `_translate_mt` viene richiamato una seconda
+        # volta dal livello di recupero L2 (core/translator.py, fase B) su
+        # una manciata di blocchi. Senza questa guardia la barra ripartirebbe
+        # da 0% DOPO che quella della traduzione principale è già arrivata a
+        # 100%: la GUI riscrive in-place le righe `Traduzione: [`, quindi a
+        # schermo sembrerebbe che la traduzione ricominci da capo.
+        if getattr(self, "_quiet_bar", False):
+            return
         import time as _t
         trascorso = _t.time() - t0
         if chiuso:
@@ -348,30 +375,76 @@ class SubtitleLLMTranslator:
             self._record(issues)
 
             # Riprova una volta sola i blocchi difettosi, singolarmente.
+            issues_by_id: Dict[int, List] = {}
+            for issue in issues:
+                if issue.id is not None:
+                    issues_by_id.setdefault(issue.id, []).append(issue)
             bad = {x.id for x in blocking(issues) if x.id is not None}
             for unit in [u for u in batch if u.id in bad]:
                 self.stats["retry_single"] += 1
+
+                def _mark_if_unusable(codes) -> None:
+                    if {c.code for c in codes} & UNUSABLE_CODES:
+                        self.unresolved_ids.add(unit.id)
+
                 try:
                     retry = self.engine.generate(
                         [self._mt_prompt(unit)], max_new_tokens=max_new)[0]
                 except Exception:
+                    # Il PRIMO tentativo resta in `results` (riga 342): se era
+                    # inservibile, va comunque segnalato — senza questo un
+                    # copy-through che il retry non ha nemmeno potuto tentare
+                    # sopravviverebbe silenzioso nell'output finale.
+                    _mark_if_unusable(issues_by_id.get(unit.id, []))
                     continue
                 if retry.strip():
                     single = {unit.id: retry.strip()}
-                    if not blocking(validate([unit], single, glossary=self.glossary)):
+                    still = validate([unit], single, glossary=self.glossary)
+                    if not blocking(still):
                         results[unit.id] = retry.strip()
+                    else:
+                        # Il retry non ha risolto il problema: NON si tiene il
+                        # suo output (potrebbe essere peggio del primo), ma si
+                        # marca il blocco come da recuperare a un livello
+                        # superiore invece di lasciare in `results` il testo
+                        # del primo tentativo senza che nessuno lo sappia.
+                        _mark_if_unusable(still)
+                else:
+                    _mark_if_unusable(issues_by_id.get(unit.id, []))
 
             prev, i = i, i + len(batch)
             if i * 100 // total != prev * 100 // total or i >= total:
                 self._bar(i, total, t0)
 
+        # Blocchi usciti vuoti dal motore primario: marcati come da recuperare
+        # a un livello superiore, esattamente come i copy-through/wrong_language
+        # sopra. PRIMA chiamava `self._apply_fallback(...)`, un metodo mai
+        # definito da nessuna parte del progetto: qualunque blocco vuoto
+        # faceva sollevare AttributeError, risalito fino a `translate_file`
+        # (core/translator.py) e trasformato in `return False` — cioè faceva
+        # fallire la traduzione dell'INTERO file per un singolo blocco vuoto.
         failed = [u for u in units if not results.get(u.id, "").strip()]
-        if failed:
-            results.update(self._apply_fallback(failed, {}))
+        for u in failed:
+            self.unresolved_ids.add(u.id)
+        if failed and self.fallback:
+            try:
+                fallback_texts = self.fallback([u.text for u in failed])
+                for u, text in zip(failed, fallback_texts):
+                    if text and text.strip():
+                        results[u.id] = text.strip()
+                        self.unresolved_ids.discard(u.id)
+                        self.stats["fallback_blocks"] += 1
+            except Exception as exc:
+                logger.warning(f"Fallback callback fallito: {exc}")
+        self.stats["unresolved"] = len(self.unresolved_ids)
 
         self._bar(total, total, t0, chiuso=True)
-        self.log(f"  Completato in {(time.time() - t0) / 60:.1f} min | "
-                 f"batch {self.stats['batch']} | retry "
-                 f"{self.stats['retry_single']} | fallback "
-                 f"{self.stats['fallback_blocks']}")
+        if getattr(self, "_quiet_bar", False):
+            self.log(f"  Recupero senza mascheramento: {total} blocchi in "
+                     f"{(time.time() - t0) / 60:.1f} min")
+        else:
+            self.log(f"  Completato in {(time.time() - t0) / 60:.1f} min | "
+                     f"batch {self.stats['batch']} | retry "
+                     f"{self.stats['retry_single']} | fallback "
+                     f"{self.stats['fallback_blocks']}")
         return results
