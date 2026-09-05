@@ -142,6 +142,52 @@ class SubtitleLLMTranslator:
             log_callback=None,
         )
 
+    # Oltre questo rapporto rispetto al ritmo migliore del file, la
+    # generazione sta andando a una frazione della velocità di cui è capace.
+    SLOWDOWN_TRIP = 2.0
+    # Prima di poter avvisare servono almeno tanti campioni: il primo batch
+    # paga l'autotuning dei kernel e non è un riferimento onesto.
+    SLOW_MIN_SAMPLES = 3
+
+    def _check_throughput(self, seconds: float, chars: int) -> None:
+        """Dice quando la generazione sta andando piano. Segnala e basta.
+
+        Stesso punto cieco del ramo NLLB, e qui con una storia alle spalle:
+        su questo ramo lo sconfinamento in RAM di sistema su WDDM è già stato
+        osservato, e la sua unica firma documentata è "il tempo per blocco che
+        RISALE" — non un OOM, che il driver Windows non solleva perché serve
+        l'allocazione dalla memoria condivisa.
+
+        Il denominatore sono i CARATTERI generati, non i token: il motore
+        restituisce testo, non tensori, e per una lingua fissa i due sono
+        proporzionali. Quel che conta è il rapporto con il ritmo migliore
+        dello stesso file, non il valore assoluto.
+
+        Non agisce sul batch. Misurato sul ramo NLLB (run contese del
+        2026-09-05): sotto contesa di un altro processo ridurre il batch
+        peggiora il tempo del 62%. Qui serve saperlo, non reagire.
+        """
+        try:
+            if chars <= 0 or seconds <= 0 or getattr(self, "_quiet_bar", False):
+                return
+            ms_per_char = seconds * 1000.0 / chars
+            self._slow_samples = getattr(self, "_slow_samples", 0) + 1
+            base = getattr(self, "_ms_char_base", None)
+            if base is None or ms_per_char < base:
+                self._ms_char_base = ms_per_char
+                return
+            if (base > 0 and self._slow_samples >= self.SLOW_MIN_SAMPLES
+                    and ms_per_char > base * self.SLOWDOWN_TRIP
+                    and not getattr(self, "_slow_warned", False)):
+                self._slow_warned = True
+                self.log(
+                    f"  ⚠️ Generazione rallentata {ms_per_char / base:.1f}× "
+                    f"rispetto al ritmo migliore di questo file. Di solito "
+                    f"significa che un altro processo sta usando la GPU."
+                )
+        except Exception as exc:
+            logger.debug(f"_check_throughput: {exc}")
+
     def _record_ok(self) -> None:
         if self._batch_mgr is not None:
             self._batch_mgr.record_success()
@@ -355,6 +401,8 @@ class SubtitleLLMTranslator:
             # Il prompt nativo lo costruisce il motore: TranslateGemma vuole
             # un content strutturato coi codici lingua, gli altri una frase.
             conversations = [self._mt_prompt(u) for u in batch]
+            _t_gen = time.time()
+            _generated = True
             try:
                 outputs = self.engine.generate(conversations,
                                                max_new_tokens=max_new)
@@ -364,6 +412,12 @@ class SubtitleLLMTranslator:
                                f"blocchi: {exc}")
                 self._record_failure(exc)
                 outputs = [""] * len(batch)
+                _generated = False
+            if _generated:
+                # Fuori dal try: una misura non deve poter essere scambiata
+                # per un fallimento di generazione.
+                self._check_throughput(time.time() - _t_gen,
+                                       sum(len(t or "") for t in outputs))
 
             for unit, text in zip(batch, outputs):
                 results[unit.id] = text.strip()
