@@ -3064,11 +3064,12 @@ def get_translator(model_type: Optional[str] = None, context: Optional[str] = No
             if not creds.get('api_key'):
                 logger.warning("OpenSubtitles AI: credenziali mancanti, fallback su NLLB")
                 return NLLBTranslator(context=context, glossary=glossary)
+            from utils.subtitle_uploader_interface import OPENSUBTITLES_USER_AGENT
             return OpenSubtitlesAITranslator(
                 api_key=creds['api_key'],
                 username=creds.get('username', ''),
                 password=creds.get('password', ''),
-                user_agent=creds.get('user_agent', 'TranscriberPro v1.1.0'),
+                user_agent=creds.get('user_agent', OPENSUBTITLES_USER_AGENT),
                 context=context,
             )
         except Exception as e:

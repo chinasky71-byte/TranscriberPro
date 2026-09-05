@@ -3,6 +3,51 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.13.0] — 2026-09-05
+
+### Fix: upload OpenSubtitles — funzionante per la prima volta, verificato con 4 upload reali
+- **Causa radice**: `utils/opensubtitles_xmlrpc_uploader.py` comprimeva
+  `subcontent` con gzip; il protocollo XML-RPC di opensubtitles.org si aspetta
+  zlib. Il server decomprimeva a stringa vuota → sia "403 SubHashes non
+  corrispondono" sia "402 formato non valido" da un'unica causa. Corretto
+  (`zlib.compress`) e verificato con 4 upload reali riusciti (Brilliant Minds
+  S02E17-E20, IDSubtitle 14025912/14025925/14025926/14025927).
+- opensubtitles.org e opensubtitles.com sono account separati con credenziali
+  proprie: nuove chiavi config dedicate `opensubtitles_xmlrpc_username`/
+  `_password` (`utils/config.py`) + campi Opzioni separati
+  (`gui/opensubtitles_settings_widget.py`). La diagnosi storica "User-Agent
+  non registrato" per il 401 di XML-RPC era sbagliata (quella registrazione
+  non è più disponibile dal 2022): `authenticate()` ora riporta "credenziali
+  sbagliate per questo account".
+- L'endpoint REST `/upload` usato dal codice non esisteva (404, percorso
+  inventato). Il percorso reale `/api/v1/subtitles/upload` risponde
+  `403 uploads_not_enabled` per API key normali — funzione opt-in, va
+  richiesta a OpenSubtitles. Costante corretta; REST non è più il default
+  per l'upload (lo è XML-RPC), rimosso il fallback automatico verso REST
+  (non poteva mai funzionare, indipendentemente dall'esito XML-RPC).
+- `utils/tmdb_client.py`: IMDb ID di episodio (non solo di serie) per gli
+  upload di serie TV, via `external_ids` per-episodio con fallback a quello
+  di serie.
+- `core/pipeline.py`: tabella esplicita ISO 639-1→639-2 per l'upload (prima
+  una dict-comprehension d'inversione sceglieva il codice sbagliato per
+  tedesco/olandese/ceco/**rumeno→russo**/greco); `utils/opensubtitles_rest_uploader.py`
+  ritorna `None` su codice lingua non mappato invece di indovinare — l'upload
+  si interrompe invece di inviare la lingua sbagliata.
+- Fix crash: "Test connessione" con credenziali incomplete sollevava
+  `AttributeError` fuori dal `try/except` del metodo, abbattendo l'app.
+- Rimossi `utils/opensubtitles_client.py`, `utils/opensubtitles_integration.py`,
+  `utils/opensubtitles_config.py` (mai usati in produzione; uno di questi
+  fingeva sempre successo senza chiamare alcuna API).
+- Altri: credenziali non salvate cancellate cambiando metodo API; tooltip
+  non aggiornato; gate credenziali del traduttore "OpenSubtitles AI"
+  disallineato da quello dell'upload; controllo duplicati ridondante con
+  quello già interno all'upload XML-RPC.
+
+**Nota**: un test diagnostico dal vivo contro l'API reale (prima del fix) ha
+pubblicato anonimamente un sottotitolo grezzo (non ripulito) per l'episodio
+S02E17 — resta online accanto a quello corretto, non rimovibile da codice
+(nessun account associato), segnalazione a OpenSubtitles necessaria.
+
 ## [1.12.2] — 2026-09-05
 
 ### Fix: strumento glossario per-show — cartelle stagione, subprocess GPU orfano, contesa GPU con la coda

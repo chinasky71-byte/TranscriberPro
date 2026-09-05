@@ -15,8 +15,6 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 import os
 import struct
-import urllib.parse
-import time
 import gzip
 import base64
 import hashlib
@@ -25,7 +23,8 @@ import hashlib
 from utils.subtitle_uploader_interface import (
     SubtitleUploaderInterface,
     SubtitleMetadata,
-    UploaderFactory
+    UploaderFactory,
+    OPENSUBTITLES_USER_AGENT
 )
 
 # --- CONFIGURAZIONE LOGGING ---
@@ -65,8 +64,14 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
     
     BASE_URL = "https://api.opensubtitles.com/api/v1"
     LOGIN_URL = f"{BASE_URL}/login"
-    LOGOUT_URL = f"{BASE_URL}/logout"
-    UPLOAD_URL = f"{BASE_URL}/upload"
+    # NOTA: non è /upload (path inventato, il gateway rispondeva 404 "route
+    # not found" — la richiesta non arrivava nemmeno all'applicazione). Il
+    # path reale è /subtitles/upload, ma per i consumer normali risponde
+    # 403 {"error_code":"uploads_not_enabled"}: va richiesta l'abilitazione
+    # a OpenSubtitles (contact/support) prima che sia utilizzabile. Non è
+    # documentato pubblicamente: schema del body verificato solo per
+    # tentativi, non garantito.
+    UPLOAD_URL = f"{BASE_URL}/subtitles/upload"
     
     def __init__(
         self,
@@ -86,7 +91,7 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
         """
         self.username = username
         self.password = password
-        self.user_agent = user_agent or "TranscriberPro v1.1.0"
+        self.user_agent = user_agent or OPENSUBTITLES_USER_AGENT
         self.api_key = api_key
         self.jwt_token: Optional[str] = None
         self.base_url: Optional[str] = None
@@ -134,15 +139,13 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
     def authenticate(self) -> bool:
         """
         Esegue login per ottenere JWT Token
-        
+
         Il JWT token è richiesto per tutte le operazioni di upload.
         Ha una scadenza limitata (controllare documentazione API).
-        
+
         Questo metodo invia il payload JSON codificato in UTF-8 (ensure_ascii=False)
-        per preservare i caratteri speciali. Se si riceve 401, effettua un retry
-        con la password percent-encoded (URL-escaped) per compatibilità con
-        endpoint che interpretianno male alcuni caratteri.
-        
+        per preservare i caratteri speciali.
+
         Returns:
             True se login riuscito e token ottenuto
         """
@@ -193,90 +196,19 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
             logger.info(f"Response Headers: {dict(response.headers)}")
             
             if not response.ok:
-                # Se riceviamo 401, proviamo un retry con password percent-encoded,
-                # nel caso in cui il server interpreti male alcuni caratteri speciali.
-                if response.status_code == 401:
-                    logger.warning("⚠️  Ricevuto 401 durante primo tentativo di login.")
-                    logger.warning("      Effettuo retry automatico inviando la password percent-encoded.")
-                    
-                    # Prepariamo payload con password percent-encoded
-                    encoded_pw = urllib.parse.quote_plus(self.password, safe='')
-                    retry_payload = {
-                        'username': self.username.lower(),
-                        'password': encoded_pw
-                    }
-                    safe_headers_2 = headers.copy()
-                    if 'Api-Key' in safe_headers_2:
-                        safe_headers_2['Api-Key'] = safe_headers_2['Api-Key'][:8] + '...'
-                    logger.info("Retry URL: " + self.LOGIN_URL)
-                    logger.info(f"Retry Headers: {json.dumps(safe_headers_2, indent=2)}")
-                    logger.info("Retry Payload: {'username': '<redacted>', 'password': '<percent-encoded>'}")
-                    
-                    # Rispetta Retry-After dalla risposta 401 (default 1.5s per il rate limit 1 req/sec)
-                    retry_after = float(response.headers.get('Retry-After', 1.5))
-                    logger.info(f"Attesa {retry_after}s prima del retry (Retry-After header)...")
-                    time.sleep(retry_after)
-                    retry_body = json.dumps(retry_payload, ensure_ascii=False).encode('utf-8')
-                    try:
-                        response_retry = requests.post(
-                            self.LOGIN_URL,
-                            headers=headers,
-                            data=retry_body,
-                            timeout=30
-                        )
-                    except requests.exceptions.RequestException as e:
-                        logger.error(f"❌ Retry login fallito: {e}")
-                        return False
-                    
-                    logger.info(f"Retry Response Status: {response_retry.status_code}")
-                    logger.info(f"Retry Response Headers: {dict(response_retry.headers)}")
-                    
-                    if not response_retry.ok:
-                        logger.error("=" * 80)
-                        logger.error(f"❌ LOGIN FAILED AFTER RETRY - Status {response_retry.status_code}")
-                        logger.error("=" * 80)
-                        try:
-                            error_details = response_retry.json()
-                            logger.error("ERROR DETAILS:")
-                            logger.error(json.dumps(error_details, indent=2))
-                        except json.JSONDecodeError:
-                            logger.error("RAW ERROR RESPONSE:")
-                            logger.error(response_retry.text[:500] if len(response_retry.text) > 500 else response_retry.text)
-                        return False
-                    else:
-                        # Successo al retry
-                        try:
-                            data = response_retry.json()
-                        except json.JSONDecodeError:
-                            logger.error("❌ Login retry riuscito ma non è stato possibile parseare il JSON della risposta.")
-                            return False
-                        self.jwt_token = data.get('token')
-                        self.base_url = data.get('base_url', 'api.opensubtitles.com')
-                        self._upload_url = f"https://{self.base_url}/api/v1/upload"
-                        if self.jwt_token:
-                            logger.info("=" * 80)
-                            logger.info("✅ LOGIN SUCCESSFUL (after retry with percent-encoded password)")
-                            logger.info("=" * 80)
-                            logger.info(f"JWT Token (first 30 chars): {self.jwt_token[:30]}...")
-                            logger.info(f"Base URL: {self.base_url}")
-                            return True
-                        else:
-                            logger.error("❌ LOGIN FAILED - No token in retry response")
-                            return False
-                else:
-                    logger.error("=" * 80)
-                    logger.error(f"❌ LOGIN FAILED - Status {response.status_code}")
-                    logger.error("=" * 80)
-                    try:
-                        error_details = response.json()
-                        logger.error("ERROR DETAILS:")
-                        logger.error(json.dumps(error_details, indent=2))
-                    except json.JSONDecodeError:
-                        logger.error("RAW ERROR RESPONSE:")
-                        logger.error(response.text[:500] if len(response.text) > 500 else response.text)
-                    return False
-            
-            # Se response.ok al primo tentativo
+                logger.error("=" * 80)
+                logger.error(f"❌ LOGIN FAILED - Status {response.status_code}")
+                logger.error("=" * 80)
+                try:
+                    error_details = response.json()
+                    logger.error("ERROR DETAILS:")
+                    logger.error(json.dumps(error_details, indent=2))
+                except json.JSONDecodeError:
+                    logger.error("RAW ERROR RESPONSE:")
+                    logger.error(response.text[:500] if len(response.text) > 500 else response.text)
+                return False
+
+            # Se response.ok
             logger.info("=" * 80)
             logger.info("LOGIN RESPONSE BODY:")
             logger.info("=" * 80)
@@ -292,8 +224,8 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
             logger.info(json.dumps(data, indent=2))
             
             self.jwt_token = data.get('token')
-            self.base_url = data.get('base_url', 'api.opensubtitles.com')
-            self._upload_url = f"https://{self.base_url}/api/v1/upload"
+            self.base_url = data.get('base_url') or 'api.opensubtitles.com'
+            self._upload_url = f"https://{self.base_url}/api/v1/subtitles/upload"
 
             if self.jwt_token:
                 logger.info("=" * 80)
@@ -403,6 +335,10 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
             logger.info("📦 Compressione e codifica sottotitolo...")
             sub_content, sub_hash = self._prepare_subtitle(subtitle_path)
             lang2 = self._lang3_to_lang2(metadata.language_code)
+            if not lang2:
+                error_msg = f"Codice lingua non supportato per REST: {metadata.language_code!r}"
+                logger.error(f"❌ {error_msg}")
+                return False, error_msg
             imdb_numeric = str(int(metadata.imdb_id.replace('tt', '')))
 
             # Risolvi feature_id OS (più affidabile di imdb_id per gli episodi TV)
@@ -544,48 +480,41 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
                 logger.error("=" * 80)
                 logger.error(f"❌ UPLOAD FAILED - HTTP {status_code}")
                 logger.error("=" * 80)
-                
+
+                # Messaggi noti per status code — usati SEMPRE come fallback,
+                # indipendentemente dal fatto che il body sia JSON valido:
+                # l'API risponde quasi sempre JSON, quindi prima questi rami
+                # erano di fatto irraggiungibili e l'utente vedeva solo il
+                # messaggio generico preso da response_json['message'].
+                known_status_messages = {
+                    401: "JWT token scaduto (401) - riautenticarsi",
+                    402: "Formato sottotitolo invalido (402) - rimuovi URL o contenuti pubblicitari",
+                    403: "Accesso negato (403) - verifica credenziali e API key",
+                    406: "Metadata non accettati (406) - verifica formato",
+                    415: "Tipo file non supportato (415)",
+                    503: "OpenSubtitles non disponibile (503) - riprova più tardi",
+                }
+
+                api_message = None
                 try:
                     response_json = response.json()
                     logger.error("ERROR DETAILS (JSON):")
                     logger.error(json.dumps(response_json, indent=2))
-                    
-                    # Estrai messaggio di errore
-                    error_msg = response_json.get('message', f'Errore sconosciuto (Status {status_code})')
-                    
-                    # Log campi aggiuntivi se presenti
                     if 'errors' in response_json:
                         logger.error(f"Errors field: {response_json['errors']}")
                     if 'status' in response_json:
                         logger.error(f"Status field: {response_json['status']}")
-                    
-                    return False, f"Upload fallito: {error_msg}"
-                    
+                    api_message = response_json.get('message')
                 except json.JSONDecodeError:
                     logger.error("ERROR DETAILS (NON-JSON):")
                     logger.error(response_body[:1000] if len(response_body) > 1000 else response_body)
-                    
-                    # Gestisci errori noti
-                    if status_code == 401:
-                        logger.error("🔑 AUTHENTICATION ERROR - JWT token probabilmente scaduto")
-                        return False, "JWT token scaduto (401) - riautenticarsi"
-                    elif status_code == 402:
-                        logger.error("📝 SUBTITLE FORMAT ERROR - Contenuto non valido")
-                        return False, "Formato sottotitolo invalido (402) - rimuovi URL o contenuti pubblicitari"
-                    elif status_code == 403:
-                        logger.error("🚫 ACCESS DENIED - Verifica credenziali")
-                        return False, "Accesso negato (403) - verifica credenziali e API key"
-                    elif status_code == 406:
-                        logger.error("⚠️  NOT ACCEPTABLE - Formato metadata non accettato")
-                        return False, "Metadata non accettati (406) - verifica formato"
-                    elif status_code == 415:
-                        logger.error("📄 UNSUPPORTED MEDIA TYPE - Tipo file non supportato")
-                        return False, "Tipo file non supportato (415)"
-                    elif status_code == 503:
-                        logger.error("🔧 SERVICE UNAVAILABLE - Server in manutenzione")
-                        return False, "OpenSubtitles non disponibile (503) - riprova più tardi"
-                    else:
-                        return False, f"HTTP {status_code}: Risposta server non analizzabile"
+
+                error_msg = (
+                    api_message
+                    or known_status_messages.get(status_code)
+                    or f"HTTP {status_code}: Risposta server non analizzabile"
+                )
+                return False, error_msg
 
             # Caso 3: Successo con body (200 OK)
             logger.info("=" * 80)
@@ -667,7 +596,11 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
         if self.jwt_token:
             try:
                 headers = self._get_headers(include_content_type=False)
-                response = requests.delete(self.LOGOUT_URL, headers=headers, timeout=15)
+                # Usa l'host assegnato al login (vip-api.* per gli account VIP),
+                # non l'host fisso: un JWT emesso da vip-api può non essere
+                # riconosciuto da api.opensubtitles.com.
+                logout_url = f"https://{self.base_url or 'api.opensubtitles.com'}/api/v1/logout"
+                response = requests.delete(logout_url, headers=headers, timeout=15)
                 logger.info(f"🔓 Logout server: HTTP {response.status_code}")
             except Exception as e:
                 logger.warning(f"⚠️  Logout server fallito (token rimosso localmente): {e}")
@@ -770,19 +703,27 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
         return sub_content, sub_hash
 
     _LANG3_TO_LANG2 = {
-        'ita': 'it', 'eng': 'en', 'fra': 'fr', 'spa': 'es',
-        'deu': 'de', 'por': 'pt', 'pob': 'pt', 'rus': 'ru',
-        'zho': 'zh', 'jpn': 'ja', 'kor': 'ko', 'ara': 'ar',
-        'nld': 'nl', 'pol': 'pl', 'swe': 'sv', 'nor': 'no',
-        'dan': 'da', 'fin': 'fi', 'hun': 'hu', 'ces': 'cs',
-        'slk': 'sk', 'ron': 'ro', 'bul': 'bg', 'hrv': 'hr',
-        'srp': 'sr', 'tur': 'tr', 'ell': 'el', 'heb': 'he',
-        'ukr': 'uk', 'cat': 'ca', 'vie': 'vi', 'ind': 'id',
+        'ita': 'it', 'eng': 'en', 'fra': 'fr', 'fre': 'fr', 'spa': 'es',
+        'deu': 'de', 'ger': 'de', 'por': 'pt', 'pob': 'pt', 'rus': 'ru',
+        'zho': 'zh', 'chi': 'zh', 'jpn': 'ja', 'kor': 'ko', 'ara': 'ar',
+        'nld': 'nl', 'dut': 'nl', 'pol': 'pl', 'swe': 'sv', 'nor': 'no',
+        'dan': 'da', 'fin': 'fi', 'hun': 'hu', 'ces': 'cs', 'cze': 'cs',
+        'slk': 'sk', 'slo': 'sk', 'ron': 'ro', 'rum': 'ro', 'bul': 'bg',
+        'hrv': 'hr', 'srp': 'sr', 'tur': 'tr', 'ell': 'el', 'gre': 'el',
+        'heb': 'he', 'ukr': 'uk', 'cat': 'ca', 'vie': 'vi', 'ind': 'id',
+        'hin': 'hi', 'tha': 'th', 'slv': 'sl', 'bos': 'bs',
+        'lit': 'lt', 'lav': 'lv', 'est': 'et',
     }
 
-    def _lang3_to_lang2(self, lang3: str) -> str:
-        """Converte codice ISO 639-2 (3 lettere) in ISO 639-1 (2 lettere)."""
-        return self._LANG3_TO_LANG2.get(lang3.lower(), lang3[:2])
+    def _lang3_to_lang2(self, lang3: str) -> Optional[str]:
+        """
+        Converte codice ISO 639-2 (3 lettere) in ISO 639-1 (2 lettere).
+        Ritorna None se il codice non è mappato: NON va mai indovinato con
+        uno slice arbitrario (es. 'rum'[:2] == 'ru', il codice del RUSSO —
+        il chiamante deve interrompere l'upload invece di caricare la
+        lingua sbagliata).
+        """
+        return self._LANG3_TO_LANG2.get(lang3.lower())
 
     def _calculate_movie_hash(self, video_path: Path) -> Tuple[Optional[str], Optional[int]]:
         """

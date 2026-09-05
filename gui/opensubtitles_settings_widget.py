@@ -5,7 +5,9 @@ File: gui/opensubtitles_settings_widget.py
 FUNZIONALITÀ:
 - Visualizza stato configurazione OpenSubtitles
 - Toggle upload enabled/disabled
-- Toggle auto-upload
+- Scelta metodo API (XML-RPC/REST) e le RISPETTIVE credenziali —
+  opensubtitles.org (XML-RPC) e opensubtitles.com (REST) sono due account
+  separati con credenziali proprie, anche a parità di username.
 - Test connessione
 - Link a documentazione
 """
@@ -18,7 +20,6 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 import logging
 
-from utils.opensubtitles_config import get_opensubtitles_config
 from utils.subtitle_uploader_interface import UploaderFactory
 from utils.config import get_config
 from utils.translations import tr
@@ -29,51 +30,73 @@ logger = logging.getLogger(__name__)
 class OpenSubtitlesSettingsWidget(QWidget):
     """
     Widget per gestire impostazioni OpenSubtitles Upload
-    
+
     SIGNALS:
     - settings_changed: Emesso quando configurazione cambia
     """
-    
+
     settings_changed = pyqtSignal()
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        
-        self.os_config = get_opensubtitles_config()
+
         self.app_config = get_config()
-        
+
         self.init_ui()
         self.update_status()
-    
+
     def init_ui(self):
         """Inizializza interfaccia"""
         layout = QVBoxLayout()
         layout.setSpacing(10)
-        
+
         # ========================================
         # GROUP: Status
         # ========================================
         status_group = QGroupBox(tr('os_upload_group'))
         status_layout = QVBoxLayout()
-        
+
         # Status label
         self.status_label = QLabel()
         self.status_label.setWordWrap(True)
         self.status_label.setObjectName("statusLabel")
         status_layout.addWidget(self.status_label)
-        
+
         # Info credentials
         self.credentials_label = QLabel()
         self.credentials_label.setObjectName("credentialsLabel")
         status_layout.addWidget(self.credentials_label)
-        
+
         status_group.setLayout(status_layout)
         layout.addWidget(status_group)
-        
+
         # ========================================
-        # GROUP: Credenziali
+        # GROUP: Credenziali .org (XML-RPC) — quelle usate per l'upload
         # ========================================
-        creds_group = QGroupBox(tr('os_credentials_group'))
+        xmlrpc_creds_group = QGroupBox(tr('os_credentials_group_org'))
+        xmlrpc_creds_form = QFormLayout()
+        xmlrpc_creds_form.setSpacing(8)
+
+        self.xmlrpc_username_input = QLineEdit()
+        self.xmlrpc_username_input.setPlaceholderText(tr('os_username_ph'))
+        xmlrpc_creds_form.addRow("Username:", self.xmlrpc_username_input)
+
+        self.xmlrpc_password_input = QLineEdit()
+        self.xmlrpc_password_input.setPlaceholderText(tr('os_password_ph'))
+        self.xmlrpc_password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        xmlrpc_creds_form.addRow("Password:", self.xmlrpc_password_input)
+
+        self.save_xmlrpc_creds_btn = QPushButton(tr('os_save_creds'))
+        self.save_xmlrpc_creds_btn.clicked.connect(self.save_xmlrpc_credentials)
+        xmlrpc_creds_form.addRow("", self.save_xmlrpc_creds_btn)
+
+        xmlrpc_creds_group.setLayout(xmlrpc_creds_form)
+        layout.addWidget(xmlrpc_creds_group)
+
+        # ========================================
+        # GROUP: Credenziali .com (REST + traduttore "OpenSubtitles AI")
+        # ========================================
+        creds_group = QGroupBox(tr('os_credentials_group_com'))
         creds_form = QFormLayout()
         creds_form.setSpacing(8)
 
@@ -109,25 +132,19 @@ class OpenSubtitlesSettingsWidget(QWidget):
         self.upload_enabled_checkbox.toggled.connect(self.on_upload_enabled_toggled)
         controls_layout.addWidget(self.upload_enabled_checkbox)
 
-        # Checkbox: Auto-upload
-        self.auto_upload_checkbox = QCheckBox(tr('os_auto_upload'))
-        self.auto_upload_checkbox.setToolTip(tr('os_auto_upload_tip'))
-        self.auto_upload_checkbox.toggled.connect(self.on_auto_upload_toggled)
-        controls_layout.addWidget(self.auto_upload_checkbox)
-        
-        # Checkbox: Check duplicates
-        self.check_duplicates_checkbox = QCheckBox(tr('os_check_duplicates'))
-        self.check_duplicates_checkbox.setToolTip(tr('os_check_dup_tip'))
-        self.check_duplicates_checkbox.setChecked(True)
-        controls_layout.addWidget(self.check_duplicates_checkbox)
-
         # Combo: API method
         method_layout = QHBoxLayout()
         method_label = QLabel(tr('os_api_method'))
         method_label.setToolTip(tr('os_api_method_tip'))
         self.implementation_combo = QComboBox()
         self.implementation_combo.addItem('XML-RPC (opensubtitles.org)', 'xmlrpc')
+        self.implementation_combo.setItemData(
+            0, tr('os_xmlrpc_tooltip'), Qt.ItemDataRole.ToolTipRole
+        )
         self.implementation_combo.addItem('REST (opensubtitles.com)', 'rest')
+        self.implementation_combo.setItemData(
+            1, tr('os_rest_tooltip'), Qt.ItemDataRole.ToolTipRole
+        )
         self.implementation_combo.setToolTip(tr('os_api_method_tip'))
         self.implementation_combo.currentIndexChanged.connect(self.on_implementation_changed)
         method_layout.addWidget(method_label)
@@ -137,34 +154,34 @@ class OpenSubtitlesSettingsWidget(QWidget):
 
         controls_group.setLayout(controls_layout)
         layout.addWidget(controls_group)
-        
+
         # ========================================
         # Buttons
         # ========================================
         buttons_layout = QHBoxLayout()
-        
+
         # Test connection button
         self.test_btn = QPushButton(tr('os_test_conn'))
         self.test_btn.setToolTip(tr('os_test_conn_tip'))
         self.test_btn.clicked.connect(self.test_connection)
         buttons_layout.addWidget(self.test_btn)
-        
+
         # Configure button
         self.config_btn = QPushButton(tr('os_configure'))
         self.config_btn.setToolTip(tr('os_configure_tip'))
         self.config_btn.clicked.connect(self.open_config_help)
         buttons_layout.addWidget(self.config_btn)
-        
+
         layout.addLayout(buttons_layout)
-        
+
         # Spacer
         layout.addStretch()
-        
+
         self.setLayout(layout)
-        
+
         # Apply styles
         self.apply_styles()
-    
+
     def apply_styles(self):
         """Applica stili al widget"""
         self.setStyleSheet("""
@@ -176,33 +193,33 @@ class OpenSubtitlesSettingsWidget(QWidget):
                 padding-top: 10px;
                 color: #ffffff;
             }
-            
+
             QGroupBox::title {
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 5px;
             }
-            
+
             QLabel#statusLabel {
                 color: #ffffff;
                 font-size: 10pt;
                 padding: 5px;
             }
-            
+
             QLabel#credentialsLabel {
                 color: #cccccc;
                 font-size: 9pt;
                 font-style: italic;
                 padding: 5px;
             }
-            
+
             QCheckBox {
                 color: #ffffff;
                 font-size: 9pt;
                 spacing: 8px;
                 padding: 5px;
             }
-            
+
             QCheckBox::indicator {
                 width: 18px;
                 height: 18px;
@@ -210,17 +227,17 @@ class OpenSubtitlesSettingsWidget(QWidget):
                 border: 2px solid rgba(255, 255, 255, 0.3);
                 background-color: rgba(45, 45, 45, 200);
             }
-            
+
             QCheckBox::indicator:checked {
                 background-color: rgba(0, 120, 212, 200);
                 border-color: rgba(0, 120, 212, 255);
             }
-            
+
             QCheckBox::indicator:disabled {
                 background-color: rgba(60, 60, 60, 100);
                 border-color: rgba(255, 255, 255, 0.1);
             }
-            
+
             QPushButton {
                 background-color: rgba(0, 120, 212, 180);
                 color: white;
@@ -230,97 +247,115 @@ class OpenSubtitlesSettingsWidget(QWidget):
                 font-size: 9pt;
                 font-weight: bold;
             }
-            
+
             QPushButton:hover {
                 background-color: rgba(0, 120, 212, 230);
             }
-            
+
             QPushButton:pressed {
                 background-color: rgba(0, 100, 180, 200);
             }
-            
+
             QPushButton:disabled {
                 background-color: rgba(60, 60, 60, 150);
                 color: rgba(255, 255, 255, 100);
             }
         """)
-    
-    def update_status(self):
-        """Aggiorna visualizzazione stato"""
-        # Verifica credenziali
-        credentials_ok = self.os_config.is_configured()
-        
+
+    def update_status(self, refresh_inputs: bool = True):
+        """
+        Aggiorna visualizzazione stato.
+
+        refresh_inputs=False quando la chiamata parte da un cambio interno
+        (es. cambio metodo API) che non deve ripopolare i campi credenziali:
+        farlo sempre cancellava testo che l'utente stava ancora digitando e
+        non aveva ancora salvato.
+        """
+        # Verifica credenziali — stessa fonte e stessa logica di
+        # is_opensubtitles_configured(), l'unica realmente letta dalla
+        # pipeline in produzione (core/pipeline.py:_upload_opensubtitles).
+        # È implementation-aware: guarda il set di credenziali (.org o .com)
+        # rilevante per il metodo API attualmente selezionato.
+        credentials_ok = self.app_config.is_opensubtitles_configured()
+        impl = self.app_config.get('opensubtitles_preferred_implementation', 'xmlrpc')
+        username = (
+            self.app_config.get('opensubtitles_xmlrpc_username', '')
+            if impl == 'xmlrpc'
+            else self.app_config.get('opensubtitles_username', '')
+        )
+
         if credentials_ok:
-            credentials = self.os_config.get_credentials()
-            username = credentials.get('username', 'N/A')
-            
             self.status_label.setText(tr('os_configured'))
             self.credentials_label.setText(tr('os_account').format(username=username))
-            
+
             # Abilita controlli
             self.test_btn.setEnabled(True)
-            
+
         else:
             self.status_label.setText(
                 tr('os_not_configured') + '\n' + tr('os_not_available')
             )
             self.credentials_label.setText(tr('os_configure_hint'))
-            
+
             # Disabilita controlli
             self.upload_enabled_checkbox.setEnabled(False)
-            self.auto_upload_checkbox.setEnabled(False)
             self.test_btn.setEnabled(False)
-        
-        # Popola campi credenziali dai valori salvati nel config
-        saved = self.app_config.get_opensubtitles_credentials() or {}
-        self.username_input.setText(saved.get('username') or '')
-        self.password_input.setText(saved.get('password') or '')
-        self.apikey_input.setText(saved.get('api_key') or '')
+
+        if refresh_inputs:
+            # Popola entrambi i gruppi di credenziali dai valori salvati —
+            # indipendentemente da quale sia il metodo API selezionato ora,
+            # sono due account distinti e l'utente deve poter gestire
+            # entrambi.
+            saved = self.app_config.get_opensubtitles_credentials()
+            self.username_input.setText(saved.get('username') or '')
+            self.password_input.setText(saved.get('password') or '')
+            self.apikey_input.setText(saved.get('api_key') or '')
+
+            saved_xmlrpc = self.app_config.get_opensubtitles_xmlrpc_credentials()
+            self.xmlrpc_username_input.setText(saved_xmlrpc.get('username') or '')
+            self.xmlrpc_password_input.setText(saved_xmlrpc.get('password') or '')
 
         # Carica stato corrente
         if credentials_ok:
             upload_enabled = self.app_config.get('opensubtitles_upload_enabled', True)
-            auto_upload    = self.app_config.get('opensubtitles_auto_upload', True)
 
             self.upload_enabled_checkbox.blockSignals(True)
             self.upload_enabled_checkbox.setChecked(upload_enabled)
             self.upload_enabled_checkbox.setEnabled(True)
             self.upload_enabled_checkbox.blockSignals(False)
 
-            self.auto_upload_checkbox.setChecked(auto_upload)
-            self.auto_upload_checkbox.setEnabled(upload_enabled)
-
         # Carica metodo API selezionato
-        impl = self.app_config.get('opensubtitles_preferred_implementation', 'xmlrpc')
         idx = self.implementation_combo.findData(impl)
+        self.implementation_combo.blockSignals(True)
         if idx >= 0:
-            self.implementation_combo.blockSignals(True)
             self.implementation_combo.setCurrentIndex(idx)
-            self.implementation_combo.blockSignals(False)
-    
+        else:
+            # Valore in config non riconosciuto dal combo: non lasciare che la
+            # GUI mostri silenziosamente 'xmlrpc' mentendo sullo stato reale.
+            logger.warning(f"Implementazione OpenSubtitles sconosciuta in config: {impl!r}. Normalizzo a 'xmlrpc'.")
+            self.app_config.set('opensubtitles_preferred_implementation', 'xmlrpc')
+            self.implementation_combo.setCurrentIndex(self.implementation_combo.findData('xmlrpc'))
+        self.implementation_combo.blockSignals(False)
+
     def on_implementation_changed(self, index: int):
         """Handler cambio metodo API"""
         impl = self.implementation_combo.itemData(index)
         self.app_config.set('opensubtitles_preferred_implementation', impl)
         logger.info(f"Metodo API OpenSubtitles: {impl}")
+        # Il metodo scelto cambia anche quale set di credenziali (.org o
+        # .com) è rilevante per is_opensubtitles_configured(): riallinea
+        # subito lo stato mostrato, ma senza toccare i campi credenziali —
+        # l'utente potrebbe averli appena digitati e non ancora salvati.
+        self.update_status(refresh_inputs=False)
         self.settings_changed.emit()
 
     def on_upload_enabled_toggled(self, checked: bool):
         """Handler toggle upload abilitato (master)"""
         self.app_config.set('opensubtitles_upload_enabled', checked)
-        self.auto_upload_checkbox.setEnabled(checked)
         self.settings_changed.emit()
 
-    def on_auto_upload_toggled(self, checked: bool):
-        """Handler toggle auto-upload"""
-        self.app_config.set('opensubtitles_auto_upload', checked)
-
-        logger.info(f"Auto-upload: {'Abilitato' if checked else 'Disabilitato'}")
-
-        self.settings_changed.emit()
-    
     def save_credentials(self):
-        """Salva username, password e API key nel config principale."""
+        """Salva username, password e API key .com (REST) nel config principale."""
         username = self.username_input.text().strip()
         password = self.password_input.text().strip()
         api_key  = self.apikey_input.text().strip()
@@ -335,8 +370,21 @@ class OpenSubtitlesSettingsWidget(QWidget):
             api_key=api_key
         )
 
-        # Aggiorna anche os_config in memoria così il check is_configured() passa subito
-        self.os_config.set_credentials(username, password)
+        self.update_status()
+        self.settings_changed.emit()
+
+        QMessageBox.information(self, tr('os_creds_saved_title'), tr('os_creds_saved_msg'))
+
+    def save_xmlrpc_credentials(self):
+        """Salva username e password .org (XML-RPC) nel config principale."""
+        username = self.xmlrpc_username_input.text().strip()
+        password = self.xmlrpc_password_input.text().strip()
+
+        if not username or not password:
+            QMessageBox.warning(self, tr('os_missing_fields_title'), tr('os_missing_fields_msg'))
+            return
+
+        self.app_config.set_opensubtitles_xmlrpc_credentials(username=username, password=password)
 
         self.update_status()
         self.settings_changed.emit()
@@ -344,87 +392,87 @@ class OpenSubtitlesSettingsWidget(QWidget):
         QMessageBox.information(self, tr('os_creds_saved_title'), tr('os_creds_saved_msg'))
 
     def test_connection(self):
-        """Test connessione e autenticazione"""
-        creds = self.app_config.get_opensubtitles_credentials()
-        if not creds.get('username') or not creds.get('password'):
-            QMessageBox.warning(self, tr('os_missing_creds_title'), tr('os_missing_creds_msg'))
-            return
-
+        """Test connessione e autenticazione per il metodo API attualmente selezionato."""
         try:
+            implementation = self.app_config.get('opensubtitles_preferred_implementation', 'xmlrpc')
+            creds = (
+                self.app_config.get_opensubtitles_xmlrpc_credentials()
+                if implementation == 'xmlrpc'
+                else self.app_config.get_opensubtitles_credentials()
+            )
+            if not creds.get('username') or not creds.get('password'):
+                QMessageBox.warning(self, tr('os_missing_creds_title'), tr('os_missing_creds_msg'))
+                return
+
             import utils.opensubtitles_rest_uploader
             import utils.opensubtitles_xmlrpc_uploader
 
-            implementation = self.app_config.get(
-                'opensubtitles_preferred_implementation', 'xmlrpc'
-            )
             uploader = UploaderFactory.create_uploader(
                 implementation,
                 **creds
             )
-            
+
             # Test autenticazione
             self.test_btn.setEnabled(False)
             self.test_btn.setText(tr('os_testing'))
-            
+
             if uploader.authenticate():
                 uploader.logout()
-                
                 QMessageBox.information(self, tr('os_test_ok_title'), tr('os_test_ok_msg'))
             else:
-                QMessageBox.critical(self, tr('os_test_fail_title'), tr('os_test_fail_msg'))
-        
+                # Per XML-RPC il motivo più comune è aver messo qui le
+                # credenziali .com invece di quelle .org (account separati).
+                msg = tr('os_test_fail_msg')
+                if implementation == 'xmlrpc':
+                    msg += '\n\n' + tr('os_xmlrpc_org_com_hint')
+                QMessageBox.critical(self, tr('os_test_fail_title'), msg)
+
         except Exception as e:
             logger.error(f"Errore test connessione: {e}", exc_info=True)
             QMessageBox.critical(self, tr('os_error_title'), tr('os_error_msg').format(error=str(e)))
-        
+
         finally:
             self.test_btn.setEnabled(True)
             self.test_btn.setText(tr('os_test_conn'))
-    
+
     def open_config_help(self):
         """Apri guida configurazione"""
         help_text = """
         <h3>📖 Configurazione Credenziali OpenSubtitles</h3>
-        
-        <p><b>Passo 1: Crea Account</b></p>
-        <p>Se non hai un account, registrati su:<br>
+
+        <p><b>⚠️ Due account separati, non uno solo:</b></p>
+        <p>opensubtitles.<b>org</b> (XML-RPC) e opensubtitles.<b>com</b> (REST)
+        sono database utenti indipendenti: anche con lo stesso username, le
+        password possono essere diverse. Vanno configurate entrambe qui sotto
+        SOLO se usi entrambi i metodi.</p>
+
+        <p><b>Passo 1: XML-RPC (opensubtitles.org) — consigliato per l'upload</b></p>
+        <p>Se non hai un account .org, registrati su:<br>
         <a href="https://www.opensubtitles.org/en/newuser">
         https://www.opensubtitles.org/en/newuser</a></p>
-        
-        <p><b>Passo 2: Crea File Credenziali</b></p>
-        <p>Crea uno di questi file:</p>
-        <ul>
-        <li><code>~/.transcriberpro/opensubtitles_credentials.json</code></li>
-        <li><code>~/.transcriberpro/opensubtitles_credentials.txt</code></li>
-        </ul>
-        
-        <p><b>Formato JSON (Consigliato):</b></p>
-        <pre>{
-    "username": "tuo_username",
-    "password": "tua_password",
-    "auto_upload": false
-}</pre>
-        
-        <p><b>Formato TXT (Semplice):</b></p>
-        <pre>tuo_username
-tua_password</pre>
-        
-        <p><b>Passo 3: Riavvia</b></p>
-        <p>Chiudi e riapri l'applicazione per caricare le credenziali.</p>
-        
+        <p>Inserisci le sue credenziali nel riquadro "Credenziali .org" e premi "Salva".</p>
+
+        <p><b>Passo 2 (opzionale): REST (opensubtitles.com)</b></p>
+        <p>Usata dal traduttore "OpenSubtitles AI" e, se in futuro
+        OpenSubtitles abiliterà l'upload sulla tua API key, anche per
+        l'upload. Richiede una API Key gratuita da
+        <a href="https://www.opensubtitles.com/en/consumers">
+        opensubtitles.com/consumers</a>. Oggi l'upload REST risponde
+        "uploads_not_enabled" per le API key normali: va richiesto a
+        OpenSubtitles (pagina contatti del sito) prima di poterlo usare.</p>
+
         <p><b>⚠️ Sicurezza:</b></p>
-        <p>• NON committare questo file nel repository<br>
-        • Usa una password unica per OpenSubtitles<br>
+        <p>• Usa password uniche per questi account<br>
         • Le credenziali rimangono locali al tuo sistema</p>
         """
-        
+
         msg = QMessageBox(self)
         msg.setWindowTitle(tr('os_guide_title'))
         msg.setTextFormat(Qt.TextFormat.RichText)
         msg.setText(help_text)
         msg.setIcon(QMessageBox.Icon.Information)
         msg.setStandardButtons(QMessageBox.StandardButton.Ok)
-        
+
         # Rendi la dialog più grande
         msg.setStyleSheet("""
             QMessageBox {
@@ -434,5 +482,5 @@ tua_password</pre>
                 min-width: 550px;
             }
         """)
-        
+
         msg.exec()

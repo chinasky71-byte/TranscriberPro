@@ -195,6 +195,28 @@ class TMDBClient:
         except Exception as e:
             logger.error(f"âŒ Errore recupero IMDb ID da TMDB: {e}")
             return None
+
+    def _get_episode_imdb_id(self, tmdb_id: int, season: int, episode: int) -> Optional[str]:
+        """
+        Recupera l'IMDb ID specifico dell'episodio (più preciso di quello di
+        serie per l'upload OpenSubtitles, che altrimenti associa il
+        sottotitolo alla scheda dell'intera serie o all'episodio sbagliato).
+        Ritorna None se non trovato o in caso di errore: il chiamante ricade
+        sull'IMDb ID di serie.
+        """
+        try:
+            response = requests.get(
+                f"{self.base_url}/tv/{tmdb_id}/season/{season}/episode/{episode}/external_ids",
+                params={'api_key': self.api_key},
+                timeout=10
+            )
+            if response.status_code == 200:
+                imdb_id = response.json().get('imdb_id')
+                if imdb_id and imdb_id.startswith('tt'):
+                    return imdb_id
+        except Exception as e:
+            logger.debug(f"IMDb ID episodio non recuperabile (S{season}E{episode}): {e}")
+        return None
     
     def _get_tmdb_media_info(self, media_type: str, tmdb_id: int) -> Optional[Dict]:
         """
@@ -670,6 +692,15 @@ class TMDBClient:
                     }
                     
                     imdb_id = self._get_imdb_id('tv', tmdb_id, media_info)
+                    # Per gli episodi, l'IMDb ID della SERIE non è quello giusto per
+                    # l'upload OpenSubtitles (associa il sottotitolo alla scheda
+                    # sbagliata): se conosciamo stagione/episodio, tentiamo l'IMDb ID
+                    # specifico dell'episodio e lo usiamo se trovato.
+                    if season is not None and episode is not None:
+                        episode_imdb_id = self._get_episode_imdb_id(tmdb_id, season, episode)
+                        if episode_imdb_id:
+                            logger.info(f"IMDb ID episodio (più preciso di quello di serie): {episode_imdb_id}")
+                            imdb_id = episode_imdb_id
                     
                     if imdb_id:
                         logger.info(f"âœ… IMDb ID finale: {imdb_id}")
