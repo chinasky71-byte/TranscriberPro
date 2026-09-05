@@ -3,6 +3,24 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.12.2] — 2026-09-05
+
+### Fix: strumento glossario per-show — cartelle stagione, subprocess GPU orfano, contesa GPU con la coda
+- Corretto `tmdb_id` sbagliato scritto in silenzio quando la cartella scelta è
+  la sottocartella stagione di una libreria Plex (`V:\Show\Season N\...`): il
+  nome "Season 2" degradava a "Season" nel parsing e trovava un risultato TMDB
+  estraneo. `gui/glossary_dialog.py`: riconoscimento cartelle stagione/speciali
+  multilingua + lista di titoli candidati (cartella padre, poi titolo estratto
+  dal primo file episodio) prima di chiamare `search_tv()`.
+- `gui/glossary_worker.py`: annullare il tool lasciava un subprocess GPU orfano
+  con ~9GB residenti in VRAM (il canale Qwen lo lancia sul venv principale,
+  `terminate()` su Windows non si propaga ai discendenti) — ora traccia il PID
+  e uccide l'intero albero (`taskkill /T`).
+- `gui/main_window.py`: strumento glossario e coda di trascrizione/traduzione
+  resi mutuamente esclusivi (stessa GPU, contesa altrimenti silenziosa).
+- `qwen_n_gpu_layers` reso configurabile per-show (`core/glossary_builder_cli.py`,
+  prima cablato nel codice).
+
 ## [1.12.1] — 2026-09-05
 
 ### Fix: batch manager adattivo cieco alla contesa GPU esterna
