@@ -69,7 +69,14 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
-logger = logging.getLogger(__name__)
+# setup_logger (non logging.getLogger nudo): senza handler esplicito questo
+# logger non scrive nel file di sessione condiviso — misurato dopo che una
+# traduzione con blocchi rimasti in inglese non aveva LASCIATO TRACCIA nel
+# file di log pur avendo chiamato logger.warning() più volte (core.translator
+# non compariva mai fra i logger attivi nel file). setup_logger attacca
+# l'handler-file condiviso al NOME passato, logging.getLogger no.
+from utils.logger import setup_logger
+logger = setup_logger(__name__)
 
 # --- MODIFICA v5.2: Importa get_config per caricare il token ---
 try:
@@ -426,6 +433,204 @@ class BaseTranslator(ABC):
 
         return post_processed_result.strip()
 
+    _PLACEHOLDER_RE = re.compile(r'<([A-Za-z]+)(\d+)>')
+
+    def _unmask_tolerant(self, translated_text: str,
+                         placeholders_map: Dict[str, str]) -> Tuple[str, bool, int]:
+        """Come `_unmask_text_checked`, ma prima prova a RIPARARE i placeholder
+        che il modello ha storpiato, invece di arrendersi al primo mismatch
+        esatto.
+
+        Misurato su NLLB e su TranslateGemma reali (glossario "Ark"/"The Ark"
+        su The Ark): un placeholder sintetico come `<GLOSS0>` può uscire con
+        spazi aggiunti (`< GLOSS0 >`), maiuscole cambiate (`<gloss0>`), o una
+        delle due parentesi perse (`<GLOSS0`, `GLOSS0>`, `GLOSS0`). Prima di
+        dichiarare fallimento si cercano queste varianti, in ordine dal più
+        vicino al placeholder originale al più permissivo.
+
+        Ritorna (testo, ok, numero_di_placeholder_riparati). `ok=False` solo
+        se ALMENO un placeholder non è recuperabile in nessuna forma — stesso
+        contratto di `_unmask_text_checked`: il chiamante non deve mai
+        mostrare `testo` quando `ok` è falso.
+        """
+        result = translated_text
+        ok = True
+        repaired = 0
+
+        # Indice decrescente: senza questo <GLOSS1> farebbe match dentro
+        # <GLOSS10> (o dentro la sua forma riparata "GLOSS10") lasciando lo
+        # zero finale orfano nel testo.
+        def _idx(item):
+            key, _ = item
+            m = self._PLACEHOLDER_RE.match(key)
+            return -int(m.group(2)) if m else 0
+
+        for placeholder, original_content in sorted(
+                placeholders_map.items(), key=_idx):
+            if placeholder in result:
+                result = result.replace(placeholder, original_content)
+                continue
+
+            m = self._PLACEHOLDER_RE.match(placeholder)
+            if not m:
+                ok = False
+                continue
+            prefix, num = m.group(1), m.group(2)
+            candidates = [
+                rf'<\s*{prefix}\s*{num}\s*>',   # spazi interni
+                rf'<{prefix}{num}(?!\d)',       # parentesi di chiusura persa
+                rf'{prefix}{num}>',             # parentesi di apertura persa
+                rf'\b{prefix}\s*{num}\b',       # entrambe perse
+            ]
+            fixed = False
+            for pattern in candidates:
+                rx = re.compile(pattern, re.IGNORECASE)
+                new_result, n = rx.subn(original_content, result, count=1)
+                if n:
+                    result = new_result
+                    repaired += 1
+                    fixed = True
+                    break
+            if not fixed:
+                ok = False
+
+        return result, ok, repaired
+
+    # Solo lettere/cifre, minuscolo: azzera differenze di spaziatura,
+    # punteggiatura e virgolette che il ri-avvolgimento tipografico introduce
+    # senza cambiare il contenuto (es. `on "Ark 15"` -> `on" Ark 15"`).
+    _AUDIT_NORM_RE = re.compile(r'[^0-9a-zàèéìòóù]')
+
+    def _audit_norm(self, s: str) -> str:
+        return self._AUDIT_NORM_RE.sub('', (s or '').lower())
+
+    _AUDIT_WORD_RE = re.compile(r'[A-Za-zÀ-ÿ]+')
+
+    def _is_untranslated(self, output_text: str, source_text: str) -> bool:
+        """Rete di sicurezza indipendente da QUALUNQUE meccanismo di
+        mascheramento/recupero: confronta il risultato con il sorgente
+        inglese per identità normalizzata, non per come si è arrivati lì.
+
+        Non è `_looks_english` del validatore LLM (richiede ≥4 parole e ≥2
+        marcatori inglesi — su "It was an Ark." vede un solo marcatore e non
+        scatta).
+
+        Doppia soglia, non una sola: la prima versione usava solo la
+        lunghezza normalizzata (≥12 caratteri) e falliva su frasi vere ma
+        fatte di parole corte — "It was an Ark." normalizza a 10 caratteri,
+        "Oh, God." a 5 — restando SOTTO la soglia e quindi invisibili
+        all'audit proprio sui casi reali che l'ha motivato (scoperto dal
+        test di regressione su The Ark S03E06, non a priori). Il conteggio
+        parole (≥2) è il segnale che protegge dai falsi positivi su
+        interiezioni/nomi corti ("Ok.", "Eva!", "219.", che restano
+        legittimamente identici in italiano), mentre la lunghezza minima
+        (≥5) protegge dai casi degeneri (due token cortissimi). Le due
+        soglie insieme, non l'una o l'altra: verificato che coprono tutti i
+        24 blocchi noti rimasti inglesi in quell'episodio, zero falsi
+        positivi sul resto del file.
+        """
+        norm_src = self._audit_norm(source_text)
+        if len(norm_src) < 5:
+            return False
+        if len(self._AUDIT_WORD_RE.findall(source_text or "")) < 2:
+            return False
+        return self._audit_norm(output_text) == norm_src
+
+    def _audit_untranslated(self, output_blocks: Dict[int, str],
+                            source_blocks: Dict[int, str],
+                            skip_ids=()) -> List[int]:
+        """Applica `_is_untranslated` a un file intero. `skip_ids` sono i
+        blocchi passthrough (marcatori musicali, righe di solo glossario):
+        identici al sorgente per progetto, non un fallimento."""
+        skip = set(skip_ids)
+        flagged = [idx for idx, out in output_blocks.items()
+                  if idx not in skip
+                  and self._is_untranslated(out, source_blocks.get(idx, ""))]
+        return sorted(flagged)
+
+    def _log_audit(self, output_blocks: Dict[int, str],
+                   source_blocks: Dict[int, str], skip_ids=(),
+                   counters: Optional[Dict[str, int]] = None) -> List[int]:
+        """Chiude ogni `translate_file`: se qualche blocco è rimasto
+        indistinguibile dall'inglese, qualunque sia la causa (nota o futura,
+        prevista o no), lo dice a schermo. Non è un ripiego, è un allarme —
+        con L0-L3 attivi deve restare a zero."""
+        flagged = self._audit_untranslated(output_blocks, source_blocks, skip_ids)
+        if counters:
+            parts = " | ".join(f"{k}: {v}" for k, v in counters.items())
+            self.log(f"  Traduzione completata | {parts} | "
+                     f"inglese residuo: {len(flagged)}")
+        if flagged:
+            preview = ', '.join(str(i) for i in flagged[:15])
+            more = f" (+{len(flagged) - 15} altri)" if len(flagged) > 15 else ""
+            self.log(f"  ⚠️ ATTENZIONE: {len(flagged)} blocchi risultano "
+                     f"ancora in inglese: {preview}{more}")
+        return flagged
+
+    def _apply_glossary_posthoc(self, italian: str, source_en: str) -> str:
+        """Applica il glossario A POSTERIORI su una traduzione già prodotta
+        SENZA mascheramento (nessun placeholder sintetico da riprodurre: la
+        classe di bug che ha originato questo metodo, quindi, non può
+        ripresentarsi qui).
+
+        Best-effort per costruzione: sostituisce un termine solo se è
+        sopravvissuto letteralmente nell'inglese sorgente E la resa non è
+        già presente nell'italiano prodotto. Se il modello ha già tradotto il
+        termine a modo suo, la garanzia del glossario decade su quel singolo
+        termine — mai sull'intera frase, che è la scelta giusta: si degrada
+        la resa di un nome proprio, non si sostituisce una frase buona con
+        l'originale inglese.
+        """
+        if not self.glossary or not italian:
+            return italian
+        result = italian
+        for term in sorted(self.glossary, key=len, reverse=True):
+            rendering = self.glossary[term]
+            if term.lower() not in source_en.lower():
+                continue
+            pattern = re.compile(r'\b' + re.escape(term) + r'\b', re.IGNORECASE)
+            # La condizione è "il termine INGLESE è ancora lì", non "la resa
+            # non c'è". Fermarsi alla presenza della resa lasciava inglese in
+            # mezzo all'italiano ogni volta che il modello aveva reso una
+            # occorrenza e non l'altra ("Era un'Arca. Quale Ark?"): la resa
+            # c'era, il termine inglese pure, e il metodo non faceva nulla.
+            if not pattern.search(result):
+                continue
+
+            def _repl(m, _rendering=rendering, _text=result):
+                # Maiuscola a inizio riga o dopo punteggiatura forte: la resa
+                # segue la capitalizzazione del punto in cui viene inserita,
+                # non quella (spesso fissa) della voce di glossario.
+                if (m.start() == 0
+                        or _text[:m.start()].rstrip()[-1:] in ('.', '!', '?', '')):
+                    return _rendering[:1].upper() + _rendering[1:]
+                return _rendering
+            # TUTTE le occorrenze, non solo la prima: con `count=1` una riga
+            # che nomina due volte lo stesso termine ne teneva una in inglese.
+            result = pattern.sub(_repl, result)
+
+        # Normalizzazione delle MAIUSCOLE su una resa già presente.
+        #
+        # È l'unica correzione di glossario a rischio grammaticale ZERO:
+        # cambia le maiuscole di una parola già corretta, non tocca articoli
+        # né accordi. Si applica solo a un'occorrenza TUTTA MAIUSCOLA di una
+        # resa che maiuscola non è ("DRAGONE" dove il glossario dice
+        # "Dragone"): così non può mai abbassare la maiuscola legittima di
+        # inizio frase, che tutta maiuscola non è mai.
+        #
+        # Misurato sul banco del serbatoio (39 righe, 61 occorrenze di
+        # glossario): è il modo di alzare la conformità di NLLB senza
+        # ricorrere al mascheramento, che invece impone la resa ma rompe
+        # l'accordo grammaticale attorno al termine.
+        for term, rendering in self.glossary.items():
+            if rendering.isupper() or term.lower() not in source_en.lower():
+                continue
+            rx = re.compile(r'\b' + re.escape(rendering) + r'\b', re.IGNORECASE)
+            result = rx.sub(
+                lambda m, _r=rendering: _r if m.group(0).isupper() else m.group(0),
+                result)
+        return result
+
     def _mask_glossary(self, text: str, model_prefix: str,
                        glossary: Dict[str, str]) -> Tuple[str, Dict[str, str]]:
         """
@@ -452,6 +657,19 @@ class BaseTranslator(ABC):
         masked_text = text
         for term in sorted(glossary, key=len, reverse=True):
             rendering = glossary[term]
+
+            # Termini a resa IDENTITÀ (es. "FTL"->"FTL", "Garnet"->"Garnet"):
+            # il placeholder non compra nulla — il modello dovrebbe comunque
+            # lasciare il termine invariato — ma paga per intero il rischio di
+            # essere storpiato dal modello e mai riconosciuto in unmask.
+            # Misurato su The Ark S03E06: 8 dei 24 blocchi rimasti in inglese
+            # contenevano SOLO un termine identità mascherato. Per questi si
+            # lascia il testo sorgente intatto (il modello traduce intorno);
+            # la sopravvivenza del termine è verificata a valle da
+            # `_apply_glossary_posthoc`/`_audit_untranslated`, non qui.
+            if term.strip().lower() == rendering.strip().lower():
+                continue
+
             # NIENTE tolleranza automatica al plurale: provata su Knight's &
             # Magic (aggiungeva "'?s?" al pattern, mascherando anche "Knight
             # Runners") ma ritirata dopo il pilota su "The Ark" — lì il
@@ -481,6 +699,258 @@ class BaseTranslator(ABC):
             masked_text = pattern.sub(_replacer, masked_text)
 
         return masked_text, placeholders
+
+    # ------------------------------------------------------------------
+    # L3 — Serbatoio: ripiego finale condiviso da tutti i motori primari.
+    # ------------------------------------------------------------------
+    # Tetto di durata del subprocess del serbatoio. Generoso: comprende il
+    # caricamento di un GGUF da ~9 GB più la generazione di qualche decina di
+    # righe corte. Serve solo a garantire che un blocco duri un tempo finito.
+    RESERVOIR_TIMEOUT_S = 1800
+
+    # Motore di ripiego preferito da questa classe quando la config dice
+    # 'auto'. Non può mai essere lo stesso del motore primario: il serbatoio
+    # esiste per dare una SECONDA opinione, e richiamare il modello che ha già
+    # fallito due volte (L1 e L2) non è un ripiego, è una ripetizione.
+    RESERVOIR_DEFAULT = 'qwen'
+
+    def _reservoir_engine_choice(self) -> str:
+        try:
+            from utils.config import get_config as _get_cfg
+            choice = (_get_cfg().get_reservoir_engine() or 'auto').lower()
+        except Exception:
+            choice = 'auto'
+        if choice not in ('qwen', 'nllb_ft'):
+            choice = self.RESERVOIR_DEFAULT
+        return choice
+
+    def _reservoir_via_nllb(self, lines_payload: List[Dict[str, str]],
+                            ) -> Dict[str, str]:
+        """Serbatoio su NLLB fine-tuned, IN PROCESSO.
+
+        Nessun subprocess, a differenza di Qwen: NLLB è transformers, lo
+        stesso stack del motore primario, e `cleanup()` ha già liberato la
+        VRAM prima di arrivare qui. Il subprocess serviva solo a llama-cpp,
+        che alloca fuori dall'allocatore PyTorch.
+
+        NIENTE mascheramento del glossario. Misurato sul banco del serbatoio:
+        mascherare impone la resa (conformità 100%) ma il modello non può
+        declinare articolo, genere ed elisione attorno a un token opaco, e
+        produce «È il Federazione Orientale», «un risonanza magnetica», «e
+        anche tenente Brice». La resa del glossario si applica dopo, con
+        `_apply_glossary_posthoc`, che non tocca la struttura della frase.
+        """
+        base = NLLBFineTunedTranslator(self.log_callback)
+        try:
+            texts = [re.sub(r'\s*\n\s*', ' ', d["text"]).strip()
+                     for d in lines_payload]
+            out = base._run_translation(texts, 'eng_Latn', 'ita_Latn',
+                                        add_context=False)
+            return {d["id"]: (t or "").strip()
+                    for d, t in zip(lines_payload, out)}
+        except Exception as exc:
+            logger.error(f"Serbatoio NLLB fallito: {exc}", exc_info=True)
+            self.log(f"  ⚠️ Serbatoio (NLLB) fallito: {exc}")
+            return {}
+        finally:
+            try:
+                base.cleanup()
+            except Exception:
+                pass
+
+    def _reservoir_translate(self, pending: Dict[int, str]) -> Dict[int, str]:
+        """Ultimo livello di ripiego, in un unico swap a fine file.
+
+        `pending`: {id: testo_inglese_originale NON mascherato} — tutto ciò
+        che è sopravvissuto a L1 (unmask tollerante) e L2 (ritraduzione senza
+        masking sul motore primario). Su The Ark S03E06 questo era il 3% dei
+        blocchi (24/795): a questa scala uno swap di modello one-shot costa
+        1-2 minuti sull'intera run, non i 30-50 minuti che costerebbe farlo
+        blocco per blocco.
+
+        Gira in `core/fallback_translate_cli.py`, subprocess isolato — stesso
+        contratto di `core/gender_corrector_cli.py`: Qwen (llama-cpp-python)
+        alloca la VRAM fuori dall'allocatore PyTorch di transformers, e su
+        12 GB i due non convivono in modo affidabile in-process.
+
+        Deduplica per testo sorgente normalizzato: nell'episodio di prova, per
+        via di un loop temporale narrativo, i 24 blocchi erano solo 13-14
+        frasi distinte ripetute — deduplicare dimezza il lavoro e garantisce
+        che le ripetizioni escano tradotte in modo identico fra loro (la resa
+        corretta per un loop).
+
+        Ritorna {id: testo_italiano} solo per gli id risolti E validati; chi
+        chiama decide cosa fare dei mancanti (L4 — inglese, ma rumoroso).
+        """
+        if not pending:
+            return {}
+
+        engine_choice = self._reservoir_engine_choice()
+        model_path = ''
+        if engine_choice == 'qwen':
+            try:
+                from utils.config import get_config as _get_cfg
+                model_path = _get_cfg().get_fallback_translator_model_path()
+            except Exception as exc:
+                self.log(f"  ⚠️ Serbatoio non disponibile (config): {exc}")
+                return {}
+            if not model_path or not Path(model_path).exists():
+                self.log("  ⚠️ Serbatoio non disponibile: nessun modello di "
+                         "ripiego configurato o percorso inesistente")
+                return {}
+
+        # Deduplica: gruppo = stesso testo normalizzato. Rappresentante = id
+        # più basso del gruppo, è l'unico che viaggia nel prompt.
+        groups: Dict[str, List[int]] = {}
+        rep_text: Dict[str, str] = {}
+        for idx in sorted(pending):
+            text = pending[idx]
+            key = self._audit_norm(text) or f"__empty_{idx}"
+            groups.setdefault(key, []).append(idx)
+            rep_text.setdefault(key, text)
+
+        lines_payload = [{"id": key, "text": rep_text[key]} for key in groups]
+
+        # Solo i termini di glossario pertinenti alle righe da recuperare,
+        # non l'intero glossario dello show: un prompt corto e mirato è più
+        # affidabile di un elenco lungo per lo più irrilevante.
+        relevant_glossary = {}
+        if self.glossary:
+            joined = " ".join(rep_text.values()).lower()
+            relevant_glossary = {t: r for t, r in self.glossary.items()
+                                 if t.lower() in joined}
+
+        # --- ramo NLLB fine-tuned: in processo, nessun subprocess ---------
+        if engine_choice == 'nllb_ft':
+            self.log(f"  {len(lines_payload)} frasi distinte ({len(pending)} "
+                     f"blocchi) al serbatoio — scarico il modello primario e "
+                     f"carico NLLB fine-tuned")
+            try:
+                self.cleanup()
+            except Exception as exc:
+                logger.debug(f"cleanup pre-serbatoio: {exc}")
+            per_group = self._reservoir_via_nllb(lines_payload)
+            return self._reservoir_fanout(groups, per_group, pending)
+
+        # --- ramo Qwen: subprocess isolato (llama-cpp fuori da PyTorch) ---
+        import json, subprocess, sys, tempfile, threading
+        tmp_dir = Path(tempfile.mkdtemp(prefix="tp_reservoir_"))
+        args_path = tmp_dir / "args.json"
+        output_path = tmp_dir / "output.json"
+        try:
+            args_path.write_text(json.dumps({
+                "lines": lines_payload,
+                "glossary": relevant_glossary,
+                "output_json": str(output_path),
+                "model_path": model_path,
+            }, ensure_ascii=False), encoding='utf-8')
+
+            project_root = Path(__file__).resolve().parent.parent
+            env = __import__('os').environ.copy()
+            env['PYTHONIOENCODING'] = 'utf-8'
+            env['PYTHONUTF8'] = '1'
+
+            self.log(f"  {len(lines_payload)} frasi distinte ({len(pending)} "
+                     f"blocchi) al serbatoio — scarico il modello primario e "
+                     f"carico il ripiego")
+            try:
+                self.cleanup()
+            except Exception as exc:
+                logger.debug(f"cleanup pre-serbatoio: {exc}")
+
+            # CREATE_NO_WINDOW: quando la traduzione gira dentro pipeline_cli
+            # il monkeypatch di `_suppress_subprocess_windows` lo mette
+            # già, ma questo metodo può essere invocato anche da un percorso
+            # in-process (test, run manuali): senza il flag lampeggerebbe una
+            # console. stdin su DEVNULL perché sotto pythonw.exe l'handle
+            # ereditato non è valido e alcune librerie ci inciampano.
+            popen_kwargs = dict(
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
+                cwd=str(project_root), env=env, text=True,
+                encoding='utf-8', errors='replace', bufsize=1,
+            )
+            if sys.platform == 'win32':
+                popen_kwargs['creationflags'] = getattr(
+                    subprocess, 'CREATE_NO_WINDOW', 0)
+            try:
+                proc = subprocess.Popen(
+                    [sys.executable, "-m", "core.fallback_translate_cli",
+                     str(args_path)], **popen_kwargs)
+            except Exception as exc:
+                self.log(f"  ⚠️ Avvio serbatoio fallito: {exc}")
+                return {}
+
+            def _drain_stderr(stream):
+                try:
+                    for eline in stream:
+                        eline = eline.rstrip()
+                        if eline:
+                            logger.info(f"[reservoir-stderr] {eline}")
+                except Exception:
+                    pass
+
+            threading.Thread(target=_drain_stderr, args=(proc.stderr,),
+                             daemon=True).start()
+            for line in proc.stdout:
+                line = line.rstrip()
+                if line:
+                    self.log(f"   [Serbatoio] {line}")
+            # Timeout obbligatorio: senza, un caricamento GGUF che non
+            # ritorna (modello corrotto, GPU occupata da un altro processo)
+            # bloccherebbe la pipeline per sempre e senza diagnosi. Stesso
+            # tetto del selettore di genere (core/gender_corrector_v2.py).
+            try:
+                return_code = proc.wait(timeout=self.RESERVOIR_TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                self.log(f"  ⚠️ Serbatoio oltre "
+                         f"{self.RESERVOIR_TIMEOUT_S}s: lo termino")
+                try:
+                    proc.kill()
+                    proc.wait(timeout=30)
+                except Exception:
+                    pass
+                return {}
+
+            if return_code != 0 or not output_path.exists():
+                self.log(f"  ⚠️ Serbatoio fallito (exit {return_code})")
+                return {}
+
+            raw = json.loads(output_path.read_text(encoding='utf-8'))
+            per_group: Dict[str, str] = raw.get("translations", {})
+
+        except Exception as exc:
+            logger.error(f"Serbatoio: errore inatteso: {exc}", exc_info=True)
+            return {}
+        finally:
+            try:
+                import shutil
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+        return self._reservoir_fanout(groups, per_group, pending)
+
+    def _reservoir_fanout(self, groups: Dict[str, List[int]],
+                          per_group: Dict[str, str],
+                          pending: Dict[int, str]) -> Dict[int, str]:
+        """Riporta la traduzione del rappresentante su tutti gli id del suo
+        gruppo, applica il glossario a posteriori e VALIDA: un risultato
+        indistinguibile dall'inglese non viene accettato, così chi chiama lo
+        vede come non risolto e passa a L4 (inglese, ma segnalato) invece di
+        scambiarlo per una traduzione riuscita."""
+        resolved: Dict[int, str] = {}
+        for key, ids in groups.items():
+            it = (per_group.get(key) or "").strip()
+            if not it:
+                continue
+            for idx in ids:
+                src = pending[idx]
+                it_for_id = self._apply_glossary_posthoc(it, src)
+                if self._is_untranslated(it_for_id, src):
+                    continue
+                resolved[idx] = it_for_id
+        return resolved
 
 
 # ============================================================================
@@ -728,7 +1198,17 @@ class NLLBTranslator(BaseTranslator):
     """
     Traduttore NLLB-200 con BATCH SIZE ADATTIVO
     """
-    
+
+    # Serbatoio (L3) per il ramo NLLB: Qwen, non NLLB.
+    #
+    # Qui il motore primario È NLLB: richiamarlo come ripiego ripeterebbe il
+    # tentativo che ha già fallito in L1 e in L2. Qwen è l'unica seconda
+    # opinione sempre disponibile (GGUF già presente per la correzione di
+    # genere), e sul banco del serbatoio produce sì un italiano meno curato,
+    # ma su righe che altrimenti resterebbero in inglese.
+    RESERVOIR_DEFAULT = 'qwen'
+
+
     # Mappa COMPLETA codici lingua ISO 639-2/1 → codici NLLB
     LANGUAGE_CODES = {
         'eng': 'eng_Latn', 'en': 'eng_Latn', 'english': 'eng_Latn',
@@ -1056,6 +1536,20 @@ class NLLBTranslator(BaseTranslator):
             )
             total = len(parsed_subtitles)
             translated_subtitles = []
+            originals_by_index = {idx: text for idx, _, _, text in parsed_subtitles}
+
+            # Coda di recupero (L2/L3), popolata durante il loop principale e
+            # svuotata DOPO — dentro il `while` disturberebbe l'
+            # AdaptiveBatchSizeManager e frammenterebbe le chiamate a NLLB.
+            # Solo unità NON-dialogo (line_idx is None): rattoppare una
+            # singola riga di un blocco a più parlanti richiederebbe
+            # ricomporre il join su '\n' per posizione, il punto più fragile
+            # di questo piano — si preferisce una copertura parziale
+            # dichiarata (le righe di dialogo restano coperte da L1 + audit)
+            # a un bug di ricomposizione, che varrebbe più danni di quelli
+            # che ripara.
+            recovery_queue: Dict[int, str] = {}
+            n_repaired = 0
 
             if total == 0:
                 self.log("  File SRT vuoto o parsing fallito")
@@ -1098,7 +1592,14 @@ class NLLBTranslator(BaseTranslator):
 
                 retries = 0
                 batch_success = False
-                
+                # I rami di errore che riemettono il batch originale fanno
+                # `break`, ma il controllo dopo il `while` guardava solo
+                # `retries >= max_retries_per_batch`: se l'errore capitava
+                # all'ULTIMO tentativo, il batch veniva riemesso una seconda
+                # volta e `i` avanzava due volte — blocchi inglesi duplicati
+                # nell'SRT e un batch intero saltato senza traduzione.
+                batch_emitted = False
+
                 while retries < max_retries_per_batch and not batch_success:
                     try:
                         texts_for_nllb = [
@@ -1137,30 +1638,46 @@ class NLLBTranslator(BaseTranslator):
                                     if final_text_to_translate.strip() else unit_original
 
                             else:
+                                # line_idx is None = intero blocco non-dialogo:
+                                # unico caso in cui un fallimento può andare
+                                # in coda di recupero (vedi nota sopra il
+                                # `while`). Le unità di dialogo (line_idx
+                                # intero) restano sul ripiego immediato.
+                                can_queue = (line_idx is None)
                                 if translated_index < len(results):
                                     translated_text = results[translated_index]
 
                                     if translated_text.strip().lower() == "# non lo so #":
-                                         self.log(f"   ATTENZIONE: Rilevata allucinazione per riga {index}. Mantengo originale.")
-                                         unit_result = unit_original
+                                        if can_queue:
+                                            recovery_queue[index] = unit_original
+                                        else:
+                                            self.log(f"   ATTENZIONE: Rilevata allucinazione per riga {index}. Mantengo originale.")
+                                        unit_result = unit_original
                                     else:
-                                        unit_result, unmask_ok = self._unmask_text_checked(
+                                        unit_result, unmask_ok, rip = self._unmask_tolerant(
                                             translated_text, placeholders_map)
-                                        if not unmask_ok:
+                                        n_repaired += rip
+                                        if not unmask_ok or self._is_untranslated(
+                                                unit_result, unit_original):
                                             # NLLB non ha riprodotto un placeholder
-                                            # intatto: mai mostrare testo con un
-                                            # frammento di token rotto, meglio
-                                            # l'originale inglese (stesso ripiego
-                                            # già in uso per gli altri fallimenti).
-                                            self.log(f"   ATTENZIONE: placeholder di "
-                                                    f"mascheramento non riprodotto per "
-                                                    f"riga {index}. Mantengo originale.")
+                                            # intatto (o ha restituito l'inglese
+                                            # con il placeholder preservato): mai
+                                            # mostrare testo rotto o non tradotto.
+                                            if can_queue:
+                                                recovery_queue[index] = unit_original
+                                            else:
+                                                self.log(f"   ATTENZIONE: placeholder di "
+                                                        f"mascheramento non riprodotto per "
+                                                        f"riga {index}. Mantengo originale.")
                                             unit_result = unit_original
 
                                     translated_index += 1
 
                                 else:
-                                    self.log(f"   ATTENZIONE: Nessun output NLLB per riga {index}. Mantengo originale.")
+                                    if can_queue:
+                                        recovery_queue[index] = unit_original
+                                    else:
+                                        self.log(f"   ATTENZIONE: Nessun output NLLB per riga {index}. Mantengo originale.")
                                     unit_result = unit_original
 
                             partial_results.setdefault(batch_j, {})[line_idx] = unit_result
@@ -1200,6 +1717,7 @@ class NLLBTranslator(BaseTranslator):
                                 translated_subtitles.append(item)
                             is_first_batch = False
                             i += len(batch)
+                            batch_emitted = True
                             break
 
                         else:
@@ -1208,9 +1726,10 @@ class NLLBTranslator(BaseTranslator):
                                 translated_subtitles.append(item)
                             is_first_batch = False
                             i += len(batch)
+                            batch_emitted = True
                             break
 
-                if not batch_success and retries >= max_retries_per_batch:
+                if not batch_success and not batch_emitted:
                     self.log(f" Batch fallito dopo {max_retries_per_batch} tentativi. Mantengo originali.")
                     for item in batch:
                         translated_subtitles.append(item)
@@ -1223,10 +1742,85 @@ class NLLBTranslator(BaseTranslator):
             self.log(f"  ✅ Traduzione: [██████████] 100% ({total}/{total}) │ {time_str}")
 
             self.batch_manager.log_summary()
+
+            # ------------------------------------------------------------
+            # L2 — motore primario ANCORA CARICO: ritraduce senza masking i
+            # blocchi in coda. Una sola chiamata per tutti insieme.
+            # ------------------------------------------------------------
+            pos_by_index = {item[0]: pos for pos, item in enumerate(translated_subtitles)}
+            n_l2 = n_l3 = 0
+            confirmed_identical: Dict[int, str] = {}
+            if recovery_queue:
+                self.log(f"  {len(recovery_queue)} blocchi da recuperare — "
+                         f"ritento senza mascheramento")
+                try:
+                    idx_list = list(recovery_queue.keys())
+                    raw_results = self._run_translation(
+                        [recovery_queue[i] for i in idx_list],
+                        src_nllb, tgt_nllb, add_context=False)
+                except Exception as exc:
+                    logger.warning(f"L2 NLLB (retry senza masking) fallito: {exc}")
+                    raw_results = []
+                for i, raw in zip(idx_list, raw_results):
+                    text = self._apply_glossary_posthoc(
+                        (raw or "").strip(), recovery_queue[i])
+                    if not text:
+                        continue
+                    if self._is_untranslated(text, recovery_queue[i]):
+                        # Due generazioni indipendenti (con e senza
+                        # placeholder) concordano sul testo del sorgente:
+                        # quasi sempre una riga che in italiano resta davvero
+                        # identica. Non vale uno swap di modello — l'audit
+                        # finale la segnala comunque.
+                        confirmed_identical[i] = recovery_queue[i]
+                        del recovery_queue[i]
+                        continue
+                    pos = pos_by_index.get(i)
+                    if pos is not None:
+                        old = translated_subtitles[pos]
+                        translated_subtitles[pos] = (old[0], old[1], old[2], text)
+                    del recovery_queue[i]
+                    n_l2 += 1
+
+                if confirmed_identical:
+                    self.log(f"  {len(confirmed_identical)} blocchi confermati "
+                             f"identici all'inglese da due tentativi "
+                             f"indipendenti — non vanno al serbatoio")
+
+            # ------------------------------------------------------------
+            # L3 — serbatoio, un solo swap di modello per ciò che resta.
+            # ------------------------------------------------------------
+            if recovery_queue:
+                total_for_alarm = max(1, total)
+                if len(recovery_queue) > total_for_alarm * 0.10:
+                    self.log(f"  ⚠️ ATTENZIONE: {len(recovery_queue)}/{total_for_alarm} "
+                             f"blocchi al serbatoio (oltre il 10%) — più "
+                             f"probabile un guasto sistemico che blocchi isolati")
+                for i, text in self._reservoir_translate(dict(recovery_queue)).items():
+                    pos = pos_by_index.get(i)
+                    if pos is not None:
+                        old = translated_subtitles[pos]
+                        translated_subtitles[pos] = (old[0], old[1], old[2], text)
+                    del recovery_queue[i]
+                    n_l3 += 1
+
+            # L4 — ciò che resta in `recovery_queue` è già rimasto invariato
+            # (inglese) in `translated_subtitles`: si segnala ad alta voce.
+            for i in recovery_queue:
+                self.log(f"   ⚠️ ATTENZIONE: blocco {i} non tradotto, "
+                         f"resta in inglese: «{recovery_queue[i][:60]}»")
+
             srt_content = self._generate_srt(translated_subtitles, dash_flags)
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(srt_content)
-            
+
+            self._log_audit(
+                {idx: text for idx, _, _, text in translated_subtitles},
+                originals_by_index,
+                counters={"riparati L1": n_repaired, "recuperati L2": n_l2,
+                         "serbatoio L3": n_l3,
+                         "identici confermati": len(confirmed_identical)})
+
             return True
             
         except Exception as e:
@@ -1317,6 +1911,21 @@ class LLMSubtitleTranslator(BaseTranslator):
     # Il modello è tenuto piccolo apposta: su 12 GB, con NF4, il batch è
     # limitato dalla lunghezza della risposta, non dai pesi.
     DEFAULT_BATCH_SIZE = 12
+
+    # Serbatoio (L3) per il ramo LLM: NLLB fine-tuned.
+    #
+    # MISURATO su 39 righe dense di glossario (15 righe reali del serbatoio di
+    # The Ark S03E06 + 24 da altri tre show con glossario attivo), NLLB-FT
+    # contro Qwen2.5-14B, giudizio testa a testa nella stessa chiamata:
+    #   - NLLB-FT preferito nel 64% dei segmenti contro il 26% di Qwen;
+    #   - MQM pesato 1,41 contro 4,31 (più basso è meglio);
+    #   - errori di grammatica 3 contro 12, zero critici contro 2, zero
+    #     parole lasciate in inglese contro 3.
+    # Qwen vince solo sulla conformità al glossario (98% contro 89%), perché
+    # le istruzioni in prompt le esegue e NLLB no — ma quel divario si chiude
+    # con `_apply_glossary_posthoc`, mentre gli errori di grammatica di Qwen
+    # ("stiamo siendo trascinati", "la prossima step", "al diagnosi") no.
+    RESERVOIR_DEFAULT = 'nllb_ft'
 
     def __init__(self, log_callback: Optional[Callable] = None,
                  context: Optional[str] = None,
@@ -1457,8 +2066,12 @@ class LLMSubtitleTranslator(BaseTranslator):
 
             # I placeholder proteggono le note musicali dal modello, e allo
             # stesso modo i termini di glossario (resa italiana fissa).
-            units, placeholders, passthrough = [], {}, {}
+            # `originals` conserva il testo inglese NON mascherato di ogni
+            # blocco: serve ai livelli di recupero L2/L3, che ritraducono
+            # senza placeholder, e all'audit finale.
+            units, placeholders, passthrough, originals = [], {}, {}, {}
             for index, start, end, text in subtitles:
+                originals[index] = text
                 gloss_text, gloss_holders = self._mask_glossary(
                     text, "LLM", self.glossary)
                 masked, holders, only_masked = self._mask_text(gloss_text, "LLM")
@@ -1488,80 +2101,176 @@ class LLMSubtitleTranslator(BaseTranslator):
 
             translator = SubtitleLLMTranslator(
                 engine=engine,
-                fallback=None,   # il ripiego gira dopo, a modello scaricato
+                fallback=None,   # il ripiego passa dalle fasi B/C sotto
                 batch_size=self.DEFAULT_BATCH_SIZE,
                 log_callback=self.log,
                 glossary=self.glossary,
             )
             translated = translator.translate(units)
 
-            # Blocchi che il modello non è riuscito a produrre: si affidano al
-            # traduttore di base, ma solo DOPO aver liberato la VRAM — due
-            # modelli da 8B insieme non stanno in 12 GB.
-            unresolved = [u for u in units
-                          if not translated.get(u.id, "").strip()]
-            if unresolved:
-                self.log(f"  {len(unresolved)} blocchi al traduttore di "
-                         f"riserva")
-                self.cleanup()
-                for index, text in self._fallback_translate(
-                        unresolved, src_lang, tgt_lang).items():
-                    translated[index] = text
+            # ------------------------------------------------------------
+            # FASE A — risoluzione: unmask TOLLERANTE, nessun ripiego ancora.
+            # Tre modi di finire in `pending`, distinti apposta: (1) output
+            # vuoto; (2) placeholder di glossario/musica irrecuperabile anche
+            # dopo riparazione; (3) `SubtitleLLMTranslator` lo ha già marcato
+            # inservibile (copy-through/wrong_language/degenerate sopravvissuti
+            # al suo retry interno — vedi UNUSABLE_CODES); (4) rete di
+            # sicurezza indipendente: identico all'inglese sorgente anche se
+            # l'unmask è "riuscito" (il caso in cui il modello preserva il
+            # placeholder intatto ma il resto della frase resta inglese).
+            # ------------------------------------------------------------
+            resolved: Dict[int, str] = {}
+            pending: Dict[int, str] = {}
+            n_repaired = 0
+            for u in units:
+                raw = translated.get(u.id, "").strip()
+                if not raw:
+                    pending[u.id] = originals[u.id]
+                    continue
+                out, ok, rip = self._unmask_tolerant(raw, placeholders.get(u.id, {}))
+                n_repaired += rip
+                if (not ok or u.id in translator.unresolved_ids
+                        or self._is_untranslated(out, originals[u.id])):
+                    pending[u.id] = originals[u.id]
+                    continue
+                resolved[u.id] = out
+
+            # ------------------------------------------------------------
+            # FASE B — L2: motore primario ANCORA CARICO. Ritraduce il testo
+            # inglese ORIGINALE (non mascherato): senza placeholder non c'è
+            # più nessun token sintetico da perdere, quindi elimina la causa
+            # invece di riprovare con lo stesso input che ha già fallito.
+            # Il glossario si applica a posteriori sul risultato.
+            # ------------------------------------------------------------
+            n_l2 = 0
+            confirmed_identical: Dict[int, str] = {}
+            if pending:
+                self.log(f"  {len(pending)} blocchi da recuperare — "
+                         f"ritento senza mascheramento")
+                unit_by_id = {u.id: u for u in units}
+                retry_units = [
+                    SubtitleUnit(
+                        id=idx, text=originals[idx],
+                        is_dialogue='\n' in originals[idx],
+                        duration=unit_by_id[idx].duration
+                        if idx in unit_by_id else 0.0)
+                    for idx in pending]
+                raw_l2, l2_bad = {}, set()
+                translator._quiet_bar = True
+                try:
+                    # Delta di `unresolved_ids`: ciò che il validatore del
+                    # motore boccia ANCHE al secondo giro (degenerato, lingua
+                    # sbagliata, copy-through) non va accettato solo perché
+                    # non è vuoto e non è identico al sorgente — senza questo
+                    # controllo L2 poteva promuovere un output peggiore di
+                    # quello che stava sostituendo.
+                    seen_before = set(translator.unresolved_ids)
+                    work, rebuild = translator._expand_dialogue(retry_units)
+                    raw_l2 = translator._translate_mt(work)
+                    # `_expand_dialogue` conia id sintetici sopra il massimo
+                    # degli id che riceve: quelli finiti in `unresolved_ids`
+                    # vanno riportati al blocco padre, o il rifiuto colpirebbe
+                    # l'id sbagliato.
+                    parent_of = {pid: orig
+                                 for orig, parts in rebuild.items()
+                                 for pid, _ in parts}
+                    l2_bad = {parent_of.get(i, i)
+                              for i in (translator.unresolved_ids - seen_before)}
+                    raw_l2 = translator._rebuild_dialogue(raw_l2, rebuild)
+                    from core.llm_subtitle_translator import postprocess
+                    raw_l2 = postprocess.process(
+                        raw_l2, order=[u.id for u in retry_units],
+                        sources={u.id: originals[u.id] for u in retry_units})
+                except Exception as exc:
+                    logger.warning(f"L2 (retry senza masking) fallito: {exc}")
+                    raw_l2 = {}
+                finally:
+                    translator._quiet_bar = False
+
+                for idx in list(pending):
+                    if idx in l2_bad:
+                        continue
+                    text = (raw_l2.get(idx) or "").strip()
+                    if not text:
+                        continue
+                    text = self._apply_glossary_posthoc(text, originals[idx])
+                    if self._is_untranslated(text, originals[idx]):
+                        # Due generazioni indipendenti — una con i placeholder,
+                        # una senza — hanno prodotto lo stesso testo del
+                        # sorgente: è quasi sempre una riga che in italiano
+                        # resta davvero identica (nomi propri, interiezioni,
+                        # binomi latini: "Turdus merula.", "Mm-hmm."). Uno
+                        # swap di modello da 1-2 minuti per queste non si
+                        # ripaga, e capitano in quasi ogni episodio. Fuori dal
+                        # serbatoio, ma l'audit finale le segnala comunque:
+                        # resta "zero invisibile", non diventa "zero rumore".
+                        confirmed_identical[idx] = originals[idx]
+                        del pending[idx]
+                        continue
+                    resolved[idx] = text
+                    del pending[idx]
+                    n_l2 += 1
+
+                if confirmed_identical:
+                    self.log(f"  {len(confirmed_identical)} blocchi confermati "
+                             f"identici all'inglese da due tentativi "
+                             f"indipendenti — non vanno al serbatoio")
+
+            # ------------------------------------------------------------
+            # FASE C — L3: serbatoio, un solo swap di modello per tutto ciò
+            # che sopravvive a L1+L2 (scarica il 12B, carica Qwen).
+            # ------------------------------------------------------------
+            n_l3 = 0
+            if pending:
+                total_units = max(1, len(units))
+                if len(pending) > total_units * 0.10:
+                    self.log(f"  ⚠️ ATTENZIONE: {len(pending)}/{total_units} "
+                             f"blocchi al serbatoio (oltre il 10%) — più "
+                             f"probabile un guasto sistemico (glossario, "
+                             f"lingua sorgente, modello degenerato) che "
+                             f"blocchi isolati")
+                for idx, text in self._reservoir_translate(dict(pending)).items():
+                    resolved[idx] = text
+                    del pending[idx]
+                    n_l3 += 1
+
+            # ------------------------------------------------------------
+            # FASE D — L4: inglese, ma rumoroso. Con L0-L3 attivi deve
+            # restare vuoto; se non lo è, il numero è l'informazione che
+            # dice dove intervenire — mai un fallimento silenzioso come
+            # prima (il `logger.warning` che non arrivava né a schermo né
+            # su file, vedi il fix del logger sopra).
+            # ------------------------------------------------------------
+            for idx in pending:
+                self.log(f"   ⚠️ ATTENZIONE: blocco {idx} non tradotto, "
+                         f"resta in inglese: «{originals[idx][:60]}»")
+                resolved[idx] = originals[idx]
 
             output = []
             for index, start, end, original in subtitles:
                 if index in passthrough:
                     output.append((index, start, end, passthrough[index]))
-                    continue
-                text = translated.get(index, "").strip()
-                if not text:
-                    logger.warning(f"Blocco {index} non tradotto")
-                    text = original
-                elif placeholders.get(index):
-                    text, unmask_ok = self._unmask_text_checked(
-                        text, placeholders[index])
-                    if not unmask_ok:
-                        # Stesso ripiego del ramo NLLB: un placeholder non
-                        # riprodotto intatto non deve mai arrivare a schermo.
-                        logger.warning(f"Blocco {index}: placeholder di "
-                                       f"mascheramento non riprodotto, "
-                                       f"mantengo originale")
-                        text = original
-                output.append((index, start, end, text))
+                else:
+                    output.append((index, start, end,
+                                   resolved.get(index, original)))
 
             output_path.write_text(self._generate_srt(output),
                                    encoding='utf-8')
             self.log(f"  Sottotitoli scritti: {output_path.name}")
+
+            self._log_audit(
+                {i: t for i, _, _, t in output}, originals,
+                skip_ids=passthrough.keys(),
+                counters={"riparati L1": n_repaired, "recuperati L2": n_l2,
+                         "serbatoio L3": n_l3,
+                         "identici confermati": len(confirmed_identical)})
+
             return True
 
         except Exception as exc:
             logger.error(f"Errore nella traduzione LLM: {exc}", exc_info=True)
             self.log(f"  Errore: {exc}")
             return False
-
-    def _fallback_translate(self, units, src_lang, tgt_lang) -> Dict[int, str]:
-        """Traduce con NLLB fine-tuned i blocchi che l'LLM non ha risolto."""
-        try:
-            base = NLLBFineTunedTranslator(self.log_callback)
-        except Exception as exc:
-            logger.error(f"Traduttore di riserva non disponibile: {exc}")
-            return {}
-
-        try:
-            src = base._nllb_to_iso(src_lang) if hasattr(
-                base, '_nllb_to_iso') else 'eng_Latn'
-            tgt = 'ita_Latn'
-            texts = [u.text for u in units]
-            results = base._run_translation(texts, src, tgt, add_context=False)
-            return {u.id: t for u, t in zip(units, results)}
-        except Exception as exc:
-            logger.error(f"Traduttore di riserva fallito: {exc}")
-            return {}
-        finally:
-            try:
-                base.cleanup()
-            except Exception:
-                pass
 
     def cleanup(self):
         """Libera la VRAM occupata dal modello."""

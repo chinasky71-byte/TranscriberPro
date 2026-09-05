@@ -3,6 +3,41 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.12.0] — 2026-09-05
+
+### Fix: righe non tradotte rimaste silenziosamente in inglese (glossario per-show)
+- Causa radice: quando un placeholder di mascheramento del glossario (`<GLOSS0>`) non
+  veniva riprodotto fedelmente dal modello, il ripiego esistente riportava l'originale
+  inglese — ma l'avviso passava da `logger.warning()` con un `logging.getLogger()` nudo,
+  mai attaccato al file di log condiviso né alla GUI: il fallimento non lasciava
+  **nessuna** traccia diagnosticabile.
+- Sostituita la logica con una catena di recupero a 5 livelli, condivisa da ramo NLLB e
+  ramo LLM: (L0) il glossario non maschera più i termini a resa identica (es. "FTL"→"FTL"),
+  che non avevano nulla da guadagnare dal placeholder e tutto da perdere; (L1) unmask
+  tollerante che ripara placeholder storpiati (spazi, maiuscole, parentesi perse); (L2)
+  ritraduzione senza mascheramento sul motore primario ancora in VRAM, con glossario
+  applicato a posteriori; (L3) "serbatoio" — un solo swap di modello a fine file per ciò
+  che sopravvive, deduplicato per testo sorgente; (L4) inglese, ma con log rumoroso e
+  visibile, mai più silenzioso.
+- Nuovo audit indipendente a fine file (`_is_untranslated`/`_log_audit`): confronto di
+  identità normalizzata sorgente↔output, indipendente da qualunque meccanismo di
+  recupero — cattura anche cause future non ancora previste.
+- Motore del serbatoio (`reservoir_engine`, nuova chiave config) scelto da una misura
+  reale: valutazione testa a testa GEMBA-MQM su 39 righe corte dense di glossario da 4
+  show ha trovato NLLB fine-tuned nettamente migliore di Qwen2.5-14B (64% vs 26% di
+  preferenza, MQM pesato 1,41 vs 4,31). Default: sempre un motore diverso dal primario
+  già in uso (NLLB-FT se il primario è l'LLM, Qwen se il primario è NLLB).
+- Nuovo `core/fallback_translate_cli.py`: entrypoint subprocess isolato per il motore
+  Qwen del serbatoio (stesso contratto di `core/gender_corrector_cli.py`).
+- 8 bug aggiuntivi trovati e corretti in revisione, tra cui una chiamata a
+  `_apply_fallback` mai definita nel progetto (crashava l'intera traduzione del file su
+  un singolo blocco vuoto), sostituzione di glossario a posteriori che si fermava alla
+  prima occorrenza di un termine ripetuto, e un bug preesistente di batch duplicato nel
+  percorso di retry-errore del ramo NLLB.
+- Verificato su episodio reale con glossario attivo (24/24 righe prima silenziosamente
+  inglesi risolte) e su batch di produzione di 21 file (20 con glossario + 1 senza, come
+  controllo di non-regressione).
+
 ## [1.10.1.22.8.26] — 2026-08-22
 
 ### Fix: cache del modello LLM di produzione cancellata a ogni fine coda
