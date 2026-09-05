@@ -21,9 +21,19 @@ class SyncWorker(QThread):
     file_completed = pyqtSignal(str)
     file_started   = pyqtSignal(str)
     error          = pyqtSignal(str)
+    # Percorso REALE del file scritto (deriva dall'SRT esterno, non dal
+    # video — vedi SyncDialog._on_completed): SyncDialog lo mostra all'utente
+    # invece di ricalcolarlo per conto proprio dal video_path, che con SRT e
+    # video in cartelle diverse produceva un percorso che non esisteva.
+    output_ready   = pyqtSignal(str)
 
     _STEP_PCT = {'1': 10, '2': 40, '3': 80, '4': 95}
-    _step_re  = re.compile(r'\n?(\d+)\.\s')
+    # Ancorato a inizio stringa con match() (non search()): senza l'ancora,
+    # QUALUNQUE messaggio di log contenente "<cifre>. " in un punto
+    # qualsiasi — es. un nome file come "1. Titolo.synced.it.srt" nel log
+    # finale dello step 4 — farebbe combaciare il pattern e far retrocedere
+    # la barra di progresso.
+    _step_re  = re.compile(r'^\n?([1-4])\.\s')
 
     def __init__(self, video_path: str, external_srt_path: str, output_path: str = None, parent=None):
         super().__init__(parent)
@@ -50,6 +60,7 @@ class SyncWorker(QThread):
             success = self._synchronizer.synchronize()
 
             if success:
+                self.output_ready.emit(str(self._synchronizer._output_path))
                 self.file_completed.emit(self.video_path)
             else:
                 if not self.is_cancelled:
@@ -72,7 +83,7 @@ class SyncWorker(QThread):
     def _on_log(self, msg: str):
         self.log_message.emit(msg)
         # Aggiorna file_progress in base al numero di step nel messaggio
-        m = self._step_re.search(msg)
+        m = self._step_re.match(msg)
         if m:
             step_key = m.group(1)
             pct = self._STEP_PCT.get(step_key)

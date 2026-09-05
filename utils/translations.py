@@ -339,6 +339,11 @@ class Translations:
             'sync_missing_srt':         'Please select an SRT file.',
             'sync_done_title':          'Synchronization Complete',
             'sync_done_msg':            '✅ File saved:\n{output}',
+            'sync_blocked_processing':  'The transcription/translation queue is running: synchronization uses the same GPU and cannot be used at the same time. Try again once the queue finishes.',
+            'sync_blocked_glossary':    'The glossary tool is running and is using the GPU: wait for it to finish before starting a synchronization.',
+            'sync_already_running':     'A previous synchronization is still shutting down (the model can take up to a minute to fully unload). Please wait a moment and try again.',
+            'sync_running_blocks_processing': 'Synchronization is running and is using the GPU: wait for it to finish before starting the transcription/translation queue.',
+            'glossary_blocked_sync':    'Synchronization is running and is using the GPU: wait for it to finish before starting the glossary tool.',
             'warning':                  'Warning',
 
             # ── Library Scanner: filtro formato bitmap ────────────────────
@@ -748,6 +753,11 @@ class Translations:
             'sync_missing_srt':         'Seleziona un file SRT.',
             'sync_done_title':          'Sincronizzazione Completata',
             'sync_done_msg':            '✅ File salvato:\n{output}',
+            'sync_blocked_processing':  'La coda di trascrizione/traduzione è in corso: la sincronizzazione usa la stessa GPU e non può essere usata in contemporanea. Riprova a fine coda.',
+            'sync_blocked_glossary':    'Lo strumento glossario è in esecuzione e sta usando la GPU: attendi che finisca prima di avviare una sincronizzazione.',
+            'sync_already_running':     'Una sincronizzazione precedente si sta ancora chiudendo (il modello può impiegare fino a un minuto per scaricarsi del tutto). Attendi un momento e riprova.',
+            'sync_running_blocks_processing': 'La sincronizzazione è in esecuzione e sta usando la GPU: attendi che finisca prima di avviare la coda di trascrizione/traduzione.',
+            'glossary_blocked_sync':    'La sincronizzazione è in esecuzione e sta usando la GPU: attendi che finisca prima di avviare lo strumento glossario.',
             'warning':                  'Avviso',
 
             # ── Library Scanner: filtro formato bitmap ────────────────────

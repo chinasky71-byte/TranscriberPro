@@ -149,6 +149,7 @@ class MainWindow(QMainWindow):
         self.queue_mutex = QMutex()
         self.is_processing = False
         self._glossary_worker_active = False
+        self._sync_worker_active = False
         self.worker = None
         self.file_handler = FileHandler()
         self.tmdb_client = get_tmdb_client()
@@ -1076,8 +1077,13 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, tr('tools_glossary'),
                                  tr('glossary_running_blocks_processing'))
             return
+        if self._sync_worker_active:
+            QMessageBox.warning(self, tr('sync_dialog_title'),
+                                 tr('sync_running_blocks_processing'))
+            return
         self.is_processing = True
         self.glossary_action.setEnabled(False)
+        self.sync_btn.setEnabled(False)
         self.worker = ProcessingWorker(self.processing_queue, self.queue_mutex)
         self.worker.progress.connect(self.update_progress)
         self.worker.log_message.connect(self.log_message)
@@ -1205,6 +1211,7 @@ class MainWindow(QMainWindow):
     def processing_finished(self):
         self.is_processing = False
         self.glossary_action.setEnabled(True)
+        self.sync_btn.setEnabled(True)
         self.processing_done.emit()   # notifica widget in attesa (es. OCR differito)
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
@@ -1396,6 +1403,10 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, tr('tools_glossary'),
                                  tr('glossary_blocked_processing'))
             return
+        if self._sync_worker_active:
+            QMessageBox.warning(self, tr('tools_glossary'),
+                                 tr('glossary_blocked_sync'))
+            return
         from gui.glossary_dialog import GlossaryDialog
         existing = getattr(self, '_glossary_dialog', None)
         if existing is not None and not existing.isHidden():
@@ -1406,7 +1417,28 @@ class MainWindow(QMainWindow):
         self._glossary_dialog.exec()
 
     def _open_sync_dialog(self):
-        """Apre il dialog di sincronizzazione SRT."""
+        """Apre il dialog di sincronizzazione SRT.
+        Stessa guardia mutua-esclusione di _open_glossary_dialog: la
+        sincronizzazione carica NLLB + Qwen-14B sulla stessa GPU della coda
+        principale e dello strumento glossario — farli girare in parallelo
+        significa contesa VRAM silenziosa (WDDM non fa OOM, solo
+        rallentamento) invece di un errore chiaro."""
+        if self.is_processing:
+            QMessageBox.warning(self, tr('sync_dialog_title'),
+                                 tr('sync_blocked_processing'))
+            return
+        if self._glossary_worker_active:
+            QMessageBox.warning(self, tr('sync_dialog_title'),
+                                 tr('sync_blocked_glossary'))
+            return
+        if self._sync_worker_active:
+            # Una sincronizzazione precedente può restare "attiva" oltre la
+            # chiusura del suo dialog: closeEvent/reject non azzerano il
+            # flag se il worker non si è fermato entro il timeout (Qwen-14B
+            # può girare fino a ~55s per chiamata) — vedi SyncDialog._cancel_and_wait.
+            QMessageBox.warning(self, tr('sync_dialog_title'),
+                                 tr('sync_already_running'))
+            return
         from gui.sync_dialog import SyncDialog
         current_video = None
         selected = self.file_list.currentItem()

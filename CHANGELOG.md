@@ -3,6 +3,61 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.14.0] — 2026-09-05
+
+### Fix: sincronizzazione SRT "Anchor & Match" — mai validata prima, tre giri di revisione
+- **Causa radice (BUG1+2+3+4 combinati)**: finestre di matching sovrapposte
+  con merge "vince la prima finestra arrivata" + fallback posizionale che
+  sparge le righe non risolte su tutto il film + split codice morto (timestamp
+  identici per le due metà) + un formatter di un'altra feature che fondeva
+  cue con timestamp identici perdendo battute. Misurato: 50% delle righe
+  sbagliate in silenzio su una simulazione di film intero, nessun errore,
+  "Sincronizzazione Completata".
+- **Fix round 1**: merge per confidence migliore invece che per ordine di
+  arrivo; nuovo `_interpolate_fallback` (shift dai vicini risolti, non
+  rapporto d'indice su tutto il film); split riscritto (`match_type`
+  controllato prima dei timestamp, nuovo `_find_split_partner`); rimosso
+  `SubtitleFormatter` dal percorso di scrittura (scrive solo i tempi,
+  preserva testo/formattazione utente); +8 fix minori (lingua anchor mai
+  rilevata, correzione genere no-op per `video_path` mancante, buco di
+  copertura finestre in coda, ecc.). Verificato: 100% esatto sulla stessa
+  simulazione.
+- **Fix round 2** (dopo che una seconda revisione ha misurato il fix del
+  merge come solo parziale — 22% di righe ancora sbagliate, perché la
+  confidence auto-riportata da Qwen è quasi sempre ≈1.0 anche sui match
+  sbagliati): **gate di offset globale** — nessuna riga può spostarsi oltre
+  `sync_max_offset_sec` (nuova chiave config) dalla sua posizione originale,
+  indipendentemente da cosa dichiari il modello. Slack di cattura
+  disaccoppiato dal gate di plausibilità. Corretta anche una regressione
+  introdotta nello stesso giro: normalizzare la lingua dell'anchor senza
+  gestire tag reali come `pob`/`pt-BR`/`en-US` faceva fallire l'intera
+  sincronizzazione invece di limitarsi a tradurre peggio.
+- **Fix round 3** (bugcheck + bugfix diretto): il gate del round 2 aveva un
+  bypass completo sul ramo split (fino a 176s di errore, non coperto dal
+  gate); slack di cattura matematicamente sbagliato (`2×` invece del bound
+  stretto `offset+5`); collisione a 3+ cue con lo stesso timestamp non
+  gestita; **regressione GUI**: chiudere il dialog con la X ora chiamava sia
+  `closeEvent` sia `reject()`, raddoppiando l'attesa di spegnimento a 60s.
+  Tutti corretti. Verificato su un episodio reale da 794 righe (20%
+  allucinazioni + 10% split simulati): 0 cue invertite, 0 sovrapposte, errore
+  massimo 38.0s contro un limite teorico di 39.5s.
+- Sincronizzazione, coda principale e strumento glossario ora mutuamente
+  esclusivi (stessa GPU).
+- **Aperto, non affrontato**: rilevazione del drift progressivo PAL/NTSC
+  (25↔23,976fps) — il desync che cresce lungo il file invece di restare
+  costante non viene riconosciuto come caso a parte. Misurato ~79% delle
+  righe fuori tolleranza su un file con questo tipo di drift. Il gate
+  rifiuta correttamente di indovinare oltre `sync_max_offset_sec` (logga un
+  avviso esplicito quando succede) invece di produrre un risultato sbagliato
+  con sicurezza, ma non risolve il problema: serve un fix di design
+  dedicato (es. stima e compensazione di un fattore di scala lineare sul
+  tempo, non solo di un offset costante).
+- Aperto, rimandato: l'intera pipeline gira ancora nel processo GUI invece
+  che in un subprocess isolato (`core/sync_cli.py` sul modello di
+  `core/gender_corrector_cli.py`); l'annullamento non interrompe una singola
+  chiamata al modello già in corso; le chiavi `sync_*` non hanno UI nelle
+  Opzioni.
+
 ## [1.13.0] — 2026-09-05
 
 ### Fix: upload OpenSubtitles — funzionante per la prima volta, verificato con 4 upload reali

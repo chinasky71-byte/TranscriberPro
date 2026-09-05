@@ -49,7 +49,7 @@ from utils.translations import init_language, tr
 
 
 # ── Versione applicazione — unica fonte di verità ─────────────────────────────
-APP_VERSION = "1.13.0"
+APP_VERSION = "1.14.0"
 
 PROJECT_ROOT      = Path(__file__).resolve().parent
 ASSETS_FONTS_DIR  = PROJECT_ROOT / 'assets' / 'fonts'

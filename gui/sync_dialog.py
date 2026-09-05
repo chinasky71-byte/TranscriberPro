@@ -31,6 +31,8 @@ class SyncDialog(QDialog):
         self.resize(700, 560)
 
         self._worker: SyncWorker | None = None
+        self._last_output_path: str | None = None
+        self._shutting_down: bool = False   # guardia di rientranza, vedi _shutdown()
 
         self._init_ui()
         self._apply_styles()
@@ -200,6 +202,7 @@ class SyncDialog(QDialog):
             QMessageBox.warning(self, tr('warning'), tr('sync_missing_srt'))
             return
 
+        self._shutting_down = False
         self.log_edit.clear()
         self.progress_bar.setValue(0)
         self.start_btn.setEnabled(False)
@@ -209,15 +212,26 @@ class SyncDialog(QDialog):
         self._worker.progress.connect(self.progress_bar.setValue)
         self._worker.log_message.connect(self._append_log)
         self._worker.finished.connect(self._on_finished)
+        self._worker.output_ready.connect(self._on_output_ready)
         self._worker.file_completed.connect(self._on_completed)
         self._worker.error.connect(self._on_error)
         self._worker.start()
+        self._mark_worker_active(True)
 
     def _cancel(self):
         if self._worker and self._worker.isRunning():
             self._append_log(tr('sync_cancelling'))
             self._worker.cancel()
         self.cancel_btn.setEnabled(False)
+
+    def _mark_worker_active(self, active: bool):
+        """Segnala a main_window che la sincronizzazione sta usando la GPU,
+        così la coda principale e lo strumento glossario (stessa GPU) si
+        rifiutano di partire in parallelo invece di entrare in contesa VRAM
+        silenziosa — stesso pattern di GlossaryDialog._mark_worker_inactive."""
+        parent = self.parent()
+        if parent is not None:
+            parent._sync_worker_active = active
 
     # ── Worker callbacks ──────────────────────────────────────────────────────
 
@@ -229,10 +243,17 @@ class SyncDialog(QDialog):
     def _on_finished(self):
         self.start_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
+        self._mark_worker_active(False)
+
+    def _on_output_ready(self, output_path: str):
+        self._last_output_path = output_path
 
     def _on_completed(self, video_path: str):
         self.progress_bar.setValue(100)
-        output = str(Path(video_path).with_suffix('')) + '.synced.it.srt'
+        # Percorso REALE ricevuto dal worker (deriva dall'SRT esterno, non
+        # dal video — se sono in cartelle diverse, ricalcolarlo qui dal solo
+        # video_path produceva un percorso che non esisteva).
+        output = self._last_output_path or (str(Path(video_path).with_suffix('')) + '.synced.it.srt')
         QMessageBox.information(
             self, tr('sync_done_title'),
             tr('sync_done_msg').format(output=output)
@@ -243,8 +264,55 @@ class SyncDialog(QDialog):
 
     # ── Chiusura sicura ───────────────────────────────────────────────────────
 
-    def closeEvent(self, event):
+    def _cancel_and_wait(self) -> bool:
+        """Annulla e attende il worker. Ritorna True solo se è DAVVERO
+        terminato entro il timeout — usato per decidere se è sicuro
+        azzerare _sync_worker_active. Una singola inferenza Qwen misurata
+        fino a ~55s: 3s non bastano quasi mai durante S3, e mai durante S2
+        (la traduzione NLLB dell'intero anchor non controlla _cancelled).
+        Azzerare il flag comunque farebbe credere alla coda principale/al
+        glossario che la GPU sia libera mentre Qwen-14B è ancora residente
+        in VRAM — la contesa silenziosa che il flag esiste per evitare."""
         if self._worker and self._worker.isRunning():
             self._cancel()
-            self._worker.wait(3000)
+            return self._worker.wait(30000)
+        return True
+
+    def _shutdown(self) -> None:
+        """Punto unico di chiusura: annulla, attende, aggiorna il flag.
+        Rientranza guardata perché QDialog::closeEvent chiama a sua volta
+        reject(): senza la guardia, chiudere dal pulsante X del titolo
+        eseguiva DUE attese da 30s in fila (60s di GUI bloccata) invece di
+        una — reject() è sia la strada dell'Esc sia il seguito del
+        closeEvent."""
+        if self._shutting_down:
+            return
+        # La guardia NON si riabbassa qui: closeEvent chiama _shutdown() e
+        # POI super().closeEvent(), che chiama reject(), che richiama
+        # _shutdown() — riabbassarla in un finally la renderebbe inutile.
+        # Si riabbassa quando il dialog torna visibile (showEvent) o quando
+        # parte una nuova sincronizzazione (_start).
+        self._shutting_down = True
+        if self._cancel_and_wait():
+            self._mark_worker_active(False)
+        else:
+            self._append_log(
+                "⚠️ Il worker non si è fermato in tempo: resta segnalato come "
+                "attivo finché non termina davvero (evita contesa GPU con "
+                "coda principale/glossario)."
+            )
+
+    def showEvent(self, event):
+        self._shutting_down = False
+        super().showEvent(event)
+
+    def closeEvent(self, event):
+        self._shutdown()
         super().closeEvent(event)
+
+    def reject(self):
+        """Esc chiama QDialog.reject(), che NON passa da closeEvent: senza
+        questo override, Esc durante una sincronizzazione lascia il worker
+        (e Qwen-14B in VRAM) in esecuzione senza mai chiamare cancel()."""
+        self._shutdown()
+        super().reject()
