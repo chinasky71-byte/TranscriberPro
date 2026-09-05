@@ -3,6 +3,31 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.12.1] — 2026-09-05
+
+### Fix: batch manager adattivo cieco alla contesa GPU esterna
+- Misurato su un run reale: due traduzioni NLLB in parallelo hanno fatto salire
+  la memoria dal 50% all'85% mentre il nostro batch restava a 24, e il gestore
+  lo riduceva comunque — non libera memoria altrui, e ha misurabilmente
+  peggiorato il tempo per frase del 62% (0,271s → 0,438s).
+- Nuovo `_external_pressure_gb()` (`utils/adaptive_batch_manager.py`):
+  `torch.cuda.memory_reserved()` (quota di questo processo) vs memoria totale
+  usata; sopra 1,5GB di scarto il gestore tiene la dimensione invece di ridurre.
+- **Bug trovato e corretto nella stessa guardia durante il bugcheck**: campionava
+  solo dentro `mem > high_threshold`, quindi su un file che incontra la contesa
+  a metà la prima lettura cadeva già a contesa iniziata e la registrava come
+  normale — guardia inerte esattamente sul caso per cui esisteva. Corretto
+  campionando a ogni batch.
+- Guardia temporale ms/token (NLLB) e ms/carattere (LLM) in `core/translator.py`
+  e `core/llm_subtitle_translator/translator.py`: zero eventi OOM reali in tutto
+  lo storico dei log (WDDM pagina in RAM di sistema invece di sollevare
+  un'eccezione CUDA) — l'unica firma reale è il tempo che risale. Solo
+  diagnostica (un log se ≥2× più lento del ritmo migliore del file), nessuna
+  riduzione automatica.
+- Risalita del batch moltiplicativa invece di +1 dopo la fine di una contesa.
+- Analisi su 875 batch reali (23 run) pubblicata come artifact: la soglia di
+  riduzione esistente (85%) è già ben calibrata — non toccata.
+
 ## [1.12.0] — 2026-09-05
 
 ### Fix: righe non tradotte rimaste silenziosamente in inglese (glossario per-show)

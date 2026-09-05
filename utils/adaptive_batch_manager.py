@@ -87,6 +87,9 @@ class AdaptiveBatchSizeManager:
         self._warmup_count = 0
         self._oom_consecutive = 0
         self._batch_count = 0
+        # Pressione esterna: linea di base della memoria NON nostra
+        self._ext_baseline_gb = None
+        self._ext_warned = False
 
         # Fatigue tracking (cross-file batch processing)
         self._files_processed = 0
@@ -121,13 +124,26 @@ class AdaptiveBatchSizeManager:
         self._size_history.append(self.current_batch_size)
 
         mem = self._get_memory_usage()
+        # CAMPIONATO A OGNI BATCH, non solo quando la memoria è alta.
+        #
+        # Prima versione: `_external_pressure_gb()` veniva chiamata solo dentro
+        # il ramo `mem > high_threshold`. Su un file che comincia pulito e
+        # incontra la contesa a metà — il caso reale della run 20260905_054955,
+        # memoria dal 50% all'85% fra il batch 13 e il 15 — la PRIMA chiamata
+        # cadeva quindi già durante la contesa e registrava il valore conteso
+        # come linea di base: la pressione esterna risultava zero e il batch
+        # veniva ridotto lo stesso. La guardia era inerte esattamente sul caso
+        # per cui è stata scritta. Campionando sempre, i batch puliti fissano
+        # una base bassa e il salto viene visto per quello che è.
+        ext = self._external_pressure_gb()
         # Solo file (DEBUG): traccia completa batch-per-batch anche quando
         # la dimensione non cambia — senza, dal log si vedono solo gli
         # aggiustamenti e non si può ricostruire la traiettoria di memoria
         # reale di una run per giudicare se un tetto più alto reggerebbe.
         logger.debug(
             f"  [batch-trace] #{self._total_batches} size={self.current_batch_size} "
-            f"mem={mem:.1%} warmup={self.is_warming_up}"
+            f"mem={mem:.1%} warmup={self.is_warming_up} "
+            f"ext={'n/d' if ext is None else f'{ext:.2f}GB'}"
         )
 
         if self._warmup_count < self.warmup_batches:
@@ -138,13 +154,22 @@ class AdaptiveBatchSizeManager:
             # senza mai reagire, fino a spillover WDDM sostenuto (2,44 GB per
             # 6+ minuti su Petra S02E02). Ora simmetrico allo steady-state.
             if mem > self.high_threshold:
-                new_size = max(self.min_size, self.current_batch_size - 2)
-                if new_size != self.current_batch_size:
-                    logger.info(
-                        f"  Memoria alta in warm-up ({mem:.0%}): batch {self.current_batch_size} → {new_size}"
-                    )
-                    self.current_batch_size = new_size
-                    self._adjustments += 1
+                if ext is not None and ext >= self.EXTERNAL_PRESSURE_GB:
+                    if not self._ext_warned:
+                        self._ext_warned = True
+                        self._log(
+                            f"  ⚠️ GPU contesa: {ext:.1f} GB tenuti da un altro "
+                            f"processo. Tengo il batch a {self.current_batch_size} "
+                            f"— ridurlo non libera memoria altrui e rallenta."
+                        )
+                else:
+                    new_size = max(self.min_size, self.current_batch_size - 2)
+                    if new_size != self.current_batch_size:
+                        logger.info(
+                            f"  Memoria alta in warm-up ({mem:.0%}): batch {self.current_batch_size} → {new_size}"
+                        )
+                        self.current_batch_size = new_size
+                        self._adjustments += 1
             elif mem < self.high_threshold:
                 new_size = min(self.current_batch_size + 4, self.max_size)
                 if new_size != self.current_batch_size:
@@ -164,15 +189,32 @@ class AdaptiveBatchSizeManager:
             # impedendone la sovrascrittura in-place (decine di righe/file).
             # Restano a schermo gli eventi importanti: OOM e riepilogo finale.
             if mem > self.high_threshold:
-                new_size = max(self.min_size, self.current_batch_size - 2)
-                if new_size != self.current_batch_size:
-                    logger.info(
-                        f"  Memoria alta ({mem:.0%}): batch {self.current_batch_size} → {new_size}"
-                    )
-                    self.current_batch_size = new_size
-                    self._adjustments += 1
+                if ext is not None and ext >= self.EXTERNAL_PRESSURE_GB:
+                    if not self._ext_warned:
+                        self._ext_warned = True
+                        self._log(
+                            f"  ⚠️ GPU contesa: {ext:.1f} GB tenuti da un altro "
+                            f"processo. Tengo il batch a {self.current_batch_size} "
+                            f"— ridurlo non libera memoria altrui e rallenta."
+                        )
+                else:
+                    new_size = max(self.min_size, self.current_batch_size - 2)
+                    if new_size != self.current_batch_size:
+                        logger.info(
+                            f"  Memoria alta ({mem:.0%}): batch {self.current_batch_size} → {new_size}"
+                        )
+                        self.current_batch_size = new_size
+                        self._adjustments += 1
             elif mem < self.low_threshold and self.current_batch_size < self.max_size:
-                new_size = min(self.current_batch_size + 1, self.max_size)
+                # Risalita moltiplicativa invece di +1. MISURATO (run
+                # 20260905_055040, batch 34-42): finita la contesa, con la GPU
+                # di nuovo libera al 43%, sono serviti NOVE batch per tornare
+                # da 16 a 24 un passo alla volta — nove batch a throughput
+                # ridotto senza motivo. Si cresce solo sotto low_threshold,
+                # dove il margine è già stato verificato.
+                new_size = min(max(self.current_batch_size + 1,
+                                   int(self.current_batch_size * 1.5)),
+                               self.max_size)
                 logger.info(
                     f"  Memoria bassa ({mem:.0%}): batch {self.current_batch_size} → {new_size}"
                 )
@@ -239,6 +281,8 @@ class AdaptiveBatchSizeManager:
         self._oom_consecutive = 0
         self._batch_count = 0
         self._size_history.clear()
+        self._ext_baseline_gb = None
+        self._ext_warned = False
         # Non resettiamo le metriche cumulative (oom_events, adjustments)
 
     def get_metrics(self) -> dict:
@@ -429,6 +473,50 @@ class AdaptiveBatchSizeManager:
                 pass
 
         return 0.5  # valore neutro se tutto fallisce
+
+    # Sopra questa soglia la memoria in più non è nostra: è di qualcun altro.
+    EXTERNAL_PRESSURE_GB = 1.5
+
+    def _external_pressure_gb(self) -> Optional[float]:
+        """GB tenuti da ALTRI processi, oltre la linea di base di questo file.
+
+        MISURATO (log del 2026-09-05, run 20260905_054955): la memoria è salita
+        dal 50% all'85% fra il batch 13 e il batch 15 MENTRE il nostro batch
+        restava fermo a 24. Quella memoria non era nostra — era una seconda
+        traduzione avviata in parallelo. Ridurre il batch in quel caso non
+        libera niente e costa: nelle due run contese il tempo per frase è
+        passato da 0,271 s a batch 24 a 0,438 s a batch 16.
+
+        `memory_reserved()` — non `memory_allocated()` — è la grandezza giusta
+        qui: serve sapere quanta della memoria occupata sul dispositivo è
+        NOSTRA, e ciò che l'allocatore tiene dal driver è esattamente quello.
+        `memory_allocated()` conta i soli tensori vivi, sottostima la nostra
+        quota e farebbe risultare "esterna" la nostra stessa cache, con falsi
+        allarmi di contesa a ogni batch. (È la faccia opposta della nota in
+        `_get_memory_usage`, dove `memory_allocated` era sbagliato per il
+        motivo simmetrico: lì sottostimava l'occupazione totale.)
+
+        VA CHIAMATA A OGNI BATCH, non solo quando la memoria è alta: la linea
+        di base è il minimo osservato, e se la prima osservazione cade già
+        durante la contesa quel valore diventa la base e la pressione risulta
+        nulla per sempre. Vedi la nota in `get_batch_size`.
+
+        Limite noto: se un file comincia GIÀ sotto contesa e non torna mai
+        libero, la base resta alta e la contesa non viene riconosciuta — si
+        ricade nel comportamento di prima (riduzione del batch), che è la
+        degradazione conservativa voluta, non un guasto.
+        """
+        if not (self.use_gpu and _TORCH_AVAILABLE):
+            return None
+        try:
+            used_gb = self._get_total_vram_gb() - self._get_free_vram_gb()
+            ours_gb = torch.cuda.memory_reserved(0) / (1024 ** 3)
+        except Exception:
+            return None
+        outside = used_gb - ours_gb
+        if self._ext_baseline_gb is None or outside < self._ext_baseline_gb:
+            self._ext_baseline_gb = outside
+        return max(0.0, outside - self._ext_baseline_gb)
 
     def _log(self, message: str):
         """Helper di logging."""

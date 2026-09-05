@@ -1409,6 +1409,60 @@ class NLLBTranslator(BaseTranslator):
         return (unit_specs, texts_to_translate, current_batch_placeholders,
                 skip_translation_flags, unit_original_texts)
 
+    # Oltre questo rapporto rispetto al ritmo migliore del file, il batch sta
+    # andando a una frazione della velocità di cui è capace.
+    SLOWDOWN_TRIP = 2.0
+    # Campioni minimi prima di poter avvisare: il primo batch paga
+    # l'autotuning dei kernel e non è un riferimento onesto.
+    SLOW_MIN_SAMPLES = 3
+
+    def _check_throughput(self, seconds: float, tokens: int) -> None:
+        """Backstop temporale: dice quando la traduzione sta andando piano.
+
+        Su WDDM lo sconfinamento in RAM di sistema NON solleva un OOM — in
+        tutto lo storico dei log non c'è un solo evento OOM reale, quindi il
+        ramo `except RuntimeError` di `_run_translation` non è mai stato
+        raggiunto in produzione. L'unica firma è il tempo che risale.
+
+        SEGNALA E BASTA, di proposito. Misurato sulle due run contese del
+        2026-09-05: ridurre il batch sotto contesa ha peggiorato il tempo per
+        frase del 62% (0,271 s a batch 24 contro 0,438 s a batch 16). Chi
+        rallenta la GPU è un altro processo, e il batch non è la leva giusta.
+        Quello che mancava non era una reazione: era saperlo.
+
+        `ms/token` invece di `ms/frase` perché il secondo dipende da quanto
+        sono lunghe le battute del batch, il primo quasi no.
+        """
+        # Tutto dentro try: questo metodo viene chiamato dal `try` di
+        # `_run_translation`, dove un'eccezione qualsiasi verrebbe scambiata
+        # per un fallimento del batch (o, se non è un RuntimeError, farebbe
+        # saltare l'intero batch da un percorso di sola diagnostica). Una
+        # misura non deve mai poter rompere il lavoro che misura.
+        try:
+            if tokens <= 0 or seconds <= 0:
+                return
+            ms_per_token = seconds * 1000.0 / tokens
+            self._slow_samples = getattr(self, '_slow_samples', 0) + 1
+            base = getattr(self, '_ms_token_base', None)
+            if base is None or ms_per_token < base:
+                self._ms_token_base = ms_per_token   # migliore osservato nel file
+                return
+            # Il primo batch paga l'autotuning dei kernel e l'allocazione dei
+            # workspace cuBLAS: non è un riferimento onesto finché non ci sono
+            # abbastanza campioni per farlo scendere al ritmo vero.
+            if (base > 0 and self._slow_samples >= self.SLOW_MIN_SAMPLES
+                    and ms_per_token > base * self.SLOWDOWN_TRIP
+                    and not getattr(self, '_slow_warned', False)):
+                self._slow_warned = True
+                self.log(
+                    f"  ⚠️ Traduzione rallentata {ms_per_token / base:.1f}× rispetto al "
+                    f"ritmo migliore di questo file ({ms_per_token:.1f} contro "
+                    f"{base:.1f} ms/token). Di solito significa che un altro processo "
+                    f"sta usando la GPU."
+                )
+        except Exception as exc:
+            logger.debug(f"_check_throughput: {exc}")
+
     def _run_translation(self, texts: List[str], src_lang: str, tgt_lang: str, add_context: bool = True) -> List[str]:
         """
         Esegue traduzione batch con gestione OOM dinamica
@@ -1461,6 +1515,7 @@ class NLLBTranslator(BaseTranslator):
 
             forced_bos_token_id = self.tokenizer.convert_tokens_to_ids(tgt_lang)
 
+            _t_gen = time.perf_counter()
             with torch.no_grad():
                 outputs = self.model.generate(
                     **inputs,
@@ -1469,7 +1524,8 @@ class NLLBTranslator(BaseTranslator):
                     no_repeat_ngram_size=self.NO_REPEAT_NGRAM_SIZE,
                     max_length=self.MAX_LENGTH_SENTENCE
                 )
-            
+            self._check_throughput(time.perf_counter() - _t_gen, outputs.numel())
+
             translations = self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
             return translations
             
@@ -1561,6 +1617,9 @@ class NLLBTranslator(BaseTranslator):
 
             self.batch_manager.reset()
             self.current_batch_size = self.batch_manager.current_batch_size
+            self._ms_token_base = None      # ritmo di riferimento per file
+            self._slow_warned = False
+            self._slow_samples = 0
             is_first_batch = True
 
             import time as _time
