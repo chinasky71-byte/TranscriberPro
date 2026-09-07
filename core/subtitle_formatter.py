@@ -36,6 +36,13 @@ DIALOGUE_WIN  = 4.0   # Finestra (s) per rilevare contesto dialogo
 MERGE_GAP     = 0.3   # Gap max (s) per unire frammenti della stessa frase (stesso speaker)
 MERGE_GAP_TINY = 0.05  # Gap max (s) per unire ignorando lo speaker (artefatto aligner)
 
+# Gate di confidenza per il trattino a due voci (v. piano_fix_pipeline_trascrizione):
+# la diarization su film con crosstalk/interiezioni brevi produce spesso
+# attribuzioni deboli — meglio un blocco singolo senza trattino che un
+# trattino con la battuta sulla riga del personaggio sbagliato.
+DASH_CONFIDENCE_MIN = 0.55  # confidenza minima speaker richiesta su ENTRAMBI i segmenti
+DASH_MIN_GAP        = 0.20  # gap minimo (s) accettato senza punteggiatura forte a fine riga
+
 
 class SubtitleFormatter:
     """Formatta segmenti diarizzati in SRT professionale."""
@@ -46,13 +53,18 @@ class SubtitleFormatter:
         min_duration: float = MIN_DURATION,
         gap_group: float = GAP_GROUP,
         dialogue_window: float = DIALOGUE_WIN,
+        dash_confidence_min: float = DASH_CONFIDENCE_MIN,
+        dash_min_gap: float = DASH_MIN_GAP,
         log_callback: Optional[Callable] = None,
     ):
-        self.cpl_max         = cpl_max
-        self.min_duration    = min_duration
-        self.gap_group       = gap_group
-        self.dialogue_window = dialogue_window
+        self.cpl_max             = cpl_max
+        self.min_duration        = min_duration
+        self.gap_group           = gap_group
+        self.dialogue_window     = dialogue_window
+        self.dash_confidence_min = dash_confidence_min
+        self.dash_min_gap        = dash_min_gap
         self.log = log_callback or (lambda _: None)
+        self._dash_rejected_low_confidence = 0
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -65,21 +77,28 @@ class SubtitleFormatter:
         if not segs:
             return ""
 
+        segs = self._dedup_overlapping(segs)
         segs = self._merge_short_segments(segs)
 
         if not any(s.get('speaker') for s in segs):
             # Nessuna diarization: CPL + durata minima, nessun trattino
             blocks = self._segments_to_blocks(segs)
             blocks = self._fix_overlaps(blocks)
-            return self._render(self._enforce_min_duration(blocks))
+            blocks = self._enforce_min_duration(blocks)
+            blocks = self._drop_invalid_blocks(blocks)
+            return self._render(blocks)
 
         self._mark_dialogue(segs)
         blocks = self._build_blocks(segs)
         blocks = self._fix_overlaps(blocks)
         blocks = self._enforce_min_duration(blocks)
+        blocks = self._drop_invalid_blocks(blocks)
         srt = self._render(blocks)
         self.log(f"  📄 SRT formattato: {len(blocks)} blocchi, "
                  f"{sum(1 for b in blocks if len(b['lines']) > 1)} blocchi dialogo")
+        if self._dash_rejected_low_confidence:
+            self.log(f"  🎭 Coppie speaker scartate per bassa confidenza "
+                      f"(niente trattino): {self._dash_rejected_low_confidence}")
         return srt
 
     def save(self, segments: List[Dict], output_path) -> bool:
@@ -110,6 +129,85 @@ class SubtitleFormatter:
         return text.strip()
 
     _SENTENCE_END = re.compile(r'[.?!…]$')
+    _WORD_RE = re.compile(r'\w+', re.UNICODE)
+
+    def _normalize_for_dedup(self, text: str) -> List[str]:
+        return self._WORD_RE.findall(text.lower())
+
+    @staticmethod
+    def _same_or_contained(a: List[str], b: List[str]) -> bool:
+        """True se i due testi normalizzati coincidono, o se il più corto è
+        una sequenza CONTIGUA di parole del più lungo.
+
+        Il confronto è per parole, non per sottostringa: "sì" è sottostringa
+        di "così" e "no" di "nonno" — un confronto testuale grezzo scartava
+        battute buone. Il caso asimmetrico (uno contenuto nell'altro) è
+        ammesso solo da 2 parole in su: una parola sola dentro una frase più
+        lunga non è prova di duplicazione ("sì" dentro "ma sì certo").
+        """
+        if not a or not b:
+            return False
+        if a == b:
+            return True
+        short, long_ = (a, b) if len(a) <= len(b) else (b, a)
+        if len(short) < 2:
+            return False
+        n = len(short)
+        return any(long_[i:i + n] == short for i in range(len(long_) - n + 1))
+
+    def _dedup_overlapping(self, segs: List[Dict]) -> List[Dict]:
+        """Rimuove segmenti quasi-duplicati con overlap temporale.
+
+        Chunk audio fisicamente sovrapposti (bug storico nel chunker, vedi
+        core/audio_processor.py) fanno trascrivere la stessa battuta due
+        volte con timestamp leggermente diversi e fuori ordine. Ordina per
+        start (ripristina l'ordine cronologico) e scarta il duplicato
+        quando due segmenti si sovrappongono nel tempo E il testo
+        normalizzato coincide o è contenuto l'uno nell'altro (v.
+        _same_or_contained) — la sola somiglianza testuale non basta (due
+        speaker possono dire la stessa battuta breve, es. "Sì."), serve
+        anche l'overlap temporale.
+        """
+        if len(segs) < 2:
+            return segs
+
+        ordered = sorted(segs, key=lambda s: s['start'])
+        result: List[Dict] = [ordered[0]]
+        removed = 0
+        for seg in ordered[1:]:
+            prev = result[-1]
+            overlap = min(prev['end'], seg['end']) - max(prev['start'], seg['start'])
+            if overlap > 0:
+                norm_prev = self._normalize_for_dedup(prev.get('text', ''))
+                norm_seg  = self._normalize_for_dedup(seg.get('text', ''))
+                if self._same_or_contained(norm_prev, norm_seg):
+                    # Tieni il testo più lungo (di solito quello meglio
+                    # punteggiato/con più contesto per l'aligner)
+                    if len(seg.get('text', '')) > len(prev.get('text', '')):
+                        result[-1] = seg
+                    removed += 1
+                    continue
+            result.append(seg)
+
+        if removed:
+            self.log(f"  🧹 Segmenti duplicati (chunk sovrapposti) rimossi: {removed}")
+        return result
+
+    def _drop_invalid_blocks(self, blocks: List[Dict]) -> List[Dict]:
+        """Scarta blocchi con timing invalido (end <= start) e garantisce
+        l'ordine cronologico nel file finale, qualunque euristica a monte
+        li abbia prodotti."""
+        ordered = sorted(blocks, key=lambda b: b['start'])
+        result = []
+        dropped = 0
+        for b in ordered:
+            if b['end'] <= b['start']:
+                dropped += 1
+                continue
+            result.append(b)
+        if dropped:
+            self.log(f"  🛡️ Blocchi con timing invalido scartati: {dropped}")
+        return result
 
     def _merge_short_segments(self, segs: List[Dict]) -> List[Dict]:
         """Unisce segmenti consecutivi che formano la stessa frase.
@@ -142,7 +240,7 @@ class SubtitleFormatter:
                 or prev.get('speaker') == seg.get('speaker')
             )
             can_merge = (
-                gap <= MERGE_GAP
+                0 <= gap <= MERGE_GAP
                 and speaker_ok
                 and prev_txt
                 and not self._SENTENCE_END.search(prev_txt)
@@ -193,6 +291,40 @@ class SubtitleFormatter:
 
     # ── Block building ────────────────────────────────────────────────────────
 
+    # Chiusura di frase, con l'eventuale virgoletta finale (dritta o
+    # tipografica: l'ASR restituisce anche » e ”, non normalizzati qui)
+    _STRONG_END = re.compile(r'[.?!…]["\'»”]?$')
+
+    def _confident_dialogue_pair(self, seg: Dict, nxt: Dict) -> bool:
+        """Decide se una coppia di segmenti (speaker diversi, già ammessa dai
+        controlli di gap/lunghezza) merita davvero il trattino a due voci.
+
+        Due condizioni aggiuntive, entrambe necessarie:
+          1. Confidenza minima sull'attribuzione speaker di ENTRAMBI i
+             segmenti ('speaker_confidence', assente = 1.0 per
+             retrocompatibilità con diarization che non la calcolano).
+          2. Un confine di turno plausibile fra i due: o la prima riga
+             termina con punteggiatura forte, o il gap è almeno
+             dash_min_gap secondi — altrimenti è più probabile un errore
+             di segmentazione a metà frase che un vero cambio di parlante.
+
+        Se il gate rifiuta, i due segmenti restano blocchi singoli senza
+        trattino: si perde la decorazione "stile dialogo", non si espone
+        un'attribuzione sbagliata.
+        """
+        conf_a = seg.get('speaker_confidence', 1.0)
+        conf_b = nxt.get('speaker_confidence', 1.0)
+        if conf_a < self.dash_confidence_min or conf_b < self.dash_confidence_min:
+            self._dash_rejected_low_confidence += 1
+            return False
+
+        gap = nxt['start'] - seg['end']
+        if not self._STRONG_END.search(seg['text'].strip()) and gap < self.dash_min_gap:
+            self._dash_rejected_low_confidence += 1
+            return False
+
+        return True
+
     def _build_blocks(self, segs: List[Dict]) -> List[Dict]:
         """Raggruppa segmenti in blocchi SRT con regole di raggruppamento dialogo.
 
@@ -214,7 +346,8 @@ class SubtitleFormatter:
                     and seg.get('speaker') != nxt.get('speaker')
                     and (nxt['start'] - seg['end']) <= self.gap_group
                     and len(seg['text']) <= self.cpl_max
-                    and len(nxt['text']) <= self.cpl_max):
+                    and len(nxt['text']) <= self.cpl_max
+                    and self._confident_dialogue_pair(seg, nxt)):
 
                 # ── Blocco dialogo (2 righe) ──────────────────────────────────
                 blocks.append({

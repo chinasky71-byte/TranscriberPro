@@ -31,6 +31,18 @@ from typing import List, Tuple, Optional, Callable
 
 logger = logging.getLogger(__name__)
 
+# Durata massima per chunk accettata da ciascun engine (v. piano_fix_
+# pipeline_trascrizione punto B.5). Cappa i valori di config: alzare i
+# chunk per Qwen3 non deve rompere gli altri engine.
+#   - canary: Canary-Qwen addestrato su audio ≤40s (core/engines/canary_engine.py)
+#   - qwen3: ForcedAligner MAX_FORCE_ALIGN_INPUT_SECONDS=180 (17% di margine)
+#   - faster-whisper: finestra nativa Whisper (~30s)
+ENGINE_CHUNK_CAP_S = {
+    'canary':         35.0,
+    'qwen3':         150.0,
+    'faster-whisper': 30.0,
+}
+
 
 class AudioProcessor:
     def __init__(self):
@@ -41,10 +53,24 @@ class AudioProcessor:
         self._cancelled: bool = False
         self._active_proc: Optional[subprocess.Popen] = None
 
-        # Parametri ottimizzati per qualità
-        self.CHUNK_TARGET_DURATION = 20  # Target 20 secondi
-        self.CHUNK_MIN_DURATION = 10     # Minimo 10 secondi
-        self.CHUNK_MAX_DURATION = 25     # Massimo 25 secondi (split forzato)
+        # Parametri chunk audio (v. piano_fix_pipeline_trascrizione punto B):
+        # configurabili per permettere un A/B senza modificare codice. Default
+        # = comportamento storico (20/10/25s). Cappati per engine in
+        # process_for_transcription, non qui: qui sono i valori "richiesti".
+        from utils.config import get_config
+        _cfg = get_config()
+        target = int(_cfg.get('asr_chunk_target_duration', 20))
+        min_d  = int(_cfg.get('asr_chunk_min_duration', 10))
+        max_d  = int(_cfg.get('asr_chunk_max_duration', 25))
+        if not (0 < min_d < target <= max_d):
+            self.logger.warning(
+                f"Config chunk audio incoerente (min={min_d}, target={target}, "
+                f"max={max_d}) — richiesto 0<min<target<=max: ricado sui default 10/20/25")
+            target, min_d, max_d = 20, 10, 25
+        self.CHUNK_TARGET_DURATION = target
+        self.CHUNK_MIN_DURATION = min_d
+        self.CHUNK_MAX_DURATION = max_d
+        self.CHUNK_MIN_KEEP = 0.05       # Sotto 50ms il chunk non contiene parlato
 
         # Soglie pipeline intelligente
         self.FAST_PATH_THRESHOLD = 300    # 5 minuti
@@ -79,7 +105,8 @@ class AudioProcessor:
         output_dir: Path,
         max_chunk_duration: int = 30,  # Deprecato, ora usa self.CHUNK_TARGET_DURATION
         min_chunk_duration: int = 5,   # Deprecato, ora usa self.CHUNK_MIN_DURATION
-        use_batched_pipeline: bool = False
+        use_batched_pipeline: bool = False,
+        engine: Optional[str] = None
     ) -> List[Tuple[Path, float, float]]:
         """
         Processo completo audio per trascrizione con pipeline intelligente
@@ -91,10 +118,49 @@ class AudioProcessor:
             min_chunk_duration: DEPRECATO (usa self.CHUNK_MIN_DURATION)
             use_batched_pipeline: Se True, salta il chunking e restituisce il file
                                    vocals intero (ottimizzato per BatchedInferencePipeline)
+            engine: nome engine pianificato ('canary'|'qwen3'|'faster-whisper').
+                    Cappa la durata massima dei chunk richiesta in config
+                    (v. ENGINE_CHUNK_CAP_S). None (nessun chiamante lo
+                    specifica, es. subtitle_synchronizer) usa il cap PIÙ
+                    prudente del dizionario invece di nessun cap — un
+                    engine sconosciuto non deve tradursi in nessuna
+                    protezione (bug-check Opus, v. piano_fix_pipeline_
+                    trascrizione punto B).
 
         Returns:
             Lista di (chunk_path, start_time, end_time)
         """
+        # Salvati per il ripristino a fine funzione (finally sotto): il cap
+        # muta self.CHUNK_* per la durata di QUESTA chiamata soltanto —
+        # senza ripristino, un'istanza AudioProcessor riusata fra due file
+        # con engine diversi resterebbe cappata sul valore più basso visto
+        # finora, in silenzio (bug-check Opus).
+        _orig_target = self.CHUNK_TARGET_DURATION
+        _orig_min = self.CHUNK_MIN_DURATION
+        _orig_max = self.CHUNK_MAX_DURATION
+        _capped = False
+
+        if not use_batched_pipeline:
+            if engine:
+                cap = ENGINE_CHUNK_CAP_S.get(engine)
+                if cap is None:
+                    self.logger.debug(
+                        f"Nessun cap chunk noto per engine '{engine}' — "
+                        f"valori di config usati tali e quali")
+            else:
+                cap = min(ENGINE_CHUNK_CAP_S.values())
+            if cap is not None and self.CHUNK_MAX_DURATION > cap:
+                effective_max = cap
+                effective_target = min(self.CHUNK_TARGET_DURATION, effective_max * 0.8)
+                effective_min = min(self.CHUNK_MIN_DURATION, effective_target * 0.5)
+                self._log(
+                    f"  ⚠️ Chunk max {self.CHUNK_MAX_DURATION}s oltre il limite "
+                    f"'{engine or 'sconosciuto'}' ({cap}s) — cappato a {effective_max:.0f}s "
+                    f"(target {effective_target:.0f}s, min {effective_min:.0f}s)")
+                self.CHUNK_MAX_DURATION = effective_max
+                self.CHUNK_TARGET_DURATION = effective_target
+                self.CHUNK_MIN_DURATION = effective_min
+                _capped = True
         try:
             self._log(f"🎬 Audio: {audio_path.name}")
             self._log("  🎵 Separazione vocale Demucs...")
@@ -140,7 +206,12 @@ class AudioProcessor:
         except Exception as e:
             self.logger.error(f"Errore audio processing: {e}", exc_info=True)
             return []
-    
+        finally:
+            if _capped:
+                self.CHUNK_TARGET_DURATION = _orig_target
+                self.CHUNK_MIN_DURATION = _orig_min
+                self.CHUNK_MAX_DURATION = _orig_max
+
     def separate_vocals(self, audio_path: Path) -> Optional[Path]:
         """
         Separazione vocale con PIPELINE INTELLIGENTE basata su durata
@@ -547,9 +618,17 @@ class AudioProcessor:
                         # Chunk valido: aggiungi
                         chunks.append((current_chunk_start, current_chunk_end))
                     else:
-                        # Chunk troppo corto: forza estensione fino a minimo
+                        # Chunk troppo corto: forza estensione fino a minimo,
+                        # MAI oltre l'inizio del prossimo intervallo — altrimenti
+                        # il chunk successivo (che parte da interval_start_sec)
+                        # si sovrappone fisicamente a questo. Bug storico: audio
+                        # duplicato tra due chunk → stessa battuta trascritta
+                        # due volte con timestamp leggermente diversi.
                         if current_chunk_end + 5 <= interval_end_sec:
-                            current_chunk_end = current_chunk_start + self.CHUNK_MIN_DURATION
+                            current_chunk_end = min(
+                                current_chunk_start + self.CHUNK_MIN_DURATION,
+                                interval_start_sec
+                            )
                         chunks.append((current_chunk_start, current_chunk_end))
                     
                     # Inizia nuovo chunk
@@ -590,17 +669,50 @@ class AudioProcessor:
                 else:
                     final_chunks.append((start, end))
             
-            # Statistiche
+            # Rete di sicurezza: garantisce chunk[i].end <= chunk[i+1].start
+            # per costruzione, qualunque euristica sopra li abbia generati.
+            # Chunk fisicamente sovrapposti vengono trascritti due volte
+            # dall'engine ASR (stessa battuta, timestamp leggermente diversi).
+            # Il clamp può ridurre un chunk a durata nulla (overlap lungo
+            # quanto il chunk stesso): va scartato qui, non passato a FFmpeg —
+            # con -t <= 0 produce un WAV vuoto che l'engine ASR tenta comunque
+            # di trascrivere.
+            safe_chunks: List[Tuple[float, float]] = []
+            overlap_fixed = 0
+            degenerate = 0
+            for i, (start_i, end_i) in enumerate(final_chunks):
+                if i + 1 < len(final_chunks):
+                    start_next = final_chunks[i + 1][0]
+                    if end_i > start_next:
+                        end_i = start_next
+                        overlap_fixed += 1
+                if end_i - start_i < self.CHUNK_MIN_KEEP:
+                    degenerate += 1
+                    continue
+                safe_chunks.append((start_i, end_i))
+            final_chunks = safe_chunks
+
+            if overlap_fixed:
+                self._log(f"  🛡️ Overlap fisici tra chunk corretti: {overlap_fixed}")
+            if degenerate:
+                self._log(f"  🛡️ Chunk a durata nulla scartati: {degenerate}")
+
+            if not final_chunks:
+                self.logger.error("Chunking: nessun chunk valido dopo la normalizzazione")
+                self._log("  ❌ Nessun chunk valido prodotto")
+                return []
+
+            # Statistiche (dopo la normalizzazione: riflettono i chunk reali)
             durations = [end - start for start, end in final_chunks]
             avg_duration = np.mean(durations)
             min_duration = np.min(durations)
             max_duration = np.max(durations)
-            
+
             self._log(f"  ✅ Chunks creati: {len(final_chunks)}")
             self._log(f"  📊 Durata media: {avg_duration:.1f}s (min: {min_duration:.1f}s, max: {max_duration:.1f}s)")
             if split_count > 0:
                 self._log(f"  ✂️ Split forzati: {split_count} chunks")
-            
+
             # Log dettagliato primi 5 e ultimi 5 chunks
             self.logger.debug("  Primi 5 chunks:")
             for idx, (start, end) in enumerate(final_chunks[:5]):
@@ -646,7 +758,15 @@ class AudioProcessor:
         for idx, (start_time, end_time) in enumerate(chunk_times):
             chunk_num = idx + 1
             duration = end_time - start_time
-            
+
+            # Durata non valida: FFmpeg con -t <= 0 scriverebbe un WAV vuoto
+            # (rc 0) che l'engine ASR tenterebbe comunque di trascrivere
+            if duration <= 0:
+                self.logger.warning(
+                    f"    ⚠️ Chunk {chunk_num} saltato: durata non valida ({duration:.3f}s)")
+                failed += 1
+                continue
+
             # Nome file chunk
             chunk_filename = f"chunk_{chunk_num:04d}.wav"
             chunk_path = output_dir / chunk_filename

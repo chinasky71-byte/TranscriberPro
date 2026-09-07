@@ -80,6 +80,7 @@ class Qwen3AsrEngine(TranscriptionEngine):
         self.config = get_config()
         self.model = None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self._punct_restorer = None  # lazy, v. _maybe_restore_punctuation
 
         # Mappa batch dal profilo: batch_size_hint del profilo trascrizione,
         # con cap prudente a 8 (chunk da 25s in bf16 su 12GB condivisi con Demucs).
@@ -91,7 +92,49 @@ class Qwen3AsrEngine(TranscriptionEngine):
             hint = ProfileConfig.get_profile_config(profile).get('batch_size_hint') or 8
         except Exception:
             hint = 8
-        self.batch_size = max(1, min(int(hint), 8))
+
+        # Il cap di 8 è tarato su chunk da 25s: con chunk più lunghi (config
+        # asr_chunk_max_duration) le attivazioni dell'encoder audio crescono
+        # ~linearmente con la durata → si scala il batch per conservare il
+        # prodotto batch×durata (WDDM non fa OOM, sconfina in silenzio: uno
+        # sconfinamento su chunk lunghi sarebbe un rallentamento invisibile,
+        # non un crash).
+        _ref_sec = 25.0
+        _chunk_max = float(self.config.get('asr_chunk_max_duration', 25))
+        _cap = max(1, int(8 * _ref_sec / max(_chunk_max, _ref_sec)))
+        self.batch_size = max(1, min(int(hint), _cap))
+
+        # max_new_tokens: v. piano_fix_pipeline_trascrizione punto B/D5. Il
+        # default storico (256) tronca già un chunk denso da 25s (~266 token
+        # stimati) — 0 = calcolo automatico dalla durata massima dei chunk.
+        self._max_new_tokens = self._compute_max_new_tokens(_chunk_max)
+
+    def _compute_max_new_tokens(self, chunk_max_sec: float) -> int:
+        """Determina il cap di generazione per Qwen3-ASR.
+
+        Config esplicita (`qwen3_max_new_tokens` > 0) ha sempre priorità.
+        Con 0 (default) si stima dal peggior chunk possibile — non dalla
+        durata media — perché un troncamento taglia in silenzio la coda del
+        testo del chunk, senza errore a video (v. piano_fix_pipeline_
+        trascrizione punto B.2/D.5).
+
+        Formula: tokens ≈ (chunk_sec/60) × WPM_peak × TOK_PER_WORD + OVERHEAD
+          - WPM_peak=220: parlato cinematografico concitato in italiano
+            (dimensionato sul peggior chunk, non sulla media conversazionale)
+          - TOK_PER_WORD=2.5: tokenizer BPE Qwen su italiano, conservativo
+          - OVERHEAD=64: prefisso lingua + margine
+        Arrotondato a multipli di 128, minimo 256 (comportamento storico),
+        massimo 2048.
+        """
+        configured = int(self.config.get('qwen3_max_new_tokens', 0) or 0)
+        if configured > 0:
+            return configured
+
+        wpm_peak, tok_per_word, overhead = 220, 2.5, 64
+        estimated = (chunk_max_sec / 60.0) * wpm_peak * tok_per_word + overhead
+        import math
+        rounded = max(256, min(2048, int(math.ceil(estimated / 128.0) * 128)))
+        return rounded
 
     # ------------------------------------------------------------------
     # Capability detection
@@ -141,13 +184,14 @@ class Qwen3AsrEngine(TranscriptionEngine):
             dtype=dtype,
             device_map=device_map,
             max_inference_batch_size=self.batch_size,
-            max_new_tokens=256,
+            max_new_tokens=self._max_new_tokens,
         )
 
         elapsed = time.time() - t0
         free1 = self._free_vram_gb()
         self.log(f"  ✅ Qwen3-ASR caricato in {elapsed:.1f}s su {self.device.upper()}"
                  + (f" │ VRAM: {free0:.1f} → {free1:.1f} GB liberi" if free0 else ""))
+        self.log(f"  ⚙️ batch={self.batch_size} │ max_new_tokens={self._max_new_tokens}")
 
     def unload(self):
         """Scarica completamente ASR + aligner da VRAM."""
@@ -161,6 +205,9 @@ class Qwen3AsrEngine(TranscriptionEngine):
                     pass
                 del self.model
                 self.model = None
+            if self._punct_restorer is not None:
+                self._punct_restorer.unload()
+                self._punct_restorer = None
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
@@ -168,6 +215,35 @@ class Qwen3AsrEngine(TranscriptionEngine):
             logger.info("✅ Qwen3AsrEngine unload completato")
         except Exception as e:
             logger.error(f"Errore durante unload Qwen3: {e}")
+
+    def _maybe_restore_punctuation(self, words: List[dict], text: str,
+                                    language: str, chunk_num: int) -> List[dict]:
+        """Applica il ripristino punteggiatura (punto D) se il trigger di
+        config lo richiede per questo chunk. 'off' = comportamento storico,
+        nessun import né chiamata — costo zero quando disattivato."""
+        mode = self.config.get('punctuation_restore_mode', 'off')
+        if mode == 'off':
+            return words
+
+        from core.punctuation_restorer import PunctuationRestorer
+        if language not in PunctuationRestorer.SUPPORTED_LANGS:
+            return words  # lingua fuori dal modello: nessun log fuorviante
+
+        min_density = float(self.config.get('punctuation_min_density', 0.0))
+        trigger = (mode == 'all') or (
+            mode == 'missing' and PunctuationRestorer.needs_restoration(text, min_density))
+        if not trigger:
+            return words
+
+        if self._punct_restorer is None:
+            self._punct_restorer = PunctuationRestorer(
+                model_id=self.config.get('punctuation_model_id',
+                                          'oliverguhr/fullstop-punctuation-multilang-large'),
+                device=self.config.get('punctuation_device', 'cpu'),
+                log_callback=self.log,
+            )
+        self.log(f"  ✍️ Ripristino punteggiatura chunk {chunk_num}...")
+        return self._punct_restorer.restore_words(words, language)
 
     @staticmethod
     def _free_vram_gb() -> float:
@@ -237,6 +313,7 @@ class Qwen3AsrEngine(TranscriptionEngine):
 
         all_segments = []
         failed_chunks = 0
+        truncation_suspects = 0
         last_pct = -1
         t0 = time.time()
 
@@ -263,11 +340,42 @@ class Qwen3AsrEngine(TranscriptionEngine):
                 if not text:
                     continue  # chunk silenzioso
 
+                # Diagnostica (v. piano_fix_pipeline_trascrizione): capire se i
+                # tratti senza punteggiatura nell'SRT finale nascono già così
+                # dall'ASR o si perdono nel riaggancio con l'aligner.
+                if not any(ch in '.,!?;:…' for ch in text):
+                    logger.debug(
+                        f"[qwen3-diag] chunk {chunk_num}: testo ASR grezzo "
+                        f"senza alcuna punteggiatura: {text[:200]!r}")
+
+                # Diagnostica: sospetto troncamento su max_new_tokens. Il
+                # pacchetto non espone il conteggio dei token generati →
+                # stima dal testo (~2,5 token/parola sul tokenizer Qwen in
+                # italiano). Se i chunk "senza punteggiatura" sopra
+                # coincidono con questi, il difetto è a monte in B (cap
+                # troppo basso), non un problema di punteggiatura vera e
+                # propria (v. piano_fix_pipeline_trascrizione punto D.5).
+                est_tokens = len(text.split()) * 2.5
+                if est_tokens >= 0.9 * self._max_new_tokens:
+                    truncation_suspects += 1
+                    logger.debug(
+                        f"[qwen3-diag] chunk {chunk_num}: sospetto troncamento "
+                        f"(~{est_tokens:.0f} token stimati / cap {self._max_new_tokens}) — "
+                        f"coda: {text[-80:]!r}")
+
                 # Word items dell'aligner + punteggiatura dal testo ASR
                 # completo + offset start del chunk
                 words = []
                 if r.time_stamps is not None:
-                    words = self._attach_punct_words(text, r.time_stamps, start_time)
+                    words = self._attach_punct_words(text, r.time_stamps, start_time, chunk_num)
+
+                # Ripristino punteggiatura (v. piano_fix_pipeline_trascrizione
+                # punto D) — SOLO sui chunk diagnosticati, mai su testo già
+                # punteggiato dall'ASR (che usa il segnale acustico, non
+                # disponibile a un modello testuale). 'off' = comportamento
+                # storico, nessuna chiamata.
+                if words:
+                    words = self._maybe_restore_punctuation(words, text, language, chunk_num)
 
                 if words:
                     all_segments.extend(self._words_to_segments(words))
@@ -298,6 +406,9 @@ class Qwen3AsrEngine(TranscriptionEngine):
             self.log(f"  ⚠️ Completato con {failed_chunks} chunks falliti su {total_chunks}")
         self.log(f"  ✅ Trascrizione: [██████████] 100% ({total_chunks}/{total_chunks}) │ {time_str}")
         self.log(f"  📝 Totale segmenti trascritti: {len(all_segments)}")
+        if truncation_suspects:
+            self.log(f"  ⚠️ Chunk con sospetto troncamento generazione "
+                     f"(cap {self._max_new_tokens} token): {truncation_suspects}/{total_chunks}")
 
         # Troppi fallimenti = engine inaffidabile su questo file → fallback
         if total_chunks > 0 and failed_chunks > total_chunks * 0.5:
@@ -316,7 +427,7 @@ class Qwen3AsrEngine(TranscriptionEngine):
     # Punteggiatura: riaggancio dal testo ASR alle parole dell'aligner
     # ------------------------------------------------------------------
     @staticmethod
-    def _attach_punct_words(text: str, items, offset: float) -> List[dict]:
+    def _attach_punct_words(text: str, items, offset: float, chunk_num: Optional[int] = None) -> List[dict]:
         """
         Converte gli item dell'aligner in parole con timestamp riagganciando
         la punteggiatura del testo ASR originale.
@@ -329,13 +440,18 @@ class Qwen3AsrEngine(TranscriptionEngine):
         """
         words: List[dict] = []
         pos = 0
+        not_found = 0
+        seen = 0
         for it in items:
+            seen += 1
             w = (it.text or '').strip()
             if not w:
                 continue
             i = text.find(w, pos)
             if i < 0:
                 i = text.find(w)   # robustezza: ritenta dall'inizio
+                if i < 0:
+                    not_found += 1
             if i >= 0:
                 j = i + len(w)
                 # Aperture immediatamente adiacenti a sinistra (¿ ¡ « " ...)
@@ -355,6 +471,15 @@ class Qwen3AsrEngine(TranscriptionEngine):
                 'end': float(it.end_time) + offset,
                 'word': token,
             })
+
+        # Diagnostica (v. piano_fix_pipeline_trascrizione): distingue "l'ASR
+        # non punteggia" da "il riaggancio con l'aligner fallisce".
+        if not_found:
+            logger.debug(
+                f"[qwen3-diag] chunk {chunk_num}: {not_found}/{seen} "
+                f"parole dell'aligner non trovate nel testo ASR (riaggancio "
+                f"punteggiatura fallito, parola nuda usata) — testo: {text[:200]!r}")
+
         return words
 
     # ------------------------------------------------------------------

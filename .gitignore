@@ -108,3 +108,10 @@ diagnostica/
 temp/
 cache/
 .claude/
+
+# ---------------------------------------------------------------------------
+# diar_eval/ è un banco di taratura diarization, non prodotto: il codice
+# (diar_bench.py, metrics.py) resta in git, ma work/ porta audio estratto +
+# vocals Demucs (centinaia di MB per film) e SRT specifici del film testato.
+# ---------------------------------------------------------------------------
+diar_eval/work/

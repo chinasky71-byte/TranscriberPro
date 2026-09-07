@@ -25,6 +25,10 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
+# Tokenizzazione per il confronto testuale dei duplicati (ignora
+# punteggiatura e maiuscole)
+_WORD_RE = re.compile(r'\w+', re.UNICODE)
+
 
 @dataclass
 class Subtitle:
@@ -387,10 +391,17 @@ class SubtitleCleaner:
         
         self.overlap_stats['iterations_needed'] = iteration
         self.overlap_stats['final_overlaps'] = self._count_overlaps()
-        
+
         # Log riepilogo
         self._log_overlap_stats()
-        
+
+        # Overlap che il fix conservativo non può risolvere (il sottotitolo
+        # inizia dopo o insieme al successivo — accorciarne la fine non
+        # basta, e questa classe non tocca mai i tempi di inizio). Meglio
+        # scartare la riga che emettere un SRT con timestamp non monotoni.
+        dropped = self._drop_unfixable_overlaps()
+        self.overlap_stats['dropped_unfixable'] = dropped
+
         return self
     
     def _fix_overlaps_single_pass(self) -> int:
@@ -469,6 +480,60 @@ class SubtitleCleaner:
         
         return fixes_applied
     
+    @staticmethod
+    def _is_duplicate_text(a: str, b: str) -> bool:
+        """True se i due testi sono lo stesso testo a meno di punteggiatura e
+        maiuscole, o se il più corto è una sequenza contigua di parole del più
+        lungo (da 2 parole in su: una parola sola dentro una frase più lunga
+        non è prova di duplicazione)."""
+        wa = _WORD_RE.findall(a.lower())
+        wb = _WORD_RE.findall(b.lower())
+        if not wa or not wb:
+            return False
+        if wa == wb:
+            return True
+        short, long_ = (wa, wb) if len(wa) <= len(wb) else (wb, wa)
+        if len(short) < 2:
+            return False
+        n = len(short)
+        return any(long_[i:i + n] == short for i in range(len(long_) - n + 1))
+
+    def _drop_unfixable_overlaps(self) -> int:
+        """Scarta i sottotitoli DUPLICATI che il fix conservativo non ha
+        potuto correggere: iniziano prima o insieme al precedente (o ben prima
+        che finisca) e ripetono lo stesso testo — la firma della battuta
+        trascritta due volte da chunk audio sovrapposti. Non tocchiamo mai i
+        tempi di inizio (invariante della classe), quindi l'unica correzione
+        possibile in questo caso estremo è rimuovere la riga.
+
+        Un overlap irrisolvibile con testo DIVERSO viene invece CONSERVATO:
+        gli SRT esterni (tipicamente convertiti da ASS) hanno spesso eventi
+        realmente simultanei — cartello + dialogo — e perdere una riga buona
+        è peggio di un timestamp non monotono, che i player gestiscono.
+        """
+        if len(self.subtitles) < 2:
+            return 0
+
+        result: List[Subtitle] = [self.subtitles[0]]
+        dropped = 0
+        for sub in self.subtitles[1:]:
+            prev = result[-1]
+            unfixable = (
+                sub.start_seconds <= prev.start_seconds
+                or sub.start_seconds < prev.end_seconds - self.MIN_SUBTITLE_DURATION
+            )
+            if unfixable and self._is_duplicate_text(prev.text, sub.text):
+                logger.warning(
+                    f"    âš ï¸ Sottotitolo {sub.index} scartato: duplicato con "
+                    f"overlap irrisolvibile sul precedente (start {sub.start_time})")
+                dropped += 1
+                continue
+            result.append(sub)
+
+        if dropped:
+            self.subtitles = result
+        return dropped
+
     def _count_overlaps(self) -> int:
         """Conta il numero totale di overlapping"""
         count = 0

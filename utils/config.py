@@ -157,8 +157,64 @@ class Config:
         # formattazione SubtitleFormatter (richiede token HuggingFace)
         'dialogue_style_enabled': True,
 
+        # A/B diarization (v. piano_fix_pipeline_trascrizione punto A).
+        # 'diarization_audio_source' e gli altri override restano al
+        # comportamento storico; 'diarization_clustering_threshold' è stato
+        # PROMOSSO A DEFAULT DI PRODOTTO l'08/09/2026 dopo una campagna di
+        # taratura con 50 coppie etichettate a mano su un film (Goodrich
+        # 2024): riduce nettamente il sovra-clustering (27→12 "parlanti").
+        # Nota onesta: il segnale statistico sulla singola metrica
+        # aggregata era debole (differenza non significativa a un test
+        # esatto su un campione di quella taglia) — la decisione di
+        # tenerlo è stata presa consapevolmente dall'utente, non perché il
+        # dato fosse schiacciante. SE EMERGONO SINTOMI DI SOVRA-FUSIONE
+        # (personaggi diversi assegnati allo stesso speaker, meno "parlanti"
+        # del previsto) su film futuri, riconsiderare per primo QUESTO
+        # valore — non è stato validato oltre un singolo film/genere.
+        'diarization_audio_source':         'vocals',  # 'vocals' | 'original'
+        'diarization_clustering_threshold': 0.85,      # 0.0 = default modello (0.7046); v. nota sopra
+        'diarization_min_cluster_size':     0,         # 0 = default modello (12)
+        'diarization_max_speakers':         0,         # 0 = nessun tetto
+        'diarization_min_speakers':         0,         # 0 = nessun pavimento
+
+        # Riscrittura assegnazione word-level (v. piano_fix_pipeline_
+        # trascrizione punto C) — False = lookup a midpoint storico.
+        'diarization_word_vote_enabled': False,
+        'diarization_word_tolerance_ms': 100,
+
         # Forced Alignment (whisperx + wav2vec2)
         'enable_forced_alignment': False,
+
+        # Durata chunk audio per la trascrizione (v. piano_fix_pipeline_
+        # trascrizione punto B) — default = comportamento storico. Cappati
+        # per engine in AudioProcessor (Canary ≤35s, Qwen3 ≤150s, whisper
+        # ≤30s): valori più alti qui vengono clippati, mai ignorati in
+        # silenzio (log di avviso).
+        'asr_chunk_target_duration': 20,
+        'asr_chunk_min_duration':    10,
+        'asr_chunk_max_duration':    25,
+
+        # Cap di generazione Qwen3-ASR — 0 (default) = calcolato dalla durata
+        # massima dei chunk (v. _compute_max_new_tokens in qwen3_asr_engine.py).
+        # NON 256: il vecchio valore fisso era già al limite di troncamento
+        # su chunk da 25s densi (bug-check Opus, v. piano_fix_pipeline_
+        # trascrizione punto D.5) — tenerlo come default avrebbe vanificato
+        # anche il punto B (chunk più lunghi troncati anche peggio).
+        'qwen3_max_new_tokens': 0,
+
+        # Ripristino punteggiatura sui chunk ASR che ne sono privi (v.
+        # piano_fix_pipeline_trascrizione punto D). PROMOSSO A DEFAULT DI
+        # PRODOTTO l'08/09/2026 dopo validazione mirata (22 frasi a mano,
+        # invariante 1:1 sempre rispettata, un solo errore che alterava il
+        # senso su 22 casi). Limite noto: il modello non produce mai "!"
+        # (classi fisse di addestramento, non un bug — v. TODO backlog per
+        # alternative). 'missing' tocca SOLO i chunk completamente privi di
+        # punteggiatura, mai quelli che l'ASR ha già punteggiato da sé
+        # usando il segnale acustico.
+        'punctuation_restore_mode': 'missing',   # 'off' | 'missing' | 'all'
+        'punctuation_model_id':     'oliverguhr/fullstop-punctuation-multilang-large',
+        'punctuation_device':       'cpu',
+        'punctuation_min_density':  0.0,     # 0.0 = solo testi senza ALCUNA punteggiatura
 
         # Library Scanner Settings
         'library_scanner_url': 'http://192.168.1.18:6680',
