@@ -68,6 +68,7 @@ class CanaryEngine(TranscriptionEngine):
         self.config = get_config()
         self._proc: Optional[subprocess.Popen] = None
         self._aligner = None
+        self._punct_restorer = None  # lazy, v. _maybe_restore_punctuation
 
     # ------------------------------------------------------------------
     # Capability detection
@@ -110,6 +111,9 @@ class CanaryEngine(TranscriptionEngine):
             if self._aligner is not None:
                 del self._aligner
                 self._aligner = None
+            if self._punct_restorer is not None:
+                self._punct_restorer.unload()
+                self._punct_restorer = None
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
@@ -126,6 +130,37 @@ class CanaryEngine(TranscriptionEngine):
                 self._proc.kill()
             except Exception:
                 pass
+
+    def _maybe_restore_punctuation(self, words: List[dict], text: str,
+                                    language: str, chunk_num: int) -> List[dict]:
+        """Applica il ripristino punteggiatura (v. piano_fix_pipeline_
+        trascrizione punto D) se il trigger di config lo richiede. 'off' =
+        comportamento storico, nessun import né chiamata. Stessa logica di
+        Qwen3AsrEngine._maybe_restore_punctuation (duplicata: le due classi
+        non condividono un'istanza da cui riusare lo stato lazy)."""
+        mode = self.config.get('punctuation_restore_mode', 'off')
+        if mode == 'off':
+            return words
+
+        from core.punctuation_restorer import PunctuationRestorer
+        if language not in PunctuationRestorer.SUPPORTED_LANGS:
+            return words  # lingua fuori dal modello: nessun log fuorviante
+
+        min_density = float(self.config.get('punctuation_min_density', 0.0))
+        trigger = (mode == 'all') or (
+            mode == 'missing' and PunctuationRestorer.needs_restoration(text, min_density))
+        if not trigger:
+            return words
+
+        if self._punct_restorer is None:
+            self._punct_restorer = PunctuationRestorer(
+                model_id=self.config.get('punctuation_model_id',
+                                          'oliverguhr/fullstop-punctuation-multilang-large'),
+                device=self.config.get('punctuation_device', 'cpu'),
+                log_callback=self.log,
+            )
+        self.log(f"  ✍️ Ripristino punteggiatura chunk {chunk_num}...")
+        return self._punct_restorer.restore_words(words, language)
 
     # ------------------------------------------------------------------
     # Trascrizione
@@ -283,8 +318,9 @@ class CanaryEngine(TranscriptionEngine):
             try:
                 res = self._aligner.align(audio=chunk_path, text=text, language="English")
                 # Riaggancio punteggiatura dal testo Canary alle parole allineate
-                words = Qwen3AsrEngine._attach_punct_words(text, res[0], start_time)
+                words = Qwen3AsrEngine._attach_punct_words(text, res[0], start_time, i + 1)
                 if words:
+                    words = self._maybe_restore_punctuation(words, text, 'en', i + 1)
                     all_segments.extend(Qwen3AsrEngine._words_to_segments(words))
                 else:
                     all_segments.append({

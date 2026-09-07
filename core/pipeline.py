@@ -528,7 +528,8 @@ class ProcessingPipeline:
                         chunk_list = self._audio_processor.process_for_transcription(
                             audio_path=audio_path,
                             output_dir=temp_dir,
-                            use_batched_pipeline=_use_batched
+                            use_batched_pipeline=_use_batched,
+                            engine=_planned_engine
                         )
 
                         if self._cancelled:
@@ -652,7 +653,15 @@ class ProcessingPipeline:
                             if enable_diarization:
                                 if self.config.is_huggingface_token_set():
                                     segments_for_diarization = list(self._transcriber._last_segments)
-                                    if len(chunk_list) == 1:
+                                    # A/B diarization (v. piano_fix_pipeline_trascrizione
+                                    # punto A): 'original' bypassa Demucs anche in modalità
+                                    # batched — valutato PRIMA del ramo su len(chunk_list),
+                                    # altrimenti il caso a chunk singolo lo ignorerebbe.
+                                    _diar_src = self.config.get('diarization_audio_source', 'vocals')
+                                    if _diar_src == 'original':
+                                        vocals_path = str(audio_path)
+                                        self._log("  🎭 Diarization su audio ORIGINALE (A/B: bypass Demucs)")
+                                    elif len(chunk_list) == 1:
                                         vocals_path = str(chunk_list[0][0])
                                     else:
                                         _vocals_candidate = audio_path.parent / f"{audio_path.stem}_vocals.wav"
@@ -680,7 +689,9 @@ class ProcessingPipeline:
                                     try:
                                         diarizer.load()
                                         num_spk = self.config.get('diarization_num_speakers', 0)
-                                        diarization_result = diarizer.diarize(vocals_path, num_speakers=num_spk)
+                                        diarization_result = diarizer.diarize(
+                                            vocals_path, num_speakers=num_spk,
+                                            audio_source_label=_diar_src)
                                         # Salva i turni per il riuso nello STEP 6.5
                                         # (Gender Corrector v2: risparmia ~1-2 min/film)
                                         try:

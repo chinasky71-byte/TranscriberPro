@@ -3,6 +3,66 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.16.0] — 2026-09-08
+
+### Fix: pipeline di trascrizione audio — 3 difetti reali diagnosticati e corretti su un film reale
+Diagnosi partita da un file prodotto in produzione (Goodrich 2024, audio
+italiano trascritto direttamente): duplicati da chunk sovrapposti, testo
+sulla riga del personaggio sbagliato, ~30% dei blocchi senza punteggiatura
+nelle scene di crosstalk/dialogo concitato.
+
+- **Bug chunker** (`core/audio_processor.py::chunk_audio_intelligent`):
+  l'estensione di un chunk troppo corto poteva sconfinare fisicamente nel
+  chunk successivo → stessa battuta trascritta due volte con timestamp
+  leggermente diversi. Fix + rete di sicurezza finale che garantisce
+  `chunk[i].end <= chunk[i+1].start` per costruzione. Verificato: 12
+  salti temporali all'indietro → 0 su rerun reale.
+- **Gate di confidenza sul trattino di dialogo** (`core/subtitle_
+  formatter.py`, `core/diarizer.py`): il trattino "- " veniva assegnato
+  solo su gap/lunghezza, senza verificare l'affidabilità dell'attribuzione
+  speaker — un'attribuzione debole diventava un trattino permanente sulla
+  riga sbagliata. Nuovo campo `speaker_confidence` per segmento, soglia
+  minima (`DASH_CONFIDENCE_MIN`) prima di concedere il trattino.
+- **Chunk audio configurabili + cap per engine** (`asr_chunk_target/min/
+  max_duration`, `ENGINE_CHUNK_CAP_S` in `core/audio_processor.py`):
+  durata chunk non più fissa a 20s, cappata per engine (Canary ≤35s,
+  Qwen3 ≤150s, whisper ≤30s) per non rompere i limiti di ciascun motore.
+- **Fix `qwen3_max_new_tokens`**: il cap di generazione era fisso a 256,
+  già al limite di troncamento su chunk densi da 25s. Ora 0 = calcolato
+  automaticamente dalla durata massima dei chunk configurata.
+- **Riscrittura assegnazione word-level** (dietro
+  `diarization_word_vote_enabled`, default `False` — non ancora
+  promossa): voto pesato sull'overlap invece del lookup a midpoint,
+  politica esplicita sulle run corte (interiezioni come "Sì."/"No.")
+  invece della fusione automatica nella run precedente. Percorso storico
+  intatto e ancora attivo di default.
+- **Nuovo modulo `core/punctuation_restorer.py`** — ripristino
+  punteggiatura sui chunk ASR completamente privi di essa (modello
+  dedicato `oliverguhr/fullstop-punctuation-multilang-large`, CPU,
+  garanzia strutturale 1:1 parole/timestamp). **Promosso a default**
+  (`punctuation_restore_mode='missing'`) dopo validazione mirata su 22
+  frasi campione (invariante sempre rispettata, un solo errore che
+  alterava il senso su 22 casi). Limite noto: il modello non produce mai
+  "!" (classi di addestramento fisse, non un bug).
+- **Soglia di clustering pyannote promossa a default**
+  (`diarization_clustering_threshold=0.85`, contro lo 0,7046 calibrato
+  dal produttore del modello): riduce nettamente il sovra-clustering
+  (27→12 "parlanti" osservati) misurato con una campagna di taratura
+  dedicata — nuovo banco riutilizzabile **`diar_eval/`** (`diar_bench.py`
+  + `metrics.py`, sottocomandi prepare/run/gold-make/gold-score/sweep-c),
+  50 coppie audio etichettate a mano come insieme oro. **Nota onesta**:
+  un ricalcolo successivo ha mostrato che il segnale statistico sulla
+  metrica aggregata era debole (differenza non significativa, test di
+  McNemar p=1,00, su un campione di quella taglia) — la soglia resta una
+  decisione esplicita, non un risultato schiacciante, da ricontrollare
+  per primo se emergono sintomi di sovra-fusione su film di generi
+  diversi da quello testato.
+- Tre bug trovati dall'utente stesso durante l'etichettatura manuale
+  dell'insieme oro (margine di contesto che mescolava due voci sui turni
+  adiacenti, micro-turni pyannote da 17ms campionati per errore, parsing
+  CSV che si rompeva su file salvati da Excel in locale italiano) —
+  tutti corretti in `diar_eval/diar_bench.py`.
+
 ## [1.15.0] — 2026-09-06
 
 ### Fix: correzione della diagnosi PAL/NTSC della v1.14.0 — il drift non era il problema, era il gate
