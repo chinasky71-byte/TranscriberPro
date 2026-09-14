@@ -19,6 +19,12 @@ brevetto US 2009/0185789).
   assumeva una sola finestra a offset fisso e andava in `IndexError` su file reali
   (riscontrato allo spike su "Prospect (2018)"). Ora itera `num_windows` con guardie
   e mantiene la compatibilità dell'API esponendo la prima finestra.
+- `pgsreader.py` → `ObjectDefinitionSegment.__init__`: il warning "Image data length
+  asserted does not match the length found" ora scatta solo se `in_sequence ==
+  'First and last'`. Il controllo originale confrontava la lunghezza del singolo
+  frammento ODS con `data_len` dell'oggetto completo, generando falsi warning su
+  ogni bitmap frammentata su più segmenti (riassemblata correttamente a valle in
+  `core/pgs_ocr.py`, non qui).
 
 ## API usata
 ```python
