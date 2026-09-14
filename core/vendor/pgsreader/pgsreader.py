@@ -211,7 +211,7 @@ class ObjectDefinitionSegment(BaseSegment):
         self.width = int(self.data[7:9].hex(), base=16)
         self.height = int(self.data[9:11].hex(), base=16)
         self.img_data = self.data[11:]
-        if len(self.img_data) != self.data_len - 4:
+        if self.in_sequence == 'First and last' and len(self.img_data) != self.data_len - 4:
             print('Warning: Image data length asserted does not match the '
                   'length found.')
 
