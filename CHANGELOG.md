@@ -3,6 +3,38 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.16.1] — 2026-09-17
+
+### Fix: glossario per-show ignorato sui nomi propri identità con il motore LLM (TranslateGemma)
+Diagnosi partita da un episodio reale (The Ark S03E08): il personaggio
+"Garnet" tradotto come "Granato" (il nome comune inglese della pietra),
+nonostante il glossario della serie avesse la voce corretta
+`"Garnet": "Garnet"`.
+
+- **Causa 1** (`core/translator.py::_mask_glossary`): le voci di glossario
+  "a resa identità" (termine e resa uguali, es. `"FTL": "FTL"`,
+  `"Garnet": "Garnet"`) non venivano mai mascherate su NESSUN motore — una
+  regola pensata per NLLB (misurato: 8/24 blocchi rimasti in inglese per un
+  singolo placeholder identità, decoder word-level che non regge un token
+  opaco) ma applicata anche al motore LLM, dove non era mai stata misurata
+  alcuna regressione analoga. Un'identità che coincide con una parola
+  inglese comune restava quindi esposta alla traduzione letterale, e il
+  controllo a valle (`_apply_glossary_posthoc`) non la intercetta perché
+  cerca il termine INGLESE ancora presente nell'italiano, non una resa
+  sbagliata plausibile. Il salto ora vale solo per NLLB.
+- **Causa 2**, scoperta misurando il fix della causa 1 su TranslateGemma-12B
+  reale: il placeholder veniva inserito con spazi fissi su entrambi i lati
+  (`f" {token} "`), producendo doppio spazio o uno spazio prima della
+  punteggiatura quando il termine confinava con virgola/punto
+  ("you,  &lt;GLOSS0&gt; ."). Con questo artefatto TranslateGemma scartava
+  silenziosamente il placeholder dalla generazione, facendo fallire la fase
+  mascherata e facendo cadere il blocco nel recupero senza mascheramento —
+  riesponendolo alla stessa causa 1. Normalizzata la spaziatura (solo spazi
+  orizzontali, per non fondere i newline dei blocchi dialogo multi-parlante;
+  solo fuori da NLLB, mai misurato lì). Verificato su rerun reale
+  dell'episodio: blocchi da recuperare 29→21 su 719, nessuna riga di
+  dialogo fusa, riga del personaggio corretta.
+
 ## [1.16.0] — 2026-09-08
 
 ### Fix: pipeline di trascrizione audio — 3 difetti reali diagnosticati e corretti su un film reale
