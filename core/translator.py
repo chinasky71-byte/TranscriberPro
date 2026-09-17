@@ -662,12 +662,27 @@ class BaseTranslator(ABC):
             # il placeholder non compra nulla — il modello dovrebbe comunque
             # lasciare il termine invariato — ma paga per intero il rischio di
             # essere storpiato dal modello e mai riconosciuto in unmask.
-            # Misurato su The Ark S03E06: 8 dei 24 blocchi rimasti in inglese
-            # contenevano SOLO un termine identità mascherato. Per questi si
-            # lascia il testo sorgente intatto (il modello traduce intorno);
-            # la sopravvivenza del termine è verificata a valle da
+            # Misurato su The Ark S03E06 CON NLLB: 8 dei 24 blocchi rimasti in
+            # inglese contenevano SOLO un termine identità mascherato — NLLB è
+            # un decoder word-level che non sa produrre una frase fluente
+            # intorno a un token opaco (stesso sintomo del serbatoio via NLLB,
+            # vedi `_reservoir_via_nllb`). Per NLLB si lascia quindi il testo
+            # sorgente intatto (il modello traduce intorno); la sopravvivenza
+            # del termine è verificata a valle da
             # `_apply_glossary_posthoc`/`_audit_untranslated`, non qui.
-            if term.strip().lower() == rendering.strip().lower():
+            #
+            # Il motore LLM (chat-template, es. TranslateGemma) non è lo
+            # stesso caso: i termini NON identità del glossario sono già
+            # mascherati su questo stesso path e sopravvivono intatti (non è
+            # mai stata misurata una regressione lì). Senza questa eccezione,
+            # un'identità che coincide con una parola inglese comune (es.
+            # "Garnet", anche il nome di una pietra) non viene mai mascherata
+            # e può essere tradotta come nome comune ("Garnet" → "Granato",
+            # The Ark S03E08) — errore che il controllo a valle non può
+            # correggere perché cerca il termine INGLESE ancora presente
+            # nell'italiano, non una resa sbagliata plausibile. Si mascherano
+            # quindi le identità per tutti i motori tranne NLLB.
+            if model_prefix == "NLLB" and term.strip().lower() == rendering.strip().lower():
                 continue
 
             # NIENTE tolleranza automatica al plurale: provata su Knight's &
@@ -697,6 +712,35 @@ class BaseTranslator(ABC):
                 return f" {token} "
 
             masked_text = pattern.sub(_replacer, masked_text)
+
+        # Ripulisce gli artefatti del padding fisso `f" {token} "`: se il
+        # termine confina con una virgola o è a fine frase, quel padding
+        # produce doppio spazio ("you,  <GLOSS0>") e uno spazio prima della
+        # punteggiatura ("<GLOSS0> ."). MISURATO su TranslateGemma-12B (The
+        # Ark S03E08, "I trusted you, Garnet."): con questo artefatto il
+        # modello scarta silenziosamente il placeholder dalla generazione
+        # ("Mi fidavo di te.", senza resa), mentre con la stessa frase pulita
+        # ("I trusted you, <GLOSS0>.") lo riproduce intatto. Il placeholder
+        # scartato fa fallire `_unmask_tolerant`, il blocco finisce nel
+        # recupero L2 (ritraduzione SENZA mascheramento) dove
+        # `_apply_glossary_posthoc` non protegge le identità che coincidono
+        # con una parola inglese comune (idem la causa che ha portato a
+        # riabilitare qui il mascheramento delle identità sul ramo LLM).
+        #
+        # SOLO spazi orizzontali ([ \t], non \s): un blocco dialogo multi-
+        # parlante ha il newline come separatore strutturale ("- Garnet\n-
+        # ...trusted you."), e _extract_dash_flags/is_dialogue dipendono
+        # dalla sua posizione — \s avrebbe fuso righe di parlanti diversi.
+        #
+        # SOLO fuori da NLLB: la spaziatura a padding fisso è la stessa
+        # misurata per la sopravvivenza del placeholder su NLLB (tokenizer
+        # word-level, dove attaccare la punteggiatura al token può alterare
+        # la segmentazione in subword). Qui la misura è stata fatta solo su
+        # TranslateGemma; su NLLB resta il comportamento invariato finché
+        # non viene misurato a parte.
+        if model_prefix != "NLLB":
+            masked_text = re.sub(r'[ \t]+([.,!?;:])', r'\1', masked_text)
+            masked_text = re.sub(r'[ \t]{2,}', ' ', masked_text)
 
         return masked_text, placeholders
 
