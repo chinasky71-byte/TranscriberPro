@@ -131,6 +131,16 @@ class CanaryEngine(TranscriptionEngine):
             except Exception:
                 pass
 
+    def _batch_size(self) -> int:
+        """Chunk per chiamata a generate() nel subprocess. La chiave non ha
+        un campo nelle Opzioni (si tocca solo a mano in config.json): un
+        valore rovinato deve degradare a 1, non far fallire la trascrizione."""
+        try:
+            return max(1, int(self.config.get('canary_batch_size', 8) or 8))
+        except (TypeError, ValueError):
+            logger.warning("canary_batch_size non valido: uso 1 (nessun batching)")
+            return 1
+
     def _maybe_restore_punctuation(self, words: List[dict], text: str,
                                     language: str, chunk_num: int) -> List[dict]:
         """Applica il ripristino punteggiatura (v. piano_fix_pipeline_
@@ -195,6 +205,7 @@ class CanaryEngine(TranscriptionEngine):
             'model_id': self.config.get('canary_model_id', 'nvidia/canary-qwen-2.5b'),
             'hf_cache': str(HF_CACHE),
             'output_json': str(out_path),
+            'batch_size': self._batch_size(),
             'chunks': [
                 {'path': str(c[0]), 'start': float(c[1]),
                  'end': float(c[2]) if len(c) > 2 else float(c[1])}
@@ -282,6 +293,14 @@ class CanaryEngine(TranscriptionEngine):
             raise RuntimeError(f"Canary CLI: {result.get('error', 'errore sconosciuto')}")
 
         texts = [c.get('text', '') for c in result.get('chunks', [])]
+        # I testi si appaiano ai chunk per POSIZIONE (zip più sotto, che tronca
+        # in silenzio): con il batching il numero di testi non è più garantito
+        # dalla costruzione del loop: se non torna, ogni chunk successivo
+        # prenderebbe i tempi di un altro senza che nulla se ne accorga.
+        if len(texts) != total_chunks:
+            raise RuntimeError(
+                f"Canary ha restituito {len(texts)} testi per {total_chunks} chunk: "
+                f"testi e tempi non sarebbero allineati")
         elapsed = time.time() - t0
         self.log(f"  ✅ Testi Canary ricevuti ({len(texts)} chunk, {elapsed:.0f}s)")
 
