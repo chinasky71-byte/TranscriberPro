@@ -3,6 +3,43 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.16.2] — 2026-09-17
+
+### Fix: il padding fisso del placeholder di glossario introduceva nuovi artefatti (bugcheck indipendente)
+Il fix v1.16.1 aveva chiuso il bug "Garnet"→"Granato" mascherando anche le
+identità sul motore LLM e ripulendo a valle, con regex, lo spazio spurio che
+il padding `f" {token} "` introduceva vicino a punteggiatura/virgolette.
+Un bugcheck indipendente su quel codice ha trovato che la ripulitura a
+valle era essa stessa fonte di bug reali, riproducibili con input concreti:
+
+- `"Mornin' Garnet."` → il regex leggeva l'apostrofo dialettale come
+  virgoletta di apertura e incollava il placeholder al testo:
+  `"Mornin'<GLOSS0>."`.
+- `'"Get out," Garnet said.'` → la virgoletta dritta è ambigua (lì chiude,
+  non apre) e veniva trattata sempre come apertura: `'"Get out,"<GLOSS0> said.'`.
+- Con un glossario attivo ma nessun termine sulla riga, la ripulitura
+  riscriveva anche punteggiatura estranea al glossario (es. un'ellissi
+  `". . ."` compattata a `"..."`).
+- Annidamento musica/glossario in `_unmask_tolerant`: un placeholder di
+  glossario dentro un blocco `♪...♪` (es. `"Garnet!\n♪ Sail on, Ark ♪"`)
+  veniva cercato nell'ordine sbagliato e dichiarato irrecuperabile pur
+  essendo stato tradotto perfettamente — il blocco finiva nel recupero
+  senza mascheramento, riaprendo esattamente il bug che il fix chiudeva.
+
+**Correzione**: invece di aggiungere padding e poi ripulirlo con regex
+(che devono indovinare se un apostrofo/virgoletta adiacente apre, chiude o
+è una contrazione — casi che a volte richiedono l'opposto l'uno
+dell'altro), il padding non viene più inserito affatto sul ramo non-NLLB:
+il pattern di ricerca del termine è già ancorato a `\b` su entrambi i
+lati, quindi il carattere adiacente al termine nel sorgente non è mai un
+carattere di parola — il padding non separava nulla che non fosse già
+separato, raddoppiava spazi esistenti o ne inventava dove l'autore non li
+aveva. Il padding resta solo su NLLB (comportamento pre-esistente,
+invariato — non misurato lì). Corretto anche l'ordine di risoluzione in
+`_unmask_tolerant` per l'annidamento musica⊃glossario. Verificato: NLLB
+bit-identico al pre-fix, tutti i casi sopra puliti senza elencare
+apostrofi/virgolette caso per caso.
+
 ## [1.16.1] — 2026-09-17
 
 ### Fix: glossario per-show ignorato sui nomi propri identità con il motore LLM (TranslateGemma)
