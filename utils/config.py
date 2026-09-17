@@ -90,6 +90,7 @@ class Config:
         'qwen3_aligner_model_id': 'Qwen/Qwen3-ForcedAligner-0.6B',
         'canary_model_id': 'nvidia/canary-qwen-2.5b',
         'canary_python_path': '',              # vuoto = auto (<progetto>/venv_canary/Scripts/python.exe)
+        'canary_batch_size': 8,                # chunk per chiamata a model.generate() nel subprocess
 
         # FFmpeg whisper settings (solo se transcription_method == 'ffmpeg')
         'ffmpeg_model_path': '',

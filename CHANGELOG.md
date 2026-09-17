@@ -3,6 +3,47 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.17.0] — 2026-09-18
+
+### Batching sulla trascrizione Canary-Qwen-2.5B (GPU sotto il 70% durante le trascrizioni)
+Diagnosi partita da un'osservazione dell'utente: la GPU non superava il 70%
+durante le trascrizioni con Canary. Causa: `core/engines/canary_cli.py`
+chiamava `model.generate()` un chunk audio alla volta (batch_size=1) in un
+for-loop sequenziale, mai sfruttando il supporto nativo al batching
+dell'API NeMo SALM. Confermato con ricerca: lo script ufficiale NVIDIA
+(`examples/speechlm2/salm_generate.py`) usa `batch_size=64` di default per
+questo stesso modello, e il suo benchmark pubblico mostra l'inferenza
+"offline" (non-streaming, il nostro caso) come la configurazione con il WER
+migliore — nessuna prova che il batching degradi la qualità nell'uso
+ufficiale.
+
+- **Upgrade `nemo_toolkit`** in `venv_canary/` da 2.7.3 a 3.0.0 (major,
+  repo NVIDIA rinominato in `NVIDIA-NeMo/Speech`). Solo il package NeMo,
+  torch/CUDA invariati. Verificato che il flusso storico (batch=1)
+  continua a funzionare prima di introdurre il batching.
+- **Batching implementato**: `canary_cli.py` raggruppa i chunk in batch
+  (`canary_batch_size`, default 8, nuova chiave in `utils/config.py`) e
+  decodifica ogni riga del tensore risultato invece di assumere
+  `answer_ids[0]`. `canary_engine.py` passa il batch size al subprocess.
+- **Bugcheck indipendente** (agente Opus) ha trovato e corretto 3 bug
+  reali prima della messa in produzione: (1) un disallineamento silenzioso
+  testo↔chunk se `generate()` avesse restituito un numero di righe diverso
+  dal batch — ora fa fallire esplicitamente invece di corrompere l'output
+  in silenzio; (2) `batch_size` letto fuori dal blocco protetto: un valore
+  rovinato a mano in config.json faceva crashare il subprocess prima che
+  scrivesse l'esito, lasciando solo un "exit code 1" senza motivo nei log;
+  (3) il set di token di stop non includeva il pad (che su questo
+  tokenizer coincide con `<|endoftext|>`, usato da Qwen anche come
+  fine-turno alternativo) — se il modello lo avesse emesso la riga sarebbe
+  proseguita fino a `max_new_tokens` con testo spazzatura in coda. Aggiunto
+  anche un ripiego che dimezza il batch se la VRAM non basta.
+- **Misurato** (GPU reale, 6 clip di durata diversa): testi identici a
+  parola per parola tra batch_size=1 e batch_size=6 in 5/6 clip; nella
+  sesta le parole coincidono, cambia solo punteggiatura/maiuscole — nessun
+  errore di contenuto osservato. VRAM 5,19→5,56 GB (batch 1→6 su 12 GB
+  disponibili): il default 8 è misurato sicuro. Ordine dei testi verificato
+  stabile anche con batch disuguali e ordine invertito.
+
 ## [1.16.2] — 2026-09-17
 
 ### Fix: il padding fisso del placeholder di glossario introduceva nuovi artefatti (bugcheck indipendente)
