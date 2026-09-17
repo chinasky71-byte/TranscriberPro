@@ -3,6 +3,30 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.17.1] — 2026-09-18
+
+### Upgrade `llama-cpp-python` 0.3.4→0.3.34 (ricerca aggiornamenti venv)
+Da una ricerca sui venv del progetto per margini di miglioramento simili a
+quello di Canary: `llama-cpp-python` (serbatoio L3 traduzione,
+`fallback_translate_cli.py`) era 31 versioni patch indietro, con feature
+di batching nel changelog aggregato dell'intervallo.
+
+- La nota storica in `requirements.txt` ("solo 0.3.4 ha wheel pre-built
+  CUDA per Windows cp311") era superata: esistono wheel CUDA Windows per
+  ogni versione fino alla 0.3.35 (verificato con `pip install --dry-run`).
+- **0.3.35 (latest) è rotta su questa macchina**: carica i tensori del
+  modello su GPU senza errori ma va in crash all'inizializzazione del
+  contesto (`OSError: Windows Error 0xc000001d`, istruzione illegale —
+  sospetto AVX-512 disabilitato via microcode sui core Alder Lake hybrid
+  P-core/E-core, non confermato riga per riga). Bisecting empirico
+  0.3.4→0.3.35 caricando il GGUF multi-parte Qwen2.5-14B reale con i
+  parametri di produzione: 0.3.16/0.3.26/0.3.31/0.3.33/0.3.34 funzionano
+  tutte, solo 0.3.35 rompe. **Fermato a 0.3.34**, un solo patch sotto
+  latest.
+- Verificato end-to-end sul vero script di produzione
+  (`fallback_translate_cli.py`, non solo la libreria isolata): traduzione
+  di due frasi con glossario attivo, entrambe risolte correttamente.
+
 ## [1.17.0] — 2026-09-18
 
 ### Batching sulla trascrizione Canary-Qwen-2.5B (GPU sotto il 70% durante le trascrizioni)
