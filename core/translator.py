@@ -457,13 +457,32 @@ class BaseTranslator(ABC):
         ok = True
         repaired = 0
 
+        # Prima MUSIC, poi indice decrescente.
+        #
         # Indice decrescente: senza questo <GLOSS1> farebbe match dentro
         # <GLOSS10> (o dentro la sua forma riparata "GLOSS10") lasciando lo
         # zero finale orfano nel testo.
+        #
+        # MUSIC prima di GLOSS perché i due mascheramenti sono ANNIDATI:
+        # `_mask_glossary` gira per primo, quindi quando `_mask_text` cattura
+        # un blocco ♪...♪ si porta dentro i placeholder di glossario che ci
+        # stanno in mezzo. Un <GLOSS1> dentro il contenuto di <MUSIC0> non
+        # esiste ancora nel testo tradotto: con il solo indice decrescente
+        # veniva cercato PRIMA che <MUSIC0> lo facesse riaffiorare, non
+        # trovato, e dichiarato irrecuperabile (ok=False) — un blocco tradotto
+        # perfettamente finiva in L2, che ritraduce SENZA mascheramento e
+        # quindi perde la garanzia del glossario. Scatta con un solo verso
+        # cantato che nomina un termine, es. "Garnet!\n♪ Sail on, Ark ♪".
+        # L'annidamento è a senso unico (la resa italiana di un termine non
+        # può contenere un <MUSIC*>), quindi basta l'ordine, non serve un
+        # secondo giro di risoluzione.
         def _idx(item):
             key, _ = item
             m = self._PLACEHOLDER_RE.match(key)
-            return -int(m.group(2)) if m else 0
+            if not m:
+                return (1, 0)
+            return (0 if m.group(1).upper() == 'MUSIC' else 1,
+                    -int(m.group(2)))
 
         for placeholder, original_content in sorted(
                 placeholders_map.items(), key=_idx):
@@ -655,6 +674,38 @@ class BaseTranslator(ABC):
             return text, placeholders
 
         masked_text = text
+        # Padding `" {token} "` SOLO su NLLB. Il pattern di ricerca è ancorato
+        # a `\b` su entrambi i lati, quindi il carattere adiacente al termine
+        # nel sorgente NON è mai un carattere di parola: il padding non separa
+        # niente che non fosse già separato, RADDOPPIA uno spazio che c'era
+        # già ("you,  <GLOSS0>") o ne INVENTA uno dove l'autore non l'aveva
+        # ("Mornin' Garnet" → "Mornin' <GLOSS0>" va bene, ma "Garnet's" →
+        # "<GLOSS0> 's" no, e '"Ark 16"' → '" <GLOSS0> 16"' nemmeno).
+        # MISURATO su TranslateGemma-12B (The Ark S03E08, "I trusted you,
+        # Garnet."): con lo spazio spurio prima del punto il modello scarta
+        # silenziosamente il placeholder dalla generazione ("Mi fidavo di
+        # te.", senza resa), mentre con la frase pulita ("I trusted you,
+        # <GLOSS0>.") lo riproduce intatto. Il placeholder scartato fa fallire
+        # `_unmask_tolerant`, il blocco finisce nel recupero L2 (ritraduzione
+        # SENZA mascheramento) dove `_apply_glossary_posthoc` non protegge le
+        # identità che coincidono con una parola inglese comune — cioè
+        # riapre esattamente il bug "Garnet"→"Granato" che il mascheramento
+        # delle identità (sotto) esiste per chiudere.
+        #
+        # Si toglie il padding alla RADICE invece di ripulirlo a valle con
+        # regex: qualunque ripulitura deve indovinare se una virgoletta o un
+        # apostrofo adiacente apre, chiude o è una contrazione dialettale
+        # ("Mornin' Garnet" e "Garnet's ship" chiedono il contrario l'uno
+        # dell'altro), mentre non aggiungere lo spazio conserva per
+        # costruzione la spaziatura dell'autore, ellissi "…" e virgolette
+        # tipografiche comprese, senza elencarle.
+        #
+        # Su NLLB il padding resta: la spaziatura a token isolato è la stessa
+        # condizione in cui è stata misurata la sopravvivenza del placeholder
+        # su quel tokenizer word-level (attaccare punteggiatura al token può
+        # alterarne la segmentazione in subword). Lì non è stato misurato
+        # nulla di nuovo, quindi non si cambia nulla.
+        pad = (model_prefix == "NLLB")
         for term in sorted(glossary, key=len, reverse=True):
             rendering = glossary[term]
 
@@ -709,38 +760,9 @@ class BaseTranslator(ABC):
                 # sopravvive raramente intatto alla generazione.
                 token = f"<GLOSS{index}>"
                 placeholders[token] = _rendering
-                return f" {token} "
+                return f" {token} " if pad else token
 
             masked_text = pattern.sub(_replacer, masked_text)
-
-        # Ripulisce gli artefatti del padding fisso `f" {token} "`: se il
-        # termine confina con una virgola o è a fine frase, quel padding
-        # produce doppio spazio ("you,  <GLOSS0>") e uno spazio prima della
-        # punteggiatura ("<GLOSS0> ."). MISURATO su TranslateGemma-12B (The
-        # Ark S03E08, "I trusted you, Garnet."): con questo artefatto il
-        # modello scarta silenziosamente il placeholder dalla generazione
-        # ("Mi fidavo di te.", senza resa), mentre con la stessa frase pulita
-        # ("I trusted you, <GLOSS0>.") lo riproduce intatto. Il placeholder
-        # scartato fa fallire `_unmask_tolerant`, il blocco finisce nel
-        # recupero L2 (ritraduzione SENZA mascheramento) dove
-        # `_apply_glossary_posthoc` non protegge le identità che coincidono
-        # con una parola inglese comune (idem la causa che ha portato a
-        # riabilitare qui il mascheramento delle identità sul ramo LLM).
-        #
-        # SOLO spazi orizzontali ([ \t], non \s): un blocco dialogo multi-
-        # parlante ha il newline come separatore strutturale ("- Garnet\n-
-        # ...trusted you."), e _extract_dash_flags/is_dialogue dipendono
-        # dalla sua posizione — \s avrebbe fuso righe di parlanti diversi.
-        #
-        # SOLO fuori da NLLB: la spaziatura a padding fisso è la stessa
-        # misurata per la sopravvivenza del placeholder su NLLB (tokenizer
-        # word-level, dove attaccare la punteggiatura al token può alterare
-        # la segmentazione in subword). Qui la misura è stata fatta solo su
-        # TranslateGemma; su NLLB resta il comportamento invariato finché
-        # non viene misurato a parte.
-        if model_prefix != "NLLB":
-            masked_text = re.sub(r'[ \t]+([.,!?;:])', r'\1', masked_text)
-            masked_text = re.sub(r'[ \t]{2,}', ' ', masked_text)
 
         return masked_text, placeholders
 
