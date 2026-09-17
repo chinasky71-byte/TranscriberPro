@@ -149,11 +149,21 @@ opentelemetry-exporter-otlp==1.40.0
 opentelemetry-exporter-otlp-proto-grpc==1.40.0
 opentelemetry-exporter-otlp-proto-http==1.40.0
 
-# --- Gender Correction (LLM) ---
-# Richiede wheel CUDA pre-built (443 MB):
-#   pip install llama-cpp-python==0.3.4 --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
-# NOTA: solo 0.3.4 ha wheel pre-built CUDA per Windows cp311
-llama-cpp-python==0.3.4
+# --- Serbatoio L3 traduzione (fallback_translate_cli.py) + riferimento storico Gender Corrector v1 ---
+# Richiede wheel CUDA pre-built (~480 MB):
+#   pip install llama-cpp-python==0.3.34 --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+# AGGIORNATO 2026-09-18 da 0.3.4: la nota precedente ("solo 0.3.4 ha wheel
+# pre-built CUDA per Windows cp311") era ormai superata, esistono wheel CUDA
+# Windows per ogni versione fino alla 0.3.35. FERMO a 0.3.34, non 0.3.35
+# (latest): 0.3.35 carica i tensori su GPU senza errori ma va in crash
+# all'inizializzazione del contesto (OSError WinError 0xc000001d, istruzione
+# illegale) su questa CPU (Intel Core i7-12700KF, Alder Lake — AVX-512
+# disabilitato via microcode sui die hybrid P-core/E-core, causa sospetta
+# ma non confermata riga per riga nel sorgente). Bisecting empirico
+# 0.3.4→0.3.35: 0.3.16/0.3.26/0.3.31/0.3.33/0.3.34 caricano ed eseguono il
+# GGUF multi-parte Qwen2.5-14B senza problemi con gli stessi parametri di
+# produzione (n_gpu_layers=-1, n_ctx=4096, n_batch=512); solo 0.3.35 rompe.
+llama-cpp-python==0.3.34
 diskcache>=5.6.1
 
 # --- Misc ---
