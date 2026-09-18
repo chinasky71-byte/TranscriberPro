@@ -43,7 +43,7 @@ SCHEMA_SEGMENTS = "diar-bench/segments/1"
 SCHEMA_GOLD = "diar-bench/gold/1"
 
 CSV_COLUMNS = [
-    'run_id', 'source', 'thr', 'mcs', 'min_spk', 'max_spk', 'params_diverged',
+    'run_id', 'model', 'source', 'thr', 'mcs', 'min_spk', 'max_spk', 'params_diverged',
     'word_vote', 'v2_params', 'dash_thr',
     'speakers', 'turns', 'speech_s', 'turn_med_s', 'top1_pct', 'top5_pct', 'n_spk_ge2pct', 'tail_lt2pct',
     'n_subsegments', 'n_blocks', 'n_dialogue_blocks', 'n_dash_rejected',
@@ -76,6 +76,7 @@ def _write_json(path: Path, obj) -> None:
 
 
 _CONFIG_SNAPSHOT_KEYS = [
+    'diarization_model',
     'diarization_audio_source', 'diarization_clustering_threshold',
     'diarization_min_cluster_size', 'diarization_max_speakers',
     'diarization_min_speakers', 'diarization_word_vote_enabled',
@@ -298,11 +299,31 @@ def prepare(video: Path, work: Path, *, force: bool = False, keep_chunks: bool =
 
 def run_combo(
     work: Path, run_id: str, *,
-    source: str = 'vocals', threshold: float = 0.0, min_cluster_size: int = 0,
+    source: str = 'vocals', threshold: float = -1.0, min_cluster_size: int = -1,
     min_speakers: int = 0, max_speakers: int = 0,
     dash_confidence_min: float = 0.55,
     word_vote: bool = False, v2_params: Optional[Dict] = None,
+    model: Optional[str] = None,
 ) -> Dict:
+    """threshold/min_cluster_size (bug-check Opus #1 — insidia REALE, ha già
+    prodotto un arm sbagliato):
+
+        < 0  (default)  = nessun override esplicito -> Diarizer legge la
+                          CONFIG GLOBALE ('diarization_clustering_threshold',
+                          in produzione 0.85)
+        = 0             = DEFAULT DI FABBRICA del modello caricato (0.7046/12
+                          su 3.1, 0.6 su community-1): override esplicito a
+                          "nessun override", la config globale NON viene letta
+        > 0             = quel valore
+
+    Prima di questa distinzione `threshold or None` mandava 0 e "non
+    specificato" sullo stesso ramo: l'unico modo di ottenere il default di
+    fabbrica di un modello diverso era scrivere nella config globale —
+    esattamente ciò che la REGOLA FERREA di questo script vieta.
+
+    min_speakers/max_speakers restano su 0 di proposito: lì 0 significa
+    "nessun tetto/pavimento" e non esiste un "default di fabbrica" distinto.
+    """
     from utils.config import get_config
     from core.diarizer import Diarizer
     from core.subtitle_formatter import SubtitleFormatter
@@ -326,9 +347,14 @@ def run_combo(
     segments = load_segments(work / 'segments.json')  # copia fresca, v. load_segments
 
     tolerance_ms = 100  # esplicito, mai None: v. bug-check Opus B3 (osservabilità)
+    # None = "non specificato" (Diarizer legge la config), 0.0/0 = "default di
+    # fabbrica del modello". v. docstring: NON usare `threshold or None`.
+    req_threshold = None if threshold < 0 else float(threshold)
+    req_mcs = None if min_cluster_size < 0 else int(min_cluster_size)
     diar = Diarizer(config.get_huggingface_token(), log,
-                     clustering_threshold=threshold or None,
-                     min_cluster_size=min_cluster_size or None)
+                     clustering_threshold=req_threshold,
+                     min_cluster_size=req_mcs,
+                     model_id=model or None)
     diar.load()
     turns = diar.diarize(audio, num_speakers=0,
                           min_speakers=min_speakers, max_speakers=max_speakers,
@@ -343,12 +369,24 @@ def run_combo(
     eff_mcs = diar._effective_min_cluster_size
     eff_min_spk = diar._effective_min_speakers
     eff_max_spk = diar._effective_max_speakers
-    params_diverged = (eff_threshold != (threshold or 0.0) or eff_mcs != (min_cluster_size or 0)
-                        or eff_min_spk != min_speakers or eff_max_spk != max_speakers)
+    eff_model = diar._effective_model
+    # Solo i parametri RICHIESTI ESPLICITAMENTE possono "divergere": se la
+    # richiesta era "da config" (req_* None), ricevere il valore di config non
+    # è una divergenza — la contaminazione è già coperta da
+    # _warn_non_default_config e dalle colonne thr/mcs/model, che registrano
+    # sempre l'effettivo. bool(): senza, `model=None` faceva valere None
+    # all'intera espressione e la colonna params_diverged finiva vuota nel CSV.
+    params_diverged = bool(
+        (req_threshold is not None and eff_threshold != req_threshold)
+        or (req_mcs is not None and eff_mcs != req_mcs)
+        or eff_min_spk != min_speakers or eff_max_spk != max_speakers
+        or (model and eff_model != model))
     if params_diverged:
         log(f"⚠️ parametri effettivi diversi da quelli richiesti: "
-            f"thr={eff_threshold} mcs={eff_mcs} min_spk={eff_min_spk} max_spk={eff_max_spk} "
-            f"(richiesti: thr={threshold} mcs={min_cluster_size} "
+            f"model={eff_model} thr={eff_threshold} mcs={eff_mcs} min_spk={eff_min_spk} max_spk={eff_max_spk} "
+            f"(richiesti: model={model or '(da config)'} "
+            f"thr={req_threshold if req_threshold is not None else '(da config)'} "
+            f"mcs={req_mcs if req_mcs is not None else '(da config)'} "
             f"min_spk={min_speakers} max_spk={max_speakers})")
 
     if v2_params and not word_vote:
@@ -372,7 +410,7 @@ def run_combo(
     tm = m.turn_metrics(turns)
 
     row = {
-        'run_id': run_id, 'source': source, 'thr': eff_threshold, 'mcs': eff_mcs,
+        'run_id': run_id, 'model': eff_model, 'source': source, 'thr': eff_threshold, 'mcs': eff_mcs,
         'min_spk': eff_min_spk, 'max_spk': eff_max_spk, 'params_diverged': params_diverged,
         'word_vote': word_vote, 'v2_params': json.dumps(v2_params) if v2_params else '',
         'dash_thr': dash_confidence_min,
@@ -738,6 +776,13 @@ def gold_score(work: Path, run_id: Optional[str] = None) -> None:
         _emit(f"  {rid}: recall_same={score['recall_same']} spec_diff={score['spec_diff']} "
               f"balanced_acc={score['balanced_acc']} (tp={score['tp']} fp={score['fp']} "
               f"tn={score['tn']} fn={score['fn']} sbagliate={score['wrong_ids']})")
+        if score['n_unmatched']:
+            # Nessun parlato rilevato su un lato della coppia (v. metrics.py,
+            # bug-check Opus): confrontare balanced_acc fra due modelli con
+            # n_unmatched diverso da zero su uno solo dei due non è onesto.
+            _emit(f"  ⚠️ {rid}: {score['n_unmatched']} coppie senza speaker rilevato su "
+                  f"un lato — balanced_acc confrontabile con un altro run solo se anche "
+                  f"lì n_unmatched è vicino a questo valore")
         # aggiorna la riga già scritta in runs.csv/metrics.json con i punteggi oro
         metrics_path = work / 'runs' / rid / 'metrics.json'
         if metrics_path.exists():
@@ -826,7 +871,11 @@ def report(work: Path) -> None:
         return
     with open(csv_path, encoding='utf-8') as f:
         rows = list(csv.DictReader(f))
-    cols = ['run_id', 'source', 'thr', 'mcs', 'max_spk', 'word_vote', 'speakers', 'turns',
+    # 'model' in tabella (bug-check Opus #3): senza, due arm dello stesso
+    # thr su modelli diversi sono indistinguibili proprio nel confronto per
+    # cui la colonna è stata aggiunta. Cella vuota = riga pre-refactoring,
+    # cioè pyannote/speaker-diarization-3.1.
+    cols = ['run_id', 'model', 'source', 'thr', 'mcs', 'max_spk', 'word_vote', 'speakers', 'turns',
             'tail_lt2pct', 'n_subsegments', 'n_dialogue_blocks_cleaned',
             'gold_balanced_acc', 'elapsed_s']
     # r.get(c, '') non basta: DictReader mette la chiave con valore None
@@ -835,7 +884,10 @@ def report(work: Path) -> None:
     widths = {c: max(len(c), max((len(str(r.get(c) or '')) for r in rows), default=0)) for c in cols}
     _emit(' | '.join(c.ljust(widths[c]) for c in cols))
     for r in rows:
-        _emit(' | '.join(str(r.get(c, '')).ljust(widths[c]) for c in cols))
+        # `r.get(c) or ''` come nel calcolo di widths sopra: r.get(c, '')
+        # stamperebbe la stringa 'None' (4 caratteri) là dove la larghezza
+        # è stata calcolata su '' (0), sfasando la tabella.
+        _emit(' | '.join(str(r.get(c) or '').ljust(widths[c]) for c in cols))
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────
@@ -854,8 +906,12 @@ def main(argv: List[str]) -> int:
     sr.add_argument('--work', required=True, type=Path)
     sr.add_argument('--run-id', required=True)
     sr.add_argument('--source', choices=['vocals', 'original'], default='vocals')
-    sr.add_argument('--threshold', type=float, default=0.0)
-    sr.add_argument('--min-cluster-size', type=int, default=0)
+    sr.add_argument('--threshold', type=float, default=-1.0,
+                     help="<0 o omesso: da config globale; 0: DEFAULT DI FABBRICA "
+                          "del modello (0.7046 su 3.1, 0.6 su community-1); >0: quel valore")
+    sr.add_argument('--min-cluster-size', type=int, default=-1,
+                     help="<0 o omesso: da config globale; 0: default di fabbrica "
+                          "del modello (12 su 3.1; non esiste su community-1); >0: quel valore")
     sr.add_argument('--min-speakers', type=int, default=0)
     sr.add_argument('--max-speakers', type=int, default=0)
     sr.add_argument('--dash-confidence-min', type=float, default=0.55)
@@ -863,6 +919,9 @@ def main(argv: List[str]) -> int:
     sr.add_argument('--v2-param', action='append', default=[], metavar='KEY=VALUE',
                      help="parametro di _split_at_speaker_changes_v2, ripetibile "
                           "(es. --v2-param short_run_margin_keep=0.5). Solo con --word-vote.")
+    sr.add_argument('--model', default=None,
+                     help="pipeline pyannote da usare (default: da config, "
+                          "pyannote/speaker-diarization-3.1)")
 
     sg = sub.add_parser('gold-make')
     sg.add_argument('--work', required=True, type=Path)
@@ -891,7 +950,7 @@ def main(argv: List[str]) -> int:
         run_combo(args.work, args.run_id, source=args.source, threshold=args.threshold,
                   min_cluster_size=args.min_cluster_size, min_speakers=args.min_speakers,
                   max_speakers=args.max_speakers, dash_confidence_min=args.dash_confidence_min,
-                  word_vote=args.word_vote, v2_params=v2_params)
+                  word_vote=args.word_vote, v2_params=v2_params, model=args.model)
     elif args.cmd == 'gold-make':
         gold_make(args.work, from_run=args.from_run, n_local=args.n_local, n_longrange=args.n_longrange)
     elif args.cmd == 'gold-score':

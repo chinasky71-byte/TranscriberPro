@@ -26,10 +26,14 @@ def _emit(msg: str) -> None:
 def diarization_test() -> int:
     """Replica il test pyannote che girava nel thread GUI (translation_model_dialog)."""
     from utils.config import get_config
-    token = get_config().get_huggingface_token()
+    cfg = get_config()
+    token = cfg.get_huggingface_token()
     if not token:
         _emit("❌ Token non configurato. Salvalo prima.")
         return 1
+    # Letto qui, non nel try: deve esistere anche nel ramo except (bug-check
+    # Opus, v. Diarizer._apply_clustering_overrides per lo stesso pattern).
+    model_id = cfg.get('diarization_model', 'pyannote/speaker-diarization-3.1')
 
     try:
         import os
@@ -42,10 +46,10 @@ def diarization_test() -> int:
 
         warnings.filterwarnings("ignore", message="torchcodec is not installed")
 
-        _emit("⏳ Caricamento pipeline pyannote (prima volta: download ~1 GB)...")
+        _emit(f"⏳ Caricamento pipeline pyannote {model_id} (prima volta: download ~1 GB)...")
         from pyannote.audio import Pipeline
         pipeline = Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-3.1", token=token)
+            model_id, token=token)
         if torch.cuda.is_available():
             pipeline = pipeline.to(torch.device("cuda"))
 
@@ -78,8 +82,13 @@ def diarization_test() -> int:
         if "403" in err or "gated" in err.lower() or "restricted" in err.lower():
             _emit("❌ Accesso negato (403).")
             _emit("Accetta i termini su:")
-            _emit("  huggingface.co/pyannote/speaker-diarization-3.1")
-            _emit("  huggingface.co/pyannote/segmentation-3.0")
+            _emit(f"  huggingface.co/{model_id}")
+            # community-1 impacchetta segmentation/embedding/plda nello
+            # stesso repo (config.yaml verificato: '$model/segmentation'
+            # ecc.) — 3.1 punta invece a repo HF separati. Un solo URL
+            # basta su community-1, due su 3.1.
+            if model_id == 'pyannote/speaker-diarization-3.1':
+                _emit("  huggingface.co/pyannote/segmentation-3.0")
         elif "401" in err or "token" in err.lower():
             _emit("❌ Token non valido o scaduto. "
                   "Controllalo su huggingface.co/settings/tokens")

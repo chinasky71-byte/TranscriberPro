@@ -1067,11 +1067,19 @@ class TranslationModelDialog(QDialog):
         token_row.addWidget(save_token_btn)
         token_layout.addLayout(token_row)
 
+        # URL allineati al modello davvero configurato (bug-check Opus):
+        # community-1 impacchetta segmentation/embedding/plda nello stesso
+        # repo (config.yaml verificato), 3.1 punta a repo HF separati —
+        # senza questo la schermata manderebbe l'utente ad accettare le
+        # condizioni del repo sbagliato se 'diarization_model' è cambiato.
+        _diar_model = self.config.get('diarization_model', 'pyannote/speaker-diarization-3.1')
+        _diar_urls = f"  • huggingface.co/{_diar_model}"
+        if _diar_model == 'pyannote/speaker-diarization-3.1':
+            _diar_urls += "\n  • huggingface.co/pyannote/segmentation-3.0"
         token_info = QLabel(
             "Crea un token su huggingface.co/settings/tokens\n"
             "Poi accetta i termini su:\n"
-            "  • huggingface.co/pyannote/speaker-diarization-3.1\n"
-            "  • huggingface.co/pyannote/segmentation-3.0"
+            f"{_diar_urls}"
         )
         token_info.setStyleSheet("font-size: 11px;")
         token_layout.addWidget(token_info)

@@ -172,6 +172,19 @@ class Config:
         # (personaggi diversi assegnati allo stesso speaker, meno "parlanti"
         # del previsto) su film futuri, riconsiderare per primo QUESTO
         # valore — non è stato validato oltre un singolo film/genere.
+        # Pipeline pyannote da usare. Default = 3.1, il comportamento
+        # storico e l'unico su cui 'diarization_clustering_threshold' è
+        # stato tarato. 'pyannote/speaker-diarization-community-1'
+        # (pyannote.audio 4.x, clustering VBx) è l'alternativa in
+        # valutazione (v. diar_eval/): NON condivide la taratura della
+        # soglia — su VBx la soglia inizializza solo il clustering
+        # agglomerativo preliminare (default del modello 0.6 contro 0.7046,
+        # intervallo previsto dagli autori 0.5-0.8) e 'diarization_min_
+        # cluster_size' NON esiste affatto (v. Diarizer._apply_clustering_
+        # overrides). Cambiare questo valore SENZA rifare la campagna su
+        # diar_eval/ + gender_eval/ significa buttare via entrambe le
+        # tarature senza accorgersene.
+        'diarization_model':                'pyannote/speaker-diarization-3.1',
         'diarization_audio_source':         'vocals',  # 'vocals' | 'original'
         'diarization_clustering_threshold': 0.85,      # 0.0 = default modello (0.7046); v. nota sopra
         'diarization_min_cluster_size':     0,         # 0 = default modello (12)

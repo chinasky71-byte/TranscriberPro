@@ -143,7 +143,7 @@ def score_gold(gold_pairs: List[Dict], turns: List[Turn]) -> Dict:
     predice same/diverso dai turni del run e calcola recall_same,
     spec_diff, balanced_acc. Coppie con same_speaker None (etichetta '?')
     sono escluse dal punteggio ma contate separatamente."""
-    tp = fp = tn = fn = skipped = 0
+    tp = fp = tn = fn = skipped = n_unmatched = 0
     wrong_ids = []
     for pair in gold_pairs:
         truth = pair.get('same_speaker')
@@ -152,6 +152,14 @@ def score_gold(gold_pairs: List[Dict], turns: List[Turn]) -> Dict:
             continue
         spk_a = speaker_for_interval(turns, *pair['a'])
         spk_b = speaker_for_interval(turns, *pair['b'])
+        # Nessun parlato rilevato su un lato: chiave per confrontare modelli
+        # diversi (bug-check Opus, community-1). Su una coppia 'same' finisce
+        # in fn (penalizza recall_same); su una coppia 'diff' finisce in tn
+        # GRATIS (regala spec_diff) — se non è ~0 su entrambi gli arm, il
+        # confronto di balanced_acc fra due modelli non è comparabile senza
+        # escludere queste coppie da entrambi.
+        if spk_a is None or spk_b is None:
+            n_unmatched += 1
         pred_same = (spk_a is not None and spk_a == spk_b)
         if truth:
             if pred_same:
@@ -172,7 +180,7 @@ def score_gold(gold_pairs: List[Dict], turns: List[Turn]) -> Dict:
     balanced_acc = sum(valid) / len(valid) if valid else float('nan')
 
     return dict(
-        tp=tp, fp=fp, tn=tn, fn=fn, skipped=skipped,
+        tp=tp, fp=fp, tn=tn, fn=fn, skipped=skipped, n_unmatched=n_unmatched,
         recall_same=round(recall_same, 3) if recall_same == recall_same else None,
         spec_diff=round(spec_diff, 3) if spec_diff == spec_diff else None,
         balanced_acc=round(balanced_acc, 3) if balanced_acc == balanced_acc else None,
