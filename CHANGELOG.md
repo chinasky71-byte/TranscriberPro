@@ -3,6 +3,50 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.18.0] — 2026-09-18
+
+### Valutazione `pyannote/speaker-diarization-community-1` come alternativa a 3.1 — verdetto: NON promuovere
+Dalla ricerca aggiornamenti venv: pyannote.audio 4.x introduce una pipeline
+di diarizzazione più recente (clustering VBx invece di agglomerativo),
+con benchmark pubblici migliori su 10/12 dataset. Valutata con lo stesso
+rigore del banco `diar_eval/` già esistente (50 coppie etichettate a mano
+su un film reale, Goodrich 2024).
+
+- **Infrastruttura aggiunta, comportamento di produzione INVARIATO**:
+  nuova chiave `diarization_model` (default `pyannote/speaker-diarization-
+  3.1`, il comportamento storico), `Diarizer` accetta un `model_id`
+  opzionale, `diar_eval/diar_bench.py` supporta `--model` per l'A/B.
+  Verificato con un run di non-regressione: SRT prodotto bit-identico
+  (stesso sha256) al run storico pre-refactoring.
+- **`core/diarizer.py::_apply_clustering_overrides`**: community-1 usa
+  VBxClustering, che ha `threshold` ma NON `min_cluster_size`. Aggiunta
+  introspezione (`pipeline.parameters(instantiated=True)`) che scarta con
+  avviso visibile i parametri non supportati dal modello caricato, invece
+  di lasciarli sparire in un log che poi mente sull'esito. Un bugcheck
+  Opus ha trovato che l'`instantiate()` di pyannote applica le chiavi una
+  alla volta e solleva sulla prima sconosciuta: se l'introspezione stessa
+  falliva, un override misto restava parzialmente applicato con l'except
+  che azzerava comunque i valori "effettivi" nel log — corretto applicando
+  ogni chiave separatamente.
+- **Guardia esplicita** quando si eredita la soglia 0.85 (tarata su 3.1)
+  su un modello diverso: su VBx la stessa chiave inizializza solo il
+  clustering agglomerativo preliminare (default del modello 0.6,
+  intervallo previsto dagli autori 0.5-0.8) — il numero non porta lo
+  stesso significato, va ritarato.
+- **Campagna A/B sul banco Goodrich** (C0 soglia di fabbrica 0.6, C1 0.7,
+  C2 0.8, C3 0.85): nessun arm di community-1 batte la produzione attuale
+  (`balanced_acc` 0.906). Il migliore (C3, 0.875) resta sotto la soglia di
+  rumore statistico del banco (~4 punti). Confermato dopo il bugcheck che
+  il confronto è onesto (`n_unmatched` — coppie senza parlato rilevato —
+  pari a 0 su tutti gli arm confrontati). **Nessuna modifica al default di
+  produzione.**
+- Bug reale trovato e corretto in `diar_eval/diar_bench.py`: `threshold
+  or None` collassava "0 esplicito" e "non specificato" sullo stesso ramo
+  — l'unico modo di ottenere il default di fabbrica di un modello diverso
+  da quello di produzione era scrivere nella config globale, esattamente
+  ciò che la regola dello script vieta. Corretto con una sentinella a tre
+  vie (`<0`=da config, `0`=default di fabbrica, `>0`=valore esplicito).
+
 ## [1.17.1] — 2026-09-18
 
 ### Upgrade `llama-cpp-python` 0.3.4→0.3.34 (ricerca aggiornamenti venv)

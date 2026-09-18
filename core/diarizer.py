@@ -26,9 +26,14 @@ class SpeakerVote(NamedTuple):
 
 
 class Diarizer:
+    # Comportamento storico: l'unico modello su cui 'diarization_clustering_
+    # threshold' è stato tarato (v. piano_fix_pipeline_trascrizione punto A).
+    DEFAULT_MODEL = "pyannote/speaker-diarization-3.1"
+
     def __init__(self, hf_token: str, log_callback: Optional[Callable] = None,
                  clustering_threshold: Optional[float] = None,
-                 min_cluster_size: Optional[int] = None):
+                 min_cluster_size: Optional[int] = None,
+                 model_id: Optional[str] = None):
         """
         Args:
             clustering_threshold, min_cluster_size: override espliciti dei
@@ -39,12 +44,17 @@ class Diarizer:
                 diarization-3.1: threshold 0.7046, min_cluster_size 12).
                 Servono come parametro esplicito per uno script di A/B che
                 vuole forzare un valore senza scrivere nella config globale.
+            model_id: override esplicito della pipeline pyannote da caricare
+                (stesso motivo dei due sopra: script di A/B). None = leggi
+                da config ('diarization_model', default DEFAULT_MODEL).
         """
         self.hf_token = hf_token
         self.log = log_callback or print
         self._pipeline = None
         self._clustering_threshold = clustering_threshold
         self._min_cluster_size = min_cluster_size
+        self._model_id = model_id
+        self._effective_model = ''
         self._effective_threshold = 0.0
         self._effective_min_cluster_size = 0
         self._effective_min_speakers = 0
@@ -54,14 +64,22 @@ class Diarizer:
         """Applica soglia/min_cluster_size custom alla sub-pipeline di clustering.
 
         pyannote instantiate() accetta un dict PARZIALE — i parametri non
-        citati restano quelli del config.yaml del modello (threshold
-        0.7046, min_cluster_size 12, method 'centroid'). Soglia PIU' ALTA
+        citati restano quelli del config.yaml del modello. Soglia PIU' ALTA
         = MENO cluster (fcluster con criterion='distance').
 
-        Best-effort: se la sintassi cambia in una versione futura di
-        pyannote, si degrada al default del modello invece di rompere la
-        trascrizione — ma lo logga sempre, "applicato" vs "ignorato" non
-        deve restare ambiguo in un run di A/B.
+        'pyannote/speaker-diarization-community-1' usa VBxClustering invece
+        di AgglomerativeClustering: HA anch'esso un 'threshold' (stesso
+        fcluster/criterion='distance', v. sorgente pyannote installato —
+        NON è un bersaglio inventato), ma 'min_cluster_size' NON ESISTE.
+        instantiate() applica le chiavi del dict UNA A UNA e solleva
+        sulla PRIMA sconosciuta: senza l'introspezione sotto, un dict con
+        {'threshold':..., 'min_cluster_size':...} lascerebbe la soglia
+        GIA' APPLICATA (silenziosamente, non annullata dall'except) prima
+        di sollevare su min_cluster_size — il log direbbe "default pyannote"
+        mentre una soglia non-default resta viva nella pipeline (bug-check
+        Opus, scoperto proprio pensando a community-1: in produzione
+        min_cluster_size=0 non lo fa scattare, ma nel banco di taratura
+        diar_eval/ che usa mcs>0 avrebbe contaminato in silenzio ogni run).
         """
         from utils.config import get_config
         cfg = get_config()
@@ -82,17 +100,74 @@ class Diarizer:
             overrides['min_cluster_size'] = self._effective_min_cluster_size
         if not overrides:
             return
+
+        # Introspezione PRIMA di inviare: quali chiavi 'clustering' esiste
+        # DAVVERO in questa pipeline. Funziona identica su 3.1 e community-1,
+        # nessun branch sul nome del modello.
         try:
-            self._pipeline.instantiate({'clustering': overrides})
-            self.log(f"  🔧 Clustering pyannote sovrascritto: {overrides}")
+            supported = set(self._pipeline.parameters(instantiated=True).get('clustering', {}))
         except Exception as e:
-            # Ampio deliberatamente (bug-check Opus): un'eccezione diversa
-            # da una futura versione di pyannote non deve far fallire
-            # load() — l'alternativa sarebbe un intero film senza speaker
-            # labels solo per un parametro di A/B non applicato.
-            self._effective_threshold = 0.0
-            self._effective_min_cluster_size = 0
-            self.log(f"  ⚠️ Override clustering ignorato ({e}) — default pyannote")
+            supported = None
+            self.log(f"  ⚠️ Introspezione parametri clustering fallita ({e}) — invio senza filtro")
+
+        if supported is not None:
+            dropped = {k: v for k, v in overrides.items() if k not in supported}
+            overrides = {k: v for k, v in overrides.items() if k in supported}
+            for k, v in dropped.items():
+                self.log(f"  ⚠️ Parametro clustering '{k}'={v} non esiste su "
+                         f"{self._effective_model or '?'} (disponibili: {sorted(supported)}) — IGNORATO")
+            if 'threshold' in dropped:
+                self._effective_threshold = 0.0
+            if 'min_cluster_size' in dropped:
+                self._effective_min_cluster_size = 0
+            if not overrides:
+                return
+
+        # Guardia esplicita: 0.85 è una decisione di prodotto tarata
+        # sull'AgglomerativeClustering di 3.1 (v. piano_fix_pipeline_
+        # trascrizione punto A — scelta NONOSTANTE McNemar p=1.00). Su VBx
+        # la stessa chiave 'threshold' inizializza solo l'AHC preliminare
+        # (default del modello 0.6, intervallo previsto dagli autori
+        # Uniform(0.5, 0.8) — 0.85 è fuori) e poi VBx ri-stima e pota i
+        # cluster: il numero NON porta lo stesso significato, va ritarato.
+        if 'threshold' in overrides and self._effective_model != self.DEFAULT_MODEL:
+            self.log(f"  ⚠️ threshold={overrides['threshold']} è stato tarato su "
+                     f"{self.DEFAULT_MODEL} (clustering agglomerativo). Su "
+                     f"{self._effective_model} il clustering è VBx e la soglia "
+                     f"inizializza solo l'AHC (default del modello 0.6, intervallo "
+                     f"previsto 0.5-0.8) — va RITARATA, non ereditata")
+
+        # Applicazione UNA CHIAVE ALLA VOLTA (bug-check Opus #2).
+        # pyannote.pipeline.Pipeline.instantiate() itera il dict e fa
+        # setattr chiave per chiave, sollevando sulla PRIMA sconosciuta:
+        # con una sola chiamata le chiavi già viste restano applicate ma
+        # l'except azzera TUTTI i campi _effective_*, che quindi mentono
+        # (log "default pyannote" con una soglia non-default viva nella
+        # pipeline). L'introspezione sopra evita il caso noto, ma non
+        # quello in cui l'introspezione stessa fallisce. Una chiamata per
+        # chiave rende noto l'esito di ciascuna e rimuove la classe di
+        # bug, non una sua istanza: né SpeakerDiarization né
+        # BaseClustering sovrascrivono initialize() (no-op, verificato sul
+        # sorgente installato) e i due parametri sono plain setattr,
+        # quindi N chiamate lasciano esattamente lo stato di una sola.
+        applied = {}
+        for k, v in overrides.items():
+            try:
+                self._pipeline.instantiate({'clustering': {k: v}})
+                applied[k] = v
+            except Exception as e:
+                # Ampio deliberatamente (bug-check Opus): un'eccezione
+                # diversa da una futura versione di pyannote non deve far
+                # fallire load() — l'alternativa sarebbe un intero film
+                # senza speaker labels solo per un parametro di A/B non
+                # applicato.
+                if k == 'threshold':
+                    self._effective_threshold = 0.0
+                elif k == 'min_cluster_size':
+                    self._effective_min_cluster_size = 0
+                self.log(f"  ⚠️ Override clustering '{k}'={v} ignorato ({e}) — default pyannote")
+        if applied:
+            self.log(f"  🔧 Clustering pyannote sovrascritto: {applied}")
 
     def load(self) -> None:
         import warnings
@@ -108,9 +183,14 @@ class Diarizer:
         self._tf32_cudnn  = torch.backends.cudnn.allow_tf32
 
         from pyannote.audio import Pipeline
-        self.log("  📦 Caricamento modello pyannote speaker-diarization-3.1...")
+        from utils.config import get_config
+        model_id = (self._model_id
+                    or (get_config().get('diarization_model') or '').strip()
+                    or self.DEFAULT_MODEL)
+        self._effective_model = model_id
+        self.log(f"  📦 Caricamento modello pyannote {model_id.split('/')[-1]}...")
         self._pipeline = Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-3.1",
+            model_id,
             token=self.hf_token
         )
         if torch.cuda.is_available():
@@ -216,7 +296,8 @@ class Diarizer:
         thr_label = f"{self._effective_threshold:.4f}" if self._effective_threshold > 0 else "default"
         mcs_label = str(self._effective_min_cluster_size) if self._effective_min_cluster_size > 0 else "default"
         self.log(
-            f"  🎭 [diar-ab] source={audio_source_label or 'vocals'} "
+            f"  🎭 [diar-ab] model={self._effective_model.split('/')[-1] or '?'} "
+            f"source={audio_source_label or 'vocals'} "
             f"thr={thr_label} mcs={mcs_label} "
             f"nspk={num_speakers}/min={min_speakers}/max={max_speakers} | "
             f"speakers={len(by_speaker)} turns={len(result)}")
