@@ -37,7 +37,8 @@ import sandbox  # noqa: E402,F401  (per primo fra i moduli del banco)
 import asr_bench as AB  # noqa: E402
 import runners as RN  # noqa: E402
 
-from split_eval import decision_rules_split as DRS  # noqa: E402
+from split_eval import rules_select  # noqa: E402
+DRS = rules_select.load()
 from split_eval import midcut as MC  # noqa: E402
 from split_eval import score_split as SS  # noqa: E402
 from split_eval import translate_arms as TA  # noqa: E402

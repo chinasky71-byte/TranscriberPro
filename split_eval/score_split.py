@@ -31,7 +31,8 @@ import asr_bench as AB  # noqa: E402
 import runners as RN  # noqa: E402
 import stats as ST  # noqa: E402
 
-from split_eval import decision_rules_split as DRS  # noqa: E402
+from split_eval import rules_select  # noqa: E402
+DRS = rules_select.load()
 from split_eval import split_metrics as SM  # noqa: E402
 
 SCORE_COLUMNS = [
@@ -199,6 +200,11 @@ def run_comet(split_work: Path, engine: str, model: str, emit: Callable = print)
 
 def gemba_inputs(split_work: Path, engine: str) -> Tuple[Path, Path, Path, int]:
     units = [u for u in AB.read_jsonl(split_work / f"units_{engine}.jsonl") if u['a'] != u['b']]
+    n_sample = getattr(DRS, 'GEMBA_SAMPLE_N', 0)
+    if n_sample:      # campione casuale (seme fisso) delle unita' dei film di test: v2, per il credito
+        import random
+        pool = sorted((u for u in units if '__dev' not in str(u.get('win_id'))), key=lambda u: u['id'])
+        units = random.Random(DRS.GEMBA_SAMPLE_SEED).sample(pool, min(n_sample, len(pool)))
     d = split_work / 'gemba'
     src = d / f"split_{engine}_src.jsonl"
     pa, pb = d / f"split_{engine}_A.jsonl", d / f"split_{engine}_B.jsonl"
@@ -221,7 +227,7 @@ def run_gemba(split_work: Path, engine: str, provider: str, limit: int, emit: Ca
     return subprocess.run(cmd, cwd=str(ROOT), env=dict(os.environ, PYTHONIOENCODING='utf-8')).returncode
 
 
-def load_gemba(engine: str, ids: Optional[set] = None) -> Optional[Dict]:
+def load_gemba(engine: str, ids: Optional[set] = None, film_of: Optional[Dict] = None) -> Optional[Dict]:
     p = ROOT / 'mt_eval' / f"gemba_split_{engine}_A_vs_split_{engine}_B.jsonl"
     if not p.exists():
         return None
@@ -232,11 +238,51 @@ def load_gemba(engine: str, ids: Optional[set] = None) -> Optional[Dict]:
         return None
     w = {'minor': 1, 'major': 5, 'critical': 10}
     mqm = lambda es: sum(w.get(e.get('severity'), 1) for e in es)
-    return {'n': len(rs), 'pref_a': sum(1 for r in rs if r['preferred'] == 'a'),
-            'pref_b': sum(1 for r in rs if r['preferred'] == 'b'),
-            'tie': sum(1 for r in rs if r['preferred'] == 'tie'),
-            'mqm_a': sum(mqm(r['errors_a']) for r in rs) / len(rs),
-            'mqm_b': sum(mqm(r['errors_b']) for r in rs) / len(rs)}
+    out = {'n': len(rs), 'pref_a': sum(1 for r in rs if r['preferred'] == 'a'),
+           'pref_b': sum(1 for r in rs if r['preferred'] == 'b'),
+           'tie': sum(1 for r in rs if r['preferred'] == 'tie'),
+           'mqm_a': sum(mqm(r['errors_a']) for r in rs) / len(rs),
+           'mqm_b': sum(mqm(r['errors_b']) for r in rs) / len(rs)}
+    if film_of:
+        pf: Dict[str, List[int]] = {}
+        for r in rs:
+            f = film_of.get(r.get('id'))
+            if f is None:
+                continue
+            x = pf.setdefault(f, [0, 0, 0])
+            x[{'a': 0, 'b': 1}.get(r['preferred'], 2)] += 1
+        out['per_film'] = pf
+    return out
+
+
+def _binom_upper(n: int, k: int) -> float:
+    """P(X >= k) con X ~ Binomiale(n, 0.5), esatto."""
+    from math import comb
+    return sum(comb(n, i) for i in range(k, n + 1)) / 2 ** n
+
+
+def gemba_primary(gemba: Optional[Dict], rules: Dict) -> Tuple[Optional[str], List[str]]:
+    """Endpoint primario GEMBA della v2: (motivo di INSUFFICIENTE | None, motivi di ARCHIVIA)."""
+    if not gemba:
+        return 'GEMBA non misurato (endpoint primario)', []
+    nd = gemba['pref_a'] + gemba['pref_b']
+    if nd < rules['gemba_min_decisive']:
+        return f"GEMBA: {nd} giudizi decisivi (minimo {rules['gemba_min_decisive']})", []
+    reasons: List[str] = []
+    share = gemba['pref_b'] / nd
+    p = _binom_upper(nd, gemba['pref_b'])
+    if share < rules['gemba_min_b_share'] or p > rules['gemba_alpha']:
+        reasons.append(f"GEMBA: quota B {share:.3f} su {nd} decisivi (p unilaterale {p:.4f}); "
+                       f"richiesti >= {rules['gemba_min_b_share']} e p <= {rules['gemba_alpha']}")
+    pf = gemba.get('per_film') or {}
+    evaluable = {f: v for f, v in pf.items() if v[0] + v[1] >= rules['gemba_film_min_decisive']}
+    if len(evaluable) < rules['gemba_min_films_evaluable']:
+        return f"GEMBA: solo {len(evaluable)} film con >= {rules['gemba_film_min_decisive']} giudizi decisivi", []
+    b_maj = sum(1 for v in evaluable.values() if v[1] > v[0])
+    if b_maj / len(evaluable) < rules['gemba_films_b_majority']:
+        reasons.append(f"GEMBA: B in maggioranza solo in {b_maj}/{len(evaluable)} film "
+                       f"(richiesto >= {rules['gemba_films_b_majority']:.0%})")
+    return None, reasons
 
 
 # ══ STATISTICA E VERDETTO ═══════════════════════════════════════════════════
@@ -323,14 +369,20 @@ def decide(summary: Dict, other: Optional[Dict] = None, gemba: Optional[Dict] = 
         return {'verdict': 'NON_VALIDO', 'reasons': [f"{summary['merges_without_midcut']} finestre con fusioni "
                                                      f"ma midcut(formatter)=0: recompose incoerente con la metrica"]}
     c = summary['chrf_bf']
-    if c['n_films'] < rules['min_films'] or c['n_windows'] < rules['min_windows_merged']:
+    cm = summary['comet']
+    chrf_gate = rules.get('chrf_gate', True)
+    base = c if chrf_gate else cm
+    if base['n_films'] < rules['min_films'] or base['n_windows'] < rules['min_windows_merged']:
         return {'verdict': 'INSUFFICIENTE',
-                'reasons': [f"{c['n_films']} film / {c['n_windows']} finestre con fusioni "
+                'reasons': [f"{base['n_films']} film / {base['n_windows']} finestre con fusioni "
                             f"(minimo {rules['min_films']} / {rules['min_windows_merged']})"]}
-    if c['ci_lo'] is None or c['ci_lo'] <= rules['min_gain_chrf']:
-        reasons.append("IC95% del delta chrF (b_full) non interamente sopra 0")
-    if c['wilcoxon_p'] is None or c['wilcoxon_p'] > rules['wilcoxon_max_p']:
-        reasons.append(f"Wilcoxon per film p={c['wilcoxon_p']} > {rules['wilcoxon_max_p']}")
+    if chrf_gate:
+        if c['ci_lo'] is None or c['ci_lo'] <= rules['min_gain_chrf']:
+            reasons.append("IC95% del delta chrF (b_full) non interamente sopra 0")
+        if c['wilcoxon_p'] is None or c['wilcoxon_p'] > rules['wilcoxon_max_p']:
+            reasons.append(f"Wilcoxon per film p={c['wilcoxon_p']} > {rules['wilcoxon_max_p']}")
+    elif cm['wilcoxon_p'] is None or cm['wilcoxon_p'] > rules['wilcoxon_max_p']:
+        reasons.append(f"Wilcoxon per film (COMET) p={cm['wilcoxon_p']} > {rules['wilcoxon_max_p']}")
     bi = summary['chrf_bi']
     if rules['sensitivity_same_sign'] and (bi['gain'] is None or c['gain'] is None or (bi['gain'] > 0) != (c['gain'] > 0)):
         reasons.append("b_iso con segno diverso da b_full")
@@ -359,7 +411,11 @@ def decide(summary: Dict, other: Optional[Dict] = None, gemba: Optional[Dict] = 
             reasons.append("segno discorde fra i due motori")
     if gemba and rules['gemba_b_pref_not_lower'] and gemba['pref_b'] < gemba['pref_a']:
         reasons.append(f"GEMBA: preferenze B {gemba['pref_b']} < A {gemba['pref_a']}")
-    cm = summary['comet']
+    if rules.get('gemba_primary'):
+        insuff, g_reasons = gemba_primary(gemba, rules)
+        if insuff:
+            return {'verdict': 'INSUFFICIENTE', 'reasons': [insuff]}
+        reasons.extend(g_reasons)
     comet_ok = cm['n_windows'] > 0
     if comet_ok and (cm['ci_lo'] is None or cm['ci_lo'] <= rules['min_gain_comet']):
         reasons.append("IC95% del delta COMET non interamente sopra 0")
@@ -410,7 +466,9 @@ def build_report(split_work: Path) -> str:
                           and 'prod' not in summaries[k]['llm_unit_budget']), None)
         other = summaries.get(other_key) if other_key else None
         ids = {u['id'] for u in AB.read_jsonl(split_work / f"units_{engine}.jsonl")}             if (split_work / f"units_{engine}.jsonl").exists() else None
-        gem = load_gemba(engine, ids)
+        film_of = ({u['id']: u['film'] for u in AB.read_jsonl(split_work / f"units_{engine}.jsonl")}
+                   if ids is not None else None)
+        gem = load_gemba(engine, ids, film_of)
         d = decide(s, other, gem, rules_changed=changed)
         P('')
         P('=' * 90)
