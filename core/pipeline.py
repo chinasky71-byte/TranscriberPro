@@ -650,6 +650,10 @@ class ProcessingPipeline:
                                 self.config.get('enable_diarization', False)
                                 or self.config.get('dialogue_style_enabled', True)
                             )
+                            # Copia dei segmenti per la formattazione di ripiego
+                            # (il transcriber viene liberato prima della diarization)
+                            _segments_snapshot = list(
+                                getattr(self._transcriber, '_last_segments', None) or [])
                             if enable_diarization:
                                 if self.config.is_huggingface_token_set():
                                     segments_for_diarization = list(self._transcriber._last_segments)
@@ -703,15 +707,25 @@ class ProcessingPipeline:
                                         except Exception as e:
                                             logger.warning(f"Salvataggio diarization per riuso fallito: {e}")
                                         annotated = diarizer.assign_speakers(segments_for_diarization, diarization_result)
-                                        formatter = SubtitleFormatter(log_callback=self._log)
-                                        formatter.save(annotated, subtitle_path)
-                                        self._log("✅ Speaker labels + formattazione professionale applicati")
+                                        formatter = SubtitleFormatter(
+                                            log_callback=self._log,
+                                            readability=bool(self.config.get(
+                                                'subtitle_readability_enabled', True)))
+                                        if formatter.save(annotated, subtitle_path):
+                                            self._log("✅ Speaker labels + formattazione professionale applicati")
+                                        else:
+                                            self._log("⚠️ Formattazione con speaker non riuscita — provo senza speaker")
+                                            self._format_srt_fallback(_segments_snapshot, subtitle_path)
                                     except Exception as e:
                                         self._log(f"⚠️ Diarization fallita: {e} — SRT senza speaker labels")
+                                        self._format_srt_fallback(_segments_snapshot, subtitle_path)
                                     finally:
                                         diarizer.unload()
                                 else:
                                     self._log("⚠️ Diarization abilitata ma token HuggingFace non configurato.")
+                                    self._format_srt_fallback(_segments_snapshot, subtitle_path)
+                            else:
+                                self._format_srt_fallback(_segments_snapshot, subtitle_path)
 
                         else:
                             raise Exception("Processing audio fallito - nessun chunk creato.")
@@ -795,6 +809,7 @@ class ProcessingPipeline:
             # introdotti dalla traduzione — su italiano NATIVO (trascrizione
             # diretta o sottotitoli embedded ita) non deve girare.
             translation_performed = False
+            translation_failed = False
 
             if source_language_639_1 != target_language_639_1:
 
@@ -823,26 +838,37 @@ class ProcessingPipeline:
                     if translation_glossary:
                         self._log(f"   Glossario attivo: {len(translation_glossary)} termini")
 
-                # Usa la factory intelligente passando la scelta esplicita del modello
-                self._translator = get_translator(model_type=selected_model,
-                                                  context=translation_context,
-                                                  glossary=translation_glossary)
-                self._motore_traduzione = selected_model
-                self._translator.set_log_callback(self._log_callback)
+                # Usa la factory intelligente passando la scelta esplicita del modello.
+                # Ogni eccezione qui (factory, callback, traduzione) equivale a
+                # "traduzione fallita": si prosegue con la regola di STEP 7
+                # (salva comunque + job fallito) invece di perdere il lavoro.
+                try:
+                    self._translator = get_translator(model_type=selected_model,
+                                                      context=translation_context,
+                                                      glossary=translation_glossary)
+                    self._motore_traduzione = selected_model
+                    self._translator.set_log_callback(self._log_callback)
 
-                translated_srt_path = self.file_handler.get_temp_path(
-                    self.video_path,
-                    f"translated_{target_language}.srt"
-                )
+                    translated_srt_path = self.file_handler.get_temp_path(
+                        self.video_path,
+                        f"translated_{target_language}.srt"
+                    )
 
-                # âœ… FIX v3.7/v3.9: Parametri corretti src_lang e tgt_lang
-                if self._translator.translate_file(
-                    input_path=str(subtitle_path),
-                    output_path=str(translated_srt_path),
-                    src_lang=source_language_639_1,  # âœ… Corretto
-                    tgt_lang=target_language_639_1,  # âœ… Corretto
-                    context=translation_context
-                ):
+                    _translation_ok = self._translator.translate_file(
+                        input_path=str(subtitle_path),
+                        output_path=str(translated_srt_path),
+                        src_lang=source_language_639_1,
+                        tgt_lang=target_language_639_1,
+                        context=translation_context
+                    )
+                except InterruptedError:
+                    raise
+                except Exception as e:
+                    logger.error(f"Errore traduzione: {e}", exc_info=True)
+                    self._log(f"❌ Errore traduzione: {e}")
+                    _translation_ok = False
+
+                if _translation_ok:
                     subtitle_path = translated_srt_path
                     final_language_639_1 = target_language_639_1
                     translation_performed = True
@@ -850,6 +876,7 @@ class ProcessingPipeline:
                 else:
                     self._log("âŒ Traduzione fallita. Uso i sottotitoli originali.")
                     final_language_639_1 = source_language_639_1
+                    translation_failed = True
             else:
                 final_language_639_1 = source_language_639_1
                 self._log("\n6. Lingua originale == Lingua target. Salto traduzione.")
@@ -1068,8 +1095,21 @@ class ProcessingPipeline:
             # Crea nome file finale: [nome_video].[lang].srt
             final_name = self.video_name + f".{final_language_639_1}.srt"
             final_output_path = self.video_path.parent / final_name
+            if translation_failed and final_output_path.exists():
+                # Traduzione fallita: il file esistente (es. X.en.srt d'ingresso)
+                # non va MAI sovrascritto con la versione ripulita.
+                self._log(f"❌ Traduzione fallita: {final_output_path.name} esiste già e "
+                          f"NON viene sovrascritto.")
+                # La cartella temporanea viene cancellata a fine job: si
+                # conserva il lavoro (trascrizione/OCR) FUORI dalla libreria.
+                saved = self._preserve_recovered_srt(
+                    subtitle_path, f"{self.video_name}.{final_language_639_1}.srt")
+                if saved:
+                    self._log(f"💾 Copia di recupero (lingua originale): {saved}")
+                return False
+
             self.last_output_path = final_output_path
-            
+
             try:
                 shutil.copy(subtitle_path, final_output_path)
             except PermissionError:
@@ -1077,6 +1117,14 @@ class ProcessingPipeline:
                           f"   Percorso: {final_output_path}\n"
                           f"   Verificare che la cartella di destinazione non sia in sola lettura.")
                 return False
+
+            if translation_failed:
+                # Salvato per non perdere la trascrizione, ma il job NON e'
+                # riuscito: niente watermark del motore, niente upload.
+                self._log(f"⚠️ Salvato {final_output_path.name} nella lingua ORIGINALE "
+                          f"perché la traduzione è fallita. Job segnato come fallito.")
+                return False
+
             self._add_watermark_subtitle(final_output_path,
                                          self._motore_traduzione)
 
@@ -1315,6 +1363,40 @@ class ProcessingPipeline:
         'openai': 'GPT',
         'opensubtitles': 'OpenSubtitles',
     }
+
+    @staticmethod
+    def _preserve_recovered_srt(src, name: str) -> Optional[Path]:
+        """Copia un SRT in ~/.transcriberpro/recuperati/ (prefisso data-ora).
+        Ritorna il percorso, o None se la copia non riesce."""
+        try:
+            dest_dir = Path.home() / '.transcriberpro' / 'recuperati'
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest = dest_dir / f"{time.strftime('%Y%m%d-%H%M%S')}_{name}"
+            shutil.copy(src, dest)
+            return dest
+        except Exception as e:
+            logger.warning(f"Copia di recupero SRT fallita: {e}")
+            return None
+
+    def _format_srt_fallback(self, segments, srt_path: Path) -> None:
+        """Formattazione SRT (CPL, durata minima, leggibilità) SENZA speaker.
+
+        Rete di sicurezza per quando la diarization è disattivata, fallisce o
+        manca il token: altrimenti resterebbe l'SRT grezzo del transcriber
+        (blocchi-lampo, righe da 80+ caratteri)."""
+        if not segments:
+            return
+        try:
+            from core.subtitle_formatter import SubtitleFormatter
+            formatter = SubtitleFormatter(
+                log_callback=self._log,
+                readability=bool(self.config.get('subtitle_readability_enabled', True)))
+            srt = formatter.format_srt(segments)
+            if srt.strip():   # mai sostituire l'SRT grezzo con uno vuoto
+                Path(srt_path).write_text(srt, encoding='utf-8')
+                self._log("✅ Formattazione sottotitoli applicata (senza speaker)")
+        except Exception as e:
+            logger.warning(f"Formattazione di ripiego fallita: {e}")
 
     @staticmethod
     def _add_watermark_subtitle(srt_path: Path,

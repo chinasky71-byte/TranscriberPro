@@ -43,6 +43,19 @@ MERGE_GAP_TINY = 0.05  # Gap max (s) per unire ignorando lo speaker (artefatto a
 DASH_CONFIDENCE_MIN = 0.55  # confidenza minima speaker richiesta su ENTRAMBI i segmenti
 DASH_MIN_GAP        = 0.20  # gap minimo (s) accettato senza punteggiatura forte a fine riga
 
+# Leggibilita' (opt-in, 'readability=True'): il forced alignment e Whisper
+# producono molte frasi brevissime consecutive (es. "Dove sei?" 0,6 s) che
+# restano blocchi-lampo perche' il blocco successivo parte subito dopo e la
+# durata minima non ha spazio per espandersi. Si UNISCONO le frasi vicine dello
+# stesso speaker quando almeno una e' "affrettata", poi si allunga la fine del
+# blocco fino alla velocita' di lettura target (mai oltre il blocco seguente).
+READ_MERGE_GAP     = 0.5    # gap max (s) per unire due frasi dello stesso speaker
+READ_CPS_TARGET    = 17.0   # caratteri/secondo (spazi inclusi) considerati leggibili
+READ_HURRY_MIN_DUR = 1.2    # sotto questa durata (s) un segmento e' "affrettato"
+READ_MAX_BLOCK_S   = 6.0    # durata massima (s) di un blocco ottenuto per fusione
+READ_MAX_EXTEND_S  = 7.0    # durata massima (s) raggiungibile con l'allungamento
+READ_QA_MAX_WORDS  = 3      # dopo una domanda ('?'), una risposta di al piu' N parole non si fonde
+
 
 class SubtitleFormatter:
     """Formatta segmenti diarizzati in SRT professionale."""
@@ -56,7 +69,9 @@ class SubtitleFormatter:
         dash_confidence_min: float = DASH_CONFIDENCE_MIN,
         dash_min_gap: float = DASH_MIN_GAP,
         log_callback: Optional[Callable] = None,
+        readability: bool = False,
     ):
+        self.readability         = readability
         self.cpl_max             = cpl_max
         self.min_duration        = min_duration
         self.gap_group           = gap_group
@@ -79,8 +94,13 @@ class SubtitleFormatter:
 
         segs = self._dedup_overlapping(segs)
         segs = self._merge_short_segments(segs)
+        has_speakers = any(s.get('speaker') for s in segs)
+        if has_speakers:
+            self._mark_dialogue(segs)
+        if self.readability:
+            segs = self._merge_for_readability(segs)
 
-        if not any(s.get('speaker') for s in segs):
+        if not has_speakers:
             # Nessuna diarization: CPL + durata minima, nessun trattino
             blocks = self._segments_to_blocks(segs)
             blocks = self._fix_overlaps(blocks)
@@ -88,7 +108,6 @@ class SubtitleFormatter:
             blocks = self._drop_invalid_blocks(blocks)
             return self._render(blocks)
 
-        self._mark_dialogue(segs)
         blocks = self._build_blocks(segs)
         blocks = self._fix_overlaps(blocks)
         blocks = self._enforce_min_duration(blocks)
@@ -261,6 +280,88 @@ class SubtitleFormatter:
         merged = len(segs) - len(result)
         if merged:
             self.log(f"  🔗 Merge frammenti: {len(segs)} → {len(result)} segmenti ({merged} uniti)")
+        return result
+
+    def _is_hurried(self, seg: Dict) -> bool:
+        dur = seg['end'] - seg['start']
+        if dur < READ_HURRY_MIN_DUR:
+            return True
+        return len(seg.get('text', '')) / dur > READ_CPS_TARGET
+
+    @staticmethod
+    def _looks_like_answer(prev: Dict, seg: Dict) -> bool:
+        """Domanda seguita da una risposta breve: probabilmente e' un altro
+        parlante (il diarizer attribuisce le battute sotto le 3 parole al
+        parlante precedente) e fonderle renderebbe permanente l'errore."""
+        if READ_QA_MAX_WORDS <= 0:
+            return False
+        return (prev.get('text', '').rstrip().endswith('?')
+                and len(seg.get('text', '').split()) <= READ_QA_MAX_WORDS)
+
+    def _merge_for_readability(self, segs: List[Dict]) -> List[Dict]:
+        """Unisce frasi consecutive DELLO STESSO speaker quando almeno una e'
+        troppo breve o troppo veloce da leggere (v. costanti READ_*).
+
+        Mai fra speaker diversi (o fra segmenti con/senza speaker): il
+        trattino a due voci e la mappa genere dipendono dall'attribuzione.
+        Il testo combinato resta entro 2 righe (cpl_max * 2) e la durata
+        entro READ_MAX_BLOCK_S.
+        """
+        if not segs:
+            return segs
+
+        def _pairable(a: Dict, b: Optional[Dict]) -> bool:
+            """b e' un vicino di speaker diverso, in contesto dialogo, abbastanza
+            vicino da formare con a un blocco a due voci."""
+            if b is None or not (a.get('_dialogue') and b.get('_dialogue')):
+                return False
+            if a.get('speaker') == b.get('speaker'):
+                return False
+            distance = max(a['start'] - b['end'], b['start'] - a['end'])
+            return distance <= self.gap_group
+
+        result = [dict(segs[0])]
+        for i, seg in enumerate(segs[1:], start=1):
+            prev = result[-1]
+            gap = seg['start'] - prev['end']
+            combined = (prev.get('text', '').strip() + ' ' + seg.get('text', '').strip()).strip()
+            # Se il segmento puo' ancora formare un blocco a due voci con un
+            # vicino di altro speaker (testo <= cpl_max), la fusione lo
+            # escluderebbe: in quel caso si resta entro una riga.
+            before = result[-2] if len(result) >= 2 else None
+            after = segs[i + 1] if i + 1 < len(segs) else None
+            dialogue_possible = (_pairable(prev, before) or _pairable(seg, after))
+            cap = self.cpl_max if dialogue_possible else self.cpl_max * 2
+            can_merge = (
+                gap <= READ_MERGE_GAP
+                and prev.get('speaker') == seg.get('speaker')
+                and len(combined) <= cap
+                and (max(seg['end'], prev['end']) - prev['start']) <= READ_MAX_BLOCK_S
+                and (self._is_hurried(prev) or self._is_hurried(seg))
+                and len(self._wrap_cpl(combined)) <= 2
+                and not self._looks_like_answer(prev, seg)
+            )
+            if can_merge:
+                merged = dict(prev)
+                merged['end'] = max(prev['end'], seg['end'])
+                merged['text'] = combined
+                if 'words' in prev or 'words' in seg:
+                    merged['words'] = prev.get('words', []) + seg.get('words', [])
+                if 'speaker_confidence' in prev or 'speaker_confidence' in seg:
+                    # media pesata sui caratteri: il minimo farebbe cadere un
+                    # blocco intero sotto la soglia del trattino per un solo
+                    # frammento debole
+                    _lp, _ls = len(prev.get('text', '')), len(seg.get('text', ''))
+                    merged['speaker_confidence'] = (
+                        prev.get('speaker_confidence', 1.0) * _lp
+                        + seg.get('speaker_confidence', 1.0) * _ls) / max(1, _lp + _ls)
+                result[-1] = merged
+            else:
+                result.append(dict(seg))
+
+        n = len(segs) - len(result)
+        if n:
+            self.log(f"  📖 Leggibilità: {len(segs)} → {len(result)} segmenti ({n} uniti)")
         return result
 
     # ── Dialogue detection ────────────────────────────────────────────────────
@@ -454,10 +555,14 @@ class SubtitleFormatter:
         for i in range(len(result)):
             block    = result[i]
             duration = block['end'] - block['start']
-            if duration >= self.min_duration:
+            target = self.min_duration
+            if self.readability:
+                chars = sum(len(l['text']) for l in block['lines'])
+                target = max(target, min(READ_MAX_EXTEND_S, chars / READ_CPS_TARGET))
+            if duration >= target:
                 continue
 
-            desired_end = block['start'] + self.min_duration
+            desired_end = block['start'] + target
             if i + 1 < len(result):
                 max_end     = result[i + 1]['start'] - 0.05   # 50ms gap
                 desired_end = min(desired_end, max_end)

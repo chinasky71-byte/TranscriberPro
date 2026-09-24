@@ -3,6 +3,107 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.19.0] — 2026-09-24
+
+Revisione della qualità a 5 revisori indipendenti (trascrizione, traduzione,
+diarizzazione/genere, output SRT/sync/OCR, robustezza) + arbitro, poi due
+bugcheck Opus sul codice scritto. Le correzioni sotto sono solo quelle con
+evidenza misurata; le idee non dimostrate restano fuori (v. in fondo).
+
+### Trascrizione: struttura e tempi dei sottotitoli
+- **`core/aligner.py` — il forced alignment non frammenta più i segmenti.**
+  `whisperx.align` divide ogni segmento in frasi (nltk punkt): adottare il
+  suo output moltiplicava i segmenti (678 → 1696 su un film reale) e
+  produceva blocchi-lampo, mentre il ripristino dei timestamp non scattava
+  mai. Ora si allinea UN segmento Whisper alla volta e si copiano soltanto i
+  tempi wav2vec2 sulle parole Whisper, con guardia (spostamento massimo
+  1,5 s, durata massima max(1,5 s, 2× Whisper), niente nuove sovrapposizioni);
+  il testo e il numero dei segmenti restano quelli di Whisper. Verificato su
+  6 finestre da 5 minuti di un film (1760 parole): segmenti 426 → 169,
+  blocchi < 0,83 s 183 → 16, parole più lunghe di 1,5 s 84 → 6. Il beneficio
+  è nei tempi INTERNI delle parole (usati dal diarizer per spezzare ai
+  cambi di parlante); inizio/fine dei segmenti restano quelli di Whisper.
+  Le parole col trattino (Whisper: " Uh" + "-huh.") non fanno più scartare
+  l'intero segmento (5/169 → 0/169 mantenuti con i tempi Whisper).
+- **`core/subtitle_formatter.py` — leggibilità (nuovo, `readability`,
+  chiave `subtitle_readability_enabled`, default True).** Le frasi
+  brevissime consecutive restavano blocchi-lampo perché il blocco seguente
+  partiva subito dopo. Ora si uniscono le frasi vicine (gap ≤ 0,5 s) dello
+  STESSO speaker quando almeno una è troppo breve (< 1,2 s) o troppo veloce
+  (> 17 caratteri/s), entro 2 righe e 6 s, e si allunga la fine del blocco
+  fino a 17 cps (max 7 s) senza toccare il blocco seguente. Guardie:
+  contesto dialogo (non si esclude un blocco a due voci), una risposta breve
+  dopo una domanda non si fonde (il diarizer attribuisce le battute sotto le
+  3 parole al parlante precedente), confidenza speaker come media pesata sui
+  caratteri (il minimo faceva perdere trattini validi). Su Goodrich, con
+  speaker: blocchi 2008 → 1652, < 0,83 s 234 → 68, > 20 cps 311 → 160,
+  trattini 220 → 222, nessuna sovrapposizione. Con `readability=False`
+  l'output è bit-identico al formatter precedente (verificato).
+- **Formattazione anche senza diarizzazione**: se la diarizzazione è
+  disattivata, fallisce o manca il token HuggingFace, l'SRT viene comunque
+  formattato (CPL, durata minima, leggibilità) invece di restare grezzo
+  (prima: 24,5% di blocchi a riga singola oltre 42 caratteri). Se il
+  formatter fallisce non si sostituisce mai l'SRT grezzo con uno vuoto.
+- `subtitle_cleaner`: non inserisce più lo spazio dopo `, : ;` fra due cifre
+  ("10:30" → "10: 30", "3,5" → "3, 5").
+
+### Diarizzazione e correzione del genere
+- **`diarization_clustering_threshold` di default 0.85 → 0.0 (default di
+  fabbrica 0.7046).** Banco `gender_eval` su 8 episodi (63 punti, Veronica
+  Mars) sulla mappa voce → genere dello STEP 6.5: soglia di fabbrica,
+  automatico: accuratezza 91,9%, copertura 98,4% (23 parlanti medi);
+  automatico a 0.85: 86,8% / 60,3%; `num_speakers=10` esatto: 75,0% / 76,2%;
+  0.85 con tetto a 10: 77,8% / 57,1%. I cluster fusi abbassano la
+  confidenza sotto soglia e la correzione in 1ª persona non scatta. Sul
+  dialogo il confronto Goodrich non aveva mostrato differenze. Il
+  commento in `config.py` prevedeva proprio di riconsiderare questo valore
+  in caso di sovra-fusione.
+- Tooltip del numero di parlanti: > 0 è il numero ESATTO (non un massimo) e
+  disattiva la soglia di clustering. La causa era un'incomprensione: il
+  valore 10 in una config reale forzava 10 cluster su ogni file.
+
+### Robustezza
+- **Traduzione fallita** (`core/pipeline.py`, STEP 6-7): un'eccezione in
+  factory/callback/traduzione equivale a "traduzione fallita" (prima: fine
+  del job senza salvare nulla e cartella temporanea cancellata). Se il file
+  di destinazione (es. `X.en.srt`) esiste già NON viene mai sovrascritto: la
+  trascrizione/OCR viene conservata in `~/.transcriberpro/recuperati/` e il
+  job risulta fallito. Se non esiste, viene salvato nella lingua originale
+  ma il job risulta fallito (niente watermark del motore, niente upload).
+- **`Config.save()` atomico**: file temporaneo unico per processo + fsync +
+  `os.replace` con retry su `PermissionError` di Windows (un test con 2
+  processi e un lettore concorrente aveva prodotto oltre 1.200 letture di
+  JSON troncato con la versione a nome fisso). Se `config.json` è
+  illeggibile ne resta una copia `config.json.illeggibile-<data>` prima che
+  i default lo sovrascrivano.
+- **`punctuation_restore_mode='auto'`** (nuovo default): segue il motore di
+  trascrizione scelto (Canary e Qwen3: `missing`; faster-whisper non usa il
+  ripristino). Le modalità `off|missing|all` restano una forzatura globale.
+- `core/llm_subtitle_translator/translator.py`: canale di log del gestore
+  batch verso lo schermo e reset del ritmo di riferimento (modifiche del
+  12/09 già in uso in produzione, mai sincronizzate prima d'ora).
+
+### Verifiche
+- Due bugcheck Opus indipendenti sul codice scritto: trovati e corretti
+  (perdita del lavoro con traduzione fallita e `X.en.srt` esistente,
+  eccezioni di traduzione non gestite, collisione del file temporaneo di
+  `Config.save()`, confidenza speaker minima che faceva perdere trattini,
+  ripiego del formatter che poteva scrivere un SRT vuoto o ignorare un
+  `save()` fallito).
+- Test end-to-end su un estratto reale di 5 minuti (trascrizione,
+  allineamento, diarizzazione, formattazione, traduzione, correzione genere:
+  exit 0) e test del ramo di traduzione fallita.
+
+### Valutato e NON adottato
+- WhisperX come motore (stesso decoder; VAD/diarizzazione di default
+  diversi), `initial_prompt`/`hotwords`, parametri anti-allucinazione di
+  faster-whisper (ignorati in modalità batched) e Demucs a 44,1 kHz senza
+  banco WER: nessuno ha dato un beneficio dimostrato.
+- Aperti, non toccati: contesto tra battute consecutive nella traduzione
+  (i blocchi tagliati a metà frase vengono tradotti come frammenti),
+  banco WER per l'ASR, scelta di STEP 1 (sottotitoli non italiani anche con
+  audio già italiano), sovrascrittura del sidecar OCR di `X.<lingua>.srt`.
+
 ## [1.18.0] — 2026-09-18
 
 ### Valutazione `pyannote/speaker-diarization-community-1` come alternativa a 3.1 — verdetto: NON promuovere

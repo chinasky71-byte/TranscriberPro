@@ -107,6 +107,22 @@ class SubtitleLLMTranslator:
             except Exception:
                 pass
 
+    def _batch_log(self, message: str) -> None:
+        """Canale del gestore batch verso lo schermo — e SOLO verso lo schermo.
+
+        Passargli `self.log` scriveva lo stesso messaggio tre volte nel file
+        condiviso: il gestore lo manda già al proprio logger
+        (`adaptive_batch_manager._log`), `self.log` lo rimanda al logger di
+        questo modulo e il callback della GUI (`LLMSubtitleTranslator.log`,
+        core/translator.py:134) una terza. Qui si inoltra soltanto. Stesso
+        schema del ramo NLLB (core/translator.py:1315).
+        """
+        if self.log_callback:
+            try:
+                self.log_callback(message)
+            except Exception:
+                pass
+
     # ------------------------------------------------------------------
     def _make_batch_manager(self):
         """Riusa il gestore adattivo già in servizio sul ramo NLLB.
@@ -139,7 +155,15 @@ class SubtitleLLMTranslator:
             # serie (0,85) scenderebbe troppo tardi per un 12B.
             high_threshold=0.90, low_threshold=0.80,
             warmup_batches=3,
-            log_callback=None,
+            # Prima era None: il suo avviso "GPU contesa: la tengo ferma" non
+            # arrivava mai a schermo, lasciando solo il sintomo generico di
+            # _check_throughput senza la diagnosi vera (contesa esterna o
+            # memoria nostra) che il gestore calcola già. Gli aggiustamenti
+            # "Memoria alta: batch X → Y" restano invece fuori dallo schermo
+            # di proposito: il gestore li manda a `logger.info` e non a
+            # `_log` perché intercalati alla barra ne impedirebbero la
+            # riscrittura in-place (adaptive_batch_manager.py:186-190).
+            log_callback=self._batch_log,
         )
 
     # Oltre questo rapporto rispetto al ritmo migliore del file, la
@@ -203,6 +227,16 @@ class SubtitleLLMTranslator:
         if "out of memory" in text or "cuda error" in text:
             self._batch_mgr.record_oom()
 
+    def _reset_throughput_base(self) -> None:
+        """Butta via il ritmo di riferimento e i campioni raccolti finora.
+
+        Da chiamare quando quello che verrà misurato non è più confrontabile
+        con quello che è stato misurato.
+        """
+        self._ms_char_base = None
+        self._slow_samples = 0
+        self._slow_warned = False
+
     def _next_batch_size(self) -> int:
         if self._batch_mgr is None:
             return self.batch_size
@@ -210,6 +244,23 @@ class SubtitleLLMTranslator:
         if size != self.batch_size:
             logger.info(f"  Batch LLM {self.batch_size} → {size}")
             self.batch_size = size
+            # Il ritmo per CARATTERE non è confrontabile tra batch di
+            # dimensioni diverse: un passo di decodifica costa quasi lo stesso
+            # con 12 o con 16 conversazioni in parallelo, quindi il batch più
+            # piccolo esce sempre più lento per carattere. Con Aya il gestore
+            # parte da 12 (DEFAULT_BATCH_SIZE), il warm-up lo porta al tetto
+            # di 16 e lo steady-state lo riporta a 12 perché insostenibile in
+            # VRAM: comportamento sano, ma il confronto 12-contro-16 faceva
+            # scattare "generazione rallentata" quasi a ogni file.
+            #
+            # Agganciare il reset alla sola transizione warm-up→steady-state
+            # NON bastava: la chiamata che chiude il warm-up esegue ancora il
+            # ramo di warm-up e restituisce la dimensione decisa lì (16) — il
+            # taglio dello steady-state arriva al batch DOPO. La base veniva
+            # quindi rifissata esattamente sul batch gonfiato che si voleva
+            # escludere. Invalidare a ogni cambio di dimensione copre quel
+            # caso e, in più, tutte le risalite/discese dello steady-state.
+            self._reset_throughput_base()
         return size
 
     # ------------------------------------------------------------------
@@ -413,9 +464,14 @@ class SubtitleLLMTranslator:
                 self._record_failure(exc)
                 outputs = [""] * len(batch)
                 _generated = False
-            if _generated:
-                # Fuori dal try: una misura non deve poter essere scambiata
-                # per un fallimento di generazione.
+            # Fuori dal try: una misura non deve poter essere scambiata per un
+            # fallimento di generazione. Solo batch PIENI: l'ultimo batch del
+            # file è quasi sempre troncato (`units[i:i + size]`), e un batch
+            # corto paga il costo fisso del passo di decodifica su meno
+            # caratteri — con 3 unità invece di 12 il ms/carattere sale di
+            # parecchie volte e fa scattare l'avviso di rallentamento proprio
+            # in fondo a ogni file, senza nessuna contesa in corso.
+            if _generated and len(batch) == self.batch_size:
                 self._check_throughput(time.time() - _t_gen,
                                        sum(len(t or "") for t in outputs))
 

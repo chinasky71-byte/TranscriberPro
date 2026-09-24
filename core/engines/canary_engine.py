@@ -61,6 +61,9 @@ class CanaryEngine(TranscriptionEngine):
     Testo dal subprocess venv_canary + timestamp dal Qwen3-ForcedAligner.
     """
 
+    # Valore usato quando 'punctuation_restore_mode' == 'auto' (v. config.py).
+    PUNCT_AUTO_MODE = 'missing'
+
     name = "canary"
 
     def __init__(self, log_callback: Optional[Callable] = None):
@@ -148,7 +151,9 @@ class CanaryEngine(TranscriptionEngine):
         comportamento storico, nessun import né chiamata. Stessa logica di
         Qwen3AsrEngine._maybe_restore_punctuation (duplicata: le due classi
         non condividono un'istanza da cui riusare lo stato lazy)."""
-        mode = self.config.get('punctuation_restore_mode', 'off')
+        mode = self.config.get('punctuation_restore_mode', 'auto')
+        if mode == 'auto':
+            mode = self.PUNCT_AUTO_MODE
         if mode == 'off':
             return words
 
