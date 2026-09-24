@@ -118,7 +118,12 @@ class Config:
         # ========================================================================
         'translation_model': 'nllb',  # vedi VALID_TRANSLATION_MODELS
         'target_language': 'ita',     # ISO 639-2 lingua target sottotitoli
-        
+        # Ricompone le frasi spezzate fra blocchi prima della traduzione e
+        # ridivide il testo tradotto sui blocchi originali (core/
+        # sentence_recompose.py, banco split_eval). Solo motori NLLB; spenta
+        # finche' l'utente non la valida alla cieca su file reali.
+        'translation_recompose_sentences': False,
+
         # Claude API (cloud-based translation)
         'claude_api_key': '',  # API key Anthropic per Claude
 

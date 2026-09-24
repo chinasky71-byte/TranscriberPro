@@ -12,7 +12,15 @@ fa questo codice.
     new_blocks, report = resplit({uid: testo_tradotto}, mapping, config)
 
 Politica di ripiego ('fallback'), esplicita e testata:
-  'first' (default): se non esiste un taglio sensato, l'intera unita'
+  'force' (default dalla v2, 24/09): lo scostamento max_dev diventa un
+          VINCOLO della ricerca a programmazione dinamica; se nessuna
+          divisione lo rispetta si prende quella con lo scostamento MINIMO
+          (info 'forced', report 'n_forced', dev registrato come e'). Blocchi
+          vuoti solo se le parole tradotte sono meno dei blocchi (ripiego
+          'first' inevitabile). Motivo: sul banco v2 (200 unita' reali) tutti
+          gli 8 ripieghi erano unita' di 2 blocchi di 1-3 parole ("Here we |
+          go.", "but | her stories"): la v1 lasciava il 2o blocco VUOTO.
+  'first' (v1): se non esiste un taglio sensato, l'intera unita'
           tradotta va sul PRIMO blocco e gli altri blocchi ricevono ''
           (stringa vuota: chi scrive l'SRT decide se saltarli, e le metriche
           strutturali li contano come "blocchi vuoti");
@@ -54,12 +62,13 @@ DEFAULT_CONFIG: Dict[str, object] = {
     'max_lines': 2,
     'cps_max': 20.0,
     'max_dev': 0.25,            # scostamento massimo di proporzione a ogni taglio
-    'fallback': 'first',        # 'first' | 'span'
+    'fallback': 'force',        # 'force' (v2) | 'first' | 'span'
     # pesi del costo di un taglio (in unita' di proporzione, 0..1)
     'w_strong': 0.15,           # bonus: taglio dopo . ? ! …
     'w_soft': 0.10,             # bonus: taglio dopo , ; : o trattino
     'w_conj': 0.05,             # bonus: il pezzo seguente apre con congiunzione/relativo
     'w_bad_end': 0.30,          # malus: pezzo che finisce con articolo/preposizione/congiunzione
+    'mirror_bad_end': 1 / 3,    # fattore del malus se ANCHE il blocco sorgente finisce "appeso"
     'w_cpl': 0.50,              # malus per riga oltre CPL (per CPL di eccesso)
     'w_cps': 0.05,              # malus per pezzo oltre cps_max
 }
@@ -87,6 +96,25 @@ CONJ_START: Dict[str, frozenset] = {
     'it': frozenset("e ed o ma però perché poiché che cui quando mentre se come dove quindi finché anche oppure".split()),
     'en': frozenset("and or but because that which who when while where if so than as".split()),
 }
+# Blocco SORGENTE che finisce "appeso" (la frase prosegue nel blocco dopo):
+# parole di BAD_END piu' soggetti e ausiliari. Se il blocco inglese finisce
+# cosi' ("And | as far as I know", "It's | a hard line", "and we | get to"),
+# un pezzo italiano che finisce con congiunzione/articolo RISPECCHIA l'audio
+# e il malus w_bad_end si riduce (mirror_bad_end).
+DANGLING_SRC: Dict[str, frozenset] = {
+    'en': BAD_END['en'] | frozenset("""
+        i we you he she they it it's i'm you're we're they're he's she's there's that's
+        is are was were be been am have has had will would can could should must do does did
+        don't didn't doesn't won't can't gonna wanna just really
+    """.split()),
+    'it': BAD_END['it'],
+}
+# Apocopi (troncamenti con apostrofo, parola intera): dopo "po'" si puo'
+# tagliare. Resta vietato il taglio dopo un'elisione staccata ("l' uomo").
+APOCOPE: Dict[str, frozenset] = {
+    'it': frozenset("po' be' mo' di' fa' va' sta' da' to' pie' ca' de'".split()),
+    'en': frozenset(),
+}
 
 
 def make_config(config: Optional[Dict] = None) -> Dict:
@@ -95,8 +123,8 @@ def make_config(config: Optional[Dict] = None) -> Dict:
         if k not in cfg:
             raise KeyError(f"parametro di configurazione sconosciuto: {k}")
         cfg[k] = v
-    if cfg['fallback'] not in ('first', 'span'):
-        raise ValueError("fallback deve essere 'first' o 'span'")
+    if cfg['fallback'] not in ('force', 'first', 'span'):
+        raise ValueError("fallback deve essere 'force', 'first' o 'span'")
     if cfg['measure'] not in ('chars', 'words'):
         raise ValueError("measure deve essere 'chars' o 'words'")
     return cfg
@@ -204,25 +232,54 @@ def _core(word: str) -> str:
     return _EDGE.sub('', word).lower().replace('’', "'")
 
 
-def _cut_bonus(prev: str, nxt: str, cfg: Dict) -> float:
-    """Costo del taglio fra la parola prev e la parola nxt (negativo = buono).
-    None = taglio vietato (elisione: l'|uomo)."""
-    if prev.endswith(("'", '’')):
-        return None
+def _elision_blocks_cut(prev: str, lang: str) -> bool:
+    """True se prev finisce con un'elisione staccata (l'|uomo): taglio vietato.
+    Non lo e' un'apocope ("un po'") ne' una parola fra apici ('ciao')."""
+    if not prev.endswith(("'", '’')):
+        return False
+    w = prev.lower().replace('’', "'")
+    if w in APOCOPE.get(lang, frozenset()):
+        return False
+    if len(w) > 2 and w[0] in "'‘":
+        return False
+    return True
+
+
+def _cut_parts(prev: str, nxt: str, cfg: Dict) -> Optional[Tuple[float, float]]:
+    """(costo di punteggiatura/congiunzione, malus 'pezzo appeso') del taglio
+    fra prev e nxt; negativo = buono. None = taglio vietato (elisione)."""
     lang = cfg['tgt_lang']
-    cost = 0.0
+    if _elision_blocks_cut(prev, lang):
+        return None
+    cost, bad = 0.0, 0.0
     if _STRONG.search(prev):
         cost -= cfg['w_strong']
     elif _SOFT.search(prev):
         cost -= cfg['w_soft']
     else:
         if _core(prev) in BAD_END.get(lang, frozenset()):
-            cost += cfg['w_bad_end']
+            bad += cfg['w_bad_end']
         if re.fullmatch(r'[\d.,:]+', prev) and re.match(r'[^\W\d_]', nxt):
             cost += cfg['w_bad_end'] / 2          # numero | unita' di misura
     if _core(nxt) in CONJ_START.get(lang, frozenset()):
         cost -= cfg['w_conj']
-    return cost
+    return cost, bad
+
+
+def _cut_bonus(prev: str, nxt: str, cfg: Dict) -> Optional[float]:
+    """Costo del taglio fra la parola prev e la parola nxt (negativo = buono).
+    None = taglio vietato (elisione: l'|uomo)."""
+    p = _cut_parts(prev, nxt, cfg)
+    return None if p is None else p[0] + p[1]
+
+
+def src_dangles(src: str, lang: str) -> bool:
+    """Il blocco sorgente finisce senza punteggiatura su una parola che chiede
+    un seguito (congiunzione, articolo, soggetto, ausiliare)."""
+    words = norm_ws(src).split()
+    if not words or _STRONG.search(words[-1]) or _SOFT.search(words[-1]):
+        return False
+    return _core(words[-1]) in DANGLING_SRC.get(lang, frozenset())
 
 
 def _piece_penalty(piece: str, dur: float, cfg: Dict) -> float:
@@ -246,7 +303,8 @@ def split_text(text: str, src_texts: Sequence[str], durations: Sequence[float],
     t = norm_ws(text)
     words = t.split()
     n = len(words)
-    info = {'fallback': False, 'reason': '', 'cuts': [], 'targets': [], 'fractions': [], 'dev': []}
+    info = {'fallback': False, 'forced': False, 'reason': '', 'cuts': [], 'targets': [], 'fractions': [],
+            'dev': []}
     if k <= 1:
         return [t], info
     if cfg['measure'] == 'chars':
@@ -266,6 +324,8 @@ def split_text(text: str, src_texts: Sequence[str], durations: Sequence[float],
         return [''] * k, info
     if n < k:
         return _fallback('meno parole che blocchi')
+    if n > max(60, 6 * sum(len(norm_ws(s).split()) for s in src_texts)):
+        return _fallback('traduzione anomala (troppo lunga)')
     total_len = len(t)
     prefix = [0] * (n + 1)          # caratteri di ' '.join(words[:j])
     for j in range(1, n + 1):
@@ -274,42 +334,86 @@ def split_text(text: str, src_texts: Sequence[str], durations: Sequence[float],
     def frac(j: int) -> float:
         return prefix[j] / total_len if cfg['measure'] == 'chars' else j / n
 
-    bonus = [None] * (n + 1)
+    parts = [None] * (n + 1)
     for j in range(1, n):
-        bonus[j] = _cut_bonus(words[j - 1], words[j], cfg)
+        parts[j] = _cut_parts(words[j - 1], words[j], cfg)
+    # malus "pezzo appeso" ridotto se anche il blocco sorgente m finisce appeso
+    mirror = [cfg['mirror_bad_end'] if src_dangles(s, cfg['lang']) else 1.0 for s in src_texts[:-1]]
+    durs = [max(0.0, float(durations[m])) if durations else 0.0 for m in range(k)]
+    pen_cache: Dict[Tuple[int, int, int], float] = {}
+
+    def piece_pen(i: int, j: int, m: int) -> float:
+        key = (i, j, m)
+        if key not in pen_cache:
+            pen_cache[key] = _piece_penalty(' '.join(words[i:j]), durs[m], cfg)
+        return pen_cache[key]
+
     INF = float('inf')
-    D = [[INF] * (n + 1) for _ in range(k + 1)]
-    B = [[-1] * (n + 1) for _ in range(k + 1)]
-    D[0][0] = 0.0
-    for m in range(1, k + 1):
-        dur = max(0.0, float(durations[m - 1])) if durations else 0.0
-        j_range = [n] if m == k else range(m, n - (k - m) + 1)
-        for j in j_range:
-            if m < k:
-                if bonus[j] is None:
-                    continue
-                cut_cost = abs(frac(j) - targets[m - 1]) + bonus[j]
-            else:
-                cut_cost = 0.0
-            for i in range(m - 1, j):
-                if D[m - 1][i] == INF:
-                    continue
-                c = D[m - 1][i] + _piece_penalty(' '.join(words[i:j]), dur, cfg) + cut_cost
-                if c < D[m][j]:
-                    D[m][j], B[m][j] = c, i
-    if D[k][n] == INF:
-        return _fallback('nessun taglio ammissibile')
-    cuts, j = [], n
-    for m in range(k, 0, -1):
-        i = B[m][j]
-        cuts.append(i)
-        j = i
-    cuts = list(reversed(cuts))[1:]           # tagli interni c_1..c_{k-1}
-    fr = [frac(c) for c in cuts]
-    dev = [abs(f - tg) for f, tg in zip(fr, targets)]
-    info.update(cuts=cuts, fractions=[round(x, 4) for x in fr], dev=[round(x, 4) for x in dev])
-    if max(dev) > cfg['max_dev']:
-        return _fallback(f"scostamento {max(dev):.2f} > {cfg['max_dev']}")
+
+    def solve(mode: str) -> Optional[List[int]]:
+        """mode: 'free' (costo pieno, v1) | 'bounded' (costo pieno con
+        scostamento <= max_dev come vincolo) | 'mindev' (minimo scostamento;
+        il resto del costo solo come spareggio)."""
+        D = [[INF] * (n + 1) for _ in range(k + 1)]
+        B = [[-1] * (n + 1) for _ in range(k + 1)]
+        D[0][0] = 0.0
+        for m in range(1, k + 1):
+            j_range = [n] if m == k else range(m, n - (k - m) + 1)
+            for j in j_range:
+                if m < k:
+                    if parts[j] is None:
+                        continue
+                    d = abs(frac(j) - targets[m - 1])
+                    if mode == 'bounded' and d > cfg['max_dev']:
+                        continue
+                    ling = parts[j][0] + parts[j][1] * mirror[m - 1]
+                    cut_cost = d + ling if mode != 'mindev' else d + 0.1 * ling
+                else:
+                    cut_cost = 0.0
+                for i in range(m - 1, j):
+                    if D[m - 1][i] == INF:
+                        continue
+                    pp = piece_pen(i, j, m - 1)
+                    c = D[m - 1][i] + (pp if mode != 'mindev' else 0.1 * pp) + cut_cost
+                    if c < D[m][j]:
+                        D[m][j], B[m][j] = c, i
+        if D[k][n] == INF:
+            return None
+        cuts, j = [], n
+        for m in range(k, 0, -1):
+            i = B[m][j]
+            cuts.append(i)
+            j = i
+        return list(reversed(cuts))[1:]           # tagli interni c_1..c_{k-1}
+
+    def record(cuts: List[int]) -> List[float]:
+        fr = [frac(c) for c in cuts]
+        dev = [abs(f - tg) for f, tg in zip(fr, targets)]
+        info.update(cuts=cuts, fractions=[round(x, 4) for x in fr], dev=[round(x, 4) for x in dev])
+        return dev
+
+    if cfg['fallback'] == 'force':
+        # v2: mai testo tutto sul primo blocco se ci sono abbastanza parole.
+        # 1) costo pieno con lo scostamento come VINCOLO (<= max_dev): se
+        #    l'ottimo libero lo rispetta, e' identico alla v1;
+        # 2) altrimenti il taglio col MINIMO scostamento (ammesso: elisioni
+        #    escluse), segnalato come 'forced' e con il suo dev nel report.
+        cuts = solve('bounded')
+        if cuts is None:
+            cuts = solve('mindev')
+            if cuts is None:
+                return _fallback('nessun taglio ammissibile')
+            dev = record(cuts)
+            info.update(forced=True, reason=f"taglio forzato: scostamento minimo {max(dev):.2f} > {cfg['max_dev']}")
+        else:
+            record(cuts)
+    else:
+        cuts = solve('free')
+        if cuts is None:
+            return _fallback('nessun taglio ammissibile')
+        dev = record(cuts)
+        if max(dev) > cfg['max_dev']:
+            return _fallback(f"scostamento {max(dev):.2f} > {cfg['max_dev']}")
     bounds = [0] + cuts + [n]
     pieces = [' '.join(words[bounds[m]:bounds[m + 1]]) for m in range(k)]
     return pieces, info
@@ -361,6 +465,7 @@ def resplit(translated_units: Union[Dict[int, str], Sequence[str]], mapping: Dic
     devs = [d for r in rep_units for d in r['dev']]
     report = {'n_units': len(mapping['units']), 'n_merged': len(rep_units),
               'n_fallback': sum(1 for r in rep_units if r['fallback']),
+              'n_forced': sum(1 for r in rep_units if r.get('forced')),
               'n_empty_text': sum(1 for r in rep_units if r['reason'] == 'testo tradotto vuoto'),
               'dev': devs, 'max_dev': max(devs) if devs else None, 'units': rep_units,
               'fallback_policy': cfg['fallback']}
