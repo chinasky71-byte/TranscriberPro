@@ -3,6 +3,51 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.19.1] — 2026-09-24
+
+Nessuna modifica al comportamento dell'app: due banchi di misura nuovi
+(`asr_eval/`, `split_eval/`, con test e README) e i loro primi risultati.
+
+### `asr_eval/` — banco di accuratezza ASR contro i sottotitoli professionali
+Whisper large-v3 (profilo di produzione), Canary-Qwen-2.5B (solo inglese) e
+Qwen3-ASR su 140 finestre da ~150 s di 16 film (inglese, audio ENG contro
+sub ENG professionali), con e senza Demucs. Regole di decisione, normalizzazione
+e statistica (bootstrap per film, Wilcoxon esatto) congelate PRIMA dei run
+(`decision_rules.py`); sandbox della config di produzione; guardia che rifiuta
+di partire con la GPU occupata. 70 test. Risultati (`asr_eval/results/`):
+- Gruppo principale (9 film, voce separata), WERc: Qwen3 12,1%, Canary 14,0%,
+  Whisper 15,8%. Qwen3 batte Canary di 1,85 punti (IC95% 0,50–3,39,
+  Wilcoxon p=0,012, stesso segno nel gruppo dei film più vecchi): verdetto
+  «cambio proposto», NON definitivo (manca il set d'oro corretto a mano).
+  Whisper contro Canary: pareggio, ma con il doppio di battute perse (8,0% contro 4,2%).
+- Demucs: Whisper +2,1 punti, Canary +1,9, Qwen3 +0,2 (nessun effetto significativo).
+- Velocità (s per minuto di audio): Whisper 2,0, Canary 2,2, Qwen3 5,5.
+- Limiti: il riferimento è un sottotitolo condensato (i valori assoluti sono
+  gonfiati, conta la classifica); l'italiano NON è misurato (i sub ITA normali
+  dei film doppiati sono la traduzione dell'inglese, non il copione: serve un
+  controllo d'ascolto manuale, `work/listen_check.csv`).
+
+### `split_eval/` — frasi spezzate a metà: misura e prototipo di ricomposizione
+- **Misura (midcut):** nei blocchi finali del formatter i blocchi che finiscono
+  a metà frase sono il 41% con Whisper, il 10-11% con Qwen3 e Canary, il 10%
+  nei sottotitoli professionali. Con Whisper la traduzione riceve quindi
+  frammenti molto più spesso.
+- **Prototipo (`recompose.py`):** unisce le frasi spezzate in unità, traduce
+  l'unità intera e ridistribuisce il testo tradotto sui blocchi originali
+  (tempi invariati). Esperimento A/B con NLLB fine-tuned su 140 finestre,
+  58 con fusioni (195 unità): chrF −0,62 (IC95% −1,28…+0,02, n.s.), COMET
+  +0,03 (IC95% 0,02–0,05, 7 film su 7 a favore di B, p=0,016); blocchi >20
+  cps 13,3% → 6,9%, >84 caratteri 6,6% → 1,0%; nessun blocco vuoto. Verdetto
+  secondo le regole congelate: **ARCHIVIA** (il criterio chrF non passa). Le
+  metriche divergono: chrF confronta con una sola traduzione e premia la
+  resa letterale; COMET e la lettura di esempi favoriscono B (frammenti tipo
+  «…come pensi I ricordi», «…scelto per i suoi talenti. per il loro genere»
+  diventano frasi complete). NON portato nel codice di produzione.
+- Non eseguiti: TranslateGemma (`--engine llm`) e il giudice GEMBA (a pagamento).
+- Un bugcheck Opus ha trovato e corretto, prima dell'esecuzione, un difetto
+  che rendeva inservibile il traduttore NLLB-FT dopo il serbatoio L3 (asimmetria
+  A/B), lo scivolamento degli id COMET/GEMBA e alcune granularità di conteggio.
+
 ## [1.19.0] — 2026-09-24
 
 Revisione della qualità a 5 revisori indipendenti (trascrizione, traduzione,
