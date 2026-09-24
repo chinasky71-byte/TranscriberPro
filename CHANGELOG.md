@@ -37,6 +37,18 @@ viene ridistribuita sui blocchi originali (stessi numeri, stessi tempi).
   non porta lo speaker: due persone che si passano una frase senza trattino
   potrebbero essere unite).
 
+### Controllo alla cieca della ricomposizione su file reali (`blind_check/`)
+Strumenti per confrontare, senza sapere quale sia quale, la traduzione normale
+con quella ricomposta su estratti di 20 minuti di film e serie della libreria
+(5 film + 3 episodi, seme fisso, motori Whisper e Qwen3 in alternanza, solo
+traccia audio inglese): selezione, trascrizione con la pipeline reale e
+traduttore finto che cattura l'SRT, doppia traduzione NLLB-FT, foglio cieco
+(A/B scambiati a caso, mappatura nascosta) e conteggio con regola congelata
+(quota ≥60% fra i non pari, p ≤ 0,025, film in maggioranza ≥60%, difetti
+visibili ≤3%). Nota: con una traccia audio italiana presente la pipeline
+trascrive l'italiano e salta la traduzione, quindi gli estratti contengono solo
+l'inglese. 12 test CPU.
+
 ### Test nei banchi
 I test dei banchi `asr_eval/` e `split_eval/` non erano mai stati pubblicati
 (il `.gitignore` del repository ignora `test_*.py`): ora lo sono (76 test in
