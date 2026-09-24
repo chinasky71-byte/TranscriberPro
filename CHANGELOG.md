@@ -37,13 +37,20 @@ di partire con la GPU occupata. 70 test. Risultati (`asr_eval/results/`):
   (tempi invariati). Esperimento A/B con NLLB fine-tuned su 140 finestre,
   58 con fusioni (195 unità): chrF −0,62 (IC95% −1,28…+0,02, n.s.), COMET
   +0,03 (IC95% 0,02–0,05, 7 film su 7 a favore di B, p=0,016); blocchi >20
-  cps 13,3% → 6,9%, >84 caratteri 6,6% → 1,0%; nessun blocco vuoto. Verdetto
-  secondo le regole congelate: **ARCHIVIA** (il criterio chrF non passa). Le
-  metriche divergono: chrF confronta con una sola traduzione e premia la
-  resa letterale; COMET e la lettura di esempi favoriscono B (frammenti tipo
+  cps 13,3% → 6,9%, >84 caratteri 6,6% → 1,0%; nessun blocco vuoto. Giudice
+  GEMBA-MQM (gpt-4o, 480 unità fuse di tutti i film, A e B nella stessa
+  chiamata, ordine casuale): B preferito 303 volte, A 161, pari 16; MQM
+  pesato medio A 6,65, B 4,51 (più basso = meglio); costo ~2,7 $ (548.700
+  token in ingresso, 130.487 in uscita). Verdetto secondo le regole
+  congelate: **ARCHIVIA**, perché il criterio chrF (IC95% non interamente
+  sopra 0, Wilcoxon p=0,078) non passa; la regola non è stata modificata
+  dopo i risultati. Le metriche divergono: chrF confronta con una sola
+  traduzione e premia la resa letterale, mentre COMET (7 film su 7), il
+  giudice GEMBA e la lettura di esempi favoriscono B (frammenti tipo
   «…come pensi I ricordi», «…scelto per i suoi talenti. per il loro genere»
-  diventano frasi complete). NON portato nel codice di produzione.
-- Non eseguiti: TranslateGemma (`--engine llm`) e il giudice GEMBA (a pagamento).
+  diventano frasi complete). NON portato nel codice di produzione: la
+  decisione se derogare alla regola spetta all'utente.
+- Non eseguito: TranslateGemma (`--engine llm`).
 - Un bugcheck Opus ha trovato e corretto, prima dell'esecuzione, un difetto
   che rendeva inservibile il traduttore NLLB-FT dopo il serbatoio L3 (asimmetria
   A/B), lo scivolamento degli id COMET/GEMBA e alcune granularità di conteggio.
