@@ -3,6 +3,45 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.20.0] — 2026-09-24
+
+### Ricomposizione delle frasi spezzate prima della traduzione (OPT-IN, spenta di default)
+Nuova opzione `translation_recompose_sentences` (default `false`; si attiva in
+`~/.transcriberpro/config.json`). Quando è attiva, i blocchi che finiscono a
+metà frase vengono riuniti in unità di frase, tradotti interi e la traduzione
+viene ridistribuita sui blocchi originali (stessi numeri, stessi tempi).
+- **Ambito**: solo NLLB / NLLB fine-tuned, solo inglese → italiano, solo SRT
+  da trascrizione (i sottotitoli già presenti, embedded o da OCR, e gli altri
+  motori ignorano l'opzione con un messaggio nel log). Non coperti: OCR
+  (`core/ocr_auto.py`) e sync (`core/subtitle_synchronizer.py`).
+- **Sicurezza**: con l'opzione spenta il percorso di traduzione è identico
+  alla 1.19.x (nessun import del modulo nuovo). Se qualcosa non torna
+  (unità tradotte in numero sbagliato, testo vuoto, eccezione) si ripiega sul
+  percorso normale senza far fallire la traduzione; i blocchi a due voci con
+  trattino, le etichette di speaker (`MARY:`) e le didascalie (`[laughs]`) non
+  si uniscono mai; la cancellazione è rispettata; il traduttore viene
+  ricreato se il serbatoio L3 l'ha scaricato.
+- **Modulo**: `core/sentence_recompose.py` (solo libreria standard). Il
+  prototipo misurato resta in `split_eval/`.
+- **Evidenza** (prova confermativa con regole v2 su dati nuovi, Qwen3, NLLB-FT):
+  giudice GEMBA B 179 contro A 48 (pari 23), COMET +0,04 in 7 film su 7.
+  La ridivisione è stata migliorata offline dopo il verdetto formale «archivia»
+  del banco (blocchi vuoti 1,94% → 0,48%, ripiego 4% → 1%, sbilanciamento
+  p90 0,236 → 0,154): correzioni progettate sulle stesse 200 unità, quindi
+  post-hoc, con un margine stretto sullo sbilanciamento. Prova con NLLB-FT
+  vero su 14 finestre: indici e tempi identici, nessun blocco vuoto, traduttore
+  ricreato dopo lo scarico. Un bugcheck Opus ha trovato e corretto: etichette di
+  speaker unite oltre il cambio di voce, ambito esteso ai sottotitoli
+  embedded, ridivisione lenta su traduzioni anomale.
+- **Da fare prima di attivarla**: controllo alla cieca su file reali (l'SRT
+  non porta lo speaker: due persone che si passano una frase senza trattino
+  potrebbero essere unite).
+
+### Test nei banchi
+I test dei banchi `asr_eval/` e `split_eval/` non erano mai stati pubblicati
+(il `.gitignore` del repository ignora `test_*.py`): ora lo sono (76 test in
+`split_eval/tests`, 70 in `asr_eval/tests`).
+
 ## [1.19.1] — 2026-09-24
 
 Nessuna modifica al comportamento dell'app: due banchi di misura nuovi

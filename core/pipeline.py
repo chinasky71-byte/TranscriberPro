@@ -447,6 +447,7 @@ class ProcessingPipeline:
             # ============================================================
             # STEP 2-4: Trascrizione (se necessaria)
             # ============================================================
+            _asr_srt = subtitle_path is None   # SRT da trascrizione (non embedded/OCR)
             if subtitle_path is None:
 
                 # STEP 2: Estrazione audio
@@ -854,13 +855,64 @@ class ProcessingPipeline:
                         f"translated_{target_language}.srt"
                     )
 
-                    _translation_ok = self._translator.translate_file(
-                        input_path=str(subtitle_path),
-                        output_path=str(translated_srt_path),
-                        src_lang=source_language_639_1,
-                        tgt_lang=target_language_639_1,
-                        context=translation_context
-                    )
+                    # Ricomposizione delle frasi spezzate (opt-in, solo NLLB
+                    # en->it: v. core/sentence_recompose.recompose_enabled)
+                    _recompose = bool(self.config.get('translation_recompose_sentences', False))
+                    if _recompose and not _asr_srt:
+                        _recompose = False
+                        self._log("   Ricomposizione frasi ignorata: sottotitoli gia' presenti "
+                                  "(misurata solo sulla trascrizione)")
+                    if _recompose:
+                        from core.sentence_recompose import recompose_enabled
+                        _recompose, _why = recompose_enabled(
+                            selected_model, source_language_639_1, target_language_639_1)
+                        if not _recompose:
+                            self._log(f"   Ricomposizione frasi ignorata: {_why}")
+
+                    if _recompose:
+                        from core.sentence_recompose import translate_srt_with_recompose
+
+                        def _recompose_translate(in_path, out_path):
+                            # Il serbatoio L3 puo' scaricare il modello
+                            # (cleanup) e NLLB non lo ricarica: prima di una
+                            # seconda chiamata si ricrea il traduttore.
+                            # Annullamento: translate_file non lo controlla;
+                            # senza questo un ripiego ritradurrebbe tutto
+                            # dopo lo stop (InterruptedError = annullato).
+                            if self._cancelled:
+                                raise InterruptedError()
+                            if getattr(self._translator, 'model', True) is None:
+                                self._log("   ♻️ Modello scaricato dal serbatoio: ricreo il traduttore")
+                                try:
+                                    self._translator.cleanup()
+                                except Exception:
+                                    pass
+                                self._translator = get_translator(model_type=selected_model,
+                                                                  context=translation_context,
+                                                                  glossary=translation_glossary)
+                                self._translator.set_log_callback(self._log_callback)
+                            return self._translator.translate_file(
+                                input_path=str(in_path),
+                                output_path=str(out_path),
+                                src_lang=source_language_639_1,
+                                tgt_lang=target_language_639_1,
+                                context=translation_context
+                            )
+
+                        _rc = translate_srt_with_recompose(
+                            subtitle_path, translated_srt_path, _recompose_translate,
+                            config={'lang': source_language_639_1, 'tgt_lang': target_language_639_1},
+                            log=self._log,
+                            polish_fn=lambda texts: self._translator._polish(texts))
+                        _translation_ok = _rc['ok']
+                    else:
+                        _translation_ok = self._translator.translate_file(
+                            input_path=str(subtitle_path),
+                            output_path=str(translated_srt_path),
+                            src_lang=source_language_639_1,
+                            tgt_lang=target_language_639_1,
+                            context=translation_context
+                        )
                 except InterruptedError:
                     raise
                 except Exception as e:
