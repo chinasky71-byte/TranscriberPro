@@ -290,7 +290,13 @@ class SubtitleCleaner:
         # Pattern più intelligente: aggiungi spazio dopo punteggiatura
         # solo se seguito da lettera maiuscola o altra parola
         text = re.sub(r'([.!?])([A-ZÀ-ÖØ-Þ])', r'\1 \2', text)  # Dopo . ! ? se maiuscola
-        text = re.sub(r'([,:;])([^\s\n])', r'\1 \2', text)      # Dopo , : ; sempre
+        # Dopo , : ; sempre, ma NON fra due cifre (orari "10:30", decimali "3,5")
+        text = re.sub(
+            r'([,:;])([^\s\n])',
+            lambda m: m.group(0) if (m.start() > 0 and m.string[m.start() - 1].isdigit()
+                                     and m.group(2).isdigit())
+            else f"{m.group(1)} {m.group(2)}",
+            text)
         
         # Gestione speciale per parentesi e virgolette
         # Rimuovi spazi DOPO apertura: ( [ { "

@@ -8,14 +8,22 @@ broadcast/cinema.
 
 Funzionamento:
 - Dopo la trascrizione Whisper, carica un modello wav2vec2 per la lingua
-  rilevata e riallinea ogni parola al millisecondo esatto.
-- Per parole che il modello non riesce ad ancorare (nomi propri, termini
-  rari), mantiene i timestamp originali di Whisper come fallback.
+  rilevata e riallinea ogni parola.
+- STRUTTURA: i segmenti restano quelli di Whisper. whisperx.align divide da
+  solo ogni segmento in frasi (nltk punkt): adottare quell'output moltiplica i
+  segmenti (es. 678 -> 1696) e crea blocchi-lampo. Si allinea quindi UN segmento
+  Whisper per volta e si copiano soltanto i tempi sulle parole Whisper.
+- GUARDIA: un tempo allineato viene accettato solo se resta entro
+  ALIGN_MAX_SHIFT_S dal tempo Whisper e la parola non diventa più lunga di
+  max(ALIGN_MAX_WORD_S, 2 x durata Whisper); altrimenti si tiene il tempo
+  Whisper. Se numero/testo delle parole non coincidono, l'intero segmento
+  resta com'è (A/B 24/09/2026: 5 segmenti su 169).
 - Se la lingua non è supportata, restituisce i segmenti originali intatti.
 
 VRAM: ~1-1.5GB. Progettato per coesistere con Whisper in VRAM (~5GB totali).
 """
 from __future__ import annotations
+import re
 import torch
 from typing import List, Dict, Optional, Callable
 
@@ -35,6 +43,16 @@ MODEL_OVERRIDES: Dict[str, str] = {
 # Modello generico multilingua: usato come fallback per lingue senza
 # modello specifico e senza supporto nativo in whisperx.
 GENERIC_ALIGN_MODEL = 'facebook/wav2vec2-large-xlsr-53'
+
+# Guardia sui tempi allineati (v. docstring del modulo).
+ALIGN_MAX_SHIFT_S = 1.5
+ALIGN_MAX_WORD_S = 1.5
+
+_NORM_RE = re.compile(r"[^\w']+", re.UNICODE)
+
+
+def _norm(word: str) -> str:
+    return _NORM_RE.sub('', (word or '').lower())
 
 
 class ForcedAligner:
@@ -92,8 +110,9 @@ class ForcedAligner:
     def align(self, segments: List[Dict], audio_path: str) -> List[Dict]:
         """Riallinea word timestamps con forced alignment.
 
-        Per parole che Wav2Vec2 non riesce ad ancorare (nomi propri,
-        termini rari), mantiene i timestamp originali di Whisper.
+        I segmenti in uscita sono gli STESSI di Whisper (stesso numero, stesso
+        testo): cambiano solo start/end delle parole (e quindi del segmento),
+        e solo quando la guardia li accetta.
 
         Args:
             segments:   Lista di segmenti con campo 'words' (output Whisper).
@@ -110,34 +129,42 @@ class ForcedAligner:
 
         audio = whisperx.load_audio(audio_path)
 
-        try:
-            result = whisperx.align(
-                segments,
-                self._model,
-                self._metadata,
-                audio,
-                self._device,
-                return_char_alignments=False,
-            )
-            aligned = result.get('segments', segments)
-        except Exception as e:
-            self.log(f"  ⚠️ Alignment fallito: {e} — timestamp Whisper mantenuti")
-            return segments
+        result: List[Dict] = []
+        n_seg_fallback = 0
+        n_words = 0
+        n_words_moved = 0
+        for seg in segments:
+            words = seg.get('words') or []
+            if not words:
+                result.append(seg)
+                continue
+            try:
+                r = whisperx.align(
+                    [{'start': seg['start'], 'end': seg['end'], 'text': seg['text']}],
+                    self._model,
+                    self._metadata,
+                    audio,
+                    self._device,
+                    return_char_alignments=False,
+                )
+                aligned_words = [w for s in r.get('segments', []) for w in s.get('words', [])]
+            except Exception:
+                aligned_words = None
 
-        # Fallback per parole non ancorate (nomi propri, ecc.)
-        aligned = self._restore_missing_timestamps(segments, aligned)
+            new_seg, moved = self.remap_segment(seg, aligned_words)
+            if moved is None:
+                n_seg_fallback += 1
+            else:
+                n_words += len(words)
+                n_words_moved += moved
+            result.append(new_seg)
 
-        words_aligned = sum(
-            1 for seg in aligned
-            for w in seg.get('words', [])
-            if w.get('start') is not None
-        )
-        words_total = sum(len(seg.get('words', [])) for seg in aligned)
         self.log(
-            f"  ✅ Alignment completato: "
-            f"{words_aligned}/{words_total} parole ancorate"
+            f"  ✅ Alignment completato: {n_words_moved}/{n_words} parole riallineate "
+            f"({len(result) - n_seg_fallback}/{len(result)} segmenti, "
+            f"{n_seg_fallback} mantenuti con tempi Whisper)"
         )
-        return aligned
+        return result
 
     def unload(self) -> None:
         del self._model
@@ -148,48 +175,101 @@ class ForcedAligner:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    # ── Restore fallback ─────────────────────────────────────────────────────
+    # ── Remap sui segmenti Whisper ───────────────────────────────────────────
 
-    def _restore_missing_timestamps(
-        self,
-        original: List[Dict],
-        aligned: List[Dict],
-    ) -> List[Dict]:
-        """Ripristina timestamp Whisper per parole non ancorate da Wav2Vec2.
+    @staticmethod
+    def _expand_to_whisper_words(orig_words: List[Dict], aligned_words: List[Dict]) -> List[Dict]:
+        """Whisper spezza in piu' "parole" i token col trattino ("Uh" + "-huh.",
+        "1" + "-2" + "-3"): le continuazioni NON hanno lo spazio iniziale,
+        mentre whisperx divide solo sugli spazi. Raggruppa le parole Whisper
+        per spazio iniziale; se i gruppi corrispondono 1:1 alle parole
+        allineate, espande: gruppo di 1 parola -> parola allineata; gruppo di
+        piu' parole -> voci senza tempi (restano quelli Whisper).
+        Altrimenti restituisce aligned_words invariato."""
+        if not orig_words or not (orig_words[0].get('word') or '')[:1].isspace():
+            return aligned_words
+        groups: List[List[Dict]] = []
+        for o in orig_words:
+            w = o.get('word') or ''
+            if not groups or w[:1].isspace():
+                groups.append([o])
+            else:
+                groups[-1].append(o)
+        if len(groups) != len(aligned_words):
+            return aligned_words
+        out: List[Dict] = []
+        for g, a in zip(groups, aligned_words):
+            if _norm(''.join(o.get('word') or '' for o in g)) != _norm(a.get('word')):
+                return aligned_words
+            if len(g) == 1:
+                out.append(a)
+            else:
+                out.extend({'word': o.get('word')} for o in g)
+        return out
 
-        Gestisce anche la mancata corrispondenza del numero di segmenti
-        (whisperx non dovrebbe alterare la struttura, ma per sicurezza).
+    @staticmethod
+    def remap_segment(seg: Dict, aligned_words: Optional[List[Dict]]):
+        """Copia sui dizionari parola di Whisper i tempi allineati accettati.
+
+        Returns:
+            (segmento, n_parole_spostate). n_parole_spostate è None se il
+            segmento è rimasto interamente con i tempi Whisper (allineamento
+            fallito o parole non corrispondenti).
         """
-        if len(aligned) != len(original):
-            # Non possiamo fare un mapping sicuro: fallback sui segmenti allineati as-is
-            self.log(
-                f"  ⚠️ Alignment: conteggio segmenti non corrisponde "
-                f"({len(aligned)} vs {len(original)}) — nessun fallback parola"
-            )
-            return aligned
+        orig_words = seg.get('words') or []
+        if aligned_words is not None and len(aligned_words) != len(orig_words):
+            aligned_words = ForcedAligner._expand_to_whisper_words(orig_words, aligned_words)
+        if (aligned_words is None or len(aligned_words) != len(orig_words)
+                or any(_norm(a.get('word')) != _norm(o.get('word'))
+                       for a, o in zip(aligned_words, orig_words))):
+            return seg, None
 
-        for orig_seg, aln_seg in zip(original, aligned):
-            orig_words = orig_seg.get('words', [])
-            aln_words  = aln_seg.get('words', [])
+        new_words: List[Dict] = []
+        moved_flags: List[bool] = []
+        prev_end: Optional[float] = None
+        for a, o in zip(aligned_words, orig_words):
+            nw = dict(o)
+            moved_here = False
+            s, e = a.get('start'), a.get('end')
+            ws, we = o.get('start'), o.get('end')
+            if s is not None and e is not None and ws is not None and we is not None:
+                if prev_end is not None and s < prev_end:
+                    s = prev_end
+                if (e >= s
+                        and abs(s - ws) <= ALIGN_MAX_SHIFT_S
+                        and abs(e - we) <= ALIGN_MAX_SHIFT_S
+                        and (e - s) <= max(ALIGN_MAX_WORD_S, 2.0 * (we - ws))):
+                    nw['start'], nw['end'] = float(s), float(e)
+                    moved_here = True
+            prev_end = nw['end'] if nw.get('end') is not None else prev_end
+            new_words.append(nw)
+            moved_flags.append(moved_here)
 
-            for wi, aln_word in enumerate(aln_words):
-                missing_start = aln_word.get('start') is None
-                missing_end   = aln_word.get('end')   is None
-                if not (missing_start or missing_end):
-                    continue
-                if wi < len(orig_words):
-                    orig_word = orig_words[wi]
-                    if missing_start:
-                        aln_word['start'] = orig_word.get('start')
-                    if missing_end:
-                        aln_word['end'] = orig_word.get('end')
+        # Una parola rifiutata dalla guardia tiene il tempo Whisper e puo'
+        # sovrapporsi a una vicina spostata: si ripristinano i tempi Whisper
+        # delle parole spostate coinvolte, finche' non restano nuove
+        # sovrapposizioni (ogni giro azzera almeno un flag: termina sempre).
+        changed = True
+        while changed:
+            changed = False
+            for i in range(1, len(new_words)):
+                p, c = new_words[i - 1], new_words[i]
+                if ((moved_flags[i - 1] or moved_flags[i])
+                        and p.get('end') is not None and c.get('start') is not None
+                        and c['start'] < p['end']):
+                    for j in (i - 1, i):
+                        if moved_flags[j]:
+                            new_words[j] = dict(orig_words[j])
+                            moved_flags[j] = False
+                    changed = True
+        moved = sum(moved_flags)
 
-            # Aggiorna start/end del segmento dai timestamps delle parole
-            valid_starts = [w['start'] for w in aln_words if w.get('start') is not None]
-            valid_ends   = [w['end']   for w in aln_words if w.get('end')   is not None]
-            if valid_starts:
-                aln_seg['start'] = valid_starts[0]
-            if valid_ends:
-                aln_seg['end'] = valid_ends[-1]
-
-        return aligned
+        new_seg = dict(seg)
+        new_seg['words'] = new_words
+        starts = [w['start'] for w in new_words if w.get('start') is not None]
+        ends = [w['end'] for w in new_words if w.get('end') is not None]
+        if starts:
+            new_seg['start'] = starts[0]
+        if ends:
+            new_seg['end'] = ends[-1]
+        return new_seg, moved

@@ -73,6 +73,9 @@ class Qwen3AsrEngine(TranscriptionEngine):
     Copre le lingue nell'intersezione ASR ∩ ForcedAligner; auto-detect nativo.
     """
 
+    # Valore usato quando 'punctuation_restore_mode' == 'auto' (v. config.py).
+    PUNCT_AUTO_MODE = 'missing'
+
     name = "qwen3"
 
     def __init__(self, log_callback: Optional[Callable] = None):
@@ -221,7 +224,9 @@ class Qwen3AsrEngine(TranscriptionEngine):
         """Applica il ripristino punteggiatura (punto D) se il trigger di
         config lo richiede per questo chunk. 'off' = comportamento storico,
         nessun import né chiamata — costo zero quando disattivato."""
-        mode = self.config.get('punctuation_restore_mode', 'off')
+        mode = self.config.get('punctuation_restore_mode', 'auto')
+        if mode == 'auto':
+            mode = self.PUNCT_AUTO_MODE
         if mode == 'off':
             return words
 

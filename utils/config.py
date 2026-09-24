@@ -151,7 +151,7 @@ class Config:
 
         # Speaker Diarization (pyannote.audio)
         'enable_diarization': False,
-        'diarization_num_speakers': 0,   # 0 = auto-detect
+        'diarization_num_speakers': 0,   # 0 = auto-detect. ATTENZIONE: >0 = numero ESATTO (non un tetto) e disattiva la soglia di clustering
 
         # Stile dialoghi professionale (trattini Netflix su cambio parlante):
         # attiva automaticamente la diarization per ogni trascrizione e la
@@ -186,7 +186,14 @@ class Config:
         # tarature senza accorgersene.
         'diarization_model':                'pyannote/speaker-diarization-3.1',
         'diarization_audio_source':         'vocals',  # 'vocals' | 'original'
-        'diarization_clustering_threshold': 0.85,      # 0.0 = default modello (0.7046); v. nota sopra
+        # RIPORTATO A 0.0 (default di fabbrica 0.7046) il 24/09/2026: il banco
+        # gender_eval su 8 episodi (63 punti, Veronica Mars) ha mostrato che a
+        # 0.85 la mappa voce->genere dello STEP 6.5 perde copertura (60% contro
+        # 98%: cluster fusi, confidenza sotto soglia -> nessuna correzione in
+        # 1a persona). Accuratezza/copertura: 0.7046 auto 91.9%/98.4%; 0.85
+        # auto 86.8%/60.3%; num_speakers=10 75.0%/76.2%. Sul dialogo il
+        # confronto Goodrich non aveva mostrato differenze (v. sopra).
+        'diarization_clustering_threshold': 0.0,       # 0.0 = default modello (0.7046)
         'diarization_min_cluster_size':     0,         # 0 = default modello (12)
         'diarization_max_speakers':         0,         # 0 = nessun tetto
         'diarization_min_speakers':         0,         # 0 = nessun pavimento
@@ -225,7 +232,18 @@ class Config:
         # alternative). 'missing' tocca SOLO i chunk completamente privi di
         # punteggiatura, mai quelli che l'ASR ha già punteggiato da sé
         # usando il segnale acustico.
-        'punctuation_restore_mode': 'missing',   # 'off' | 'missing' | 'all'
+        # Leggibilità dei sottotitoli trascritti (SubtitleFormatter): unisce le
+        # frasi brevissime consecutive dello stesso speaker e allunga i blocchi
+        # troppo veloci da leggere (v. core/subtitle_formatter.py, READ_*).
+        # Misurato su Goodrich: blocchi <0,83 s 234 -> 49, >20 cps 311 -> 155.
+        'subtitle_readability_enabled': True,
+
+        # 'auto' (default) = segue il motore di trascrizione scelto nel widget:
+        # ogni engine dichiara il proprio valore in PUNCT_AUTO_MODE (Canary e
+        # Qwen3: 'missing'; faster-whisper non usa il ripristino, la sua
+        # punteggiatura e' nativa). 'off'|'missing'|'all' forzano il valore
+        # per tutti gli engine.
+        'punctuation_restore_mode': 'auto',      # 'auto' | 'off' | 'missing' | 'all'
         'punctuation_model_id':     'oliverguhr/fullstop-punctuation-multilang-large',
         'punctuation_device':       'cpu',
         'punctuation_min_density':  0.0,     # 0.0 = solo testi senza ALCUNA punteggiatura
@@ -291,6 +309,14 @@ class Config:
                         self.save()
             except Exception as e:
                 print(f"⚠️ Error loading config: {e}")
+                # Il prossimo save() sovrascriverebbe il file illeggibile con i
+                # default: se ne conserva una copia per il recupero manuale.
+                try:
+                    import shutil, time
+                    shutil.copy2(self.CONFIG_FILE, Path(str(self.CONFIG_FILE) +
+                                 f".illeggibile-{time.strftime('%Y%m%d-%H%M%S')}"))
+                except Exception:
+                    pass
                 self.settings = self.DEFAULTS.copy()
         else:
             self.settings = self.DEFAULTS.copy()
@@ -318,12 +344,43 @@ class Config:
     
     def save(self):
         """Salva configurazione su file"""
+        # Scrittura ATOMICA (file temporaneo UNICO per processo + replace): un
+        # processo figlio che legge mentre la GUI salva, o un crash a meta'
+        # scrittura, non vedono mai un config.json troncato (che farebbe
+        # ricadere sui default). Il nome unico evita che due processi
+        # scrivano lo stesso .tmp.
+        import tempfile, time
+        tmp_path = None
         try:
-            with open(self.CONFIG_FILE, 'w', encoding='utf-8') as f:
+            fd, tmp_name = tempfile.mkstemp(dir=str(self.CONFIG_FILE.parent),
+                                            prefix=self.CONFIG_FILE.name + '.',
+                                            suffix='.tmp')
+            tmp_path = Path(tmp_name)
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
                 json.dump(self.settings, f, indent=4, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            # Su Windows os.replace fallisce (PermissionError) se un altro
+            # processo ha il file aperto in lettura in quell'istante: pochi
+            # tentativi brevi. Mai una scrittura diretta non atomica.
+            for attempt in range(10):
+                try:
+                    os.replace(tmp_path, self.CONFIG_FILE)
+                    tmp_path = None
+                    break
+                except PermissionError:
+                    if attempt == 9:
+                        raise
+                    time.sleep(0.05 * (attempt + 1))
         except Exception as e:
             print(f"⚠️ Error saving config: {e}")
-    
+        finally:
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink()
+                except Exception:
+                    pass
+
     def get(self, key: str, default=None) -> Any:
         """Ottieni valore configurazione"""
         return self.settings.get(key, default if default is not None else self.DEFAULTS.get(key))
