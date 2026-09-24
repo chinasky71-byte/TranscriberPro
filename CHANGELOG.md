@@ -50,6 +50,24 @@ di partire con la GPU occupata. 70 test. Risultati (`asr_eval/results/`):
   «…come pensi I ricordi», «…scelto per i suoi talenti. per il loro genere»
   diventano frasi complete). NON portato nel codice di produzione: la
   decisione se derogare alla regola spetta all'utente.
+- **Prova confermativa (regole v2, dati nuovi).** La regola v1 era difettosa:
+  il suo testo dava COMET come metrica di record e chrF come inaffidabile, ma
+  il codice richiedeva anche chrF > 0; la memoria di progetto indica la
+  preferenza del giudice come metrica principale. La v1 non è stata riscritta:
+  la v2 (`decision_rules_split_v2.py`, congelata prima di tradurre) usa come
+  endpoint primari la preferenza GEMBA (esatto binomiale, maggioranza in ≥70%
+  dei film) e COMET, con chrF solo descrittivo, su dati nuovi (segmenti di
+  Qwen3, il motore standard: 200 unità fuse in 61 finestre) e su un campione
+  casuale di 250 unità per il giudice. Risultati: GEMBA B 179, A 48, pari 23
+  (MQM 2,57 contro 5,10); COMET +0,04 (IC95% 0,02–0,07, 7 film su 7,
+  p=0,016); chrF +0,21 (n.s.). Endpoint primari superati e replicati; verdetto
+  formale **ARCHIVIA** per tre guardie strutturali sul taglio: blocchi vuoti in
+  B 1,94% (soglia 1%), sbilanciamento ai tagli p90 0,236 (soglia 0,20), inglese
+  residuo B 28 contro A 27. Il difetto è nell'implementazione della
+  ridivisione (8 unità su 200 finite in ripiego), non nella traduzione: la
+  ridivisione non cambia le parole, quindi gli endpoint di qualità non
+  dipendono da essa. Costo del giudice ~0,9 $. Il selettore delle regole è la
+  variabile d'ambiente `SPLIT_RULES_MODULE`.
 - Non eseguito: TranslateGemma (`--engine llm`).
 - Un bugcheck Opus ha trovato e corretto, prima dell'esecuzione, un difetto
   che rendeva inservibile il traduttore NLLB-FT dopo il serbatoio L3 (asimmetria

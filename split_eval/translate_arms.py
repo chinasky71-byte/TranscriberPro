@@ -70,7 +70,8 @@ def sha_text(s: str) -> str:
 
 
 def rules_sha() -> str:
-    return AB.sha256_file(HERE / 'decision_rules_split.py')
+    from split_eval import rules_select
+    return AB.sha256_file(Path(rules_select.load().__file__))
 
 
 # ══ RIFERIMENTO ITALIANO ══════════════════════════════════════════════════
