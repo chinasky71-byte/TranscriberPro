@@ -3,6 +3,19 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.21.1] — 2026-09-25
+
+### Demucs a chunk oltre i 60 minuti (prima 90)
+`AudioProcessor.STANDARD_PATH_THRESHOLD` passa da 5400 s a 3600 s: i file tra 60 e 90
+minuti, che prima usavano lo standard path (audio e risultato a 4 sorgenti interi in
+RAM), ora usano il percorso a chunk da 5 minuti con overlap di 10 s. Motivo: sulla
+macchina da 32 GB lo standard path su file da ~90 minuti portava la RAM di sistema a
+0 GB liberi (picco di 23-25 GB), mentre il percorso a chunk è arrivato a circa 8 GB su
+un film da 107 minuti. Nessun altro cambiamento: sotto i 60 minuti tutto invariato.
+- **Non misurato:** l'effetto dei vocals a chunk (overlap con giunzioni) sull'accuratezza
+  della trascrizione per i file tra 60 e 90 minuti. I tempi sono simili (194 s per 89,7
+  minuti nello standard path, 210 s per 107 minuti a chunk).
+
 ## [1.21.0] — 2026-09-25
 
 ### Split di Whisper sui confini di frase (attivo di default, solo inglese)
