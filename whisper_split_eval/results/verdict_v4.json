@@ -1,0 +1,176 @@
+{
+ "n_windows": 6,
+ "n_films": 6,
+ "n_overlaps": 0,
+ "missing": [],
+ "n_excluded_titles": 0,
+ "per_file": {
+  "01-hypnotic-2023": {
+   "old_midcut": 0.3156779661016949,
+   "new_midcut": 0.04230118443316413,
+   "new_per_min": 6.341310580439148,
+   "old_per_min": 5.064464626002163,
+   "pro_per_min": 11.97445449707291
+  },
+  "02-i-m-not-rappaport-1996": {
+   "old_midcut": 0.4445385266723116,
+   "new_midcut": 0.05178446466060182,
+   "new_per_min": 10.54000629400889,
+   "old_per_min": 8.710809960269069,
+   "pro_per_min": 14.109889461468864
+  },
+  "03-paddington-in-peru-2024": {
+   "old_midcut": 0.3076923076923077,
+   "new_midcut": 0.04039167686658507,
+   "new_per_min": 7.686276969392875,
+   "old_per_min": 6.604365278474661,
+   "pro_per_min": 12.399648770697441
+  },
+  "04-robert-the-bruce-2019": {
+   "old_midcut": 0.24429967426710097,
+   "new_midcut": 0.028037383177570093,
+   "new_per_min": 6.074654174560743,
+   "old_per_min": 4.979756559653266,
+   "pro_per_min": 10.283927227427267
+  },
+  "05-tempest-2025": {
+   "old_midcut": 0.4328767123287671,
+   "new_midcut": 0.10368663594470046,
+   "new_per_min": 7.786932307515645,
+   "old_per_min": 6.548917724062697,
+   "pro_per_min": 11.195957972096227
+  },
+  "06-under-the-banner-of-heaven": {
+   "old_midcut": 0.41434262948207173,
+   "new_midcut": 0.105,
+   "new_per_min": 9.365868278428533,
+   "old_per_min": 7.836109792951873,
+   "pro_per_min": 14.798071879917082
+  }
+ },
+ "old": {
+  "fmt_midcut": 0.3665276329509906,
+  "werc": 0.0,
+  "gt84": 0.008342022940563087,
+  "cps20": 0.03519290928050052,
+  "n_gt2lines": 99,
+  "n_gt9s": 66,
+  "lt1": 0.0005213764337851929,
+  "n_lt1": 2,
+  "n_lt15": 265,
+  "lt15_share": 0.06908237747653806,
+  "per_min": 6.6347681221184756,
+  "n_blocks": 3836,
+  "raw": {
+   "fmt_n": 1406,
+   "fmt_den": 3836,
+   "we": 0,
+   "wn": 0,
+   "n": 3836,
+   "gt84": 32,
+   "cps20": 135,
+   "gt2": 99,
+   "gt9": 66,
+   "lt1": 2,
+   "lt15": 265
+  }
+ },
+ "new": {
+  "fmt_midcut": 0.05649350649350649,
+  "werc": 0.0,
+  "gt84": 0.0,
+  "cps20": 0.04090909090909091,
+  "n_gt2lines": 10,
+  "n_gt9s": 21,
+  "lt1": 0.001948051948051948,
+  "n_lt1": 9,
+  "n_lt15": 666,
+  "lt15_share": 0.14415584415584415,
+  "per_min": 7.990779125179186,
+  "n_blocks": 4620,
+  "raw": {
+   "fmt_n": 261,
+   "fmt_den": 4620,
+   "we": 0,
+   "wn": 0,
+   "n": 4620,
+   "gt84": 0,
+   "cps20": 189,
+   "gt2": 10,
+   "gt9": 21,
+   "lt1": 9,
+   "lt15": 666
+  }
+ },
+ "pro": {
+  "n_cues": 7187,
+  "lt1": 0.04341171559760679,
+  "lt15": 0.23250313065256714,
+  "per_min": 12.430677396680263,
+  "tot_dur_s": 34689.984000000004
+ },
+ "words_identical": true,
+ "native_text_ok": false,
+ "native_text_bad": 1,
+ "n_native": 629,
+ "multiword_pieces_gt9s": 0,
+ "singleword_pieces_gt9s": 1,
+ "singleword_gt9s_not_in_old": 0,
+ "off_identical": true,
+ "off_identical_detail": "run GPU off == split originale offline: True; metodo motore spento == originale: True; (coerenza) run GPU on == ricostruzione offline: True",
+ "on_run_consistent": true,
+ "rule_sha256": "797a05eebbadf27c70dcc160bbe02380cb762c8cb839c2c7c616e14bc50e573e",
+ "verdict": {
+  "criteria": {
+   "0_campione": [
+    true,
+    "6 file validi, 6 titoli, titoli esclusi presenti 0"
+   ],
+   "a_midcut": [
+    true,
+    "attuale 0.3665 -> nuova 0.0565 (soglia 0.2)"
+   ],
+   "b_testo": [
+    false,
+    "parole identiche=True; segmenti nativi con testo diverso=1 su 629; WERc 0.000000 -> 0.000000"
+   ],
+   "c_gt84": [
+    true,
+    "0.0083 -> 0.0000 (delta -0.0083)"
+   ],
+   "c_cps20": [
+    true,
+    "0.0352 -> 0.0409 (delta +0.0057)"
+   ],
+   "c_righe": [
+    true,
+    "blocchi >2 righe 99 -> 10"
+   ],
+   "d_durata": [
+    true,
+    "pezzi >=2 parole >9s: 0; pezzi 1 parola >9s non presenti nell'attuale: 0 (1 parola >9s totali 1); blocchi >9s 66 -> 21"
+   ],
+   "e_opzione_spenta": [
+    true,
+    "bit-identico: run GPU off == split originale offline: True; metodo motore spento == originale: True; (coerenza) run GPU on == ricostruzione offline: True"
+   ],
+   "f_lt1": [
+    true,
+    "quota <1s: attuale 0.0005 -> nuova 0.0019 (professionale 0.0434)"
+   ],
+   "f_lt15": [
+    true,
+    "quota <1,5s: attuale 0.0691 -> nuova 0.1442 (professionale 0.2325)"
+   ],
+   "f_densita": [
+    true,
+    "blocchi/min: attuale 6.63 -> nuova 7.99 (professionale 12.43)"
+   ],
+   "g_per_file": [
+    true,
+    "tutti i file migliorano"
+   ]
+  },
+  "verdict": "NON VINCENTE"
+ }
+}

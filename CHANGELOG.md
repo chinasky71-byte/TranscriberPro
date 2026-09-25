@@ -3,6 +3,37 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.21.0] — 2026-09-25
+
+### Split di Whisper sui confini di frase (attivo di default, solo inglese)
+`faster-whisper` divideva i segmenti lunghi a 80 caratteri / 6 s senza guardare la
+punteggiatura: il 37-43% dei blocchi finiva a metà frase e la traduzione riceveva
+frammenti. Ora, per l'**inglese**, i segmenti si dividono preferendo i confini di
+frase (`core/whisper_sentence_split.py`, opzione `whisper_split_sentence_aware`,
+default `true`; `false` ripristina il comportamento precedente). Altre lingue:
+split originale, invariato. Vale solo per faster-whisper in modalità batched
+(Qwen3 e Canary non sono coinvolti).
+- **Effetto misurato** (3 campioni indipendenti, regole congelate prima dei dati):
+  blocchi a metà frase 37-43% → 6-9%, parole e testo identici, blocchi > 84 caratteri
+  ~1% → 0, blocchi con più di 2 righe quasi azzerati, opzione spenta bit-identica.
+  Ogni singolo file dei 6 interi migliora. I blocchi diventano un po' più numerosi e
+  brevi (per esempio 6,6 → 8,0 al minuto; i sottotitoli professionali ne hanno 12,4).
+- **Correzione del ripiego** (trovato dalla prova su file interi): un segmento di
+  ripetizioni attaccate («Boop-a-doop-a» ×5) veniva rimandato allo split originale, che
+  taglia dentro le parole. Ora non si taglia mai dentro una parola; aggiunte le
+  abbreviazioni italiane (Sig., Dott., Avv., …) nell'elenco.
+- **Prove:** v2 NON VINCENTE solo per i criteri sui blocchi brevi (+23% contro +15%),
+  criterio ricalibrato sul riferimento professionale → v3b VINCENTE su 45 finestre
+  nuove; v4 su 6 file interi NON VINCENTE per un solo caso di taglio dentro parola
+  (presente anche nello split originale), poi corretto e verificato offline sugli
+  stessi dati (un solo segmento cambia; 40 test verdi). Dettagli e riserve in
+  `whisper_split_eval/README.md`.
+- **Riserve dichiarate:** criterio (f) ricalibrato dopo il fallimento della v2; margine
+  0 s nella v3b (meno indipendenza dalla v2); correzione del ripiego non riconfermata
+  su dati nuovi; effetto sulla traduzione e leggibilità dei blocchi più brevi non
+  misurati. Non attivo per le altre lingue perché non misurato (abbreviazioni e regole
+  sono inglesi).
+
 ## [1.20.1] — 2026-09-25
 
 ### Rimossa la ricomposizione delle frasi spezzate (vicolo cieco)

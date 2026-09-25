@@ -91,6 +91,11 @@ class Config:
         'canary_model_id': 'nvidia/canary-qwen-2.5b',
         'canary_python_path': '',              # vuoto = auto (<progetto>/venv_canary/Scripts/python.exe)
         'canary_batch_size': 8,                # chunk per chiamata a model.generate() nel subprocess
+        # faster-whisper, SOLO inglese: divide i segmenti lunghi sui confini di frase
+        # invece che a 80 caratteri / 6 s (core/whisper_sentence_split.py). Blocchi a
+        # meta' frase 37-43% -> 6-9%, parole identiche; misurato su 3 campioni (finestre e
+        # 6 file interi). Altre lingue: split originale. False = comportamento precedente.
+        'whisper_split_sentence_aware': True,
 
         # FFmpeg whisper settings (solo se transcription_method == 'ffmpeg')
         'ffmpeg_model_path': '',
