@@ -31,6 +31,7 @@ def main():
         sys.exit("il foglio esiste gia' (NON_APRIRE_mappatura.json): non si rigenera dopo aver iniziato a giudicare. "
                  "Per rifare SOLO l'impaginazione dei lotti (stesse coppie, stessi id, stessa mappatura): --rerender.")
     SR = L.load_recompose()
+    refs = (C.read_json(C.WORK / 'refs' / 'index.json') or {})
     pairs_by_file = {}
     for it in sel['items']:
         d = C.WORK / 'tr' / it['id']
@@ -39,7 +40,8 @@ def main():
             print(f"salto {it['id']}: doppia traduzione non completata")
             continue
         rng = random.Random(f"{R.SEED}:{it['id']}:pairs")
-        ps = L.build_pairs(SR, src, d / 'base.srt', d / 'ricomposta.srt', it, rng, R.MAX_PAIRS_PER_FILE)
+        ps = L.build_pairs(SR, src, d / 'base.srt', d / 'ricomposta.srt', it, rng, R.MAX_PAIRS_PER_FILE,
+                           ref_srt=(refs.get(it['id']) or {}).get('ref'))
         pairs_by_file[it['id']] = ps
         print(f"{it['id']:45s} coppie diverse disponibili (max {R.MAX_PAIRS_PER_FILE}): {len(ps)}")
     pairs, mapping = L.assemble(pairs_by_file, R.SEED, R.N_PAIRS_TARGET)
