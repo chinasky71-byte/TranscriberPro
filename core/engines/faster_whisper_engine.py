@@ -385,6 +385,8 @@ class FasterWhisperEngine(TranscriptionEngine):
 
                 # Suddividi segmenti lunghi usando i word timestamps
                 raw_count = len(all_segments)
+                # lingua del file: serve allo split per frasi (misurato solo sull'inglese)
+                self._split_lang = detected_language or whisper_language
                 split_segments = []
                 for seg in all_segments:
                     split_segments.extend(self._split_segment_by_words(seg))
@@ -511,6 +513,25 @@ class FasterWhisperEngine(TranscriptionEngine):
         Divide un segmento lungo in sotto-segmenti usando i word timestamps.
         Restituisce una lista di dict {start, end, text} pronti per save_srt_file.
         """
+        # ── split per confini di frase (core/whisper_sentence_split.py)
+        # Attivo solo per l'INGLESE (l'unica lingua misurata: liste di abbreviazioni
+        # e regole sono inglesi). Se solleva o il risultato non e' valido si prosegue
+        # con lo split originale qui sotto (intatto). Rimovibile in blocco.
+        if (self.config.get('whisper_split_sentence_aware', False)
+                and str(getattr(self, '_split_lang', '') or '').lower()[:2] == 'en'):
+            try:
+                from core.whisper_sentence_split import sentence_aware_split, validate_split
+                _res = sentence_aware_split(segment, max_chars, max_duration)
+                if _res is not None and validate_split(segment, _res):
+                    return _res
+            except Exception as _e:
+                if not getattr(self, '_sentence_split_warned', False):
+                    self._sentence_split_warned = True
+                    logger.warning(f"whisper_sentence_split fallito, uso lo split originale: {_e}")
+                else:
+                    logger.debug(f"whisper_sentence_split fallito, uso lo split originale: {_e}")
+        # ── fine blocco opzionale
+
         words = segment.get('words', [])
         text = segment['text']
         duration = segment['end'] - segment['start']

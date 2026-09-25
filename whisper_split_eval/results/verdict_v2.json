@@ -1,0 +1,116 @@
+{
+ "n_windows": 89,
+ "n_films": 12,
+ "n_overlaps": 0,
+ "missing": [],
+ "old": {
+  "fmt_midcut": 0.43508583690987124,
+  "werc": 0.10882561980015887,
+  "gt84": 0.017167381974248927,
+  "cps20": 0.10300429184549356,
+  "n_gt2lines": 63,
+  "n_gt9s": 28,
+  "lt1": 0.000536480686695279,
+  "n_lt1": 1,
+  "n_lt15": 114,
+  "n_blocks": 1864,
+  "raw": {
+   "fmt_n": 811,
+   "fmt_den": 1864,
+   "we": 2603,
+   "wn": 23919,
+   "n": 1864,
+   "gt84": 32,
+   "cps20": 192,
+   "gt2": 63,
+   "gt9": 28,
+   "lt1": 1,
+   "lt15": 114
+  }
+ },
+ "new": {
+  "fmt_midcut": 0.06996957844415472,
+  "werc": 0.10882561980015887,
+  "gt84": 0.0,
+  "cps20": 0.11169056931768796,
+  "n_gt2lines": 1,
+  "n_gt9s": 7,
+  "lt1": 0.002607561929595828,
+  "n_lt1": 6,
+  "n_lt15": 342,
+  "n_blocks": 2301,
+  "raw": {
+   "fmt_n": 161,
+   "fmt_den": 2301,
+   "we": 2603,
+   "wn": 23919,
+   "n": 2301,
+   "gt84": 0,
+   "cps20": 257,
+   "gt2": 1,
+   "gt9": 7,
+   "lt1": 6,
+   "lt15": 342
+  }
+ },
+ "words_identical": true,
+ "native_text_ok": true,
+ "native_text_bad": 0,
+ "n_native": 345,
+ "multiword_pieces_gt9s": 0,
+ "singleword_pieces_gt9s": 1,
+ "singleword_gt9s_not_in_old": 0,
+ "off_identical": true,
+ "off_identical_detail": "run GPU off == split originale offline: True; metodo motore spento == originale: True; (coerenza) run GPU on == ricostruzione offline: True",
+ "on_run_consistent": true,
+ "rule_sha256": "9b95d2ab8d7c408afd1daa2c69217e002dfcb9fde66cd52c7f308ed5681a8526",
+ "verdict": {
+  "criteria": {
+   "0_campione": [
+    true,
+    "89 finestre, 12 film, sovrapposizioni 0"
+   ],
+   "a_midcut": [
+    true,
+    "attuale 0.4351 -> nuova 0.0700 (soglia 0.2)"
+   ],
+   "b_testo": [
+    true,
+    "parole identiche=True; segmenti nativi con testo diverso=0 su 345; WERc 0.108826 -> 0.108826"
+   ],
+   "c_gt84": [
+    true,
+    "0.0172 -> 0.0000 (delta -0.0172)"
+   ],
+   "c_cps20": [
+    true,
+    "0.1030 -> 0.1117 (delta +0.0087)"
+   ],
+   "c_righe": [
+    true,
+    "blocchi >2 righe 63 -> 1"
+   ],
+   "d_durata": [
+    true,
+    "pezzi >=2 parole >9s: 0; pezzi 1 parola >9s non presenti nell'attuale: 0 (1 parola >9s totali 1); blocchi >9s 28 -> 7"
+   ],
+   "e_opzione_spenta": [
+    true,
+    "bit-identico: run GPU off == split originale offline: True; metodo motore spento == originale: True; (coerenza) run GPU on == ricostruzione offline: True"
+   ],
+   "f_lt1": [
+    false,
+    "quota <1s 0.0005 -> 0.0026 (delta +0.0021)"
+   ],
+   "f_nblocchi": [
+    false,
+    "blocchi 1864 -> 2301 (x1.234)"
+   ],
+   "f_lt15": [
+    false,
+    "blocchi <1,5s 114 -> 342 (limite 171.0)"
+   ]
+  },
+  "verdict": "NON VINCENTE"
+ }
+}
