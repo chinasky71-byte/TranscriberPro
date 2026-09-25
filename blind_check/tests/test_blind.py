@@ -61,7 +61,7 @@ class TestBlind(unittest.TestCase):
     def test_pairs_only_merged_and_different(self):
         ps = self.pairs()
         self.assertEqual(len(ps), 2)
-        self.assertTrue(all(' / ' in p['en'] for p in ps))
+        self.assertTrue(all(' | ' in p['en'] for p in ps))
         self.assertEqual(ps[0]['time'][:2], '0:')        # 600 s di estratto + 10 s
         self.assertTrue(all(p['prev'] != p['en'] for p in ps))
 
