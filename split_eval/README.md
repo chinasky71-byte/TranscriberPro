@@ -1,55 +1,19 @@
-# split_eval: frasi spezzate
+# split_eval: misura dei blocchi a metà frase
 
-Il banco misura quanti blocchi finiscono a metà frase (metrica `midcut`). Poi confronta due modi di tradurre:
+Rimane solo la misura `midcut` (quota di blocchi che finiscono a metà frase), usata dal banco ASR `asr_eval`:
 
-- **braccio A**: i blocchi vengono tradotti uno per uno, come fa oggi la produzione;
-- **braccio B**: le frasi spezzate vengono prima riunite in unità (`recompose`), tradotte come un blocco solo e infine ridivise in modo deterministico sui blocchi originali (`resplit`).
+- `midcut.py`: modulo puro (solo `re`), lo importa `asr_eval/metrics.py` e `asr_eval/asr_bench.py`.
+- `prodmods.py`: carica il `SubtitleFormatter` di produzione per percorso, senza torch.
+- `tests/test_midcut.py`: test della metrica (`cd split_eval\tests; ..\..\venv\Scripts\python.exe -m unittest test_midcut`).
 
-Il braccio B non è in produzione. Si decide solo in base alle regole congelate in `decision_rules_split.py`, fissate il 24/09/2026 prima di qualsiasi run.
+## Vicolo cieco: ricomposizione delle frasi spezzate (chiuso il 25/09/2026)
 
-## Comandi
+L'idea era riunire i blocchi spezzati a metà frase, tradurre la frase intera con NLLB e ridistribuire il testo tradotto sui blocchi originali. Il codice (`core/sentence_recompose.py`, opzione `translation_recompose_sentences`, prototipo e banco in questa cartella) è stato rimosso nella 1.20.1.
 
-Lanciali dalla cartella `Transcriber_Pro`:
+Perché è stato chiuso:
+- GEMBA e COMET (giudici automatici) davano un vantaggio netto, ma il controllo umano alla cieca su 100 coppie di file reali (8 titoli) non l'ha confermato: ricomposizione 38, base 30, pari 32; quota 55,9% fra i non pari, p unilaterale 0,198. Regola congelata: ARCHIVIA.
+- Causa individuata nelle coppie segnalate: in 13 casi su 22 la traduzione ricomposta perde una parte del testo (di solito la coda dell'unità: NLLB riassume o tronca l'input lungo). La guardia esistente scattava solo per uscite enormi e non vedeva un testo troppo corto.
+- Il guadagno atteso, anche correggendo le omissioni, è modesto (circa 63% fra i non pari, stima post hoc) e richiederebbe nuovo banco, nuova regola e altri 100 giudizi umani.
 
-```
-set PYTHONIOENCODING=utf-8
-venv\Scripts\python.exe split_eval\run_split_bench.py midcut
-venv\Scripts\python.exe split_eval\run_split_bench.py build
-venv\Scripts\python.exe split_eval\run_split_bench.py translate --engine nllb_finetuned
-venv\Scripts\python.exe split_eval\run_split_bench.py translate --engine llm
-venv\Scripts\python.exe split_eval\run_split_bench.py score
-venv\Scripts\python.exe split_eval\run_split_bench.py score --comet
-venv\Scripts\python.exe split_eval\run_split_bench.py report
-```
-
-| Comando | Risorse | Note |
-|---|---|---|
-| `midcut` | CPU | |
-| `build` | CPU | Richiede `asr_eval` `prepare` + `run`. Può leggere Z: per estrarre il sub ITA. |
-| `translate --engine nllb_finetuned` | GPU | Coda libera. Esegue A e B nello stesso processo. |
-| `translate --engine llm` | GPU | Facoltativo: TranslateGemma. |
-| `score` | CPU | |
-| `score --comet` | GPU | Facoltativo: usa `venv_comet` e scarica `wmt22-comet-da`. |
-| `report` | CPU | |
-
-Il giudice GEMBA-MQM è a pagamento e parte solo se lo chiedi esplicitamente: `score --llm-judge`. Nella stessa chiamata giudica i due bracci in ordine casuale, con `mt_eval/run_gemba.py`.
-
-`translate` si rifiuta di partire se la GPU è occupata o se gira `main.py`. Usa il sandbox della configurazione di `asr_eval` e riprende da dove si era fermato.
-
-## Test
-
-I test girano solo su CPU e durano pochi secondi:
-
-```
-cd split_eval\tests
-..\..\venv\Scripts\python.exe -m unittest discover -p "test_*.py"
-```
-
-## Dati (`work\`)
-
-| Percorso | Contenuto |
-|---|---|
-| `build\<finestra>\` | `fmt.srt` (formatter), `src.srt` (dopo il cleaner = input di A), `units.srt`, `mapping.json`, `it_ref.json` |
-| `out\<motore>\<finestra>.json` e `out\<motore>\<finestra>\` | `A.srt`, `B_units.srt`, `B_full.srt`, `B_iso.srt` |
-| `scores_split.csv`, `units_<motore>.jsonl`, `report_split.txt` | punteggi, unità e report |
-| `runs_split.csv` | un run per riga, con lo sha delle regole |
+I giudizi, la mappatura e il report del controllo alla cieca sono in `results/blind_check_2026-09-25/`.
+Un'eventuale ripresa dovrebbe partire da una guardia di copertura (confronto della lunghezza dell'unità tradotta con la somma delle traduzioni per blocco), poi banco e regola nuovi.
