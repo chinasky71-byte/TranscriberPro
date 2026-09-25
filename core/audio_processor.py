@@ -9,8 +9,8 @@ PRIORITÀ:
 
 PIPELINE INTELLIGENTE:
 - File ≤ 5 min:   Processing diretto (veloce)
-- File 5-90 min:  Split automatico (standard)
-- File > 90 min:  Chunking manuale (robusto)
+- File 5-60 min:  Split automatico (standard)
+- File > 60 min:  Chunking manuale (robusto)
 
 CHUNKS AUDIO:
 - Target: 15-20 secondi
@@ -74,7 +74,7 @@ class AudioProcessor:
 
         # Soglie pipeline intelligente
         self.FAST_PATH_THRESHOLD = 300    # 5 minuti
-        self.STANDARD_PATH_THRESHOLD = 5400  # 90 minuti
+        self.STANDARD_PATH_THRESHOLD = 3600  # 60 minuti (era 90: lo standard path tiene in RAM 4 sorgenti, picco 23-25 GB)
 
         # Parametri Demucs chunking manuale
         self.DEMUCS_CHUNK_DURATION = 300  # 5 minuti per chunk Demucs
@@ -218,8 +218,8 @@ class AudioProcessor:
         
         Pipeline:
         - File ≤ 5 min:   Processing diretto (veloce e sicuro)
-        - File 5-90 min:  Split automatico Demucs (standard)
-        - File > 90 min:  Chunking manuale 5min (robusto)
+        - File 5-60 min:  Split automatico Demucs (standard)
+        - File > 60 min:  Chunking manuale 5min (robusto)
         """
         try:
             from demucs.pretrained import get_model
@@ -252,12 +252,12 @@ class AudioProcessor:
                 vocals = self._separate_fast_path(wav, sr)
                 
             elif duration_seconds <= self.STANDARD_PATH_THRESHOLD:
-                # STANDARD PATH: File medi (5-90 min)
+                # STANDARD PATH: File medi (5-60 min)
                 self._log(f"  ⚙️ Pipeline: STANDARD PATH (split automatico)")
                 vocals = self._separate_standard_path(wav, sr, duration_seconds)
                 
             else:
-                # ROBUST PATH: File lunghi (>90 min)
+                # ROBUST PATH: File lunghi (>60 min)
                 self._log(f"  🛡️ Pipeline: ROBUST PATH (chunking manuale)")
                 vocals = self._separate_robust_path(wav, sr, duration_seconds)
             
@@ -324,7 +324,7 @@ class AudioProcessor:
     
     def _separate_standard_path(self, wav: torch.Tensor, sr: int, duration: float) -> Optional[torch.Tensor]:
         """
-        STANDARD PATH: Split automatico Demucs per file medi (5-90 min)
+        STANDARD PATH: Split automatico Demucs per file medi (5-60 min)
         Usa il sistema di split integrato di Demucs
 
         MEMORIA: input e output restano su CPU (keep_on_cpu=True) — con
@@ -373,7 +373,7 @@ class AudioProcessor:
     
     def _separate_robust_path(self, wav: torch.Tensor, sr: int, duration: float) -> Optional[torch.Tensor]:
         """
-        ROBUST PATH: Chunking manuale per file lunghi (>90 min)
+        ROBUST PATH: Chunking manuale per file lunghi (>60 min)
         Massima affidabilità con chunks da 5 minuti e overlap 10s
         """
         try:

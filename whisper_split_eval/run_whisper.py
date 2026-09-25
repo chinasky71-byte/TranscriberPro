@@ -46,6 +46,7 @@ def main() -> int:
     ap.add_argument('--mode', choices=['raw', 'on', 'off'], required=True)
     ap.add_argument('--role', default=None, help='test | dev | eval (default: tutte le finestre EN)')
     ap.add_argument('--limit', type=int, default=0)
+    ap.add_argument('--lang', default='en', help="lingua delle finestre da eseguire (default: en)")
     ap.add_argument('--force', action='store_true')
     ap.add_argument('--bench-work', type=Path, default=ASR / 'work',
                     help='cartella del banco con windows.jsonl e win/ (sola lettura)')
@@ -73,7 +74,7 @@ def main() -> int:
         import decision_rule as DRULE
         wins = [w for w in wins if DRULE.is_eval_window(w)]
     else:
-        wins = [w for w in wins if w['lang'] == 'en' and (args.role is None or w['role'] == args.role)]
+        wins = [w for w in wins if w['lang'] == args.lang and (args.role is None or w['role'] == args.role)]
     if args.limit:
         wins = wins[:args.limit]
     out_dir = WORK / args.mode
