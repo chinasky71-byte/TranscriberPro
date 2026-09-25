@@ -72,6 +72,28 @@ class TestBlind(unittest.TestCase):
               '4': "Dobbiamo parlare dei", '5': "soldi che mi devi."}, self.td / 'base.srt')
         self.assertEqual(self.pairs(), [])
 
+    def test_reference_line_is_attached_and_shared(self):
+        rif = ("1
+00:00:09,900 --> 00:00:14,100
+Dopotutto, papa' ha provato a mandare
+il marito in carcere.
+
+"
+               "2
+00:01:00,000 --> 00:01:02,000
+Fuori scena.
+")
+        (self.td / 'rif.srt').write_text(rif, encoding='utf-8')
+        ps = L.build_pairs(self.SR, self.td / 'src.srt', self.td / 'base.srt', self.td / 'ric.srt', self.meta,
+                           random.Random(1), 15, ref_srt=self.td / 'rif.srt')
+        first = [p for p in ps if 'Dad' in p['en']][0]
+        self.assertIn('marito in carcere', first['rif'])
+        self.assertNotIn('Fuori scena', first['rif'])
+        other = [p for p in ps if 'Dad' not in p['en']][0]
+        self.assertEqual(other['rif'], '')
+        p2, m2 = L.assemble({'f': ps}, 3, 10)
+        self.assertIn('RIF  :', L.render_lot(p2, 1, 1))
+
     def test_identical_translations_are_skipped(self):
         (self.td / 'ric.srt').write_text((self.td / 'base.srt').read_text(encoding='utf-8'), encoding='utf-8')
         self.assertEqual(self.pairs(), [])

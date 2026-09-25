@@ -27,10 +27,22 @@ def _one_line(t: str) -> str:
     return norm(str(t).replace('\n', ' / '))
 
 
+def ref_text(SR, cues, start: float, end: float, margin: float = 0.5, max_cues: int = 8) -> str:
+    """Sottotitoli professionali (riferimento) che si sovrappongono a [start, end] dell'unita'."""
+    out = []
+    for s, e, t in cues:
+        if min(end + margin, e) - max(start - margin, s) > 0:
+            out.append(_one_line(t))
+    return ' | '.join(out[:max_cues]) + (' | ...' if len(out) > max_cues else '')
+
+
 def build_pairs(SR, src_srt, base_srt, ric_srt, meta: Dict, rng: random.Random,
-                max_pairs: int) -> List[Dict]:
+                max_pairs: int, ref_srt=None) -> List[Dict]:
     """Coppie (base, ricomposta) per le UNITA' FUSE in cui le due traduzioni differiscono."""
     src, base, ric = SR.read_srt(src_srt), SR.read_srt(base_srt), SR.read_srt(ric_srt)
+    ref_cues = []
+    if ref_srt:
+        ref_cues = [(SR.ts_to_s(s), SR.ts_to_s(e), t) for _, s, e, t in SR.read_srt(ref_srt)]
     if not (len(src) == len(base) == len(ric)):
         raise ValueError(f"{meta['id']}: numero di blocchi diverso (src {len(src)}, base {len(base)}, ric {len(ric)})")
     blocks = [{'start': SR.ts_to_s(s), 'end': SR.ts_to_s(e), 'text': t} for _, s, e, t in src]
@@ -51,7 +63,8 @@ def build_pairs(SR, src_srt, base_srt, ric_srt, meta: Dict, rng: random.Random,
         t_abs = int(u['start']) + int(meta.get('excerpt_start_s', 0))
         out.append({'file': meta['id'], 'title': meta['title'], 'time': f"{t_abs // 3600:d}:{t_abs % 3600 // 60:02d}:{t_abs % 60:02d}",
                     'prev': prev_en, 'en': ' | '.join(_one_line(src[j][3]) for j in js), 'next': next_en,
-                    'base': b_txt, 'ric': r_txt})
+                    'base': b_txt, 'ric': r_txt,
+                    'rif': ref_text(SR, ref_cues, u['start'], u['end']) if ref_srt else ''})
     rng.shuffle(out)
     return out[:max_pairs]
 
@@ -79,7 +92,9 @@ def render_lot(pairs: Sequence[Dict], lot_no: int, n_lots: int) -> str:
              "sottotitolo dal successivo (compare uno dopo l'altro sullo schermo); il simbolo  /  e' un a capo DENTRO lo stesso",
              "sottotitolo. 'EN' = l'inglese dei sottotitoli della coppia; A e B = la loro traduzione italiana, con gli STESSI",
              "confini |. 'prima' e 'dopo' = il sottotitolo inglese che precede e segue (contesto): la frase puo' iniziare",
-             "gia' in 'prima'. Giudica la traduzione di A e B come li vedresti scorrere sullo schermo.",
+             "gia' in 'prima'. 'RIF' = il sottotitolo italiano PROFESSIONALE della stessa scena (puo' essere condensato e non ha",
+             "gli stessi confini: serve solo a capire il senso, non e' la risposta giusta). Giudica la traduzione di A e B come li",
+             "vedresti scorrere sullo schermo.",
              "",
              "Rispondi nel file giudizi.txt, una riga per coppia:   ID|A|   oppure   ID|B|   oppure   ID|P|  (P = pari)",
              "Se A e/o B ha un DIFETTO VISIBILE (unisce battute di persone diverse, taglio che spezza il senso) aggiungi la lettera",
@@ -90,6 +105,7 @@ def render_lot(pairs: Sequence[Dict], lot_no: int, n_lots: int) -> str:
                   f"prima: {p['prev']}" if p['prev'] else "prima: -",
                   f"EN   : {p['en']}",
                   f"dopo : {p['next']}" if p['next'] else "dopo : -",
+                  f"RIF  : {p['rif']}" if p.get('rif') else "RIF  : (non disponibile per questo file)",
                   f"A    : {p['A']}",
                   f"B    : {p['B']}", ""]
     return '\n'.join(lines)
