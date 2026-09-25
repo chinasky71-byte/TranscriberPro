@@ -3,6 +3,22 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.20.1] — 2026-09-25
+
+### Rimossa la ricomposizione delle frasi spezzate (vicolo cieco)
+Il controllo umano alla cieca su 100 coppie di file reali (8 titoli) non ha
+confermato il vantaggio misurato da GEMBA/COMET: ricomposizione 38, base 30,
+pari 32 (p unilaterale 0,198). Regola congelata: ARCHIVIA. In 13 delle 22
+coppie con difetti segnalati la traduzione ricomposta perdeva una parte del
+testo (la coda dell'unità).
+- Rimossi `core/sentence_recompose.py`, l'opzione `translation_recompose_sentences`
+  e il ramo relativo in `core/pipeline.py`: il percorso di traduzione torna
+  quello della 1.19.x (già identico con l'opzione spenta).
+- Rimossi il controllo cieco (`blind_check/`) e il prototipo/banco di
+  `split_eval/`; resta solo la misura `midcut` usata da `asr_eval`. Esiti e
+  motivazioni in `split_eval/README.md`.
+- Le voci 1.20.0 sotto restano come storico.
+
 ## [1.20.0] — 2026-09-24
 
 ### Ricomposizione delle frasi spezzate prima della traduzione (OPT-IN, spenta di default)
