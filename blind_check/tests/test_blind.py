@@ -73,16 +73,8 @@ class TestBlind(unittest.TestCase):
         self.assertEqual(self.pairs(), [])
 
     def test_reference_line_is_attached_and_shared(self):
-        rif = ("1
-00:00:09,900 --> 00:00:14,100
-Dopotutto, papa' ha provato a mandare
-il marito in carcere.
-
-"
-               "2
-00:01:00,000 --> 00:01:02,000
-Fuori scena.
-")
+        rif = ("1\n00:00:09,900 --> 00:00:14,100\nDopotutto, papa' ha provato a mandare\nil marito in carcere.\n\n"
+               "2\n00:01:00,000 --> 00:01:02,000\nFuori scena.\n")
         (self.td / 'rif.srt').write_text(rif, encoding='utf-8')
         ps = L.build_pairs(self.SR, self.td / 'src.srt', self.td / 'base.srt', self.td / 'ric.srt', self.meta,
                            random.Random(1), 15, ref_srt=self.td / 'rif.srt')
