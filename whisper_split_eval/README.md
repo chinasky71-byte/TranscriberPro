@@ -57,3 +57,8 @@ Regole successive, tutte congelate prima di guardare i dati (sha256 nei file `.s
 Dopo la v4 il ripiego dello split e' stato corretto (mai tagli dentro una parola; 40 test verdi, verifica offline su tutti i segmenti salvati: un solo segmento cambia) e l'opzione `whisper_split_sentence_aware` e' stata attivata di default, **solo per l'inglese** (unica lingua misurata; altre lingue usano lo split originale). Riserve dichiarate: (f) ricalibrato dopo il fallimento della v2, margine 0 s nella v3b, nessuna misura sull'effetto in traduzione, correzione del ripiego verificata solo offline sugli stessi dati.
 
 Comandi v4: `select_full.py` -> `run_prepare_loop.sh` (un file per processo: il Demucs sui file lunghi arriva a 23-25 GB di RAM) -> `run_whisper.py --bench-work work_full --out-root work_full_runs --mode raw|off|on` -> `analyze_v4.py`.
+
+## Conferma v5 (25/09/2026) — VINCENTE su dati nuovi con il codice corretto
+
+`decision_rule_v5.py` (sha256 `bf5b8911...`, congelata prima di scegliere i file): stessi criteri della v4 piu' (e2) run GPU `on` == ricostruzione offline e (h) controllo negativo di lingua. 8 file inglesi interi mai usati (5 film, 3 episodi) + 1 controllo italiano, Demucs a chunk, un file per processo.
+Esito: midcut 41,6% -> 8,3%, parole identiche (0 segmenti con testo diverso su 658), blocchi >84 car 0,95% -> 0, >2 righe 118 -> 15, >9 s 49 -> 13, opzione spenta bit-identica, (f) OK (blocchi/min 6,3 -> 7,7; professionali 12,1), ogni file migliora, `on` GPU == offline, controllo italiano (628 segmenti) off == on. Verdetto: `results/verdict_v5.json`.
