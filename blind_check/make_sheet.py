@@ -25,9 +25,11 @@ def main():
     sel = C.read_json(C.WORK / 'selection.json')
     if not sel:
         sys.exit("selection.json mancante")
-    if (C.WORK / 'NON_APRIRE_mappatura.json').exists():
+    rerender = '--rerender' in sys.argv
+    map_path = C.WORK / 'NON_APRIRE_mappatura.json'
+    if map_path.exists() and not rerender:
         sys.exit("il foglio esiste gia' (NON_APRIRE_mappatura.json): non si rigenera dopo aver iniziato a giudicare. "
-                 "Se vuoi rifarlo cancella a mano work/foglio, work/giudizi.txt e la mappatura.")
+                 "Per rifare SOLO l'impaginazione dei lotti (stesse coppie, stessi id, stessa mappatura): --rerender.")
     SR = L.load_recompose()
     pairs_by_file = {}
     for it in sel['items']:
@@ -43,14 +45,20 @@ def main():
     pairs, mapping = L.assemble(pairs_by_file, R.SEED, R.N_PAIRS_TARGET)
     if not pairs:
         sys.exit("nessuna coppia da giudicare")
+    if rerender:
+        old = C.read_json(map_path)
+        if old != mapping:
+            sys.exit("--rerender: la mappatura ricalcolata NON coincide con quella salvata: nessun file modificato")
+        print("mappatura identica a quella salvata: riscrivo solo i lotti (giudizi.txt e mappatura intatti)")
     (C.WORK / 'foglio').mkdir(parents=True, exist_ok=True)
     lots = [pairs[i:i + LOT] for i in range(0, len(pairs), LOT)]
     for n, lot in enumerate(lots, start=1):
         (C.WORK / 'foglio' / f"lotto_{n:02d}.txt").write_text(L.render_lot(lot, n, len(lots)), encoding='utf-8')
-    (C.WORK / 'giudizi.txt').write_text(
-        "# una riga per coppia: ID|A|  ID|B|  ID|P|   (+ lettere a/b minuscole dopo la seconda barra per un difetto visibile)\n"
-        + '\n'.join(f"{p['id']}||" for p in pairs) + '\n', encoding='utf-8')
-    C.write_json_atomic(C.WORK / 'NON_APRIRE_mappatura.json', mapping)
+    if not rerender:
+        (C.WORK / 'giudizi.txt').write_text(
+            "# una riga per coppia: ID|A|  ID|B|  ID|P|   (+ lettere a/b minuscole dopo la seconda barra per un difetto visibile)\n"
+            + '\n'.join(f"{p['id']}||" for p in pairs) + '\n', encoding='utf-8')
+        C.write_json_atomic(map_path, mapping)
     print(f"\n{len(pairs)} coppie in {len(lots)} lotti: {C.WORK / 'foglio'}\n"
           f"compila {C.WORK / 'giudizi.txt'}; poi lancia conta.py (NON aprire la mappatura prima)")
     return 0

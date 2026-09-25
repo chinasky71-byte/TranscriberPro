@@ -40,15 +40,17 @@ def build_pairs(SR, src_srt, base_srt, ric_srt, meta: Dict, rng: random.Random,
         if not u['merged']:
             continue
         js = u['blocks']
-        b_txt = _one_line(' / '.join(base[j][3] for j in js))
-        r_txt = _one_line(' / '.join(ric[j][3] for j in js))
-        if norm(b_txt.replace(' / ', ' ')) == norm(r_txt.replace(' / ', ' ')):
+        # ' | ' = confine fra sottotitoli (blocchi), ' / ' = a capo dentro lo stesso sottotitolo
+        b_txt = ' | '.join(_one_line(base[j][3]) for j in js)
+        r_txt = ' | '.join(_one_line(ric[j][3]) for j in js)
+        flat = lambda t: norm(t.replace(' | ', ' ').replace(' / ', ' '))
+        if flat(b_txt) == flat(r_txt):
             continue
         prev_en = _one_line(src[js[0] - 1][3]) if js[0] > 0 else ''
         next_en = _one_line(src[js[-1] + 1][3]) if js[-1] + 1 < len(src) else ''
         t_abs = int(u['start']) + int(meta.get('excerpt_start_s', 0))
         out.append({'file': meta['id'], 'title': meta['title'], 'time': f"{t_abs // 3600:d}:{t_abs % 3600 // 60:02d}:{t_abs % 60:02d}",
-                    'prev': prev_en, 'en': _one_line(' / '.join(src[j][3] for j in js)), 'next': next_en,
+                    'prev': prev_en, 'en': ' | '.join(_one_line(src[j][3]) for j in js), 'next': next_en,
                     'base': b_txt, 'ric': r_txt})
     rng.shuffle(out)
     return out[:max_pairs]
@@ -73,6 +75,12 @@ def assemble(pairs_by_file: Dict[str, List[Dict]], seed: int, n_target: int) -> 
 
 def render_lot(pairs: Sequence[Dict], lot_no: int, n_lots: int) -> str:
     lines = [f"LOTTO {lot_no}/{n_lots} — {len(pairs)} coppie. Per ognuna: quale sottotitolo pubblicheresti, A o B?",
+             "COME LEGGERE: ogni coppia e' una frase (o piu') che stava su piu' sottotitoli consecutivi. Il simbolo  |  separa un",
+             "sottotitolo dal successivo (compare uno dopo l'altro sullo schermo); il simbolo  /  e' un a capo DENTRO lo stesso",
+             "sottotitolo. 'EN' = l'inglese dei sottotitoli della coppia; A e B = la loro traduzione italiana, con gli STESSI",
+             "confini |. 'prima' e 'dopo' = il sottotitolo inglese che precede e segue (contesto): la frase puo' iniziare",
+             "gia' in 'prima'. Giudica la traduzione di A e B come li vedresti scorrere sullo schermo.",
+             "",
              "Rispondi nel file giudizi.txt, una riga per coppia:   ID|A|   oppure   ID|B|   oppure   ID|P|  (P = pari)",
              "Se A e/o B ha un DIFETTO VISIBILE (unisce battute di persone diverse, taglio che spezza il senso) aggiungi la lettera",
              "in minuscolo dopo la seconda barra:   P012|B|a   (difetto in A)   P012|A|ab   (difetto in entrambi)   P012|P|",
