@@ -63,9 +63,9 @@ Comandi v4: `select_full.py` -> `run_prepare_loop.sh` (un file per processo: il 
 `decision_rule_v5.py` (sha256 `bf5b8911...`, congelata prima di scegliere i file): stessi criteri della v4 piu' (e2) run GPU `on` == ricostruzione offline e (h) controllo negativo di lingua. 8 file inglesi interi mai usati (5 film, 3 episodi) + 1 controllo italiano, Demucs a chunk, un file per processo.
 Esito: midcut 41,6% -> 8,3%, parole identiche (0 segmenti con testo diverso su 658), blocchi >84 car 0,95% -> 0, >2 righe 118 -> 15, >9 s 49 -> 13, opzione spenta bit-identica, (f) OK (blocchi/min 6,3 -> 7,7; professionali 12,1), ogni file migliora, `on` GPU == offline, controllo italiano (628 segmenti) off == on. Verdetto: `results/verdict_v5.json`.
 
-## Italiano (26/09/2026) — regole pronte e confermate, NON attivate di default
+## Italiano (26/09/2026) — regole confermate, attive di default dalla 1.23.0
 
-Il modulo ha un ramo `lang='it'` (abbreviazioni, articoli/preposizioni/congiunzioni, locuzioni, iniziali) e il motore legge la lista `whisper_split_sentence_langs` (default `['en']`). Per accenderlo: `whisper_split_sentence_langs: ["en", "it"]` in `config.json`.
+Il modulo ha un ramo `lang='it'` (abbreviazioni, articoli/preposizioni/congiunzioni, locuzioni, iniziali) e il motore legge la lista `whisper_split_sentence_langs` (default `['en']`). Dalla 1.23.0 il default e' `["en", "it"]`; per tornare al solo inglese: `whisper_split_sentence_langs: ["en"]` in `config.json`.
 
 | Prova | Dati | Esito |
 |---|---|---|
@@ -77,3 +77,5 @@ Il modulo ha un ramo `lang='it'` (abbreviazioni, articoli/preposizioni/congiunzi
 Nota di trasparenza: nel round 2 la prima analisi dava NON VINCENTE per un taglio dentro parola su un salto di 17,3 s, perche' `analyze_it2.py` classificava i glitch con la soglia 18 s del round 1 invece dei 9 s dichiarati nella regola e nel modulo. Allineata la costante (nessun dato nuovo), il verdetto e' VINCENTE; i due esiti sono in `results/`.
 
 Riserve: la maggior parte dei file e' doppiaggio; l'italiano originale e' coperto da 3 file (The Bad Guy, Sono qui per Caos, Guerrieri); i sottotitoli professionali dei doppiati sono traduzioni, usati solo per forma dei blocchi; effetto sulla traduzione e ascolto umano non misurati. Le fixture con dialoghi reali (`tests/data_*.json`) restano solo in locale.
+
+Pulizia dati (26/09/2026): cancellato l'audio delle prove (`work*/win/`, ~19 GB); restano trascrizioni native (`work_*_runs/`), riferimenti (`windows.jsonl`), selezioni e blocchi esportati, sufficienti a rigenerare le analisi e la pagina di confronto.
