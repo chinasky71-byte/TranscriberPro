@@ -311,10 +311,13 @@ class Config:
             try:
                 with open(self.CONFIG_FILE, 'r', encoding='utf-8') as f:
                     loaded = json.load(f)
-                    self.settings = self._merge_defaults(loaded)
-                    # Se abbiamo aggiunto nuovi default (come 'aya_model_download_status'), salva
-                    if len(self.settings) > len(loaded):
-                        self.save()
+                self.settings = self._merge_defaults(loaded)
+                # Se abbiamo aggiunto nuovi default (come 'aya_model_download_status'), salva.
+                # FUORI dal with: su Windows os.replace (salvataggio atomico) fallisce con
+                # WinError 5 se lo stesso processo ha ancora il file aperto, e il salvataggio
+                # non avveniva mai (con 2,4 s di tentativi persi a ogni avvio).
+                if len(self.settings) > len(loaded):
+                    self.save()
             except Exception as e:
                 print(f"⚠️ Error loading config: {e}")
                 # Il prossimo save() sovrascriverebbe il file illeggibile con i

@@ -3,6 +3,16 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.23.0.26.9.26] — 2026-09-26
+
+### Fix: «Error saving config: WinError 5» all'avvio
+`Config.load()` chiamava `save()` con `config.json` ancora aperto: su Windows `os.replace` (il salvataggio atomico
+introdotto nella 1.19.0) non può sostituire un file che lo stesso processo tiene aperto, quindi falliva sempre. Quando
+alla config mancava una chiave di default nuova, il salvataggio non avveniva mai (i default restavano solo in memoria)
+e ogni avvio perdeva 2,4 s in tentativi inutili prima di stampare l'errore. Il salvataggio ora avviene dopo la chiusura
+del file: `Config()` impiega circa 0,16 s, senza errori. Nessun cambiamento alle impostazioni esistenti.
+- Aggiunto `test_config_load_save.py`: fallisce sulla versione precedente (2,3 s e WinError 5) e passa su quella corretta.
+
 ## [1.23.0] — 2026-09-26
 
 ### Split per frasi attivo anche per l'italiano
