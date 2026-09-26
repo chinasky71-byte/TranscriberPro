@@ -514,14 +514,26 @@ class FasterWhisperEngine(TranscriptionEngine):
         Restituisce una lista di dict {start, end, text} pronti per save_srt_file.
         """
         # ── split per confini di frase (core/whisper_sentence_split.py)
-        # Attivo solo per l'INGLESE (l'unica lingua misurata: liste di abbreviazioni
-        # e regole sono inglesi). Se solleva o il risultato non e' valido si prosegue
+        # Attivo solo per le lingue in 'whisper_split_sentence_langs' (codici a 2
+        # lettere, default ['en']: l'inglese e' l'unica lingua misurata; 'it' ha
+        # regole proprie). Se solleva o il risultato non e' valido si prosegue
         # con lo split originale qui sotto (intatto). Rimovibile in blocco.
-        if (self.config.get('whisper_split_sentence_aware', False)
-                and str(getattr(self, '_split_lang', '') or '').lower()[:2] == 'en'):
+        _ss_lang = str(getattr(self, '_split_lang', '') or '').lower()[:2]
+        if self.config.get('whisper_split_sentence_aware', False) and _ss_lang:
+            _ss_langs = self.config.get('whisper_split_sentence_langs', ['en'])
+            if _ss_langs is None:
+                _ss_langs = ['en']
+            elif isinstance(_ss_langs, str):
+                _ss_langs = [x for x in _ss_langs.replace(';', ',').replace(' ', ',').split(',') if x]
+            elif not isinstance(_ss_langs, (list, tuple, set, frozenset)):
+                _ss_langs = []
+            _ss_on = _ss_lang in {str(x).strip().lower()[:2] for x in (_ss_langs or ())}
+        else:
+            _ss_on = False
+        if _ss_on:
             try:
                 from core.whisper_sentence_split import sentence_aware_split, validate_split
-                _res = sentence_aware_split(segment, max_chars, max_duration)
+                _res = sentence_aware_split(segment, max_chars, max_duration, lang=_ss_lang)
                 if _res is not None and validate_split(segment, _res):
                     return _res
             except Exception as _e:

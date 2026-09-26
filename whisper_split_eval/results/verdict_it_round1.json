@@ -1,0 +1,206 @@
+{
+ "n_windows": 7,
+ "n_films": 7,
+ "n_overlaps": 0,
+ "missing": [],
+ "pro_midcut": 0.11025244719216898,
+ "n_excluded_titles": 0,
+ "per_file": {
+  "04-the-sixth-sense-1999": {
+   "old_midcut": 0.281437125748503,
+   "new_midcut": 0.05333333333333334,
+   "new_per_min": 5.587063836549826,
+   "old_per_min": 4.665198303519105,
+   "pro_per_min": 7.877760009535256
+  },
+  "05-the-hangover-part-ii-2011": {
+   "old_midcut": 0.4195888754534462,
+   "new_midcut": 0.03066271018793274,
+   "new_per_min": 9.928376892054679,
+   "old_per_min": 8.121431938406745,
+   "pro_per_min": 14.96621798564919
+  },
+  "06-the-way-way-back-2013": {
+   "old_midcut": 0.43989431968295906,
+   "new_midcut": 0.04680851063829787,
+   "new_per_min": 9.084723747081291,
+   "old_per_min": 7.316101996319721,
+   "pro_per_min": 14.177967805285377
+  },
+  "07-margin-call-2011": {
+   "old_midcut": 0.4276401564537158,
+   "new_midcut": 0.11776649746192894,
+   "new_per_min": 9.212215303968032,
+   "old_per_min": 7.173369683394396,
+   "pro_per_min": 11.858973609575092
+  },
+  "08-requiem-for-a-dream-2000": {
+   "old_midcut": 0.393526405451448,
+   "new_midcut": 0.06005586592178771,
+   "new_per_min": 7.065863851198435,
+   "old_per_min": 5.792824134990895,
+   "pro_per_min": 9.355361635385636
+  },
+  "09-sono-qui-per-caos": {
+   "old_midcut": 0.6801040312093628,
+   "new_midcut": 0.30021141649048627,
+   "new_per_min": 15.24796478891401,
+   "old_per_min": 12.395015774497752,
+   "pro_per_min": 16.37624970986959
+  },
+  "10-grey-s-anatomy": {
+   "old_midcut": 0.5319634703196348,
+   "new_midcut": 0.06505576208178439,
+   "new_per_min": 12.53214565241698,
+   "old_per_min": 10.202750549737244,
+   "pro_per_min": 17.680108829339197
+  }
+ },
+ "n_controls": 0,
+ "control_ok": true,
+ "control_detail": "",
+ "old": {
+  "fmt_midcut": 0.4597503228583728,
+  "werc": 0.0,
+  "gt84": 0.015497201894102454,
+  "cps20": 0.12311665949203617,
+  "n_gt2lines": 239,
+  "n_gt9s": 60,
+  "lt1": 0.0008609556607834697,
+  "n_lt1": 4,
+  "n_lt15": 302,
+  "lt15_share": 0.06500215238915195,
+  "per_min": 7.422711179607963,
+  "n_blocks": 4646,
+  "raw": {
+   "fmt_n": 2136,
+   "fmt_den": 4646,
+   "we": 0,
+   "wn": 0,
+   "n": 4646,
+   "gt84": 72,
+   "cps20": 572,
+   "gt2": 239,
+   "gt9": 60,
+   "lt1": 4,
+   "lt15": 302
+  }
+ },
+ "new": {
+  "fmt_midcut": 0.10198744769874477,
+  "werc": 0.0,
+  "gt84": 0.0,
+  "cps20": 0.13319386331938632,
+  "n_gt2lines": 15,
+  "n_gt9s": 21,
+  "lt1": 0.002615062761506276,
+  "n_lt1": 15,
+  "n_lt15": 841,
+  "lt15_share": 0.14661785216178522,
+  "per_min": 9.164156548909013,
+  "n_blocks": 5736,
+  "raw": {
+   "fmt_n": 585,
+   "fmt_den": 5736,
+   "we": 0,
+   "wn": 0,
+   "n": 5736,
+   "gt84": 0,
+   "cps20": 764,
+   "gt2": 15,
+   "gt9": 21,
+   "lt1": 15,
+   "lt15": 841
+  }
+ },
+ "pro": {
+  "n_cues": 7828,
+  "lt1": 0.0022994379151762903,
+  "lt15": 0.14690853346959631,
+  "per_min": 12.50645353292534,
+  "tot_dur_s": 37555.011
+ },
+ "words_identical": true,
+ "native_text_ok": true,
+ "native_text_bad": 0,
+ "n_native": 801,
+ "multiword_pieces_gt9s": 0,
+ "singleword_pieces_gt9s": 6,
+ "singleword_gt9s_not_in_old": 4,
+ "off_identical": true,
+ "off_identical_detail": "run GPU off == split originale offline: True; metodo motore spento == originale: True; (coerenza) run GPU on == ricostruzione offline: True",
+ "on_run_consistent": true,
+ "rule_sha256": "43c6d9b0bcc07d260f947f05e46ea317569125a6a0d599a0428b2a7f2c626bc8",
+ "native_text_bad_exact": 0,
+ "inword_cuts_bad": 0,
+ "inword_cuts_glitch": 2,
+ "pos_ratio": 0.1073,
+ "pos_detail": "originale 1079/4641=23.2%; regole_en 252/5703=4.4%; regole_it 143/5732=2.5%; professionale 1314/7828=16.8%",
+ "en_regression_ok": true,
+ "it_default_ok": true,
+ "verdict": {
+  "criteria": {
+   "0_campione": [
+    true,
+    "7 file validi, 7 titoli, titoli esclusi presenti 0"
+   ],
+   "a_midcut": [
+    true,
+    "attuale 0.4598 -> nuova 0.1020 (soglie 0.2; rapporto 0.222 <= 0.25; professionali 0.1103)"
+   ],
+   "b_testo": [
+    true,
+    "parole identiche=True; segmenti con testo diverso (senza spazi aggiunti)=0 su 801; tagli dentro parola non su glitch=0 (tagli su glitch: 2)"
+   ],
+   "c_gt84": [
+    true,
+    "0.0155 -> 0.0000 (delta -0.0155)"
+   ],
+   "c_cps20": [
+    true,
+    "0.1231 -> 0.1332 (delta +0.0101)"
+   ],
+   "c_righe": [
+    true,
+    "blocchi >2 righe 239 -> 15"
+   ],
+   "d_durata": [
+    false,
+    "pezzi >=2 parole intere >9s: 0; pezzi di 1 parola >9s non presenti nell'attuale: 4; blocchi >9s 60 -> 21"
+   ],
+   "e_opzione_spenta": [
+    true,
+    "bit-identico: run GPU off == split originale offline: True; metodo motore spento == originale: True; (coerenza) run GPU on == ricostruzione offline: True"
+   ],
+   "f_lt1": [
+    true,
+    "quota <1s: attuale 0.0009 -> nuova 0.0026 (tetto 0.0100; professionale 0.0023)"
+   ],
+   "f_lt15": [
+    true,
+    "quota <1,5s: attuale 0.0650 -> nuova 0.1466 (professionale 0.1469)"
+   ],
+   "f_densita": [
+    true,
+    "blocchi/min: attuale 7.42 -> nuova 9.16 (professionale 12.51)"
+   ],
+   "g_per_file": [
+    true,
+    "tutti i file migliorano"
+   ],
+   "e2_on_coerente": [
+    true,
+    "run GPU on == ricostruzione offline (lang=it): True"
+   ],
+   "i_pos_indipendente": [
+    true,
+    "blocchi che finiscono su parola funzionale (spaCy): rapporto nuova/attuale 0.1073 (soglia 0.5); originale 1079/4641=23.2%; regole_en 252/5703=4.4%; regole_it 143/5732=2.5%; professionale 1314/7828=16.8%"
+   ],
+   "h_regressione": [
+    true,
+    "inglese v5 bit-identico: True; italiano con lingue di default == off: True"
+   ]
+  },
+  "verdict": "NON VINCENTE"
+ }
+}

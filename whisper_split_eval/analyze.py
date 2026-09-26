@@ -59,10 +59,10 @@ def split_old(seg):
     return C.orig_split_mod().orig_split(seg)
 
 
-def split_new(seg, params=None):
+def split_new(seg, params=None, lang='en'):
     NS = C.new_split_mod()
     try:
-        r = NS.sentence_aware_split(seg, 80, 6.0, params=params)
+        r = NS.sentence_aware_split(seg, 80, 6.0, params=params, lang=lang)
         if r is not None and NS.validate_split(seg, r):
             return r
     except Exception:
