@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.16.0-orange)
+![Version](https://img.shields.io/badge/Version-1.23.0-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -278,6 +278,11 @@ This project is licensed under the MIT License.
 ---
 
 ## Changelog
+
+### v1.23.0
+- **Sentence-aware splitting of Whisper segments, now on for English and Italian.** faster-whisper used to cut long segments at 80 characters / 6 s regardless of punctuation, so 37-47% of subtitle blocks ended mid-sentence and translation received fragments. The split now prefers sentence boundaries (`core/whisper_sentence_split.py`, options `whisper_split_sentence_aware` and `whisper_split_sentence_langs`, default `["en", "it"]`; other languages keep the original split; `false` restores the previous behavior). Mid-sentence blocks drop to 6-11%, words are identical, and blocks no longer end on articles, prepositions or conjunctions (24.9% -> 2.1% in Italian, checked with an independent spaCy pass). Each language was confirmed on fresh whole files under pre-frozen decision rules (English: 8 files; Italian: 8 new files after a first round exposed a Whisper timestamp glitch inside words, now handled). Caveats: Italian is mostly covered by dubbed films (3 original-Italian files), and the effect on translation was not measured. Evidence, rules and verdicts are in `whisper_split_eval/`.
+- **Demucs uses chunked processing above 60 minutes** (was 90): the standard path held four full stems in RAM and could exhaust a 32 GB machine.
+- Versions 1.17.0 - 1.22.0 are documented in [CHANGELOG.md](CHANGELOG.md).
 
 ### v1.16.0
 - **Audio transcription pipeline: 3 real defects diagnosed and fixed on a real film.** Starting point was an actual production output (Goodrich 2024, Italian audio transcribed directly): duplicated lines from overlapping audio chunks, dialogue text attributed to the wrong character, and ~30% of blocks missing punctuation entirely in crosstalk/heated-argument scenes.
@@ -701,6 +706,11 @@ Questo progetto è distribuito con licenza MIT.
 ---
 
 ## Changelog
+
+### v1.23.0
+- **Split dei segmenti Whisper sui confini di frase, ora attivo per inglese e italiano.** faster-whisper tagliava i segmenti lunghi a 80 caratteri / 6 s senza guardare la punteggiatura: il 37-47% dei blocchi finiva a metà frase e la traduzione riceveva frammenti. Ora lo split preferisce i confini di frase (`core/whisper_sentence_split.py`, opzioni `whisper_split_sentence_aware` e `whisper_split_sentence_langs`, default `["en", "it"]`; le altre lingue mantengono lo split originale; `false` ripristina il comportamento precedente). I blocchi a metà frase scendono al 6-11%, le parole restano identiche e i blocchi non finiscono più su articoli, preposizioni o congiunzioni (24,9% -> 2,1% in italiano, verificato con un controllo indipendente spaCy). Ogni lingua è stata confermata su file interi nuovi con regole congelate prima dei dati (inglese: 8 file; italiano: 8 file nuovi, dopo un primo giro che ha fatto emergere un glitch dei timestamp di Whisper dentro le parole, ora gestito). Riserve: l'italiano è coperto soprattutto da film doppiati (3 file in italiano originale) e l'effetto sulla traduzione non è stato misurato. Prove, regole e verdetti in `whisper_split_eval/`.
+- **Demucs a chunk oltre i 60 minuti** (prima 90): lo standard path teneva in RAM quattro sorgenti intere e poteva esaurire una macchina da 32 GB.
+- Le versioni 1.17.0 - 1.22.0 sono documentate in [CHANGELOG.md](CHANGELOG.md).
 
 ### v1.16.0
 - **Pipeline di trascrizione audio: 3 difetti reali diagnosticati e corretti su un film reale.** Punto di partenza un file prodotto realmente (Goodrich 2024, audio italiano trascritto direttamente): duplicati da chunk audio sovrapposti, testo attribuito al personaggio sbagliato, ~30% dei blocchi senza punteggiatura nelle scene di crosstalk/litigio.

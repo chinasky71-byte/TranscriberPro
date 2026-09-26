@@ -95,11 +95,10 @@ class Config:
         # 80 caratteri / 6 s (core/whisper_sentence_split.py). Blocchi a meta' frase
         # 37-47% -> 6-11%, parole identiche. False = comportamento precedente.
         'whisper_split_sentence_aware': True,
-        # Lingue in cui lo split per frasi e' attivo (codici a 2 lettere). Solo 'en' e' in
-        # produzione (3 campioni + 2 di conferma). 'it' ha regole proprie, confermate su 2 set
-        # di file interi (soprattutto film doppiati) ma NON attivate: per accenderle
-        # impostare ['en', 'it']. Le altre lingue usano sempre lo split originale.
-        'whisper_split_sentence_langs': ['en'],
+        # Lingue in cui lo split per frasi e' attivo (codici a 2 lettere): inglese (3 campioni + 2
+        # di conferma) e italiano (regole proprie, confermate su 2 set di file interi, soprattutto
+        # film doppiati). Le altre lingue usano sempre lo split originale. ['en'] = solo inglese.
+        'whisper_split_sentence_langs': ['en', 'it'],
 
         # FFmpeg whisper settings (solo se transcription_method == 'ffmpeg')
         'ffmpeg_model_path': '',

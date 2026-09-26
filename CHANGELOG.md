@@ -3,6 +3,21 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.23.0] — 2026-09-26
+
+### Split per frasi attivo anche per l'italiano
+`whisper_split_sentence_langs` passa da `["en"]` a `["en", "it"]`: con faster-whisper anche l'italiano divide i
+segmenti sui confini di frase (le altre lingue restano sullo split originale). Per tornare al solo inglese:
+`"whisper_split_sentence_langs": ["en"]` in `~/.transcriberpro/config.json`.
+- **Perché è stato acceso:** conferma su 8 file italiani nuovi con regola congelata prima della selezione
+  (blocchi a metà frase 46,8% → 11,2%, blocchi su articolo/preposizione/congiunzione 24,9% → 2,1%, parole identiche,
+  ogni file migliora). Vedi 1.22.0 e `whisper_split_eval/README.md`.
+- **Riserve invariate:** film doppiati in prevalenza (3 file in italiano originale, con un miglioramento più debole
+  su *Sono qui per Caos*: 68% → 30%), effetto sulla traduzione e ascolto umano non misurati.
+- **Pulizia:** cancellato l'audio dei dati di prova di `whisper_split_eval/` (~19 GB in locale); nel repository non
+  cambia nulla.
+- README aggiornato (badge di versione e sezione Changelog, inglese e italiano).
+
 ## [1.22.0] — 2026-09-26
 
 ### Split per frasi: regole per l'italiano (pronte e confermate, NON attive di default)
