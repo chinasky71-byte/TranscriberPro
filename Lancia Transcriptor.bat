@@ -10,7 +10,8 @@ ECHO ===================================================
 ECHO.
 
 REM Imposta il percorso completo della cartella del progetto.
-SET "PROJECT_PATH=C:\Users\fran_\Desktop\Transcriber_Pro"
+SET "PROJECT_PATH=%~dp0"
+IF "%PROJECT_PATH:~-1%"=="\" SET "PROJECT_PATH=%PROJECT_PATH:~0,-1%"
 
 ECHO Cartella di lavoro: %PROJECT_PATH%
 cd /d "%PROJECT_PATH%"

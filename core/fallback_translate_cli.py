@@ -181,6 +181,11 @@ def main(argv: list) -> int:
         return 1
 
     try:
+        from utils.cuda_dll_path import ensure_torch_lib_on_path
+        ensure_torch_lib_on_path()
+    except Exception:
+        pass
+    try:
         from llama_cpp import Llama
     except Exception as e:
         _emit(f"ERRORE CLI: import llama_cpp fallito: {e}")

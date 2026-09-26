@@ -1,179 +1,226 @@
 # ============================================================
-# Transcriber Pro - Requirements
+# Transcriber Pro - requirements (venv principale)
 # ============================================================
-#
-# IMPORTANTE: PyTorch (CUDA) va installato PRIMA degli altri pacchetti:
-#   pip install torch==2.8.0+cu126 torchaudio==2.8.0+cu126 torchvision==0.23.0+cu126 --index-url https://download.pytorch.org/whl/cu126
-#
-# Poi installare il resto:
+# Generato il 2026-09-26 dal venv che FUNZIONA (Python 3.11.9, Windows 11, RTX 3060 12 GB, driver NVIDIA con CUDA 12.x).
+# Versioni ESATTE: quelle provate. Solo le dipendenze realmente usate dall'app (chiusura transitiva).
+# Installazione consigliata: install.ps1 (vedi README). A mano, nell'ordine:
+#   py -3.11 -m venv venv ; venv\Scripts\activate
 #   pip install -r requirements.txt
-#
-# Ambiente: Python 3.11, Windows 11, CUDA 12.6, RTX 3060 12GB
+# Le due righe --extra-index-url qui sotto servono a torch (+cu126) e alla wheel CUDA di llama-cpp-python.
+# Ambienti SEPARATI (subprocess, non in questo file): requirements-canary.txt, requirements-nlp.txt,
+# requirements-glossary.txt. Strumenti di valutazione/sviluppo: requirements-dev.txt.
+# Dipendenze di sistema non-pip: Python 3.11, driver NVIDIA, FFmpeg (PATH), Tesseract 5 + ita/eng tessdata_best,
+# MKVToolNix (solo VOBSUB). Vedi README.
+# Verificato il 2026-09-26: venv NUOVO creato con questo file -> pip check pulito, versioni identiche al venv di lavoro
+# (salvo 41 pacchetti non necessari, rimossi), import di tutti i moduli, test CPU, smoke GPU di Whisper e Qwen3-ASR
+# con un PATH SENZA il CUDA Toolkit di sistema; import di llama_cpp senza Toolkit verificato con utils/cuda_dll_path.py.
+# Non verificato: avvio della GUI, pipeline pyannote, caricamento di NLLB e di un GGUF.
 # ============================================================
 
-# --- Core ML / Speech ---
+--extra-index-url https://download.pytorch.org/whl/cu126
+--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+# llama-cpp-python esiste su PyPI solo come sorgente (richiederebbe MSVC + CMake): si vuole SOLO la wheel CUDA dell'indice sopra.
+# Se l'indice non risponde pip si ferma con un errore chiaro invece di compilare o ripiegare in silenzio su una build CPU.
+--only-binary=llama_cpp_python
+
+# setuptools: ctranslate2 4.6.0 fa `import pkg_resources` incondizionato su Windows. 70.3.0 e' la versione provata
+# (pkg_resources presente). NON aggiornare alla cieca: versioni future potrebbero toglierlo e Whisper non si importa.
+setuptools==70.3.0
+
+# --- GPU stack (indici speciali: installare PRIMA, vedi intestazione) ---
+torch==2.8.0+cu126   # wheel +cu126 dall'indice PyTorch
+torchaudio==2.8.0+cu126   # wheel +cu126 dall'indice PyTorch
+llama_cpp_python==0.3.34   # NON 0.3.35: crash (WinError 0xc000001d) all'init del contesto su CPU Alder Lake; wheel CUDA dal 2o indice
+
+# --- Trascrizione (Whisper / Qwen3-ASR) e allineamento ---
 faster-whisper==1.2.1
-ctranslate2==4.6.0
+ctranslate2==4.6.0   # NON 4.7.x: crash silenzioso (std::abort) in WhisperModel() dentro un processo PyQt6
 whisperx==3.8.1
+qwen-asr==0.0.6
+onnxruntime==1.24.3   # main.py lo importa PRIMA di PyQt6
+
+# --- Diarizzazione / speaker ---
 pyannote-audio==4.0.4
+
+# --- Audio ---
+demucs==4.0.1
+librosa==0.11.0
+soundfile==0.13.1
+
+# --- Traduzione / LLM ---
+transformers==4.57.6   # la 4.57.x e' quella provata con NLLB, Qwen3-ASR e Canary
+tokenizers==0.22.2
+safetensors==0.8.0
+sentencepiece==0.2.1
+accelerate==1.12.0
+peft==0.20.0
+bitsandbytes==0.49.2
+huggingface_hub==0.36.2
+anthropic==0.84.0
+openai==2.26.0
+
+# --- GUI ---
+PyQt6==6.10.2   # PyQt6-Qt6 e PyQt6-sip arrivano come dipendenze
+
+# --- OCR sottotitoli bitmap (PGS / VOBSUB; pgsreader e vobsub sono vendorizzati in core/vendor/) ---
+pytesseract==0.3.13
+opencv-python==4.13.0.92
+colour==0.1.5
+pillow==12.2.0
+
+# --- Metadati e utilita' ---
+cinemagoer==2023.5.1
+requests==2.34.2
+numpy==2.3.5
+psutil==7.2.2
+nvidia-ml-py==13.590.48
+
+# --- Dipendenze indirette (bloccate alla versione provata) ---
+aiohappyeyeballs==2.6.1
+aiohttp==3.14.3
+aiosignal==1.4.0
+alembic==1.18.4
+annotated-doc==0.0.4
+annotated-types==0.7.0
+antlr4-python3-runtime==4.9.3
+anyio==4.12.1
+asteroid-filterbanks==0.4.0
+attrs==25.4.0
+audioread==3.1.0
+av==15.1.0
+blinker==1.9.0
+brotli==1.2.0
+certifi==2026.2.25
+cffi==2.0.0
+charset-normalizer==3.4.5
+click==8.5.0
+cloudpickle==3.1.2
+colorama==0.4.6
+colorlog==6.10.1
+contourpy==1.3.3
+cycler==0.12.1
+Cython==3.2.8
+decorator==5.2.1
+diskcache==5.6.3
+distro==1.9.0
+docstring_parser==0.17.0
+dora_search==0.1.12
+dyNET38==2.2
+einops==0.8.2
+fastapi==0.139.2
+filelock==3.20.0
+Flask==3.1.3
+flatbuffers==25.12.19
+fonttools==4.62.0
+frozenlist==1.8.0
+fsspec==2025.12.0
+googleapis-common-protos==1.73.0
+gradio==6.17.3
+gradio_client==2.5.0
+greenlet==3.3.2
+groovy==0.1.2
+grpcio==1.78.0
+h11==0.16.0
+hf-gradio==0.4.1
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.11
+importlib_metadata==8.7.1
+itsdangerous==2.2.0
+Jinja2==3.1.6
+jiter==0.13.0
+joblib==1.5.3
+julius==0.2.7
+kiwisolver==1.5.0
+lameenc==1.8.2
+lazy-loader==0.5
+lightning==2.6.1
+lightning-utilities==0.15.3
+llvmlite==0.46.0
+lxml==6.0.2
+Mako==1.3.10
+markdown-it-py==4.0.0
+MarkupSafe==3.0.3
+matplotlib==3.10.8
+mdurl==0.1.2
+mpmath==1.3.0
+msgpack==1.1.2
+multidict==6.7.1
+nagisa==0.2.11
+networkx==3.6.1
+nltk==3.9.3
+numba==0.64.0
+omegaconf==2.3.0
+opentelemetry-api==1.40.0
+opentelemetry-exporter-otlp==1.40.0
+opentelemetry-exporter-otlp-proto-common==1.40.0
+opentelemetry-exporter-otlp-proto-grpc==1.40.0
+opentelemetry-exporter-otlp-proto-http==1.40.0
+opentelemetry-proto==1.40.0
+opentelemetry-sdk==1.40.0
+opentelemetry-semantic-conventions==0.61b0
+openunmix==1.3.0
+optuna==4.7.0
+orjson==3.11.9
+packaging==26.0
+pandas==2.2.3
+platformdirs==4.9.4
+pooch==1.9.0
+primePy==1.3
+propcache==0.4.1
+protobuf==6.33.5
 pyannote-core==6.0.1
 pyannote-database==6.1.1
 pyannote-metrics==4.0.0
 pyannote-pipeline==4.0.0
 pyannoteai-sdk==0.4.0
-demucs==4.0.1
-transformers==4.57.6
-accelerate==1.13.0
-tokenizers==0.22.2
-safetensors==0.7.0
-sentencepiece==0.2.1
-bitsandbytes==0.49.2
-numba==0.64.0
-llvmlite==0.46.0
-# Engine ASR Qwen3 (multi-engine, v1.8.0+): Qwen3-ASR-1.7B + Qwen3-ForcedAligner-0.6B
-qwen-asr==0.0.6
-
-# --- Audio processing ---
-torchaudio==2.8.0+cu126
-torchvision==0.23.0+cu126
-torchcodec==0.10.0
-torch-audiomentations==0.12.0
-torch_pitch_shift==1.2.5
-asteroid-filterbanks==0.4.0
-soundfile==0.13.1
-librosa==0.11.0
-audioread==3.1.0
-av==15.1.0
-soxr==1.0.0
-lameenc==1.8.2
-openunmix==1.3.0
-noisereduce==3.0.3
-julius==0.2.7
-speechbrain==1.0.3
-
-# --- GUI ---
-PyQt6==6.10.2
-PyQt6-Qt6==6.10.2
-PyQt6-WebEngine==6.10.0
-PyQt6-WebEngine-Qt6==6.10.2
-PyQt6_sip==13.11.1
-
-# --- AI APIs ---
-anthropic==0.84.0
-openai==2.26.0
-
-# --- NLP ---
-nltk==3.9.3
-omegaconf==2.3.0
-HyperPyYAML==1.2.3
-
-# --- ONNX Runtime (VAD) ---
-onnxruntime==1.24.3
-
-# --- GPU Monitoring ---
-nvidia-ml-py==13.590.48
-
-# --- Training / optimization ---
-einops==0.8.2
-pytorch-metric-learning==2.9.0
-pytorch-lightning==2.6.1
-lightning==2.6.1
-lightning-utilities==0.15.3
-torchmetrics==1.9.0
-optuna==4.7.0
-tensorboardX==2.6.4
-
-# --- Data / utils ---
-numpy==2.3.5
-scipy==1.17.1
-pandas==2.2.3
-scikit-learn==1.8.0
-matplotlib==3.10.8
-huggingface_hub==0.36.2
-
-# --- Subtitle / media ---
-cinemagoer==2023.5.1
-xmltodict==1.0.4
-
-# --- OCR sottotitoli bitmap (PGS / VOBSUB → SRT) ---
-# Motore unico pgsreader/vobsub + Tesseract (sia review che auto). pgsreader e il parser
-# vobsub sono vendorizzati in core/vendor/ (non su PyPI).
-# Dipendenze ESTERNE non-pip richieste:
-#   - Tesseract-OCR (binario) + traineddata 'ita'/'eng' (consigliato tessdata_best)
-#   - MKVToolNix (binario, mkvextract) — per estrarre i VOBSUB (.idx/.sub); i PGS usano ffmpeg
-# 'colour' serve al parser VOBSUB per le palette.
-pytesseract==0.3.13
-opencv-python==4.13.0.92
-colour==0.1.5
-
-# --- Infrastructure ---
-requests==2.32.5
-httpx==0.28.1
-httpcore==1.0.9
-aiohttp==3.13.3
+pycparser==3.0
 pydantic==2.12.5
 pydantic_core==2.41.5
-tqdm==4.67.3
-rich==14.3.3
-pyyaml==6.0.3
-filelock==3.20.0
-fsspec==2025.12.0
-setuptools==69.5.1
-packaging==26.0
-psutil==7.2.2
-pywin32==311
-WMI==1.5.1
-colorama==0.4.6
-colorlog==6.10.1
+pydub==0.25.1
+Pygments==2.19.2
+pyparsing==3.3.2
+PyQt6-Qt6==6.10.2
+PyQt6_sip==13.11.1
+python-dateutil==2.9.0.post0
+python-multipart==0.0.32
+pytorch-lightning==2.6.1
+pytorch-metric-learning==2.9.0
+pytz==2026.1.post1
+PyYAML==6.0.3
+qwen-omni-utils==0.0.9
 regex==2026.2.28
-six==1.17.0
-certifi==2026.2.25
-urllib3==2.6.3
-charset-normalizer==3.4.5
-sympy==1.14.0
-networkx==3.6.1
-Jinja2==3.1.6
-MarkupSafe==3.0.2
-mpmath==1.3.0
-typing_extensions==4.15.0
-protobuf==6.33.5
-pillow==12.0.0
-lxml==6.0.2
-sqlalchemy==2.0.48
-alembic==1.18.4
-
-# --- OpenTelemetry (pyannote dep) ---
-opentelemetry-api==1.40.0
-opentelemetry-sdk==1.40.0
-opentelemetry-exporter-otlp==1.40.0
-opentelemetry-exporter-otlp-proto-grpc==1.40.0
-opentelemetry-exporter-otlp-proto-http==1.40.0
-
-# --- Serbatoio L3 traduzione (fallback_translate_cli.py) + riferimento storico Gender Corrector v1 ---
-# Richiede wheel CUDA pre-built (~480 MB):
-#   pip install llama-cpp-python==0.3.34 --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
-# AGGIORNATO 2026-09-18 da 0.3.4: la nota precedente ("solo 0.3.4 ha wheel
-# pre-built CUDA per Windows cp311") era ormai superata, esistono wheel CUDA
-# Windows per ogni versione fino alla 0.3.35. FERMO a 0.3.34, non 0.3.35
-# (latest): 0.3.35 carica i tensori su GPU senza errori ma va in crash
-# all'inizializzazione del contesto (OSError WinError 0xc000001d, istruzione
-# illegale) su questa CPU (Intel Core i7-12700KF, Alder Lake — AVX-512
-# disabilitato via microcode sui die hybrid P-core/E-core, causa sospetta
-# ma non confermata riga per riga nel sorgente). Bisecting empirico
-# 0.3.4→0.3.35: 0.3.16/0.3.26/0.3.31/0.3.33/0.3.34 caricano ed eseguono il
-# GGUF multi-parte Qwen2.5-14B senza problemi con gli stessi parametri di
-# produzione (n_gpu_layers=-1, n_ctx=4096, n_batch=512); solo 0.3.35 rompe.
-llama-cpp-python==0.3.34
-diskcache>=5.6.1
-
-# --- Misc ---
-antlr4-python3-runtime==4.9.3
-ruamel.yaml==0.18.17
-sortedcontainers==2.4.0
 retrying==1.4.2
-dora_search==0.1.12
+rich==14.3.3
+safehttpx==0.1.7
+scikit-learn==1.8.0
+scipy==1.17.1
+semantic-version==2.10.0
+shellingham==1.5.4
+six==1.17.0
+sniffio==1.3.1
+sortedcontainers==2.4.0
+sox==1.5.0
+soxr==1.0.0
+soynlp==0.0.493
+SQLAlchemy==2.0.48
+starlette==1.3.1
 submitit==1.5.4
-cloudpickle==3.1.2
-joblib==1.5.3
+sympy==1.14.0
 threadpoolctl==3.6.0
+tomlkit==0.14.0
+torch-audiomentations==0.12.0
+torch_pitch_shift==1.2.5
+torchcodec==0.10.0
+torchmetrics==1.9.0
+tqdm==4.67.3
+treetable==0.2.6
+typer==0.24.1
+typing_extensions==4.15.0
+typing-inspection==0.4.2
 tzdata==2025.3
+urllib3==2.7.0
+uvicorn==0.51.0
+Werkzeug==3.1.8
+yarl==1.23.0
+zipp==3.23.0

@@ -1,0 +1,5 @@
+# Strumenti di valutazione e sviluppo (NON servono per usare l'app). Da installare nel venv principale se servono:
+#   venv\Scripts\pip install -r requirements-dev.txt
+# Versioni provate il 2026-09-26. venv_comet (COMET / CometKiwi per mt_eval) e' un ambiente a parte, non lockato qui.
+sacrebleu==2.6.0     # chrF / BLEU in mt_eval
+vastai==1.5.5        # noleggio GPU per il training (vast.ai)

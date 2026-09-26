@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 _LLAMA_CPP_AVAILABLE  = False
 _GRAMMAR_AVAILABLE    = False
 try:
+    from utils.cuda_dll_path import ensure_torch_lib_on_path
+    ensure_torch_lib_on_path()
+except Exception:
+    pass
+try:
     from llama_cpp import Llama as _Llama
     _LLAMA_CPP_AVAILABLE = True
     try:
@@ -39,7 +44,7 @@ try:
         _GRAMMAR_AVAILABLE = True
     except ImportError:
         pass
-except ImportError:
+except Exception:   # anche RuntimeError (DLL CUDA non trovata), non solo ImportError
     pass
 
 # Grammatica GBNF per forzare output JSON strutturato — elimina token illegali

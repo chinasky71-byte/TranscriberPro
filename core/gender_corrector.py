@@ -22,9 +22,14 @@ SRT_SUBTITLE = Tuple[int, str, str, str]  # (index, start_time, end_time, text)
 # Check disponibilità llama-cpp-python
 LLAMA_CPP_AVAILABLE = False
 try:
+    from utils.cuda_dll_path import ensure_torch_lib_on_path
+    ensure_torch_lib_on_path()
+except Exception:
+    pass
+try:
     from llama_cpp import Llama
     LLAMA_CPP_AVAILABLE = True
-except ImportError:
+except Exception:   # anche RuntimeError (DLL CUDA non trovata)
     pass
 
 
