@@ -3,6 +3,27 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.24.0 — 2026-09-26 — Subtitle Sync: coda multi-file e nuovo motore solo-tempi
+
+- **Nuovo motore di allineamento (predefinito, `sync_engine='timing'`):** `core/timing_aligner.py` sostituisce NLLB+Qwen.
+  Confronta il parlato dell'SRT con quello del riferimento (sottotitoli incorporati non italiani, oppure il parlato
+  dell'audio con Demucs + Silero VAD quando mancano) e stima scala+offset globali (correlazione FFT, rapporti di framerate
+  25/23,976 ecc.) e poi un offset per tratto (Viterbi; l'ordine delle battute non si inverte). Durate e pause dell'SRT
+  restano invariate. Secondi a episodio invece di circa 80 minuti. Il vecchio percorso resta con `sync_engine='llm'`.
+- **Rifiuto delle coppie sbagliate:** un indice di sovrapposizione al netto del caso decide se l'SRT corrisponde al video
+  (soglie misurate su coppie giuste e sbagliate: rifiuto 0,60 con sottotitoli di riferimento, 0,30 con il parlato
+  dell'audio; avviso 0,80 / 0,50). Sotto soglia la coppia fallisce senza scrivere l'output, con il motivo nel log e nella
+  tabella della coda; non si ripiega su Qwen.
+- **Coda multi-file:** nuova scheda "Coda (cartelle)" nella finestra di sync. Accoppia video e SRT per nome (codici
+  episodio SxxEyy/NxMM obbligatoriamente uguali, duplicati rilevati, scelta manuale dell'SRT), esegue una coppia alla
+  volta in un processo separato (`core/sync_cli.py`, `gui/sync_batch_worker.py`, `core/sync_pairing.py`); una coppia che
+  fallisce non ferma la coda; annullo con terminazione dell'albero dei processi.
+- **Verifica:** episodi interi, sei film/serie di controllo con salti, scene aggiunte/tolte, cambi di framerate;
+  undici SRT reali di altre release (opensubtitles.org): framerate sbagliato corretto da solo, 98,7-100% delle righe
+  verificate per testo entro 0,5 s (caso peggiore 81,6-90,3%); coda reale su 3 coppie. Test: `test_timing_aligner.py`,
+  `test_sync_batch.py`. Non provati: montaggi con scene aggiunte reali (solo simulati); le soglie del riferimento
+  audio poggiano su 3 film.
+
 ## Installer e requisiti — 2026-09-26 (nessun cambio di versione dell'app)
 
 L'installer è un programma a sé stante, con un proprio ciclo di vita: non cambia `APP_VERSION`.

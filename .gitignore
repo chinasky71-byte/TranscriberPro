@@ -123,3 +123,10 @@ cache/
 # vocals Demucs (centinaia di MB per film) e SRT specifici del film testato.
 # ---------------------------------------------------------------------------
 diar_eval/work/
+
+# ---------------------------------------------------------------------------
+# Strumenti di misura locali del Subtitle Sync (usano SRT scaricati e credenziali .org: mai pubblicare)
+# ---------------------------------------------------------------------------
+sync_test/
+sync_probe_*.py
+sync_batch_gpu_test.py
