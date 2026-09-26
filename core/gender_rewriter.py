@@ -189,9 +189,14 @@ class LlamaRewriter:
 
     def load(self) -> bool:
         try:
+            from utils.cuda_dll_path import ensure_torch_lib_on_path
+            ensure_torch_lib_on_path()
+        except Exception:
+            pass
+        try:
             from llama_cpp import Llama
-        except ImportError:
-            self.log("llama-cpp-python non disponibile")
+        except Exception as _e:   # anche RuntimeError (DLL CUDA non trovata)
+            self.log(f"llama-cpp-python non disponibile: {_e}")
             return False
         self.log("  📦 Caricamento LLM per riscrittura genere...")
         self._model = Llama(model_path=self.model_path, n_gpu_layers=-1,

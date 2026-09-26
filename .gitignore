@@ -64,6 +64,14 @@ Gemma training/*
 huggingface_download_token.txt
 huggingface_write_token.txt
 *token*.txt
+# Chiave OMDb (utils/omdb_api.txt): non coperta da *api_key* ne' da *token*.txt
+omdb_api.txt
+*omdb*.txt
+# Altre chiavi API nella radice (tmdb_api.txt, 'claude api key.txt'): non coperte dai pattern sopra
+*_api.txt
+*api key*.txt
+# Log dell'installer
+install_log.txt
 
 # ---------------------------------------------------------------------------
 # Python

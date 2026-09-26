@@ -3,6 +3,31 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## Installer e requisiti — 2026-09-26 (nessun cambio di versione dell'app)
+
+L'installer è un programma a sé stante, con un proprio ciclo di vita: non cambia `APP_VERSION`.
+- **`install.bat` / `install.ps1`:** preparano l'ambiente su un PC Windows dove Transcriber Pro non è installato.
+  Controllano Python 3.11 (64 bit), driver NVIDIA, Visual C++ Redistributable, FFmpeg, Tesseract con `ita`+`eng`,
+  MKVToolNix e lo spazio su disco; creano i venv e installano i requisiti; offrono winget (con conferma per ciascun
+  programma), i venv secondari (`-WithNlp`, `-WithCanary`, `-WithGlossary`) e il download dei modelli locali
+  (`-WithModels`); `-CheckOnly` non modifica nulla, `-NoGpu` per PC senza GPU. Non copia né scrive credenziali.
+  Alla fine esegue `scripts_manutenzione/selfcheck_env.py`.
+- **`requirements.txt` riscritto:** versioni esatte dal venv provato, solo le dipendenze realmente usate (chiusura
+  transitiva, extra compresi); 41 pacchetti non necessari esclusi; aggiunto `peft`, che mancava; `setuptools==70.3.0`
+  pinnato di proposito. Nuovi lock per gli ambienti separati: `requirements-nlp.txt`, `-canary.txt`, `-glossary.txt`,
+  `-dev.txt`. Rimosso `requirements_utf8.txt`.
+- **Correzione per PC senza CUDA Toolkit:** `llama-cpp-python` non si importava senza cudart/cublas 12 nel PATH se torch
+  non era già caricato. Nuovo `utils/cuda_dll_path.py` (mette `torch\lib` nel PATH prima dell'import) usato da sync
+  sottotitoli, correzione del genere, serbatoio L3 e canale Qwen del glossario; gli `except ImportError` attorno a
+  `llama_cpp` ora prendono anche `RuntimeError`.
+- **`Lancia Transcriptor.bat`:** il percorso non è più scritto a mano.
+- **Glossario per-show, canale Qwen su GPU:** pubblicati `mt_eval/glossary_qwen_bridge.py` e `glossary_qwen_gpu_cli.py`
+  (usati da `gui/glossary_worker.py`, mai stati nella copia GitHub) e l'aggiornamento di `glossary_qwen_extract.py`.
+- **`.gitignore`:** coperti anche `tmdb_api.txt`, `omdb_api.txt`, `claude api key.txt` e `install_log.txt`.
+- **Verifica:** venv nuovi con i requisiti (`pip check` pulito, versioni identiche al venv di lavoro), import dei moduli,
+  test CPU, smoke GPU di Whisper e Qwen3-ASR con un PATH senza CUDA Toolkit, installer end-to-end su cartella temporanea.
+  Non verificati: avvio della GUI, pipeline pyannote, caricamento di NLLB/GGUF, winget reale, PC pulito reale.
+
 ## [1.23.0.26.9.26] — 2026-09-26
 
 ### Fix: «Error saving config: WinError 5» all'avvio

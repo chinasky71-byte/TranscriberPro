@@ -13,8 +13,14 @@ trappola gia' misurata coi giudizi GEMBA (punteggi instabili tra run,
 vedi memoria feedback_gemba_judge_gotchas.md): l'estrazione di uno span
 verificabile e' molto piu' stabile di un giudizio.
 
-Gira nel venv dedicato venv_glossary/ (llama-cpp-python CPU, poche
-centinaia di chiamate per show — Qwen non serve GPU qui). Import lazy.
+Modulo puro (solo `llama_cpp`, nessun torch/transformers): puo' girare
+identico in qualunque venv abbia llama-cpp-python. In produzione gira nel
+venv PRINCIPALE del progetto via subprocess (vedi
+mt_eval/glossary_qwen_gpu_cli.py + mt_eval/glossary_qwen_bridge.py), che
+ha gia' una build CUDA di llama-cpp-python provata dal gender corrector
+sullo stesso modello — non in venv_glossary/ (dove installarne una
+seconda romperebbe l'isolamento voluto dei due venv, vedi
+mt_eval/glossary_align.py). Import lazy.
 """
 import re
 from typing import List, Optional
@@ -42,17 +48,25 @@ _USER_TMPL = (
 )
 
 
-def load(model_path: str, n_ctx: int = 2048):
+def load(model_path: str, n_ctx: int = 2048, n_gpu_layers: int = 0):
     global _model, _model_path
     if _model is not None and _model_path == model_path:
         return _model
+    try:  # torch\lib nel PATH: cudart/cublas 12 per ggml-cuda.dll (vedi utils/cuda_dll_path.py)
+        import importlib.util as _iu, os as _os
+        _sp = _iu.find_spec('torch')
+        if _os.name == 'nt' and _sp is not None and _sp.submodule_search_locations:
+            _lib = _os.path.join(list(_sp.submodule_search_locations)[0], 'lib')
+            if _os.path.isdir(_lib):
+                _os.environ['PATH'] = _lib + _os.pathsep + _os.environ.get('PATH', '')
+    except Exception:
+        pass
     try:
         from llama_cpp import Llama
-    except ImportError as e:
+    except Exception as e:   # anche RuntimeError (DLL CUDA non trovata)
         raise ImportError(
-            "llama-cpp-python non installato: usa "
-            "venv_glossary\\Scripts\\python.exe") from e
-    _model = Llama(model_path=model_path, n_gpu_layers=0, n_ctx=n_ctx,
+            f"llama-cpp-python non utilizzabile in questo venv: {e}") from e
+    _model = Llama(model_path=model_path, n_gpu_layers=n_gpu_layers, n_ctx=n_ctx,
                     verbose=False)
     _model_path = model_path
     return _model

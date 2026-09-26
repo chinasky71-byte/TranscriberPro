@@ -29,7 +29,7 @@ Transcriber Pro takes any video file and produces clean `.srt` subtitle files th
 ## Features
 
 ### Transcription & Translation
-- **Multi-engine transcription with automatic language routing** — NVIDIA Canary-Qwen-2.5B (English only, best WER; optional, requires a dedicated `venv_canary` with NeMo 2.7.3), Qwen3-ASR-1.7B + Qwen3-ForcedAligner-0.6B (11 languages with word-level timestamps: zh, en, yue, fr, de, it, ja, ko, pt, ru, es; native language auto-detect), Faster-Whisper `large-v3` as guaranteed universal fallback (99 languages, VAD filter) — the pipeline never fails because of a new engine. Only one ASR engine in VRAM at a time. Engine selector in profile settings (`transcription_engine_mode`: auto / canary / qwen3 / faster-whisper)
+- **Multi-engine transcription with automatic language routing** — NVIDIA Canary-Qwen-2.5B (English only, best WER; optional, requires a dedicated `venv_canary` with NeMo 3.0.0), Qwen3-ASR-1.7B + Qwen3-ForcedAligner-0.6B (11 languages with word-level timestamps: zh, en, yue, fr, de, it, ja, ko, pt, ru, es; native language auto-detect), Faster-Whisper `large-v3` as guaranteed universal fallback (99 languages, VAD filter) — the pipeline never fails because of a new engine. Only one ASR engine in VRAM at a time. Engine selector in profile settings (`transcription_engine_mode`: auto / canary / qwen3 / faster-whisper)
 - **Multiple translation engines**: NLLB-200-3.3B, NLLB fine-tuned, TranslateGemma-12B (LLM branch, optional LoRA adapter and custom local model path), Claude Sonnet API, OpenAI GPT-4o-mini
 - **Professional dialogue style (Netflix)** — "- " dashes only when two speakers share the same SRT block (one line per speaker); speaker diarization extended to all engines (`dialogue_style_enabled`, default ON, requires a HuggingFace token); dashes preserved in translated SRTs across all 4 translation backends; `core/subtitle_formatter.py` handles CPL 42, anti-flash, fragment merging and dialogue grouping
 - **Vocal separation** via Meta Demucs — isolates speech before transcription for better accuracy
@@ -98,47 +98,58 @@ Transcriber Pro takes any video file and produces clean `.srt` subtitle files th
 ## Software Requirements
 
 - **Python** 3.11
-- **CUDA** 12.6 + cuDNN
+- **NVIDIA driver** 528+ (560+ recommended); the system CUDA Toolkit is **not** required: CUDA/cuDNN libraries ship inside the pip wheels
+- **Visual C++ Redistributable 2015-2022 x64** (`MSVCP140.dll`; the installer checks it)
 - **FFmpeg** 6.0+ (must be in PATH)
 - **Tesseract OCR 5+** with `ita` and `eng` traineddata from [tessdata_best](https://github.com/tesseract-ocr/tessdata_best) (required for the OCR pipeline)
 - **MKVToolNix** (`mkvextract`) — required for VOBSUB extraction only
 - **Git** (for cloning)
 
-> The Qwen3 ASR engine is installed with the standard dependencies (`qwen-asr` pip package, already in `requirements.txt`). The NVIDIA Canary engine is **optional** and lives in a dedicated `venv_canary` virtual environment with NeMo 2.7.3 (its dependencies conflict with the app's pinned ones); if absent, the router simply falls back to Qwen3 / Faster-Whisper.
+> The Qwen3 ASR engine is installed with the standard dependencies (`qwen-asr` pip package, already in `requirements.txt`). The NVIDIA Canary engine is **optional** and lives in a dedicated `venv_canary` virtual environment with NeMo 3.0.0 (its dependencies conflict with the app's pinned ones); if absent, the router simply falls back to Qwen3 / Faster-Whisper.
 
 ---
 
 ## Installation
 
-```bash
-# 1. Clone the repository
+### Quick install (Windows, recommended)
+
+```bat
 git clone https://github.com/chinasky71-byte/TranscriberPro.git
 cd TranscriberPro
+:: prerequisites report, changes nothing
+install.bat -CheckOnly
+:: also offers to install missing programs with winget (asks for each)
+install.bat -InstallSystemDeps
+:: everything: extra environments, local models, no questions
+install.bat -All -Yes
+```
 
-# 2. Create virtual environment
-python -m venv venv
+`install.ps1` checks Python 3.11, the NVIDIA driver, FFmpeg, Tesseract (`ita` + `eng`), MKVToolNix and free disk space; creates `venv` and installs `requirements.txt`; optionally creates the secondary environments (`-WithNlp`, `-WithCanary`, `-WithGlossary`) and downloads the local models (`-WithModels`); finally runs `scripts_manutenzione\selfcheck_env.py`. It can be re-run safely and never copies or writes credentials.
+
+### Manual install
+
+```bat
+py -3.11 -m venv venv
 venv\Scripts\activate
-
-# 3. Install PyTorch with CUDA first (adjust CUDA version if needed)
-pip install torch==2.8.0+cu126 torchaudio==2.8.0+cu126 --index-url https://download.pytorch.org/whl/cu126
-
-# 4. Install remaining dependencies
 pip install -r requirements.txt
-
-# 5. (Optional, for Gender Correction v2) Create the separate NLP venv.
-#    spaCy lives in its own environment so it never touches the app's
-#    pinned dependencies (ctranslate2 4.6.0, setuptools <= 69.5.1),
-#    and its RAM is fully released when the helper subprocess exits.
-python -m venv venv_nlp
-venv_nlp\Scripts\pip install spacy
-venv_nlp\Scripts\python -m spacy download it_core_news_lg
-#    Also required: a HuggingFace token in the app settings (pyannote
-#    diarization models). Accept the pyannote/speaker-diarization-3.1
-#    user conditions on huggingface.co once.
-
-# 6. Run
 python main.py
 ```
+
+`requirements.txt` pins the exact tested versions. `torch` (`+cu126`) and `llama-cpp-python` (CUDA wheel) come from the two extra indexes declared at the top of the file, so a single `pip install -r` is enough.
+
+| File | Environment | Needed for |
+|------|-------------|------------|
+| `requirements.txt` | `venv` | the app |
+| `requirements-nlp.txt` | `venv_nlp` | Gender Correction v2 (spaCy `it_core_news_lg`, runs in a subprocess) |
+| `requirements-canary.txt` | `venv_canary` | optional NVIDIA Canary engine (NeMo, English only) |
+| `requirements-glossary.txt` | `venv_glossary` | per-show glossary builder (CPU torch) |
+| `requirements-dev.txt` | `venv` | evaluation tools only (`sacrebleu`, `vastai`) |
+
+Notes:
+- `setuptools` is pinned to 70.3.0 on purpose: `ctranslate2` 4.6.0 imports `pkg_resources` on Windows, so do not upgrade it blindly.
+- No CUDA Toolkit is required, only a recent NVIDIA driver: the CUDA and cuDNN libraries ship inside the pip wheels (torch, ctranslate2). `llama-cpp-python` reuses the CUDA 12 runtime DLLs shipped with torch: the app adds `torch\lib` to the PATH by itself. On a PC without a GPU use `install.bat -NoGpu`.
+- Credentials are never part of the installer. Create them by hand: a HuggingFace token in the app settings (accept the `pyannote/speaker-diarization-3.1` conditions once on huggingface.co), a TMDB key in `tmdb_api.txt` (project root or `~/.transcriberpro/`), optionally `omdb_api.txt`, and Claude/OpenAI keys in the settings if you use cloud translation.
+- Local models: `install.ps1 -WithModels` downloads Qwen2.5-14B (GGUF) and the fine-tuned NLLB from HuggingFace; the fine-tuned TranslateGemma is not on a hub and must be copied from the source machine. Whisper large-v3, Qwen3-ASR, Demucs and pyannote download on first use.
 
 > For Tesseract OCR: install via [scoop](https://scoop.sh) (`scoop install tesseract`) or the Windows installer, then download `ita.traineddata` and `eng.traineddata` from [tessdata_best](https://github.com/tesseract-ocr/tessdata_best/tree/main) into the Tesseract `tessdata/` folder.
 
@@ -530,7 +541,7 @@ Transcriber Pro produce file `.srt` attraverso due pipeline complementari:
 ## Funzionalità
 
 ### Trascrizione e Traduzione
-- **Trascrizione multi-engine con routing automatico per lingua** — NVIDIA Canary-Qwen-2.5B (solo inglese, WER migliore; opzionale, richiede un `venv_canary` dedicato con NeMo 2.7.3), Qwen3-ASR-1.7B + Qwen3-ForcedAligner-0.6B (11 lingue con timestamp word-level: zh, en, yue, fr, de, it, ja, ko, pt, ru, es; auto-detect lingua nativo), Faster-Whisper `large-v3` come fallback universale garantito (99 lingue, filtro VAD) — la pipeline non fallisce mai per colpa di un engine nuovo. Un solo engine ASR in VRAM per volta. Selettore engine nelle impostazioni profilo (`transcription_engine_mode`: auto / canary / qwen3 / faster-whisper)
+- **Trascrizione multi-engine con routing automatico per lingua** — NVIDIA Canary-Qwen-2.5B (solo inglese, WER migliore; opzionale, richiede un `venv_canary` dedicato con NeMo 3.0.0), Qwen3-ASR-1.7B + Qwen3-ForcedAligner-0.6B (11 lingue con timestamp word-level: zh, en, yue, fr, de, it, ja, ko, pt, ru, es; auto-detect lingua nativo), Faster-Whisper `large-v3` come fallback universale garantito (99 lingue, filtro VAD) — la pipeline non fallisce mai per colpa di un engine nuovo. Un solo engine ASR in VRAM per volta. Selettore engine nelle impostazioni profilo (`transcription_engine_mode`: auto / canary / qwen3 / faster-whisper)
 - **Motori di traduzione multipli**: NLLB-200-3.3B, NLLB finetuned, TranslateGemma-12B (ramo LLM, adattatore LoRA opzionale e path modello locale custom), Claude Sonnet API, OpenAI GPT-4o-mini
 - **Stile dialoghi professionale (Netflix)** — trattini "- " solo quando due parlanti condividono lo stesso blocco SRT (una battuta per riga); speaker diarization estesa a tutti gli engine (opzione `dialogue_style_enabled`, default ON, richiede token HuggingFace); trattini preservati anche negli SRT tradotti su tutti e 4 i backend di traduzione; `core/subtitle_formatter.py` gestisce CPL 42, anti-flash, merge frammenti e raggruppamento dialoghi
 - **Separazione vocale** via Meta Demucs — isola la voce prima della trascrizione per maggiore accuratezza
@@ -598,47 +609,58 @@ Transcriber Pro produce file `.srt` attraverso due pipeline complementari:
 ## Requisiti Software
 
 - **Python** 3.11
-- **CUDA** 12.6 + cuDNN
+- **Driver NVIDIA** 528+ (consigliato 560+): il CUDA Toolkit di sistema NON serve, le librerie CUDA/cuDNN sono nelle ruote pip
+- **Visual C++ Redistributable 2015-2022 x64** (`MSVCP140.dll`; l'installer lo controlla)
 - **FFmpeg** 6.0+ (nel PATH)
 - **Tesseract OCR 5+** con traineddata `ita` e `eng` da [tessdata_best](https://github.com/tesseract-ocr/tessdata_best) (richiesto per la pipeline OCR)
 - **MKVToolNix** (`mkvextract`) — solo per l'estrazione VOBSUB
 - **Git**
 
-> L'engine ASR Qwen3 si installa con le dipendenze standard (pacchetto pip `qwen-asr`, già in `requirements.txt`). L'engine NVIDIA Canary è **opzionale** e vive in un ambiente virtuale dedicato `venv_canary` con NeMo 2.7.3 (le sue dipendenze confliggono con quelle bloccate dell'app); se assente, il router ripiega semplicemente su Qwen3 / Faster-Whisper.
+> L'engine ASR Qwen3 si installa con le dipendenze standard (pacchetto pip `qwen-asr`, già in `requirements.txt`). L'engine NVIDIA Canary è **opzionale** e vive in un ambiente virtuale dedicato `venv_canary` con NeMo 3.0.0 (le sue dipendenze confliggono con quelle bloccate dell'app); se assente, il router ripiega semplicemente su Qwen3 / Faster-Whisper.
 
 ---
 
 ## Installazione
 
-```bash
-# 1. Clona il repository
+### Installazione rapida (Windows, consigliata)
+
+```bat
 git clone https://github.com/chinasky71-byte/TranscriberPro.git
 cd TranscriberPro
+:: rapporto sui prerequisiti, non modifica nulla
+install.bat -CheckOnly
+:: propone anche di installare con winget i programmi mancanti (chiede per ciascuno)
+install.bat -InstallSystemDeps
+:: tutto: ambienti aggiuntivi, modelli locali, senza domande
+install.bat -All -Yes
+```
 
-# 2. Crea l'ambiente virtuale
-python -m venv venv
+`install.ps1` controlla Python 3.11, il driver NVIDIA, FFmpeg, Tesseract (`ita` + `eng`), MKVToolNix e lo spazio su disco; crea `venv` e installa `requirements.txt`; facoltativamente crea gli ambienti secondari (`-WithNlp`, `-WithCanary`, `-WithGlossary`) e scarica i modelli locali (`-WithModels`); alla fine esegue `scripts_manutenzione\selfcheck_env.py`. Si può rilanciare senza rischi e non copia né scrive mai credenziali.
+
+### Installazione manuale
+
+```bat
+py -3.11 -m venv venv
 venv\Scripts\activate
-
-# 3. Installa PyTorch con CUDA (adatta la versione CUDA se necessario)
-pip install torch==2.8.0+cu126 torchaudio==2.8.0+cu126 --index-url https://download.pytorch.org/whl/cu126
-
-# 4. Installa le dipendenze
 pip install -r requirements.txt
-
-# 5. (Opzionale, per la Correzione Genere v2) Crea il venv NLP separato.
-#    spaCy vive in un ambiente proprio: non tocca le dipendenze bloccate
-#    dell'app (ctranslate2 4.6.0, setuptools <= 69.5.1) e la sua RAM viene
-#    liberata del tutto quando il subprocess termina.
-python -m venv venv_nlp
-venv_nlp\Scripts\pip install spacy
-venv_nlp\Scripts\python -m spacy download it_core_news_lg
-#    Serve inoltre un token HuggingFace nelle impostazioni (modelli
-#    pyannote): accetta una volta le condizioni d'uso di
-#    pyannote/speaker-diarization-3.1 su huggingface.co.
-
-# 6. Avvia
 python main.py
 ```
+
+`requirements.txt` blocca le versioni esatte provate. `torch` (`+cu126`) e `llama-cpp-python` (wheel CUDA) arrivano dai due indici aggiuntivi dichiarati in cima al file: basta un solo `pip install -r`.
+
+| File | Ambiente | A cosa serve |
+|------|----------|--------------|
+| `requirements.txt` | `venv` | l'app |
+| `requirements-nlp.txt` | `venv_nlp` | Correzione Genere v2 (spaCy `it_core_news_lg`, gira in un subprocess) |
+| `requirements-canary.txt` | `venv_canary` | motore NVIDIA Canary facoltativo (NeMo, solo inglese) |
+| `requirements-glossary.txt` | `venv_glossary` | costruzione del glossario per-show (torch CPU) |
+| `requirements-dev.txt` | `venv` | solo strumenti di valutazione (`sacrebleu`, `vastai`) |
+
+Note:
+- `setuptools` è bloccato a 70.3.0 di proposito: `ctranslate2` 4.6.0 importa `pkg_resources` su Windows, quindi non aggiornarlo alla cieca.
+- Non serve il CUDA Toolkit, solo un driver NVIDIA recente: le librerie CUDA e cuDNN sono dentro le ruote pip (torch, ctranslate2). `llama-cpp-python` riusa le DLL CUDA 12 che arrivano con torch: l'app aggiunge da sola `torch\lib` al PATH. Su un PC senza GPU usa `install.bat -NoGpu`.
+- Le credenziali non fanno mai parte dell'installer e vanno create a mano: token HuggingFace nelle impostazioni dell'app (accetta una volta le condizioni di `pyannote/speaker-diarization-3.1` su huggingface.co), chiave TMDB in `tmdb_api.txt` (cartella del progetto o `~/.transcriberpro/`), facoltativamente `omdb_api.txt`, e le chiavi Claude/OpenAI nelle impostazioni se usi la traduzione cloud.
+- Modelli locali: `install.ps1 -WithModels` scarica da HuggingFace Qwen2.5-14B (GGUF) e NLLB fine-tuned; TranslateGemma fine-tuned non è su un hub e va copiato dal PC di origine. Whisper large-v3, Qwen3-ASR, Demucs e pyannote si scaricano al primo uso.
 
 > Per Tesseract OCR: installa via [scoop](https://scoop.sh) (`scoop install tesseract`) o con l'installer Windows, poi scarica `ita.traineddata` e `eng.traineddata` da [tessdata_best](https://github.com/tesseract-ocr/tessdata_best/tree/main) nella cartella `tessdata/` di Tesseract.
 
