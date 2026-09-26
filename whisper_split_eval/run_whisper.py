@@ -46,6 +46,8 @@ def main() -> int:
     ap.add_argument('--mode', choices=['raw', 'on', 'off'], required=True)
     ap.add_argument('--role', default=None, help='test | dev | eval (default: tutte le finestre EN)')
     ap.add_argument('--limit', type=int, default=0)
+    ap.add_argument('--split-langs', default='en',
+                    help="lingue con lo split per frasi (default 'en' = default di produzione; 'en,it' per la prova italiana)")
     ap.add_argument('--lang', default='en', help="lingua delle finestre da eseguire (default: en)")
     ap.add_argument('--force', action='store_true')
     ap.add_argument('--bench-work', type=Path, default=ASR / 'work',
@@ -63,7 +65,8 @@ def main() -> int:
         print('GPU non libera: ' + '; '.join(reasons))
         return 3
 
-    overrides = {'whisper_split_sentence_aware': args.mode == 'on'}
+    overrides = {'whisper_split_sentence_aware': args.mode == 'on',
+                 'whisper_split_sentence_langs': [x.strip() for x in args.split_langs.split(',') if x.strip()]}
     cfg = sandbox.activate(WORK, overrides=overrides)
     print('opzione whisper_split_sentence_aware =', cfg.get('whisper_split_sentence_aware'))
 

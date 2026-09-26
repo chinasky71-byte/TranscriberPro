@@ -3,6 +3,30 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## [1.22.0] — 2026-09-26
+
+### Split per frasi: regole per l'italiano (pronte e confermate, NON attive di default)
+`core/whisper_sentence_split.py` ha ora un ramo `lang='it'` (abbreviazioni, articoli, preposizioni e
+congiunzioni, locuzioni tipo «quello che»/«solo che», iniziali maiuscole). Il motore legge la lista di lingue
+`whisper_split_sentence_langs` (nuova chiave, default `['en']`): con il default il comportamento non cambia
+(inglese sì, italiano no, altre lingue split originale). Per accenderlo: `"whisper_split_sentence_langs": ["en", "it"]`
+in `~/.transcriberpro/config.json`. Nessuna voce nella GUI.
+- **Effetto misurato sull'italiano** (file interi, Demucs a chunk, Whisper di produzione): blocchi a metà frase
+  46,8% → 11,2% (professionali 10,8%), blocchi che finiscono su articolo/preposizione/congiunzione/ausiliare
+  (controllo indipendente con spaCy) 24,9% → 2,1%, parole identiche, ogni file migliora, blocchi >84 caratteri 1,3% → 0.
+- **Prove:** taratura su 3 file; conferma round 1 su 7 file (NON VINCENTE per un criterio: elisioni con un salto di
+  10-15 s dentro la parola, timestamp errati di Whisper); correzione; conferma round 2 su 8 file NUOVI con regola
+  congelata prima della selezione: VINCENTE. Dettagli, riserve e una nota di trasparenza sull'analisi del round 2 in
+  `whisper_split_eval/README.md` e `whisper_split_eval/results/`.
+- **Riserve:** quasi tutti i file sono film doppiati (l'italiano originale è coperto da 3 file); i sottotitoli
+  professionali dei doppiati sono traduzioni e servono solo per la forma dei blocchi; effetto sulla traduzione e
+  ascolto umano non misurati.
+- **Correzione valida anche per l'inglese:** un token attaccato (elisione, trattino) preceduto da un salto di 9 s
+  o più non appartiene più alla parola precedente. Prima una parola con un timestamp errato (es. «Cos» a 1423 s e
+  «'è» a 1529 s) produceva un blocco di 111 s mostrato 100 s in anticipo. Sull'inglese l'output resta identico su
+  2323 segmenti di 5 campioni; con il default l'inglese di due file della v5 resta identico anche su GPU.
+- **Test:** 76 (fixture con dialoghi reali solo in locale, mai su GitHub: i test relativi si saltano se mancano).
+
 ## [1.21.1] — 2026-09-25
 
 ### Demucs a chunk oltre i 60 minuti (prima 90)

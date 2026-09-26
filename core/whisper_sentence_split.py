@@ -36,8 +36,12 @@ caratteri e <= 6 s) o senza parole vengono restituiti ESATTAMENTE come fa lo
 split originale.
 
 Modulo PURO: solo libreria standard, nessun import del progetto o di torch.
+Lingue: `lang='en'` (default, liste inglesi, comportamento misurato) e
+`lang='it'` (liste italiane in _boundary_type_it; stessi parametri numerici);
+altre lingue -> None (split originale).
 Lo usa FasterWhisperEngine._split_segment_by_words solo se la config ha
-'whisper_split_sentence_aware' = True; in caso di eccezione o risultato non
+'whisper_split_sentence_aware' = True e la lingua del file e' in
+'whisper_split_sentence_langs' (default ['en']); in caso di eccezione o risultato non
 valido il motore prosegue con lo split originale. Per rimuoverlo: cancellare
 questo file e il blocco marcato nel motore.
 """
@@ -64,6 +68,7 @@ DEFAULT_PARAMS: Dict[str, float] = {
     'cost_inside_word': 100.0,  # dentro una parola ("post|-traumatic"): solo se inevitabile
     'pause_s': 1.0,             # pausa fra parole che rende il taglio naturale (0,5 frammentava: +41% blocchi)
     'pause_bonus': 2.0,
+    'glitch_gap_s': 9.0,        # salto temporale dentro una parola (= hard_max_duration): glitch di Whisper, si taglia
     'over_chars_w': 0.3,        # penalita' per carattere oltre max_chars
     'over_dur_w': 1.0,          # penalita' per secondo oltre max_duration
     'wrap3_penalty': 6.0,       # il formatter lo metterebbe su 3+ righe
@@ -128,8 +133,112 @@ def _starts_digit(word: str) -> bool:
     return bool(s) and s[0].isdigit()
 
 
-def boundary_type(word: str, next_word: Optional[str]) -> str:
+# ── regole ITALIANE (lang='it') ──────────────────────────────────────────────
+# Tarate SOLO su 3 file (whisper_split_eval/work_it_runs/raw: Casper, Il
+# diavolo veste Prada, The Bad Guy). Con le liste inglesi l'italiano veniva
+# tagliato dopo articoli/preposizioni/"non" ("del | centro", "Non | mi era mai
+# capitato", "di suo | figlio") e "so" era preso per la congiunzione inglese
+# ("lo | so"). Quello che NON serve codice nuovo, perche' coperto dalle unita'
+# (token senza spazio iniziale -> mai tagli dentro): elisioni ("l" + "'avevo",
+# "dell" + "'umorismo?", "c" + "'è"), migliaia e orari ("1" + ".200" + ".000",
+# "12" + ".30."). Numeri col punto davanti a maiuscola restano FINE FRASE: nei
+# dati sono sempre fini frase ("42. Che", "38. Io", "2001. Una"), nessuna
+# regola per gli ordinali. Abbreviazioni, «», "?!", trattino di battuta,
+# puntini iniziali ("...che": 1 caso): zero o quasi occorrenze nei dati di
+# taratura -> regole a priori (abbreviazioni) o gestione generica gia'
+# esistente (_CLOSERS, _starts_lower), come per l'inglese.
+_ABBREV_IT = frozenset("""
+    sig sigg dott prof avv ing geom arch on mons gen col tel cfr es pag n egr
+    mr mrs ms dr
+""".split())   # a priori: nessuna occorrenza "X." nei dati di taratura. TOLTI "cap" e
+# "art": nei film doppiati sono anche nomi a fine frase (dati: "Sono Cap." in Casper)
+_ABBREV_IT_AMBIG = frozenset(['ecc', 'etc'])   # + minuscola: abbreviazione; + maiuscola: fine frase incerta
+_CONJ_IT = frozenset("""
+    e ed o od oppure ma però perché poiché siccome che cui quando mentre se come dove
+    quindi dunque finché affinché sebbene benché anziché cioè né
+""".split())
+_FUNCTION_IT = frozenset("""
+    il lo la i gli le l un uno una
+    di a ad da in con su per tra fra
+    del dello della dei degli delle al allo alla ai agli alle dal dallo dalla dai dagli dalle
+    nel nello nella nei negli nelle sul sullo sulla sui sugli sulle col coi
+    e ed o ma però perché che cui se come quando mentre dove quindi né
+    mi ti ci vi si ne
+    io tu non
+    è sono sei siamo siete era ero erano sarà ho hai ha abbiamo avete hanno avevo aveva
+    essere avere stato stata
+    posso puoi può devo devi deve dobbiamo
+    mio mia miei mie tuo tua tuoi tue suo sua suoi sue nostro nostra nostri nostre
+    vostro vostra vostri vostre
+    questo questa questi queste quel quei quegli quella quelle
+    molto molta molti molte
+""".split())
+# parole che formano una locuzione con la congiunzione seguente (conteggi sui
+# dati di taratura, parola + congiunzione senza punteggiatura): quello che 37,
+# solo che 8 (+ solo perché 2), cosa che 7, certo che 5, prima che 4, ciò che 3,
+# quelli che 3, anche se 3, più che/più o 4, visto che 2, già che 2, proprio come 2
+_CONJ_GLUE_IT = frozenset("""
+    quello quelli ciò cosa solo prima certo anche più visto già proprio
+""".split())
+
+
+def _boundary_type_it(word: str, next_word: Optional[str]) -> str:
+    c = _core(word)
+    nxt = next_word or ''
+    if next_word is not None and nxt and not nxt[:1].isspace():
+        return INSIDE
+    if not c:
+        return WORD
+    if c.endswith('…') or c.endswith('...'):
+        return SENT_WEAK if _starts_lower(nxt) else SENT
+    last = c[-1]
+    if last in '?!':
+        return SENT_WEAK if _starts_lower(nxt) else SENT
+    if last == '.':
+        body = c[:-1]
+        low = body.lower().lstrip('"\'“‘«(')
+        if low in _ABBREV_IT_AMBIG:
+            return ABBREV if _starts_lower(nxt) or _starts_digit(nxt) else SENT_WEAK
+        if _INITIAL.match(c.lstrip('"\'“‘«(')):
+            # lettera maiuscola + punto: nei dati 3 casi su 3 sono FINE FRASE
+            # ("un piano B. Sai che", "un piano A. È tornata!", "con la O. A me"),
+            # nessuna iniziale di nome staccata (J.K. e' un token attaccato)
+            # -> fine frase incerta, non abbreviazione come in inglese.
+            # Controllata PRIMA di _ABBREV_IT: "N." maiuscolo e' una lettera, non "n." (numero)
+            return SENT_WEAK
+        if low in _ABBREV_IT:
+            return ABBREV
+        # niente regola "No." + cifra (inglese): in italiano "No. 3 volte" e' fine frase
+        if _ACRONYM.match(c.lstrip('"\'“‘«(')):
+            return SENT_WEAK if (nxt.strip()[:1].isupper() and not _starts_lower(nxt)) else ABBREV
+        return SENT_WEAK if _starts_lower(nxt) else SENT
+    if last in ';:':
+        return CLAUSE
+    if last in ',-–—':
+        return COMMA
+    b = _bare(c)
+    # diversamente dall'inglese la parola funzionale PRIMA prevale sulla
+    # congiunzione DOPO ("il motivo per | cui", "il genere di | cui"), e le
+    # locuzioni congiuntive restano unite ("tutto quello | che" x37 nei dati,
+    # "solo | che", "prima | che loro le presentino", "Solo | quando")
+    if b in _FUNCTION_IT:
+        return FUNC
+    if _bare(nxt) in _CONJ_IT:
+        return FUNC if b in _CONJ_GLUE_IT else CONJ
+    return WORD
+
+
+def _norm_lang(lang) -> str:
+    return str(lang or 'en').strip().lower()[:2]
+
+
+SUPPORTED_LANGS = ('en', 'it')
+
+
+def boundary_type(word: str, next_word: Optional[str], lang: str = 'en') -> str:
     """Tipo del confine DOPO `word` (seguita da `next_word`)."""
+    if lang != 'en' and _norm_lang(lang) == 'it':
+        return _boundary_type_it(word, next_word)
     c = _core(word)
     nxt = next_word or ''
     if next_word is not None and nxt and not nxt[:1].isspace():
@@ -196,10 +305,16 @@ def _piece(words: List[dict]) -> dict:
 
 
 def sentence_aware_split(segment: dict, max_chars: int = 80, max_duration: float = 6.0,
-                         params: Optional[Dict[str, float]] = None) -> Optional[List[dict]]:
+                         params: Optional[Dict[str, float]] = None,
+                         lang: str = 'en') -> Optional[List[dict]]:
     """Stessa interfaccia e formato di FasterWhisperEngine._split_segment_by_words:
     lista di dict {start, end, text, words}. Ritorna None se non sa decidere
-    (il chiamante usa allora lo split originale)."""
+    (il chiamante usa allora lo split originale). `lang`: 'en' (default,
+    regole inglesi) o 'it' (regole italiane; anche codici a 3 lettere, si
+    guardano le prime 2); per ogni altra lingua None (nessuna regola misurata)."""
+    lang = _norm_lang(lang)
+    if lang not in SUPPORTED_LANGS:
+        return None
     P = dict(DEFAULT_PARAMS)
     if params:
         P.update(params)
@@ -233,7 +348,14 @@ def sentence_aware_split(segment: dict, max_chars: int = 80, max_duration: float
     # "-doop" + "-a."). Si taglia SOLO fra unita': mai dentro una parola,
     # nemmeno se un'unita' da sola supera i limiti duri (eccezione "pezzo di
     # una sola unita'").
-    ustart = [0] + [k for k in range(1, n) if words[k]['word'][:1].isspace()]
+    # Eccezione: un token attaccato preceduto da un salto >= glitch_gap_s NON appartiene alla stessa
+    # parola (nessuna parola contiene 9 s di silenzio: e' un timestamp errato di Whisper, es. "Cos" a
+    # 1423 s e "'e'" a 1529 s). Senza questa eccezione l'unita' da 106 s trascinava l'intero resto del
+    # segmento in un blocco mostrato 100 s in anticipo.
+    _gg = P['glitch_gap_s']
+    ustart = [0] + [k for k in range(1, n)
+                    if words[k]['word'][:1].isspace()
+                    or float(words[k]['start']) - float(words[k - 1]['end']) >= _gg]
     m = len(ustart)
 
     def tok(u: int) -> int:
@@ -256,7 +378,7 @@ def sentence_aware_split(segment: dict, max_chars: int = 80, max_duration: float
                INSIDE: P['cost_inside_word']}
     for u in range(m - 1):
         k = tok(u + 1) - 1              # ultimo token dell'unita' u
-        t = boundary_type(words[k]['word'], words[k + 1]['word'])
+        t = boundary_type(words[k]['word'], words[k + 1]['word'], lang)
         c = cost_of[t]
         gap = float(words[k + 1]['start']) - float(words[k]['end'])
         if gap >= P['pause_s'] and t not in (ABBREV, INSIDE):

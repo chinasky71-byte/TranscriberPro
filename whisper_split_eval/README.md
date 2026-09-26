@@ -62,3 +62,18 @@ Comandi v4: `select_full.py` -> `run_prepare_loop.sh` (un file per processo: il 
 
 `decision_rule_v5.py` (sha256 `bf5b8911...`, congelata prima di scegliere i file): stessi criteri della v4 piu' (e2) run GPU `on` == ricostruzione offline e (h) controllo negativo di lingua. 8 file inglesi interi mai usati (5 film, 3 episodi) + 1 controllo italiano, Demucs a chunk, un file per processo.
 Esito: midcut 41,6% -> 8,3%, parole identiche (0 segmenti con testo diverso su 658), blocchi >84 car 0,95% -> 0, >2 righe 118 -> 15, >9 s 49 -> 13, opzione spenta bit-identica, (f) OK (blocchi/min 6,3 -> 7,7; professionali 12,1), ogni file migliora, `on` GPU == offline, controllo italiano (628 segmenti) off == on. Verdetto: `results/verdict_v5.json`.
+
+## Italiano (26/09/2026) — regole pronte e confermate, NON attivate di default
+
+Il modulo ha un ramo `lang='it'` (abbreviazioni, articoli/preposizioni/congiunzioni, locuzioni, iniziali) e il motore legge la lista `whisper_split_sentence_langs` (default `['en']`). Per accenderlo: `whisper_split_sentence_langs: ["en", "it"]` in `config.json`.
+
+| Prova | Dati | Esito |
+|---|---|---|
+| Taratura | 3 file (2 film doppiati + 1 serie italiana) | regole sviluppate qui; midcut 36-51% -> 3,5-12% |
+| Round 1, `decision_rule_it.py` | 7 file di conferma validi | NON VINCENTE per un solo criterio su 14: 4 pezzi di una parola >9 s (elisioni "C'era", "Dov'e'" con salto di 10-15 s dentro la parola, timestamp errati di Whisper) sotto la soglia glitch di 18 s |
+| Fix | `glitch_gap_s` 18 -> 9 s (= tetto duro di durata) | verificato offline: inglese bit-identico su 2323 segmenti, sull'italiano cambiano solo i 4 segmenti in causa |
+| Round 2, `decision_rule_it2.py` (congelata prima della selezione) | 8 file NUOVI (5 film doppiati, 3 serie) | VINCENTE: midcut 46,8% -> 11,2% (rapporto 0,238, soglia 0,25), blocchi su parola funzionale (spaCy) 24,9% -> 2,1%, parole identiche, ogni file migliora, regressione inglese/italiano OK |
+
+Nota di trasparenza: nel round 2 la prima analisi dava NON VINCENTE per un taglio dentro parola su un salto di 17,3 s, perche' `analyze_it2.py` classificava i glitch con la soglia 18 s del round 1 invece dei 9 s dichiarati nella regola e nel modulo. Allineata la costante (nessun dato nuovo), il verdetto e' VINCENTE; i due esiti sono in `results/`.
+
+Riserve: la maggior parte dei file e' doppiaggio; l'italiano originale e' coperto da 3 file (The Bad Guy, Sono qui per Caos, Guerrieri); i sottotitoli professionali dei doppiati sono traduzioni, usati solo per forma dei blocchi; effetto sulla traduzione e ascolto umano non misurati. Le fixture con dialoghi reali (`tests/data_*.json`) restano solo in locale.
