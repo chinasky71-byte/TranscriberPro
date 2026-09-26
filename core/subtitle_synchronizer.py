@@ -8,8 +8,10 @@ estratti dai sottotitoli embedded di un video (o da una trascrizione Whisper).
 
 PIPELINE:
     S1  10%  Ancoraggio      — estrae timing di riferimento dal video
-    S2  40%  Ponte Semantico — NLLB traduce anchor EN → IT grezzo
-    S3  80%  Abbinamento     — Qwen2.5-14B-Q4_K abbina anchor-IT → external-IT
+    S2  40%  Allineamento    — [motore 'timing', predefinito] scala/offset globali + offset a tratti sul parlato,
+                               senza LLM (core/timing_aligner.py). Copertura troppo bassa = coppia fallita.
+    S2' 40%  Ponte Semantico — [motore 'llm'] NLLB traduce anchor EN → IT grezzo
+    S3' 80%  Abbinamento     — [motore 'llm'] Qwen2.5-14B-Q4_K abbina anchor-IT → external-IT
     S4  95%  Rifinitura      — costruisce SRT finale + VRAM cleanup
     done 100%
 """
@@ -283,24 +285,10 @@ class SubtitleSynchronizer:
         if output_path:
             self._output_path = Path(output_path)
         else:
-            stem = self.external_srt_path.stem
-            # Rimuove SOLO un suffisso lingua noto (es. "film.it" → "film"),
-            # non un segmento qualunque ≤5 caratteri: un file come
-            # "Movie.2019.1080p.x264.srt" ha stem "Movie.2019.1080p.x264",
-            # e ".x264" (4 char) veniva troncato per errore, perdendo
-            # informazione nel nome del file di output.
-            _KNOWN_LANG_SUFFIXES = {
-                'it', 'ita', 'italian', 'en', 'eng', 'english',
-                'es', 'spa', 'fr', 'fre', 'fra', 'de', 'deu', 'ger',
-                'pt', 'por', 'ru', 'rus', 'ja', 'jpn',
-            }
-            if '.' in stem:
-                base, lang = stem.rsplit('.', 1)
-                if lang.lower() in _KNOWN_LANG_SUFFIXES:
-                    stem = base
-            self._output_path = (
-                self.external_srt_path.parent / f"{stem}.synced.it.srt"
-            )
+            # Definizione UNICA del percorso di output (core/sync_pairing.py): la tabella della coda
+            # multi-file e il file realmente scritto coincidono per costruzione.
+            from core.sync_pairing import default_output_path
+            self._output_path = default_output_path(self.external_srt_path)
 
         self._log_callback      = log_callback
         self._progress_callback = progress_callback
@@ -324,6 +312,14 @@ class SubtitleSynchronizer:
         self._window_size: int = max(2, int(self.config.get('sync_llm_window_size', 20)))
         self._src_language: str = self.config.get('sync_src_language', 'en')
         self._max_offset_sec: float = float(self.config.get('sync_max_offset_sec', 30))
+        # Motore: 'timing' (predefinito, solo tempi, secondi) oppure 'llm' (NLLB + Qwen, vecchio percorso).
+        self._engine: str = str(self.config.get('sync_engine', 'timing')).lower()
+        self._switch_cost: float = float(self.config.get('sync_timing_switch_cost', 5.0))
+        # Indice di sovrapposizione al netto del caso (TimingAlignResult.lift). Misurato su coppie giuste/sbagliate:
+        #   riferimento = sottotitoli incorporati: giuste >= 0.87, sbagliate <= 0.42 -> rifiuto < 0.60, avviso < 0.80
+        #   riferimento = VAD dell'audio:         giuste >= 0.38, sbagliate <= 0.23 -> rifiuto < 0.30, avviso < 0.50
+        self._anchor_kind: str = 'sub'      # 'sub' | 'vad' (impostato da S1)
+        self.last_error: Optional[str] = None
         # Lingua realmente rilevata per l'anchor (stream embedded o Whisper
         # autodetect): sovrascrive _src_language in S2 quando disponibile,
         # vedi _step1_extract_anchors / _step1_whisper_fallback.
@@ -377,21 +373,35 @@ class SubtitleSynchronizer:
 
             self._unload_transcriber()
 
-            # ── S2: Ponte Semantico ───────────────────────────────────────
-            self._log("\n2. Ponte Semantico — traduzione anchor → IT grezzo...")
-            anchors_it = self._step2_translate_anchors(anchors)
-            if anchors_it is None or self._cancelled:
-                if not self._cancelled:
-                    self._log("ERRORE S2: traduzione NLLB fallita.")
-                return False
-            self._log(f"  Traduzione completata: {len(anchors_it)} anchor in italiano.")
-            self._report_progress(self._STEP_PCT['S2'])
+            # ── S2+S3 (motore 'timing', predefinito): allineamento solo temporale, senza LLM ──
+            matches = None
+            if self._engine == 'timing':
+                self._log("\n2. Allineamento — scala/offset globali e offset a tratti sul parlato di riferimento...")
+                matches = self._step23_timing_align(anchors, externals)
+                if self._cancelled:
+                    return False
+                if matches is None:
+                    # Copertura bassa = SRT che non corrisponde al video (episodio o lingua sbagliati): nessun motore
+                    # puo' rimediare (Qwen abbinerebbe righe a caso in un'ora) e scrivere un output sarebbe peggio.
+                    return False
+                self._report_progress(self._STEP_PCT['S2'])
+                self._log("\n3. Controllo — copertura del parlato verificata.")
+            else:
+                # ── S2: Ponte Semantico ───────────────────────────────────
+                self._log("\n2. Ponte Semantico — traduzione anchor → IT grezzo...")
+                anchors_it = self._step2_translate_anchors(anchors)
+                if anchors_it is None or self._cancelled:
+                    if not self._cancelled:
+                        self._log("ERRORE S2: traduzione NLLB fallita.")
+                    return False
+                self._log(f"  Traduzione completata: {len(anchors_it)} anchor in italiano.")
+                self._report_progress(self._STEP_PCT['S2'])
 
-            # ── S3: Abbinamento ───────────────────────────────────────────
-            self._log("\n3. Abbinamento — semantic matching con Qwen...")
-            matches = self._step3_match_subtitles(anchors_it, externals)
-            if self._cancelled:
-                return False
+                # ── S3: Abbinamento ───────────────────────────────────────
+                self._log("\n3. Abbinamento — semantic matching con Qwen...")
+                matches = self._step3_match_subtitles(anchors_it, externals)
+                if self._cancelled:
+                    return False
             tipi = {}
             for m in matches:
                 tipi[m.match_type] = tipi.get(m.match_type, 0) + 1
@@ -587,19 +597,70 @@ class SubtitleSynchronizer:
                         f"(lingua: {selected.get('language', '?').upper()})."
                     )
                     return subs
-            self._log("  Estrazione embedded fallita — provo trascrizione Whisper.")
+            self._log("  Estrazione embedded fallita — ripiego sul parlato dell'audio." if self._engine == 'timing'
+                      else "  Estrazione embedded fallita — provo trascrizione Whisper.")
         else:
             self._log(
                 "  Nessun sottotitolo embedded non-italiano trovato — "
-                "provo trascrizione Whisper."
+                + ("uso il parlato dell'audio come riferimento." if self._engine == 'timing'
+                   else "provo trascrizione Whisper.")
             )
 
         # Whisper fallback
         if not self.config.get('sync_allow_whisper_fallback', True):
-            self._log("  Fallback Whisper disabilitato dalla configurazione.")
+            self._log("  Fallback sul parlato dell'audio disabilitato dalla configurazione.")
             return None
 
+        if self._engine == 'timing':
+            return self._step1_vad_fallback()
         return self._step1_whisper_fallback()
+
+    def _step1_vad_fallback(self) -> Optional[List[SyncSubtitle]]:
+        """
+        Fallback del motore 'timing' quando il video non ha sottotitoli non-italiani: il riferimento e' il
+        PARLATO dell'audio, non il suo testo. Estrae la traccia, isola le voci (Demucs) e ne ricava gli intervalli
+        con Silero VAD (gia' incluso in faster-whisper, CPU). Niente trascrizione: segmenti Whisper da ~20 s
+        producevano maschere troppo grossolane (misurato: 61% entro 0,5 s su un film con musica invadente).
+        La lingua dell'audio e' irrilevante per i soli tempi.
+        """
+        from core.audio_track_selector import AudioTrackSelector
+        from core.audio_processor import AudioProcessor
+
+        selector = AudioTrackSelector(str(self.video_path))
+        stream = selector.select_best_track()
+        if not stream:
+            self._log("  Nessuna traccia audio trovata nel video.")
+            return None
+        audio_path = self.file_handler.get_temp_path(self.video_path, "anchor_audio.wav")
+        if not selector.extract_audio_track(audio_path, stream['index']):
+            self._log("  Estrazione traccia audio fallita.")
+            return None
+        self._audio_processor = AudioProcessor()
+        self._audio_processor.set_log_callback(self._log_callback)
+        self._log("  Separazione vocale (Demucs) per isolare il parlato...")
+        vocals = self._audio_processor.separate_vocals(audio_path)
+        if self._cancelled:
+            return None
+        if not vocals or not Path(vocals).exists():
+            self._log("  Separazione vocale fallita: uso l'audio originale (musica e rumori peggiorano il risultato).")
+            vocals = audio_path
+        try:
+            from faster_whisper.audio import decode_audio
+            from faster_whisper.vad import VadOptions, get_speech_timestamps
+            wave = decode_audio(str(vocals), sampling_rate=16000)
+            stamps = get_speech_timestamps(wave, VadOptions(threshold=0.5, min_speech_duration_ms=250,
+                                                            min_silence_duration_ms=300, speech_pad_ms=100))
+        except Exception as e:
+            self._log(f"  VAD fallito: {e}")
+            return None
+        self._anchor_kind = 'vad'
+        subs = [
+            SyncSubtitle(index=i + 1, start_time=SyncSubtitle._sec_to_ts(st['start'] / 16000.0),
+                         end_time=SyncSubtitle._sec_to_ts(st['end'] / 16000.0), text='(voce)')
+            for i, st in enumerate(stamps)
+        ]
+        self._log(f"  VAD: {len(subs)} intervalli di parlato.")
+        return subs
 
     def _step1_whisper_fallback(self) -> Optional[List[SyncSubtitle]]:
         """Fallback: estrae audio e trascrive con Faster-Whisper."""
@@ -655,6 +716,73 @@ class SubtitleSynchronizer:
 
         self._log("  Trascrizione Whisper completata.")
         return self._parse_srt_file(transcribed_srt)
+
+    # ── STEP 2+3 (motore 'timing') ───────────────────────────────────────────
+
+    def _step23_timing_align(
+        self, anchors: List[SyncSubtitle], externals: List[SyncSubtitle]
+    ) -> Optional[List[MatchResult]]:
+        """
+        Allineamento solo temporale (core/timing_aligner.py): scala+offset globali e offset a tratti, cercando la
+        sovrapposizione fra il parlato dell'SRT esterno e quello dell'anchor. Nessun LLM, nessuna GPU: secondi
+        invece di un'ora. Ritorna None (coppia FALLITA, nessun output) se la copertura del parlato e' sotto soglia:
+        SRT di un altro episodio/lingua o anchor inutilizzabile.
+        """
+        from core import timing_aligner as TA
+
+        ordered = sorted(externals, key=lambda x: x.start_seconds)
+        res = TA.align(
+            [(e.start_seconds, e.end_seconds) for e in ordered],
+            [(a.start_seconds, a.end_seconds) for a in anchors],
+            switch_cost=self._switch_cost,
+            log=self._log,
+        )
+        if res is None:
+            self._log("  Allineamento temporale impossibile (dati insufficienti).")
+            return None
+
+        for note in res.notes:
+            if 'finestra' in note:
+                self._log(f"  ⚠️ {note}.")
+        min_lift, warn_lift = (0.30, 0.50) if self._anchor_kind == 'vad' else (0.60, 0.80)
+        if res.lift < min_lift:
+            self._log(
+                f"ERRORE: l'SRT non corrisponde al video: copertura del parlato {res.mean_coverage:.0%} contro "
+                f"{res.density:.0%} attesa a caso (indice {res.lift:.2f}, minimo {min_lift:.2f}). Episodio o lingua "
+                f"sbagliati? Nessun file scritto."
+            )
+            return None
+        if res.lift < warn_lift:
+            self._log(
+                f"  ⚠️ Risultato dubbio: indice di sovrapposizione {res.lift:.2f} (< {warn_lift:.2f}); copertura "
+                f"{res.mean_coverage:.0%}. Verifica il file (montaggio diverso, molte battute senza riferimento)."
+            )
+
+        matches = [
+            MatchResult(
+                external_index=e.index,
+                anchor_indices=[],
+                new_start_sec=ns,
+                new_end_sec=ne,
+                match_type='timing',
+                confidence=cov,
+            )
+            for e, (ns, ne), cov in zip(ordered, res.new_intervals, res.coverage)
+        ]
+
+        if res.n_pieces > 1:
+            self._log(f"  Rilevati {res.n_pieces} tratti con offset diverso (tagli/scene aggiunte o tolte).")
+        dubious = [(e, c) for e, c in zip(ordered, res.coverage) if c < 0.2]
+        if dubious:
+            def _fmt(t: float) -> str:
+                return f"{int(t // 60)}:{int(t % 60):02d}"
+            pos = ", ".join(_fmt(m.new_start_sec) for m in
+                            [mm for mm, c in zip(matches, res.coverage) if c < 0.2][:6])
+            self._log(
+                f"  {len(dubious)} battute su {len(ordered)} senza parlato di riferimento sotto "
+                f"(dialoghi in altra lingua, canzoni o punti da verificare): {pos}{' …' if len(dubious) > 6 else ''}"
+            )
+        return matches
 
     # ── STEP 2 ────────────────────────────────────────────────────────────────
 
@@ -1818,6 +1946,8 @@ class SubtitleSynchronizer:
 
     def _log(self, message: str) -> None:
         logger.info(message)
+        if message.lstrip().startswith("ERRORE"):
+            self.last_error = message.strip()          # motivo del fallimento, riportato dalla coda (result.json)
         if self._log_callback:
             try:
                 self._log_callback(message)
