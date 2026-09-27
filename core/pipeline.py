@@ -817,6 +817,29 @@ class ProcessingPipeline:
                 # âœ… FIX TRANSLATOR SELECTION: Usa il metodo corretto per leggere il modello dalla config
                 # Leggi il modello di traduzione selezionato dall'utente
                 selected_model = self.config.get_translation_model()
+
+                # Instradamento automatico (v1.25.0): TranslateGemma ('llm') e' stato
+                # addestrato SEMPRE con source_lang_code "en" (vedi Gemma
+                # training/make_dataset.py), anche sulle coppie non inglesi. Misurato
+                # il 27/09/2026 su 140 blocchi francesi: l'etichetta 'en' storica
+                # lascia molto francese non tradotto; l'etichetta vera 'fr' lo
+                # dimezza ma peggiora la fluidita' oltre la soglia della regola
+                # (GEMBA fluency+style +14,3%) -> NON adottata. NLLB fine-tuned sulla
+                # stessa misura batte entrambe (francese residuo quasi azzerato,
+                # fluidita' comparabile): finche' TranslateGemma non e' addestrato
+                # anche su sorgenti non inglesi, si instrada li' automaticamente.
+                # Non tocca la scelta esplicita dell'utente per gli altri motori
+                # (NLLB base, Claude, OpenAI, OpenSubtitles): quelli dichiarano gia'
+                # la lingua sorgente vera nel loro prompt. Dettagli: memoria
+                # traduzione_non_inglese_2026_09_27.md.
+                _routed = self._route_non_english_away_from_llm(
+                    selected_model, source_language_639_1)
+                if _routed != selected_model:
+                    self._log(f"⚠️ TranslateGemma non e' pronto per sorgenti diverse "
+                              f"dall'inglese ({source_language_639_1}): instradato "
+                              f"automaticamente su NLLB fine-tuned.")
+                    selected_model = _routed
+
                 self._log(f"📋 Modello di traduzione selezionato: {selected_model.upper()}")
 
                 # Contesto dell'opera per il traduttore: titolo e trama sono
@@ -1159,6 +1182,25 @@ class ProcessingPipeline:
             # Esegue il cleanup in ogni caso
             self._cleanup()
             
+    @staticmethod
+    def _route_non_english_away_from_llm(selected_model: str, source_lang_639_1: str) -> str:
+        """Instradamento automatico (v1.25.0): se il motore scelto e' TranslateGemma
+        ('llm'/'aya') e la sorgente non e' inglese, ricade su NLLB fine-tuned.
+
+        TranslateGemma e' stato addestrato SEMPRE con source_lang_code "en" (vedi
+        Gemma training/make_dataset.py): su sorgenti diverse dichiara una lingua
+        falsa nel prompt. Misurato il 27/09/2026 su 140 blocchi francesi: NLLB
+        fine-tuned batte sia l'etichetta storica 'en' sia quella vera 'fr' (che
+        dimezza il francese residuo ma peggiora la fluidita' oltre la soglia della
+        regola di misura). Non tocca la scelta esplicita dell'utente per gli altri
+        motori (NLLB base, Claude, OpenAI, OpenSubtitles): dichiarano gia' la
+        lingua sorgente vera nel loro prompt. Vedi memoria
+        traduzione_non_inglese_2026_09_27.md.
+        """
+        if (selected_model or '').lower() in ('llm', 'aya') and source_lang_639_1 != 'en':
+            return 'nllb_finetuned'
+        return selected_model
+
     def _convert_639_1_to_639_2(self, lang_639_1: str) -> str:
         """
         Converte codice ISO 639-1 (2 lettere) in ISO 639-2 (3 lettere)

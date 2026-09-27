@@ -578,12 +578,12 @@ class BaseTranslator(ABC):
         if counters:
             parts = " | ".join(f"{k}: {v}" for k, v in counters.items())
             self.log(f"  Traduzione completata | {parts} | "
-                     f"inglese residuo: {len(flagged)}")
+                     f"lingua di partenza residua: {len(flagged)}")
         if flagged:
             preview = ', '.join(str(i) for i in flagged[:15])
             more = f" (+{len(flagged) - 15} altri)" if len(flagged) > 15 else ""
             self.log(f"  ⚠️ ATTENZIONE: {len(flagged)} blocchi risultano "
-                     f"ancora in inglese: {preview}{more}")
+                     f"ancora nella lingua di partenza: {preview}{more}")
         return flagged
 
     def _apply_glossary_posthoc(self, italian: str, source_en: str) -> str:
@@ -1909,7 +1909,7 @@ class NLLBTranslator(BaseTranslator):
 
                 if confirmed_identical:
                     self.log(f"  {len(confirmed_identical)} blocchi confermati "
-                             f"identici all'inglese da due tentativi "
+                             f"identici alla lingua di partenza da due tentativi "
                              f"indipendenti — non vanno al serbatoio")
 
             # ------------------------------------------------------------
@@ -1933,7 +1933,7 @@ class NLLBTranslator(BaseTranslator):
             # (inglese) in `translated_subtitles`: si segnala ad alta voce.
             for i in recovery_queue:
                 self.log(f"   ⚠️ ATTENZIONE: blocco {i} non tradotto, "
-                         f"resta in inglese: «{recovery_queue[i][:60]}»")
+                         f"resta nella lingua di partenza: «{recovery_queue[i][:60]}»")
 
             srt_content = self._generate_srt(translated_subtitles, dash_flags)
             with open(output_path, 'w', encoding='utf-8') as f:
@@ -2037,6 +2037,18 @@ class LLMSubtitleTranslator(BaseTranslator):
     # limitato dalla lunghezza della risposta, non dai pesi.
     DEFAULT_BATCH_SIZE = 12
 
+    # Codice lingua che il prompt di TranslateGemma dichiara come SORGENTE
+    # (`source_lang_code` del suo chat template), indipendentemente dalla
+    # lingua vera del file:
+    #   'en'          = comportamento storico. L'adattatore LoRA e' stato
+    #                   addestrato SEMPRE con source_lang_code "en", anche su
+    #                   coppie non inglesi: e' la configurazione misurata.
+    #   None / 'auto' = usa la lingua sorgente reale (`src` di translate_file).
+    #   altra stringa = codice forzato (es. 'fr').
+    # Un chiamante puo' cambiarlo su una singola istanza dopo la creazione
+    # (`tr.source_label = 'fr'`) senza toccare la classe.
+    SOURCE_LABEL: Optional[str] = 'en'
+
     # Serbatoio (L3) per il ramo LLM: NLLB fine-tuned.
     #
     # MISURATO su 39 righe dense di glossario (15 righe reali del serbatoio di
@@ -2065,6 +2077,43 @@ class LLMSubtitleTranslator(BaseTranslator):
         self._adapter = self._configured_adapter()
         self._model_path = self._configured_model_path()
         self._engine = None
+        # Copia d'istanza di SOURCE_LABEL: modificabile per singola istanza.
+        self.source_label = self.SOURCE_LABEL
+
+    # Forma dei codici ammessi come etichetta forzata: 2-3 lettere, con
+    # eventuale sottotipo ('pt_BR' — il chat template sostituisce "_" con "-").
+    # Non e' l'elenco delle lingue del template (non si legge il file): e' solo
+    # una guardia sulla FORMA contro valori palesemente sbagliati (stringa
+    # vuota, numeri, frasi). Le chiavi del template sono sensibili alle
+    # maiuscole ('pt-BR') e ci sono solo codici ISO 639-1: per questo i codici
+    # a 3 lettere o in maiuscolo ('fra', 'FR') si riportano prima a 639-1 con
+    # LANGUAGE_CODES. Un codice ben formato ma assente dal template (es. 'xyz')
+    # fa sollevare un errore Jinja: `_translate_mt` lo lascia risalire invece
+    # di svuotare in silenzio ogni batch (vedi la', TemplateError).
+    _SOURCE_LABEL_RE = re.compile(r'^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})?$')
+
+    @staticmethod
+    def _resolve_source_label(src: Optional[str],
+                              source_label: Optional[str]) -> str:
+        """Sceglie il codice lingua sorgente da scrivere nel prompt.
+
+        `source_label` None o 'auto' -> la lingua reale (`src`); qualunque
+        altro valore valido -> quel codice (default 'en', comportamento
+        storico). Codici 639-2 / maiuscoli ('fra', 'FR') diventano 639-1
+        ('fr'). Se il risultato non ha la forma di un codice lingua ricade su
+        'en' con un avviso: meglio il prompt storico che un errore del chat
+        template su tutti i blocchi del file.
+        """
+        label = src if source_label in (None, 'auto') else source_label
+        if isinstance(label, str):
+            label = label.strip()
+            label = LLMSubtitleTranslator.LANGUAGE_CODES.get(label.lower(), label)
+        if (not isinstance(label, str)
+                or not LLMSubtitleTranslator._SOURCE_LABEL_RE.match(label)):
+            logger.warning(f"Etichetta lingua sorgente '{label}' non valida: "
+                           f"uso 'en'")
+            return 'en'
+        return label
 
     @staticmethod
     def _configured_model(default_key: str) -> str:
@@ -2224,12 +2273,24 @@ class LLMSubtitleTranslator(BaseTranslator):
                                       model_path=self._model_path)
             self._engine = engine
 
+            # Lingua sorgente dichiarata nel prompt: 'en' di default (come
+            # l'adattatore e' stato addestrato), la lingua vera solo se
+            # `source_label` e' None/'auto'. Vale per tutti i giri (primo,
+            # retry singolo, L2), che passano da `_mt_prompt`.
+            _richiesta = getattr(self, 'source_label', self.SOURCE_LABEL)
+            label = self._resolve_source_label(src, _richiesta)
+            if _richiesta not in (None, 'auto') and label != _richiesta:
+                self.log(f"  ⚠️ Etichetta lingua sorgente '{_richiesta}' non "
+                         f"valida: uso '{label}'")
+            if label != 'en':
+                self.log(f"  Lingua sorgente nel prompt: {label}")
             translator = SubtitleLLMTranslator(
                 engine=engine,
                 fallback=None,   # il ripiego passa dalle fasi B/C sotto
                 batch_size=self.DEFAULT_BATCH_SIZE,
                 log_callback=self.log,
                 glossary=self.glossary,
+                source_lang=label,
             )
             translated = translator.translate(units)
 
@@ -2338,7 +2399,7 @@ class LLMSubtitleTranslator(BaseTranslator):
 
                 if confirmed_identical:
                     self.log(f"  {len(confirmed_identical)} blocchi confermati "
-                             f"identici all'inglese da due tentativi "
+                             f"identici alla lingua di partenza da due tentativi "
                              f"indipendenti — non vanno al serbatoio")
 
             # ------------------------------------------------------------
@@ -2368,7 +2429,7 @@ class LLMSubtitleTranslator(BaseTranslator):
             # ------------------------------------------------------------
             for idx in pending:
                 self.log(f"   ⚠️ ATTENZIONE: blocco {idx} non tradotto, "
-                         f"resta in inglese: «{originals[idx][:60]}»")
+                         f"resta nella lingua di partenza: «{originals[idx][:60]}»")
                 resolved[idx] = originals[idx]
 
             output = []
