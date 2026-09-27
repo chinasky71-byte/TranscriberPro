@@ -80,8 +80,23 @@ def convert_and_translate(ocr, events, content_lang: str, log_callback=None) -> 
 
     _log(f"⚙️ OCR — Traduzione {content_lang}→it...")
     try:
-        from core.translator import get_translator
-        translator = get_translator()
+        from core.translator import get_translator, route_non_english_away_from_llm
+        # Instradamento automatico (v1.25.0): questo percorso (OCR bitmap, coda
+        # principale E Library Scanner) chiama get_translator() a parte dallo
+        # STEP 6 di core/pipeline.py, quindi ha bisogno dello stesso instradamento
+        # esplicito. Senza, un PGS/VOBSUB francese finirebbe comunque su
+        # TranslateGemma etichettato "en" (vedi traduzione_non_inglese_2026_09_27.md).
+        try:
+            from utils.config import get_config
+            model_type = get_config().get_translation_model()
+        except Exception:
+            model_type = None
+        routed = route_non_english_away_from_llm(model_type, content_lang) if model_type else None
+        if routed and routed != model_type:
+            _log(f"⚠️ TranslateGemma non e' pronto per sorgenti diverse "
+                 f"dall'inglese ({content_lang}): instradato automaticamente "
+                 f"su NLLB fine-tuned.")
+        translator = get_translator(model_type=routed or model_type)
         ok = translator.translate_file(
             Path(src_path), it_path, src_lang=content_lang, tgt_lang='it')
         try:
