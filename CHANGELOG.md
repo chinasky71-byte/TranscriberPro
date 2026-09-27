@@ -3,6 +3,26 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.25.0 — 2026-09-27 — Traduzione da lingue non inglesi: instradamento automatico su NLLB fine-tuned
+
+- **Instradamento automatico (`core/pipeline.py::_route_non_english_away_from_llm`):** quando il motore selezionato è
+  TranslateGemma (`translation_model='llm'`, incluso l'alias storico `'aya'`) e la lingua sorgente rilevata NON è
+  l'inglese, la traduzione passa automaticamente a NLLB fine-tuned, con un avviso a schermo. TranslateGemma è stato
+  addestrato SEMPRE con `source_lang_code: "en"` nel prompt, anche sulle coppie non inglesi: su una sorgente diversa
+  dichiara una lingua falsa. Non tocca la scelta esplicita dell'utente per gli altri motori (NLLB base, Claude, OpenAI,
+  OpenSubtitles), che dichiarano già la lingua sorgente vera nel proprio prompt.
+- **Misura (140 blocchi reali, audio francese, giudice GEMBA-MQM + revisione umana cieca su 203 blocchi):** passare
+  l'etichetta vera `fr` a TranslateGemma dimezza il francese lasciato non tradotto (42→19 su 140) ma peggiora la
+  fluidità oltre la soglia fissata prima di misurare (GEMBA fluency+style +14,3%, soglia +10%): **non adottata**. NLLB
+  fine-tuned, sullo stesso materiale, batte entrambe le etichette su ogni fronte misurato (1 blocco residuo su 140,
+  migliore fedeltà, fluidità comparabile).
+- **Correzione di un difetto reale nel percorso TranslateGemma** (resta in produzione, indipendente dall'esito sopra):
+  la guardia sul codice lingua forzato accettava valori (`'fra'`, `'fre'`, `'FR'`) che non sono chiavi del chat
+  template del modello (solo ISO 639-1) e ne facevano fallire la generazione con un errore inghiottito in silenzio —
+  il file intero finiva svuotato al serbatoio senza nessun avviso. Ora normalizza il codice e fa risalire l'errore
+  invece di ripeterlo su ogni gruppo di blocchi.
+- Test: `test_translation_routing.py`, `test_llm_source_label.py`.
+
 ## 1.24.0 — 2026-09-26 — Subtitle Sync: coda multi-file e nuovo motore solo-tempi
 
 - **Nuovo motore di allineamento (predefinito, `sync_engine='timing'`):** `core/timing_aligner.py` sostituisce NLLB+Qwen.

@@ -60,11 +60,21 @@ class SubtitleLLMTranslator:
         batch_size: int = DEFAULT_BATCH,
         log_callback: Optional[Callable] = None,
         glossary: Optional[Dict[str, str]] = None,
+        source_lang: str = "en",
     ):
         """
         `fallback`: funzione che traduce una lista di testi. Riceve i blocchi
         che l'LLM non è riuscito a produrre. Se assente, quei blocchi restano
         vuoti e vengono segnalati.
+
+        `source_lang`: codice lingua che il motore scrive nel prompt come
+        lingua di partenza (`source_lang_code` del chat template di
+        TranslateGemma). Il default "en" è il comportamento storico: prima di
+        questo argomento il codice era fisso a "en" qualunque fosse la lingua
+        reale del sottotitolo. Viaggia in `_mt_prompt`, che è il punto unico da
+        cui passano il primo giro, il retry singolo e il recupero L2 (che
+        richiama `_translate_mt`): cambia solo il codice, mai il testo delle
+        istruzioni.
 
         `glossary`: rete di sicurezza indipendente dal mascheramento a monte
         (core/translator.py._mask_glossary) — qui `unit.text` è già la
@@ -76,6 +86,7 @@ class SubtitleLLMTranslator:
         self.fallback = fallback
         self.log_callback = log_callback
         self.glossary = glossary or {}
+        self.source_lang = source_lang or "en"
 
         # Il tetto lo detta il modello, non il chiamante: un 12B quantizzato
         # lascia poco più di 4 GB liberi, e lo stesso batch che un 8B regge
@@ -419,16 +430,31 @@ class SubtitleLLMTranslator:
         Il budget di caratteri viaggia insieme al testo: il percorso "adapt" lo
         passava da sempre dentro il prompt, questo no, ed era il motivo per cui
         i modelli MT scrivevano battute che non stavano sullo schermo.
+
+        Anche la lingua di partenza viaggia qui (`self.source_lang`): era
+        sempre il default "en" del motore, anche per un file francese.
         """
         builder = getattr(self.engine, "mt_messages", None)
         if builder is None:
             return build_mt_messages(unit)
+        # `getattr` e non `self.source_lang`: le istanze costruite con
+        # `__new__` (test, sonde) non passano da `__init__`.
+        src = getattr(self, "source_lang", "en")
         try:
-            return builder(unit.text, budget=unit.budget)
+            return builder(unit.text, src_lang=src, budget=unit.budget)
         except TypeError:
-            # Motore con la firma vecchia: meglio un prompt senza budget che
-            # una traduzione mancata.
-            return builder(unit.text)
+            # Motore con la firma vecchia: meglio un prompt senza budget (e
+            # senza lingua) che una traduzione mancata. Si scala di un
+            # gradino alla volta: prima si toglie la lingua tenendo il budget
+            # (firma intermedia), poi anche il budget.
+            if src != "en" and not getattr(self, "_warned_src_drop", False):
+                self._warned_src_drop = True
+                self.log(f"  ⚠️ Il motore non accetta src_lang: lingua "
+                         f"'{src}' ignorata, prompt con 'en'")
+            try:
+                return builder(unit.text, budget=unit.budget)
+            except TypeError:
+                return builder(unit.text)
 
     def _translate_mt(self, units: Sequence[SubtitleUnit]) -> Dict[int, str]:
         """Percorso per i modelli MT specializzati.
@@ -459,6 +485,15 @@ class SubtitleLLMTranslator:
                                                max_new_tokens=max_new)
                 self._record_ok()
             except Exception as exc:
+                # Un prompt invalido (es. codice lingua assente dal chat
+                # template) e' deterministico: ripeterlo su ogni batch e poi su
+                # L2/L3 svuoterebbe in silenzio tutto il file. Si ferma subito.
+                try:
+                    import jinja2
+                    if isinstance(exc, jinja2.TemplateError):
+                        raise
+                except ImportError:
+                    pass
                 logger.warning(f"Generazione MT fallita su {len(batch)} "
                                f"blocchi: {exc}")
                 self._record_failure(exc)
