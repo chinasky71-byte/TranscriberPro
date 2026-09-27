@@ -3,6 +3,16 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.25.1 — 2026-09-27 — Traduttore LLM: il secondo giro non accetta più blocchi bocciati due volte
+
+- **Difetto corretto (`core/translator.py`, fase L2 di `LLMSubtitleTranslator.translate_file`):** un blocco bocciato
+  dal validatore al primo giro e di nuovo al secondo (degenerato, lingua sbagliata, copia del sorgente) veniva contato
+  come "recuperato" e finiva nel sottotitolo. Il controllo calcolava i bocciati del secondo giro come differenza fra
+  due insiemi, e un blocco già bocciato al primo non risultava "nuovo". Ora il secondo giro registra i propri
+  bocciati a parte (`_run_with_isolated_unresolved`) e quei blocchi passano al serbatoio. Trovato su una battuta
+  tedesca uscita come "So, so. So, so. So, so. So, so."; vale per ogni lingua, inglese compreso.
+- Test: `test_l2_retry.py`. Non ancora verificato su un film inglese intero.
+
 ## 1.25.0 — 2026-09-27 — Traduzione da lingue non inglesi: instradamento automatico su NLLB fine-tuned
 
 - **Instradamento automatico (`core/pipeline.py::_route_non_english_away_from_llm`):** quando il motore selezionato è
