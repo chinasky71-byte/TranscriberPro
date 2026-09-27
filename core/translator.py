@@ -2116,6 +2116,30 @@ class LLMSubtitleTranslator(BaseTranslator):
         return label
 
     @staticmethod
+    def _run_with_isolated_unresolved(translator, fn):
+        """Esegue `fn` (un giro di traduzione) con `translator.unresolved_ids`
+        VUOTO e restituisce (risultato, id bocciati in QUESTO giro); alla fine
+        ripristina l'unione con gli id gia' presenti.
+
+        Serve alla fase L2. Prima si calcolava il delta
+        `unresolved_ids - seen_before`: ma un blocco gia' bocciato in L1 E di
+        nuovo in L2 non e' "nuovo" (aggiungerlo a un set che lo contiene gia'
+        non cambia nulla), quindi spariva dal delta e L2 lo promuoveva come
+        "recuperato" — proprio il caso che il controllo doveva fermare.
+        Trovato il 27/09/2026: su un estratto tedesco e' passato cosi'
+        "So, so. So, so. So, so. So, so." con l'audit "recuperati L2: 1".
+        Vale per tutte le lingue, inglese compreso.
+        """
+        before = set(translator.unresolved_ids)
+        translator.unresolved_ids = set()
+        try:
+            result = fn()
+            flagged = set(translator.unresolved_ids)
+        finally:
+            translator.unresolved_ids = before | translator.unresolved_ids
+        return result, flagged
+
+    @staticmethod
     def _configured_model(default_key: str) -> str:
         """Quale modello occupa lo slot. Chiave di config, così cambiarlo non
         richiede toccare il codice.
@@ -2350,9 +2374,9 @@ class LLMSubtitleTranslator(BaseTranslator):
                     # non è vuoto e non è identico al sorgente — senza questo
                     # controllo L2 poteva promuovere un output peggiore di
                     # quello che stava sostituendo.
-                    seen_before = set(translator.unresolved_ids)
                     work, rebuild = translator._expand_dialogue(retry_units)
-                    raw_l2 = translator._translate_mt(work)
+                    raw_l2, l2_ids = self._run_with_isolated_unresolved(
+                        translator, lambda: translator._translate_mt(work))
                     # `_expand_dialogue` conia id sintetici sopra il massimo
                     # degli id che riceve: quelli finiti in `unresolved_ids`
                     # vanno riportati al blocco padre, o il rifiuto colpirebbe
@@ -2360,8 +2384,7 @@ class LLMSubtitleTranslator(BaseTranslator):
                     parent_of = {pid: orig
                                  for orig, parts in rebuild.items()
                                  for pid, _ in parts}
-                    l2_bad = {parent_of.get(i, i)
-                              for i in (translator.unresolved_ids - seen_before)}
+                    l2_bad = {parent_of.get(i, i) for i in l2_ids}
                     raw_l2 = translator._rebuild_dialogue(raw_l2, rebuild)
                     from core.llm_subtitle_translator import postprocess
                     raw_l2 = postprocess.process(
