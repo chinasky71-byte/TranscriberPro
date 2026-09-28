@@ -106,6 +106,19 @@ class Config:
         
         # Whisper model configuration
         'whisper_model': 'large-v3',
+        # Modello Whisper specializzato per lingua (ISO 639-1). In modalita' 'auto' queste
+        # lingue vanno su faster-whisper con il modello indicato invece che su Qwen3/Canary.
+        # Valore: id HF ("utente/repo"), id HF con sottocartella ("utente/repo/sottocartella")
+        # o percorso locale di una cartella CTranslate2. Se il caricamento fallisce si usa
+        # 'whisper_model'. fr: misura del 28/09/2026 (mt_eval/asr_fr/RESULT.md); de: scelta
+        # dell'utente, NON misurata.
+        'whisper_model_by_language': {
+            'fr': 'bofenghuang/whisper-large-v3-french/ctranslate2',
+            # de: primeline/whisper-large-v3-german convertito CT2 float16; il model.bin di
+            # questo repo e' identico byte per byte alla nostra conversione (sha 318956c2...),
+            # repo non gated (reality-interface, stesso file, chiede l'accesso: 401).
+            'de': 'TiMoMuc/whisper-large-v3-german-ct2',
+        },
         'whisper_device': 'auto',
         'whisper_compute_type': 'auto',
         

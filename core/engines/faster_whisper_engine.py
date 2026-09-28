@@ -51,6 +51,11 @@ class FasterWhisperEngine(TranscriptionEngine):
 
         self.faster_whisper_model = None
         self.vad_available = False
+        # Lingua prevista (ISO 639-1): sceglie il modello specializzato gia' al
+        # pre-load dello STEP 2.5; loaded_model = modello effettivamente in VRAM.
+        self.language_hint: Optional[str] = None
+        self.loaded_model: Optional[str] = None
+        self._failed_models: set = set()   # modelli per lingua gia' falliti in questo processo
 
         # Carica parametri profilo (num_workers, beam_size)
         self._load_profile_params()
@@ -95,6 +100,51 @@ class FasterWhisperEngine(TranscriptionEngine):
     def supports_language(cls, lang_639_1: Optional[str]) -> bool:
         # Fallback universale: qualsiasi lingua, incluso auto-detect (None)
         return True
+
+    # ------------------------------------------------------------------
+    # Modello per lingua (whisper_model_by_language)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def language_model_spec(config, lang_639_1: Optional[str]) -> Optional[str]:
+        """Modello specializzato configurato per la lingua, o None."""
+        from core.engine_router import normalize_language
+        lang_639_1 = normalize_language(lang_639_1)
+        if not lang_639_1:
+            return None
+        table = config.get('whisper_model_by_language', {}) or {}
+        spec = table.get(str(lang_639_1).lower().strip()) if isinstance(table, dict) else None
+        return str(spec).strip() if spec else None
+
+    def _target_model(self, lang_639_1: Optional[str]) -> str:
+        default_model = self.config.get('whisper_model', 'large-v3')
+        spec = self.language_model_spec(self.config, lang_639_1)
+        return spec if spec and spec not in self._failed_models else default_model
+
+    @staticmethod
+    def _resolve_model_path(spec: str) -> str:
+        """
+        Converte la specifica in qualcosa che WhisperModel sa caricare.
+
+        - cartella locale esistente o nome standard ('large-v3')  -> invariato
+        - 'utente/repo'                -> invariato (download nativo di faster-whisper)
+        - 'utente/repo/sottocartella'  -> snapshot della sola sottocartella nella
+          cache HF, restituisce il percorso locale (faster-whisper cerca i file
+          CTranslate2 solo nella radice del repo).
+        """
+        if Path(spec).exists() or spec.count('/') < 2:
+            return spec
+        owner, repo, sub = spec.split('/', 2)
+        from huggingface_hub import snapshot_download
+        repo_id = f"{owner}/{repo}"
+        kw = dict(allow_patterns=[f"{sub}/*"], cache_dir=HF_HUB_CACHE_DIR)
+        try:
+            root = snapshot_download(repo_id, local_files_only=True, **kw)
+        except Exception:
+            root = snapshot_download(repo_id, **kw)
+        path = Path(root) / sub
+        if not (path / 'model.bin').exists():
+            raise FileNotFoundError(f"model.bin assente in {path}")
+        return str(path)
 
     # ------------------------------------------------------------------
     # Profili
@@ -164,43 +214,32 @@ class FasterWhisperEngine(TranscriptionEngine):
             # incompatibile e chiama std::abort() silenziosamente.
             # Il cleanup pre-load è gestito da unload() prima del reload.
 
-            model_size = self.config.get('whisper_model', 'large-v3')
+            default_model = self.config.get('whisper_model', 'large-v3')
+            model_size = self._target_model(self.language_hint)
+            specialized = model_size != default_model
 
             self.log(f"  📦 Caricamento modello {model_size}...")
             self.log(f"  ⚙️ Profilo: {self.profile_name}")
             self.log(f"  👷 Workers: {self.num_workers} | 🎯 Beam: {self.beam_size}")
 
-            if self.device == "cuda":
-                # int8_float16: pesi INT8 (~1.5GB vs ~3GB float16), compute FP16.
-                # Più robusto dopo Demucs (VRAM frammentata) — qualità identica.
-                compute_type = "int8_float16"
-                device_index = 0
-
-                import gc
-                gc.collect()
-
-                self.faster_whisper_model = WhisperModel(
-                    model_size,
-                    device="cuda",
-                    device_index=device_index,
-                    compute_type=compute_type,
-                    num_workers=self.num_workers,
-                    cpu_threads=self.num_workers,
-                    download_root=HF_HUB_CACHE_DIR,
-                )
-
-                self.log(f"  ✅ Modello {model_size} caricato su CUDA con {self.num_workers} workers")
-            else:
-                self.faster_whisper_model = WhisperModel(
-                    model_size,
-                    device="cpu",
-                    compute_type="int8",
-                    num_workers=self.num_workers,
-                    cpu_threads=self.num_workers,
-                    download_root=HF_HUB_CACHE_DIR,
-                )
-
-                self.log(f"  ✅ Modello {model_size} caricato su CPU con {self.num_workers} workers")
+            try:
+                self.faster_whisper_model = self._create_model(
+                    self._resolve_model_path(model_size) if specialized else model_size)
+            except Exception as e:
+                if not specialized:
+                    raise
+                # Il modello specializzato non deve MAI far fallire il file:
+                # si ripiega sul modello generico configurato.
+                self.log(f"  ⚠️ Modello {model_size} non caricabile ({e}) → uso {default_model}")
+                logger.warning(f"Modello per lingua '{model_size}' fallito: {e}", exc_info=True)
+                self._failed_models.add(model_size)
+                self.faster_whisper_model = None
+                import gc; gc.collect()
+                model_size = default_model
+                self.faster_whisper_model = self._create_model(model_size)
+            self.loaded_model = model_size
+            where = "CUDA" if self.device == "cuda" else "CPU"
+            self.log(f"  ✅ Modello {model_size} caricato su {where} con {self.num_workers} workers")
 
             # VAD check sul WhisperModel puro (prima del wrapping)
             self._check_vad_availability()
@@ -220,12 +259,39 @@ class FasterWhisperEngine(TranscriptionEngine):
             logger.error(error_msg, exc_info=True)
             raise
 
+    def _create_model(self, model_path: str):
+        """WhisperModel con i parametri storici (int8_float16 su CUDA, int8 su CPU)."""
+        from faster_whisper import WhisperModel
+        if self.device == "cuda":
+            # int8_float16: pesi INT8 (~1.5GB vs ~3GB float16), compute FP16.
+            # Più robusto dopo Demucs (VRAM frammentata) — qualità identica.
+            import gc
+            gc.collect()
+            return WhisperModel(
+                model_path,
+                device="cuda",
+                device_index=0,
+                compute_type="int8_float16",
+                num_workers=self.num_workers,
+                cpu_threads=self.num_workers,
+                download_root=HF_HUB_CACHE_DIR,
+            )
+        return WhisperModel(
+            model_path,
+            device="cpu",
+            compute_type="int8",
+            num_workers=self.num_workers,
+            cpu_threads=self.num_workers,
+            download_root=HF_HUB_CACHE_DIR,
+        )
+
     def unload(self):
         """Pulizia risorse GPU (identica a cleanup() v3.5)"""
         try:
             if self.faster_whisper_model:
                 del self.faster_whisper_model
                 self.faster_whisper_model = None
+            self.loaded_model = None
             import gc; gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
@@ -274,6 +340,15 @@ class FasterWhisperEngine(TranscriptionEngine):
         # con la facade core/transcriber.py
         from core.transcriber import save_srt_file
 
+        # Modello specializzato per la lingua (whisper_model_by_language): se in
+        # VRAM c'e' un modello diverso (pre-load senza lingua, fallback da un
+        # altro engine, lingua corretta a valle) si ricarica quello giusto.
+        want = self._target_model(language)
+        if self.faster_whisper_model is not None and self.loaded_model not in (None, want):
+            self.log(f"  🔄 Cambio modello Whisper per la lingua '{language}': "
+                     f"{self.loaded_model} → {want}")
+            self.unload()
+        self.language_hint = language
         if self.faster_whisper_model is None:
             self.load()
 
