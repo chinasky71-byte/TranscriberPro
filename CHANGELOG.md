@@ -3,6 +3,36 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.28.0 — 2026-09-28 — Split per frasi anche in tedesco
+
+- **`core/whisper_sentence_split.py`**: regole tedesche (`_boundary_type_de`, `SUPPORTED_LANGS` + `de`), con nomi
+  locali per non toccare en/it/fr:
+  - i sostantivi sono sempre maiuscoli: nei casi ambigui (numero, lettera o sigla seguiti dal punto) decide la
+    parola dopo, con una lista di aperture di frase che non sono sostantivi;
+  - ordinali ("am 3. Mai");
+  - "z. B." diviso in due parole;
+  - "ss" al posto di "ß", come scrive il modello primeline;
+  - virgolette „“ ‚‘ »«;
+  - le parole funzionali che possono chiudere una frase prima di una congiunzione ("was ich gesehen habe | und").
+- **Difetto evitato:** i codici lingua a 3 lettere venivano tagliati alle prime 2 lettere, e `ger` diventava `ge`:
+  il tedesco non si sarebbe mai acceso. Ora c'è una mappa esplicita, sia nel modulo sia nel motore
+  (`faster_whisper_engine`).
+- **Acceso di default** (`whisper_split_sentence_langs` = `["en", "it", "fr", "de"]`). La migrazione della config ora
+  è per revisione (`_SPLIT_LANGS_BY_REV`, marcatore rev 3): una config con il default della propria revisione riceve
+  le lingue nuove e viene salvata; le liste personalizzate non si toccano.
+- **Misura** (`whisper_split_eval/`). La misura principale è nuova, `naked_cuts.py`: conta i tagli senza punteggiatura
+  né congiunzione e non si basa sulla minuscola, che in tedesco non funziona.
+  - Taratura su 3 film: 45,0% → 3,3%.
+  - Conferma su 8 film tedeschi originali mai usati: **37,0% → 2,7%** (sottotitoli professionali 1,9%), in calo in
+    ogni film.
+  - Altri dati di conferma: blocchi di più di 2 righe 248 → 37, blocchi oltre 9 s 76 → 37, testo identico; inglese,
+    italiano e francese invariati bit per bit.
+  - Verdetto formale: **non vincente** per un solo sotto-criterio, la densità per film. In *Vi presento Toni Erdmann*
+    il sottotitolo tedesco è parziale (511 battute su 162 minuti); in *Funny Games* il confronto è con i sottotitoli
+    italiani, 7,1 contro 7,0 blocchi al minuto.
+  - **Acceso per scelta dell'utente.** Esito in `whisper_split_eval/results/esito_de_2026-09-28.md`.
+- `split_eval/midcut.py`: parole di continuazione tedesche, codici `ger`/`deu`, virgolette „‚ in apertura.
+
 ## 1.27.0 — 2026-09-28 — Split per frasi anche in francese
 
 - **`core/whisper_sentence_split.py`**: regole francesi (`_boundary_type_fr`, `SUPPORTED_LANGS` + `fr`):

@@ -99,10 +99,12 @@ class Config:
         # di conferma), italiano (regole proprie, confermate su 2 set di file interi, soprattutto
         # film doppiati) e francese (v1.27.0: regole proprie; conferma su 9 film "non vincente" per
         # il criterio che conta anche i tagli su virgola, tagli senza punteggiatura 41,6% -> 2,1%;
-        # acceso per scelta dell'utente). Le altre lingue usano sempre lo split originale.
-        'whisper_split_sentence_langs': ['en', 'it', 'fr'],
+        # acceso per scelta dell'utente) e tedesco (v1.28.0: regole proprie; conferma su 8 film: tagli senza
+        # punteggiatura ne' congiunzione 37,0% -> 2,7%, "non vincente" per un sotto-criterio di densita'; acceso per
+        # scelta dell'utente). Le altre lingue usano sempre lo split originale.
+        'whisper_split_sentence_langs': ['en', 'it', 'fr', 'de'],
         # Versione della lista sopra gia' applicata a questa config (migrazione una tantum in load()).
-        'whisper_split_sentence_langs_rev': 2,
+        'whisper_split_sentence_langs_rev': 3,
 
         # FFmpeg whisper settings (solo se transcription_method == 'ffmpeg')
         'ffmpeg_model_path': '',
@@ -329,12 +331,12 @@ class Config:
                 with open(self.CONFIG_FILE, 'r', encoding='utf-8') as f:
                     loaded = json.load(f)
                 self.settings = self._merge_defaults(loaded)
-                self._migrate_split_langs(loaded)
+                migrated = self._migrate_split_langs(loaded)
                 # Se abbiamo aggiunto nuovi default (come 'aya_model_download_status'), salva.
                 # FUORI dal with: su Windows os.replace (salvataggio atomico) fallisce con
                 # WinError 5 se lo stesso processo ha ancora il file aperto, e il salvataggio
                 # non avveniva mai (con 2,4 s di tentativi persi a ogni avvio).
-                if len(self.settings) > len(loaded):
+                if len(self.settings) > len(loaded) or migrated:
                     self.save()
             except Exception as e:
                 print(f"⚠️ Error loading config: {e}")
@@ -351,17 +353,25 @@ class Config:
             self.settings = self.DEFAULTS.copy()
             self.save()
     
-    def _migrate_split_langs(self, loaded: dict) -> None:
-        """v1.27.0: aggiunge 'fr' a whisper_split_sentence_langs UNA volta sola, e solo se la config
-        salvata ha ancora il default precedente ['en', 'it'] (il load salva i default nella config, quindi
-        cambiare DEFAULTS non basterebbe). Una lista personalizzata non si tocca; dopo la migrazione il
-        marcatore 'whisper_split_sentence_langs_rev' impedisce di rifarla se l'utente toglie 'fr'."""
-        if int(loaded.get('whisper_split_sentence_langs_rev', 1) or 1) >= 2:
-            return
+    # default di whisper_split_sentence_langs per revisione (rev 1 = prima della migrazione, config salvate fino
+    # alla v1.26.0): una config che ha ancora il default della SUA revisione passa al default attuale
+    _SPLIT_LANGS_BY_REV = {1: ['en', 'it'], 2: ['en', 'it', 'fr']}
+
+    def _migrate_split_langs(self, loaded: dict) -> bool:
+        """Migrazione una tantum di whisper_split_sentence_langs (v1.27.0: +fr, v1.28.0: +de). Il load salva i
+        default nella config, quindi cambiare DEFAULTS non basterebbe. Si aggiorna solo se la lista salvata e' ancora
+        il default della revisione con cui e' stata salvata; una lista personalizzata non si tocca. Il marcatore
+        'whisper_split_sentence_langs_rev' impedisce di rifarla (se l'utente toglie una lingua, resta tolta)."""
+        target = int(self.DEFAULTS['whisper_split_sentence_langs_rev'])
+        rev = int(loaded.get('whisper_split_sentence_langs_rev', 1) or 1)
+        if rev >= target:
+            return False
         cur = loaded.get('whisper_split_sentence_langs')
-        if isinstance(cur, list) and [str(x).strip().lower() for x in cur] == ['en', 'it']:
+        old_default = self._SPLIT_LANGS_BY_REV.get(rev)
+        if isinstance(cur, list) and old_default is not None and                 [str(x).strip().lower() for x in cur] == old_default:
             self.settings['whisper_split_sentence_langs'] = list(self.DEFAULTS['whisper_split_sentence_langs'])
-        self.settings['whisper_split_sentence_langs_rev'] = 2
+        self.settings['whisper_split_sentence_langs_rev'] = target
+        return True
 
     def _merge_defaults(self, loaded: dict) -> dict:
         """Merge loaded config con defaults"""

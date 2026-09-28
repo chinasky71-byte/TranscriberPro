@@ -308,11 +308,227 @@ def _boundary_type_fr(word: str, next_word: Optional[str]) -> str:
     return WORD
 
 
+# ── regole TEDESCHE (lang='de') ──────────────────────────────────────────────
+# Scritte a priori il 28/09/2026 (whisper_split_eval/de_prelim/rules_de.py, dove c'e' la motivazione
+# completa di ogni scelta) e integrate qui con nomi locali _*_de: le funzioni generiche del modulo
+# (_core, _starts_lower, _CLOSERS) NON vengono toccate, per non cambiare en/it/fr. Punti chiave:
+# sostantivi sempre maiuscoli (nei casi ambigui "numero/lettera/sigla + punto" decide la parola dopo,
+# con la lista di aperture _OPENERS_DE), ordinali ("am 3. Mai"), "z. B." spezzato, "ss" al posto di
+# "ß" (primeline), virgolette „“ ‚‘ »«, precedenza CONJ sulle parole funzionali deboli ("was ich
+# gesehen habe | und").
+# ── punteggiatura ────────────────────────────────────────────────────────────
+_CLOSERS_DE = '"\'”’“‘»«)]}'          # chiusure (tedesco: “ ‘ « ; svizzero/fr: »)
+_OPENQ_DE = '"\'„‚“‘»«([¿¡'            # aperture (tedesco: „ ‚ » ; svizzero/fr: «)
+_DASHES_DE = '-–—'
+_LETTERS_DE = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*", re.UNICODE)
+_ACRONYM_DE = re.compile(r"^(?:[A-Za-zÄÖÜäöü]\.){2,}$")
+_UPPER_INITIAL_DE = re.compile(r"^[A-ZÄÖÜ]\.$")
+_LOWER_INITIAL_DE = re.compile(r"^[a-zäöü]\.$")
+_ROMAN_DE = re.compile(r"^[IVXLC]{2,7}\.$")        # le lettere singole (I. V. X.) sono iniziali
+_ORDINAL_DE = re.compile(r"^\d{1,2}\.$")
+
+# ── liste ────────────────────────────────────────────────────────────────────
+# Abbreviazioni che non chiudono MAI una frase (chiave: minuscolo, senza punti)
+_ABBREV_DE = frozenset("""
+    zb dh ua ca nr dr prof hr hrn fr frl st bzw evtl ggf vgl sog inkl ggü
+    bspw ebd mind jh jhd abs ziff tel str geb gest verh
+    uä oä
+    mr mrs ms
+""".split())   # NON inclusi (sono anche parole/nomi che chiudono frasi): Art. Max. Min. Bd.
+# Possono chiudere la frase: + minuscola/cifra -> ABBREV, altrimenti SENT_WEAK
+_ABBREV_DE_AMBIG = frozenset(['usw', 'etc', 'uvm', 'usf'])
+
+_CONJ_DE = frozenset("""
+    und oder aber denn sondern sowie
+    weil dass daß ob wenn als obwohl obgleich obschon damit sodass soweit sofern falls
+    während bevor ehe nachdem seit seitdem bis sobald solange indem wobei wie wo
+    weshalb weswegen wieso
+""".split())
+# congiunzioni che sono anche avverbi/preposizioni e POSSONO chiudere una frase
+# ("Was meinst du damit | und", "seit | wann"): tolte dalla regola "mai
+# tagliare dopo una congiunzione"
+_CONJ_CAN_END = frozenset(['damit', 'während', 'seit', 'bis', 'wie', 'wo', 'als', 'wieso',
+                           'weshalb', 'weswegen', 'soweit'])
+
+# Parole che NON chiudono mai una frase: FUNC anche davanti a una congiunzione
+_FUNC_STRONG_DE = frozenset("""
+    ein eine einen einem einer eines
+    kein keine keinen keinem keiner keines
+    meine meinen meinem meiner meines deine deinen deinem deiner deines
+    seine seinen seinem seiner seines ihre ihren ihrem ihrer ihres
+    unsere unseren unserem unserer unseres eure euren eurem eurer eures
+    im am zum zur ins ans vom beim aufs fürs ums übers
+    dieser diesem diesen dieses jener jenem jenen jenes
+    welcher welchem welchen welches
+    sehr ganz
+""".split())
+# Parole funzionali che possono chiudere una frase (davanti a congiunzione -> CONJ)
+_FUNC_WEAK_DE = frozenset("""
+    der die das den dem des dies diese
+    mein dein sein ihr unser euer
+    ich du er sie es wir man
+    mich dich sich uns euch ihn ihm ihnen mir dir
+    nicht nie auch noch schon nur
+    an auf aus bei mit nach von vor zu in für über unter um durch gegen ohne hinter neben
+    zwischen seit bis wegen trotz statt anstatt außer ausser gegenüber entlang
+    bin bist ist sind seid war warst waren wart sei seien wäre wären
+    habe hast hat haben habt hatte hattest hatten hätte hätten
+    werde wirst wird werden werdet wurde wurden würde würden
+    kann kannst können könnt konnte konnten könnte könnten
+    muss muß musst mußt müssen müsst müßt musste mußte mussten mußten müsste müßte müssten müßten
+    will willst wollen wollt wollte wollten
+    soll sollst sollen sollt sollte sollten
+    darf darfst dürfen dürft durfte durften dürfte dürften
+    mag magst mögen möchte möchtest möchten
+    so sowohl weder entweder
+""".split())
+# Parola + congiunzione = locuzione: resta unita ("so | dass", "als | ob",
+# "ohne | dass", "(an)statt | dass", "auch | wenn", "nur | weil", "erst | wenn",
+# "je | nachdem", "mehr | als", "genauso | wie")
+_CONJ_GLUE_DE = frozenset("""
+    so sowie als ohne statt anstatt auch selbst nur erst gerade je
+    mehr weniger eher lieber anders genauso ebenso sowohl
+    und oder aber
+""".split())
+# Aperture di frase NON sostantivi (per i casi ambigui "X." + maiuscola)
+_OPENERS_DE = frozenset("""
+    ich du er sie es wir ihr man
+    das der die dies diese dieser dieses den dem
+    und aber oder doch denn also dann da danach dabei dafür dagegen damals
+    ja nein nee jein nun jetzt so hier dort heute gestern später
+    was wie wo wer wen wem wessen warum wieso weshalb wann woher wohin welche welcher welches
+    wenn weil als ob obwohl dass daß
+    bitte danke gut okay ok na ach oh ah hallo genau vielleicht natürlich naja trotzdem
+    deshalb deswegen darum sonst auch nur noch schon immer nie niemand alle alles nichts
+    mein meine dein deine sein seine unser unsere euer eure kein keine ein eine
+    bin bist ist sind seid war waren habe hast hat haben hatte hatten
+    werde wirst wird werden wurde würde würden kann kannst können konnte könnte könnten
+    muss muß musst mußt müssen will willst wollen soll sollen darf dürfen möchte
+    komm komme kommen geh gehen hör hören sag sagen warte warten lass lasst schau sieh
+    herr frau
+""".split())
+_MONTHS_DE = frozenset("""
+    januar jänner februar feber märz maerz april mai juni juli august september oktober
+    november dezember
+""".split())
+
+
+def _core_de(word: str) -> str:
+    return word.strip().rstrip(_CLOSERS_DE)
+
+
+def _bare_de(word: str) -> str:
+    m = _LETTERS_DE.search((word or '').strip().replace('’', "'"))
+    return m.group(0).lower() if m else ''
+
+
+def _lead_stripped_de(word: str) -> str:
+    return (word or '').strip().lstrip(_OPENQ_DE + _DASHES_DE + ' ')
+
+
+def _starts_lower_de(word: str) -> bool:
+    s = _lead_stripped_de(word)
+    return bool(s) and s[0].isalpha() and s[0].islower()
+
+
+def _starts_digit_de(word: str) -> bool:
+    s = _lead_stripped_de(word)
+    return bool(s) and s[0].isdigit()
+
+
+def _is_opener_de(word: str) -> bool:
+    return _bare_de(word) in _OPENERS_DE
+
+
+def _ambiguous_dot_de(nxt: str, end_type: str) -> str:
+    """Punto dopo numero/lettera/sigla: decide la parola seguente (regola (a))."""
+    if not _lead_stripped_de(nxt):
+        return end_type                   # fine segmento o solo punteggiatura
+    if _starts_lower_de(nxt) or _starts_digit_de(nxt):
+        return ABBREV
+    if _is_opener_de(nxt):
+        return SENT_WEAK
+    return ABBREV                         # probabile sostantivo: "am 3. Mai", "z. B. Hunde"
+
+
+def _boundary_type_de(word: str, next_word: Optional[str]) -> str:
+    """Tipo del confine DOPO `word` (seguita da `next_word`), regole tedesche."""
+    c = _core_de(word)
+    nxt = next_word or ''
+    if next_word is not None and nxt and not nxt[:1].isspace():
+        return INSIDE                     # token attaccato: mai tagliare dentro la parola
+    if not c:
+        return WORD
+    lead = c.lstrip(_OPENQ_DE)
+    if not lead:
+        return FUNC                       # virgoletta d'apertura isolata ("„")
+    if lead in ('-', '–', '—', '--'):
+        return FUNC                       # trattino di dialogo/inciso isolato: tagliare PRIMA, non dopo
+    if c.endswith('…') or c.endswith('...'):
+        return SENT_WEAK if _starts_lower_de(nxt) else SENT
+    last = c[-1]
+    if last in '?!':
+        return SENT_WEAK if _starts_lower_de(nxt) else SENT
+    if last == '.':
+        body = lead[:-1]
+        key = body.lower().replace('.', '')
+        if next_word is None or not _lead_stripped_de(nxt):
+            # fine segmento: solo le abbreviazioni "pure" restano non-frase
+            if key in _ABBREV_DE or _LOWER_INITIAL_DE.match(lead):
+                return ABBREV
+            return SENT
+        if _LOWER_INITIAL_DE.match(lead):
+            return ABBREV                 # "z." "d." "u." (prima meta' di z. B., d. h., u. a.)
+        if key in _ABBREV_DE_AMBIG:
+            return ABBREV if (_starts_lower_de(nxt) or _starts_digit_de(nxt)) else SENT_WEAK
+        if key in _ABBREV_DE:
+            return ABBREV
+        if _ORDINAL_DE.match(lead) or _ROMAN_DE.match(lead) or _UPPER_INITIAL_DE.match(lead):
+            if _bare_de(nxt) in _MONTHS_DE:
+                return ABBREV
+            return _ambiguous_dot_de(nxt, SENT)
+        if _ACRONYM_DE.match(lead):
+            # "U.S.A." / "d.h." non in lista: minuscola -> abbreviazione, apertura -> fine incerta
+            if _starts_lower_de(nxt) or _starts_digit_de(nxt):
+                return ABBREV
+            return SENT_WEAK
+        if _starts_lower_de(nxt):
+            return ABBREV                 # parola ignota col punto + minuscola: abbreviazione, non fine frase
+        return SENT                       # parola normale + maiuscola/cifra: fine frase (come en/it)
+    if last in ';:':
+        return CLAUSE
+    if last in _DASHES_DE:
+        # trattino sospeso: "Ein- und Ausgang", "Vor- oder Nachteile"
+        if len(lead) > 1 and lead[-2].isalpha() and _bare_de(nxt) in ('und', 'oder', 'bis', 'sowie', 'noch', 'wie'):
+            return FUNC
+        return COMMA
+    if last == ',':
+        return COMMA
+    b = _bare_de(c)
+    nb = _bare_de(nxt)
+    nxt_conj = nb in _CONJ_DE
+    if b in _CONJ_DE and b not in _CONJ_CAN_END:
+        return FUNC                       # mai tagliare subito dopo "und", "dass", "weil"...
+    if nxt_conj and (b in _CONJ_GLUE_DE or (nb == 'als' and len(b) > 3 and b.endswith('er'))):
+        return FUNC                       # locuzione / comparativo + als ("größer | als")
+    if b in _FUNC_STRONG_DE:
+        return FUNC
+    if nxt_conj:
+        return CONJ                       # anche dopo ausiliare/pronome/"das": chiudono la frase
+    if b in _FUNC_WEAK_DE or b in _CONJ_CAN_END:
+        return FUNC
+    return WORD
+
+
+_LANG3 = {'eng': 'en', 'ita': 'it', 'fre': 'fr', 'fra': 'fr', 'ger': 'de', 'deu': 'de'}
+
+
 def _norm_lang(lang) -> str:
-    return str(lang or 'en').strip().lower()[:2]
+    l = str(lang or 'en').strip().lower()
+    return _LANG3.get(l, l[:2])      # 'ger'[:2] sarebbe 'ge': i codici a 3 lettere passano dalla mappa
 
 
-SUPPORTED_LANGS = ('en', 'it', 'fr')
+SUPPORTED_LANGS = ('en', 'it', 'fr', 'de')
 
 
 def boundary_type(word: str, next_word: Optional[str], lang: str = 'en') -> str:
@@ -321,6 +537,8 @@ def boundary_type(word: str, next_word: Optional[str], lang: str = 'en') -> str:
         return _boundary_type_it(word, next_word)
     if lang != 'en' and _norm_lang(lang) == 'fr':
         return _boundary_type_fr(word, next_word)
+    if lang != 'en' and _norm_lang(lang) == 'de':
+        return _boundary_type_de(word, next_word)
     c = _core(word)
     nxt = next_word or ''
     if next_word is not None and nxt and not nxt[:1].isspace():
