@@ -3,6 +3,31 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.26.0 — 2026-09-28 — Trascrizione: Whisper specializzato per francese e tedesco
+
+- **Nuova opzione `whisper_model_by_language` (`utils/config.py`)**: per le lingue elencate, in modalità `auto`
+  la trascrizione usa faster-whisper con un modello Whisper specializzato invece di Qwen3-ASR. Default:
+  - `fr` → `bofenghuang/whisper-large-v3-french` (cartella `ctranslate2/` del repo);
+  - `de` → `primeline/whisper-large-v3-german`, dal repo `TiMoMuc/whisper-large-v3-german-ct2`: il suo `model.bin`
+    è identico byte per byte alla nostra conversione CTranslate2 float16 dell'originale (sha256 318956c2…).
+  Valori ammessi: `utente/repo`, `utente/repo/sottocartella` o una cartella CTranslate2 locale. I modelli si
+  scaricano al primo uso (~3 GB per lingua) nella cache dei modelli del programma (`models/.cache`).
+  Per spegnere una lingua: `"fr": ""` (cancellare la chiave non basta, i default la rimettono).
+- **`core/engine_router.py`**: la tabella viene consultata per prima in modalità `auto`; una modalità forzata
+  (`transcription_engine_mode`) resta prioritaria. Tracce senza lingua (`und`) restano su Qwen3 con rilevamento
+  automatico.
+- **`core/transcriber.py` / `core/pipeline.py`**: la lingua della traccia arriva al pre-caricamento dello STEP 2.5
+  (`language_hint`), quindi il modello giusto si carica subito, prima di Demucs, senza ricaricamenti.
+- **`core/engines/faster_whisper_engine.py`**: se il modello specializzato non si scarica o non si carica, si usa
+  `whisper_model` (large-v3) e il file non fallisce; il cambio di modello in `transcribe_chunks` resta solo come rete
+  di sicurezza.
+- **Misura francese (4 film in lingua originale, 8 finestre valide, riferimento = sottotitoli francesi del film):**
+  WERc Qwen3 44,1%, Whisper large-v3 41,9%, whisper-large-v3-french 40,4%; parole del riferimento riconosciute
+  73,8% / 69,3% / 74,2%. Il miglioramento (−8,5% relativo) è sotto la soglia fissata prima di misurare (10%): la
+  scelta è dell'utente, con ~1,8× di velocità sull'intera pipeline. Il tedesco non è misurato.
+- **Limite noto**: francese e tedesco non hanno ancora lo split per frasi; i blocchi Whisper sono lunghi e alcune
+  frasi finiscono a cavallo di due blocchi anche in traduzione. La traduzione resta su NLLB fine-tuned.
+
 ## 1.25.1 — 2026-09-27 — Traduttore LLM: il secondo giro non accetta più blocchi bocciati due volte
 
 - **Difetto corretto (`core/translator.py`, fase L2 di `LLMSubtitleTranslator.translate_file`):** un blocco bocciato

@@ -12,6 +12,8 @@ MODIFICHE v1.0:
       (LID superiore a Whisper); se rileva lingua fuori dal set aligner →
       ri-trascrizione con faster-whisper, UNA volta, con log esplicito
    4. tutto il resto                                      → faster-whisper
+   0. lingua in whisper_model_by_language (fr, de)        → faster-whisper col
+      modello specializzato (v1.26.0, prima di tutte le altre regole)
 ✅ transcription_engine_mode: 'auto' | 'canary' | 'qwen3' | 'faster-whisper'
    (forzatura esplicita; se l'engine forzato non è disponibile → fallback)
 ✅ QUALSIASI eccezione in load/trascrizione di Canary/Qwen3 → fallback
@@ -137,6 +139,13 @@ class EngineRouter:
                 f"'{lang}' non supportata → faster-whisper")
 
         # ── Routing automatico ──
+        # Lingue con un Whisper specializzato (whisper_model_by_language):
+        # faster-whisper con quel modello, prima di Canary/Qwen3.
+        from core.engines.faster_whisper_engine import FasterWhisperEngine
+        spec = FasterWhisperEngine.language_model_spec(config, lang)
+        if spec:
+            return 'faster-whisper', f"lingua '{lang}' → Whisper specializzato {spec}"
+
         canary_ok = bool(config.get('canary_enabled', True)) and cls.engine_available('canary')
         qwen3_ok = bool(config.get('qwen3_enabled', True)) and cls.engine_available('qwen3')
 

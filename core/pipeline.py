@@ -490,8 +490,14 @@ class ProcessingPipeline:
                         # prima di caricare l'engine nuovo.
                         # ================================================
                         self._log("\n2.5. Pre-caricamento Whisper (prima di Demucs)...")
+                        _planned_lang = self.LANG_MAP_639_2_TO_639_1.get(source_language_639_2)
+                        if _planned_lang == 'und':
+                            _planned_lang = None
                         if self._transcriber is None:
-                            self._transcriber = Transcriber(log_callback=self._log_callback)
+                            # language_hint: carica subito il Whisper specializzato
+                            # della lingua (whisper_model_by_language), niente reload
+                            self._transcriber = Transcriber(log_callback=self._log_callback,
+                                                            language_hint=_planned_lang)
 
                         # ── Pianificazione engine (sistema multi-engine) ──
                         # Decide QUI (prima di Demucs) l'engine per la lingua
@@ -500,9 +506,6 @@ class ProcessingPipeline:
                         # gestibile solo da faster-whisper (Qwen3 max 1200s,
                         # Canary max ~40s per input).
                         from core.engine_router import EngineRouter
-                        _planned_lang = self.LANG_MAP_639_2_TO_639_1.get(source_language_639_2)
-                        if _planned_lang == 'und':
-                            _planned_lang = None
                         _planned_engine, _plan_reason = EngineRouter.plan(_planned_lang, self.config)
                         _ENGINE_LABELS = {
                             'canary': 'Canary-Qwen-2.5B',
@@ -567,7 +570,8 @@ class ProcessingPipeline:
                             self._log(f"\n4. Trascrizione audio ({_engine_label})...")
                             if self._transcriber is None:
                                 # Fallback: non dovrebbe mai entrare qui dopo il pre-load 2.5
-                                self._transcriber = Transcriber(log_callback=self._log_callback)
+                                self._transcriber = Transcriber(log_callback=self._log_callback,
+                                                                language_hint=_planned_lang)
                             
 
                             # Inietta fatigue counter per OOM prevention

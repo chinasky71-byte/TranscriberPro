@@ -45,7 +45,8 @@ class Transcriber:
     universale sempre pronto.
     """
 
-    def __init__(self, method: str = 'faster-whisper', log_callback: Optional[Callable] = None):
+    def __init__(self, method: str = 'faster-whisper', log_callback: Optional[Callable] = None,
+                 language_hint: Optional[str] = None):
         """
         Args:
             method:       Mantenuto per retrocompatibilità (storicamente sempre
@@ -53,6 +54,8 @@ class Transcriber:
                           router in base a lingua e config.
             log_callback: Callback opzionale da passare all'init (usato dal
                           pre-load anticipato della pipeline).
+            language_hint: Lingua prevista (ISO 639-1): il pre-load carica gia'
+                          il Whisper specializzato di quella lingua, se configurato.
         """
         from core.engine_router import EngineRouter
 
@@ -69,6 +72,7 @@ class Transcriber:
         # Garantisce l'ordine di init CUDA richiesto da ctranslate2 (PRIMA di
         # Demucs) e tiene il fallback pronto. Se il routing sceglierà un altro
         # engine, whisper verrà scaricato prima del load del nuovo.
+        self._router.get_engine('faster-whisper').language_hint = language_hint
         self._whisper_engine = self._router.ensure_loaded('faster-whisper')
 
         self.device = self._whisper_engine.device
