@@ -307,11 +307,11 @@ class TestEngineLanguageList(unittest.TestCase):
             self.assertNotIn('whisper_split_sentence_langs', cfg.calls)
 
     def test_unsupported_language_falls_back(self):
-        # lingua in lista ma senza regole (es. 'fr'): il modulo ritorna None -> split originale
+        # lingua in lista ma senza regole (es. 'es'; 'fr' ha regole dal 28/09/2026): il modulo ritorna None -> split originale
         seg = self.seg()
-        self.assertIsNone(NS.sentence_aware_split(seg, lang='fr'))
-        cfg = TS.FakeConfig({'whisper_split_sentence_aware': True, 'whisper_split_sentence_langs': ['en', 'fr']})
-        self.assertEqual(TS.engine_method(None, config=cfg, lang='fr')(seg), ORIG(seg))
+        self.assertIsNone(NS.sentence_aware_split(seg, lang='es'))
+        cfg = TS.FakeConfig({'whisper_split_sentence_aware': True, 'whisper_split_sentence_langs': ['en', 'es']})
+        self.assertEqual(TS.engine_method(None, config=cfg, lang='es')(seg), ORIG(seg))
 
 
 if __name__ == '__main__':

@@ -109,7 +109,10 @@ def main() -> int:
 
     logcap = RN.LogCapture()
     eng = FasterWhisperEngine(log_callback=logcap)
+    # v1.26.0: modello Whisper per lingua (whisper_model_by_language, fr/de); en/it -> modello standard
+    eng.language_hint = args.lang
     eng.load()
+    print('modello Whisper caricato:', eng.loaded_model)
     if eng.batch_size_for_transcription is None:
         raise RuntimeError("BatchedInferencePipeline non attivo: non e' il percorso di produzione")
     t_all = time.time()
