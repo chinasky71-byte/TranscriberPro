@@ -593,7 +593,10 @@ class FasterWhisperEngine(TranscriptionEngine):
         # lettere, default ['en']: l'inglese e' l'unica lingua misurata; 'it' ha
         # regole proprie). Se solleva o il risultato non e' valido si prosegue
         # con lo split originale qui sotto (intatto). Rimovibile in blocco.
-        _ss_lang = str(getattr(self, '_split_lang', '') or '').lower()[:2]
+        # codici a 3 lettere: 'ger'[:2] sarebbe 'ge' (tedesco mai attivo) -> mappa esplicita
+        _ss3 = {'eng': 'en', 'ita': 'it', 'fre': 'fr', 'fra': 'fr', 'ger': 'de', 'deu': 'de'}
+        _ss_norm = lambda x: _ss3.get(str(x).strip().lower(), str(x).strip().lower()[:2])
+        _ss_lang = _ss_norm(getattr(self, '_split_lang', '') or '')
         if self.config.get('whisper_split_sentence_aware', False) and _ss_lang:
             _ss_langs = self.config.get('whisper_split_sentence_langs', ['en'])
             if _ss_langs is None:
@@ -602,7 +605,7 @@ class FasterWhisperEngine(TranscriptionEngine):
                 _ss_langs = [x for x in _ss_langs.replace(';', ',').replace(' ', ',').split(',') if x]
             elif not isinstance(_ss_langs, (list, tuple, set, frozenset)):
                 _ss_langs = []
-            _ss_on = _ss_lang in {str(x).strip().lower()[:2] for x in (_ss_langs or ())}
+            _ss_on = _ss_lang in {_ss_norm(x) for x in (_ss_langs or ())}
         else:
             _ss_on = False
         if _ss_on:

@@ -46,7 +46,7 @@ STRONG_END = re.compile(r'[.?!…][' + _CLOSERS + r']*$')
 SOFT_END = re.compile(r'[,;:][' + _CLOSERS + r']*$')
 ELLIPSIS_END = re.compile(r'(?:…|\.{2,})[' + _CLOSERS + r']*$')
 _DASH_START = re.compile(r'^\s*[-–—]')
-_LEAD = re.compile(r'^[\s"\'«»“”‘’(\[¿¡…\.]+')
+_LEAD = re.compile(r'^[\s"\'«»“”‘’„‚(\[¿¡…\.]+')
 _FIRST_WORD = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]*)?", re.UNICODE)
 
 CONT_WORDS: Dict[str, frozenset] = {
@@ -74,13 +74,24 @@ CONT_WORDS: Dict[str, frozenset] = {
         depuis selon malgré jusqu' jusque
         le la les l' un une
     """.split()),
+    # tedesco (28/09/2026, da whisper_split_eval/de_prelim/cont_words_de.py): esclusi der/die/das (aperture di frase
+    # comuni). LIMITE: una continuazione che apre con un SOSTANTIVO (maiuscolo) non e' vista -> per il tedesco
+    # la metrica principale e' quella dei tagli senza punteggiatura (whisper_split_eval/naked_cuts.py).
+    'de': frozenset("""
+        aber als am an ans anstatt auf aufs aus ausser außer bei beim bevor bis damit dass daß denn
+        durch ehe ein eine einem einen einer eines entlang falls für fürs gegen gegenüber hinter im
+        in indem ins mit nach nachdem neben noch ob obgleich obwohl oder ohne seit seitdem sobald
+        sodass sofern solange sondern sowie sowohl statt trotz um ums und unter vom von vor weder
+        wegen weil wenn wie wo wobei womit woran worauf wovon während zu zum zur zwischen über übers
+    """.split()),
 }
 
 
 def _lang2(lang: str) -> str:
     l = (lang or 'en').lower()
     return {'eng': 'en', 'ita': 'it', 'english': 'en', 'italian': 'it',
-            'fre': 'fr', 'fra': 'fr', 'french': 'fr'}.get(l, l[:2])
+            'fre': 'fr', 'fra': 'fr', 'french': 'fr',
+            'ger': 'de', 'deu': 'de', 'german': 'de'}.get(l, l[:2])
 
 
 def is_music(raw: str) -> bool:
