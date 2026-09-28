@@ -65,12 +65,22 @@ CONT_WORDS: Dict[str, frozenset] = {
         il lo la i gli le un uno una
         l' un' dell' all' dall' nell' sull' d' quell' quest'
     """.split()),
+    # francese (28/09/2026, a priori, prima di guardare i dati di taratura): congiunzioni,
+    # relativi, preposizioni, articoli ed elisioni che aprono il seguito di una frase
+    'fr': frozenset("""
+        et ou mais donc car ni or puis ensuite alors que qu' qui dont où quand lorsque lorsqu' puisque
+        puisqu' comme si s' parce quoique bien afin pendant tandis sinon sauf
+        de d' du des à au aux en dans par pour sur sous avec sans chez vers entre contre avant après
+        depuis selon malgré jusqu' jusque
+        le la les l' un une
+    """.split()),
 }
 
 
 def _lang2(lang: str) -> str:
     l = (lang or 'en').lower()
-    return {'eng': 'en', 'ita': 'it', 'english': 'en', 'italian': 'it'}.get(l, l[:2])
+    return {'eng': 'en', 'ita': 'it', 'english': 'en', 'italian': 'it',
+            'fre': 'fr', 'fra': 'fr', 'french': 'fr'}.get(l, l[:2])
 
 
 def is_music(raw: str) -> bool:

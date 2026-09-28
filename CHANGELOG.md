@@ -3,6 +3,28 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.27.0 — 2026-09-28 — Split per frasi anche in francese
+
+- **`core/whisper_sentence_split.py`**: regole francesi (`_boundary_type_fr`, `SUPPORTED_LANGS` + `fr`):
+  tipografia francese (" ?" " !" " :" " »" sono parole a sé: mai tagliare prima), "M." = Monsieur, abbreviazioni,
+  parole funzionali, congiunzioni e locuzioni ("parce que", "alors que", "même si") che restano unite.
+- **Acceso di default** (`whisper_split_sentence_langs` = `["en", "it", "fr"]`). Migrazione una tantum in
+  `utils/config.py` (`_migrate_split_langs`): chi ha ancora nella config il default precedente `["en", "it"]` riceve
+  `fr` al primo avvio; le liste personalizzate non si toccano e, se poi si toglie `fr`, resta tolto (marcatore
+  `whisper_split_sentence_langs_rev`).
+- **Misura** (`whisper_split_eval/`, modello whisper-large-v3-french della 1.26.0):
+  - taratura su 3 film, blocchi che finiscono a metà frase 45,1% → 12,6%;
+  - conferma su 9 film francesi originali mai usati, 50,7% → 19,4%. Blocchi di più di 2 righe 272 → 30, testo
+    identico, inglese e italiano invariati bit per bit;
+  - blocchi che finiscono su parola funzionale (spaCy) 23,9% → 3,0%, contro l'1,9% dei sottotitoli professionali.
+  - Verdetto formale della regola congelata: **non vincente**. Il rapporto richiesto era ≤ 0,33, si è ottenuto 0,38;
+    i blocchi con più di 20 caratteri al secondo salgono di 2,4 punti, oltre il limite di 2,0. Il criterio conta
+    anche i tagli su virgola: il 78% del residuo sono virgole in frasi più lunghe di 84 caratteri, dove il taglio è
+    obbligato. I tagli senza punteggiatura né congiunzione scendono dal 41,6% al 2,1%, sotto il 3,2% dei professionali.
+  - **Acceso per scelta dell'utente.** Esito completo in `whisper_split_eval/results/esito_fr_2026-09-28.md`.
+- `split_eval/midcut.py`: parole di continuazione francesi per la metrica.
+- `whisper_split_eval/run_whisper.py`: carica il modello Whisper della lingua (`whisper_model_by_language`).
+
 ## 1.26.0 — 2026-09-28 — Trascrizione: Whisper specializzato per francese e tedesco
 
 - **Nuova opzione `whisper_model_by_language` (`utils/config.py`)**: per le lingue elencate, in modalità `auto`

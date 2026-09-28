@@ -1,0 +1,220 @@
+{
+ "n_windows": 9,
+ "n_films": 9,
+ "n_overlaps": 0,
+ "missing": [],
+ "pro_midcut": 0.094912750438556,
+ "n_excluded_titles": 1,
+ "per_file": {
+  "04-jeanne-du-barry-la-favorita-del-re": {
+   "old_midcut": 0.3923809523809524,
+   "new_midcut": 0.18211920529801323,
+   "new_per_min": 5.155976835664336,
+   "old_per_min": 4.481602381993007,
+   "pro_per_min": 8.741258741258742
+  },
+  "05-dracula-l-amore-perduto": {
+   "old_midcut": 0.47401574803149604,
+   "new_midcut": 0.17945205479452056,
+   "new_per_min": 5.654729936295206,
+   "old_per_min": 4.918840424037611,
+   "pro_per_min": 9.341923702975368
+  },
+  "06-l-erede": {
+   "old_midcut": 0.5023923444976076,
+   "new_midcut": 0.18613861386138614,
+   "new_per_min": 4.694029813750812,
+   "old_per_min": 3.8853553705897808,
+   "pro_per_min": 8.951189526023825
+  },
+  "07-vita-nella-banlieue-3": {
+   "old_midcut": 0.572928821470245,
+   "new_midcut": 0.24020100502512562,
+   "new_per_min": 8.88046096286212,
+   "old_per_min": 7.648799040374711,
+   "pro_per_min": 11.566911967707847
+  },
+  "08-vita-nella-banlieue-2": {
+   "old_midcut": 0.5307692307692308,
+   "new_midcut": 0.18741976893453144,
+   "new_per_min": 7.930033823952571,
+   "old_per_min": 6.61684465413244,
+   "pro_per_min": 10.505513358561043
+  },
+  "09-l-amore-fugge": {
+   "old_midcut": 0.6407061266874351,
+   "new_midcut": 0.2696035242290749,
+   "new_per_min": 12.18187594449787,
+   "old_per_min": 10.335811924714934,
+   "pro_per_min": 15.981333287539497
+  },
+  "10-un-sacchetto-di-biglie": {
+   "old_midcut": 0.40355677154582764,
+   "new_midcut": 0.11609195402298851,
+   "new_per_min": 7.706280293653569,
+   "old_per_min": 6.475047005357194,
+   "pro_per_min": 12.179465981349031
+  },
+  "11-proiettile-vagante-3": {
+   "old_midcut": 0.4157608695652174,
+   "new_midcut": 0.12056737588652482,
+   "new_per_min": 3.744440877373545,
+   "old_per_min": 3.2575750422540533,
+   "pro_per_min": 6.21417847734333
+  },
+  "12-allora-balliamo": {
+   "old_midcut": 0.4943181818181818,
+   "new_midcut": 0.18618988902589395,
+   "new_per_min": 8.37505369948118,
+   "old_per_min": 7.270083605961468,
+   "pro_per_min": 18.00997984204091
+  }
+ },
+ "n_controls": 0,
+ "control_ok": true,
+ "control_detail": "",
+ "old": {
+  "fmt_midcut": 0.5069218936933857,
+  "werc": 0.0,
+  "gt84": 0.014014698342163732,
+  "cps20": 0.22423517347461971,
+  "n_gt2lines": 272,
+  "n_gt9s": 57,
+  "lt1": 0.003418219107844813,
+  "n_lt1": 20,
+  "n_lt15": 401,
+  "lt15_share": 0.0685352931122885,
+  "per_min": 5.9705836253147035,
+  "n_blocks": 5851,
+  "raw": {
+   "fmt_n": 2966,
+   "fmt_den": 5851,
+   "we": 0,
+   "wn": 0,
+   "n": 5851,
+   "gt84": 82,
+   "cps20": 1312,
+   "gt2": 272,
+   "gt9": 57,
+   "lt1": 20,
+   "lt15": 401
+  }
+ },
+ "new": {
+  "fmt_midcut": 0.19395796847635727,
+  "werc": 0.0,
+  "gt84": 0.0,
+  "cps20": 0.2483946293053123,
+  "n_gt2lines": 30,
+  "n_gt9s": 44,
+  "lt1": 0.008318739054290718,
+  "n_lt1": 57,
+  "n_lt15": 776,
+  "lt15_share": 0.11325160537069469,
+  "per_min": 6.9920422151181585,
+  "n_blocks": 6852,
+  "raw": {
+   "fmt_n": 1329,
+   "fmt_den": 6852,
+   "we": 0,
+   "wn": 0,
+   "n": 6852,
+   "gt84": 0,
+   "cps20": 1702,
+   "gt2": 30,
+   "gt9": 44,
+   "lt1": 57,
+   "lt15": 776
+  }
+ },
+ "pro": {
+  "n_cues": 10831,
+  "lt1": 0.04874896131474472,
+  "lt15": 0.2892623026498015,
+  "per_min": 11.052365620540685,
+  "tot_dur_s": 58798.272
+ },
+ "words_identical": true,
+ "native_text_ok": true,
+ "native_text_bad": 0,
+ "n_native": 870,
+ "multiword_pieces_gt9s": 0,
+ "singleword_pieces_gt9s": 7,
+ "singleword_gt9s_not_in_old": 3,
+ "off_identical": true,
+ "off_identical_detail": "run GPU off == split originale offline: True; metodo motore spento == originale: True; (coerenza) run GPU on == ricostruzione offline: True",
+ "on_run_consistent": true,
+ "rule_sha256": "b2e0d7cf2a8cd905cf2abed9117efa41dfcb404e6379da9f3c9a668a606ecbda",
+ "native_text_bad_exact": 0,
+ "inword_cuts_bad": 0,
+ "inword_cuts_glitch": 34,
+ "pos_ratio": 0.124,
+ "pos_detail": "originale 1398/5850=23.9%; regole_en 340/6818=5.0%; regole_fr 203/6852=3.0%; professionale 207/10809=1.9%",
+ "en_regression_ok": true,
+ "it_default_ok": true,
+ "verdict": {
+  "criteria": {
+   "0_campione": [
+    true,
+    "9 file validi, 9 titoli, titoli esclusi presenti 1"
+   ],
+   "a_midcut": [
+    false,
+    "attuale 0.5069 -> nuova 0.1940 (soglie 0.2; rapporto 0.383 <= 0.33; professionali 0.0949)"
+   ],
+   "b_testo": [
+    true,
+    "parole identiche=True; segmenti con testo diverso (senza spazi aggiunti)=0 su 870; tagli dentro parola non su glitch=0 (tagli su glitch: 34)"
+   ],
+   "c_gt84": [
+    true,
+    "0.0140 -> 0.0000 (delta -0.0140)"
+   ],
+   "c_cps20": [
+    false,
+    "0.2242 -> 0.2484 (delta +0.0242)"
+   ],
+   "c_righe": [
+    true,
+    "blocchi >2 righe 272 -> 30"
+   ],
+   "d_durata": [
+    true,
+    "pezzi >=2 parole intere >9s: 0; blocchi >9s 57 -> 44; (informativo) pezzi di 1 parola >9s non presenti nell'attuale: 3"
+   ],
+   "e_opzione_spenta": [
+    true,
+    "bit-identico: run GPU off == split originale offline: True; metodo motore spento == originale: True; (coerenza) run GPU on == ricostruzione offline: True"
+   ],
+   "f_lt1": [
+    true,
+    "quota <1s: attuale 0.0034 -> nuova 0.0083 (tetto 0.0487; professionale 0.0487)"
+   ],
+   "f_lt15": [
+    true,
+    "quota <1,5s: attuale 0.0685 -> nuova 0.1133 (professionale 0.2893)"
+   ],
+   "f_densita": [
+    true,
+    "blocchi/min: attuale 5.97 -> nuova 6.99 (professionale 11.05)"
+   ],
+   "g_per_file": [
+    true,
+    "tutti i file migliorano"
+   ],
+   "e2_on_coerente": [
+    true,
+    "run GPU on == ricostruzione offline (lang=fr): True"
+   ],
+   "i_pos_indipendente": [
+    true,
+    "blocchi che finiscono su parola funzionale (spaCy): rapporto nuova/attuale 0.124 (soglia 0.5); originale 1398/5850=23.9%; regole_en 340/6818=5.0%; regole_fr 203/6852=3.0%; professionale 207/10809=1.9%"
+   ],
+   "h_regressione": [
+    true,
+    "inglese v5 bit-identico (offline): True; italiano round 2 bit-identico (offline): True"
+   ]
+  },
+  "verdict": "NON VINCENTE"
+ }
+}

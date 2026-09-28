@@ -228,17 +228,99 @@ def _boundary_type_it(word: str, next_word: Optional[str]) -> str:
     return WORD
 
 
+# ── regole FRANCESI (lang='fr') ──────────────────────────────────────────────
+# Scritte A PRIORI il 28/09/2026 (piano_split_frasi_fr_de), prima dei dati di
+# taratura (whisper_split_eval/work_fr_runs/raw: Les Misérables, Les Orphelins,
+# Intouchables); poi riviste sui soli dati di taratura. Stessa struttura del
+# ramo italiano. Specificita': tipografia francese con lo spazio prima di
+# ? ! : ; » (" ?" e' un token a se': MAI tagliare prima), « » come virgolette,
+# "M." = Monsieur (abbreviazione, non lettera a fine frase).
+_ABBREV_FR = frozenset("""
+    m mm mme mmes mlle mlles dr me st ste pr cf ex av apr env etc
+    mr mrs ms
+""".split())
+_ABBREV_FR_AMBIG = frozenset(['etc'])      # + minuscola: abbreviazione; + maiuscola: fine frase incerta
+_CONJ_FR = frozenset("""
+    et ou mais donc car ni que qu qui quand lorsque lorsqu puisque puisqu comme si s
+    parce quoique tandis dont où afin sinon
+""".split())
+_FUNCTION_FR = frozenset("""
+    le la les l un une des du de d au aux à en dans par pour sur sous avec sans chez vers entre
+    ce cet cette ces c ça mon ma mes ton ta tes son sa ses notre nos votre vos leur leurs
+    je j tu il elle on nous vous ils elles me m te t se ne n y lui
+    est suis es sommes êtes sont était étais étaient ai as a avons avez ont avait avais
+    être avoir été peux peut pouvez veux veut voulez dois doit devez vais vas va allez
+    et ou mais donc car ni que qu qui quand si comme dont où
+    très trop
+""".split())
+# locuzioni congiuntive che restano unite ("ce | que", "parce | que", "alors | que",
+# "bien | que", "même | si", "dès | que", "tant | que")
+_CONJ_GLUE_FR = frozenset("""
+    ce parce alors bien avant pendant tandis même dès sans pour afin tant plus moins autant ainsi
+    après depuis jusqu jusque sauf
+""".split())
+_PUNCT_ONLY = re.compile(r"^[?!:;»”\"'.…,)\]]+$")
+
+
+def _boundary_type_fr(word: str, next_word: Optional[str]) -> str:
+    c = _core(word)
+    nxt = next_word or ''
+    if next_word is not None and nxt and not nxt[:1].isspace():
+        return INSIDE
+    if next_word is not None and _PUNCT_ONLY.match(nxt.strip()):
+        # tipografia francese: " ?" / " !" / " :" / " »" staccati dalla parola
+        return INSIDE
+    if not c:
+        return WORD
+    c = c.rstrip(' »').rstrip()
+    if c.endswith('…') or c.endswith('...'):
+        return SENT_WEAK if _starts_lower(nxt) else SENT
+    last = c[-1]
+    if last in '?!':
+        return SENT_WEAK if _starts_lower(nxt) else SENT
+    if last == '.':
+        body = c[:-1]
+        low = body.lower().lstrip('"\'“‘«(')
+        if low in _ABBREV_FR_AMBIG:
+            return ABBREV if _starts_lower(nxt) or _starts_digit(nxt) else SENT_WEAK
+        if body.lstrip('"\'“‘«(') == 'M':
+            return ABBREV                  # M. Dupont
+        if _INITIAL.match(c.lstrip('"\'“‘«(')):
+            return SENT_WEAK
+        if low in _ABBREV_FR:
+            return ABBREV
+        if _ACRONYM.match(c.lstrip('"\'“‘«(')):
+            return SENT_WEAK if (nxt.strip()[:1].isupper() and not _starts_lower(nxt)) else ABBREV
+        return SENT_WEAK if _starts_lower(nxt) else SENT
+    if last in ';:':
+        return CLAUSE
+    if last in ',-–—':
+        return COMMA
+    b = _bare(c)
+    if b.endswith("'"):
+        b = b[:-1]
+    if b in _FUNCTION_FR:
+        return FUNC
+    nb = _bare(nxt)
+    nb = nb.split("'")[0] if "'" in nb else nb
+    if nb in _CONJ_FR:
+        return FUNC if b in _CONJ_GLUE_FR else CONJ
+    return WORD
+
+
 def _norm_lang(lang) -> str:
     return str(lang or 'en').strip().lower()[:2]
 
 
-SUPPORTED_LANGS = ('en', 'it')
+SUPPORTED_LANGS = ('en', 'it', 'fr')
 
 
 def boundary_type(word: str, next_word: Optional[str], lang: str = 'en') -> str:
     """Tipo del confine DOPO `word` (seguita da `next_word`)."""
     if lang != 'en' and _norm_lang(lang) == 'it':
         return _boundary_type_it(word, next_word)
+    if lang != 'en' and _norm_lang(lang) == 'fr':
+        return _boundary_type_fr(word, next_word)
     c = _core(word)
     nxt = next_word or ''
     if next_word is not None and nxt and not nxt[:1].isspace():
