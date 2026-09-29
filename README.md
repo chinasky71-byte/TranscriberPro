@@ -47,7 +47,7 @@ Transcriber Pro takes any video file and produces clean `.srt` subtitle files th
 
 ### Bitmap OCR (PGS / VOBSUB → SRT)
 - **PGS (Blu-ray) and VOBSUB (DVD)** bitmap subtitle tracks converted to text SRT — verbatim, no AI hallucination
-- **Parallel multi-core OCR** — Tesseract runs on multiple CPU cores simultaneously (~8× faster vs single-core; ~1 min for a full film vs ~3 min before)
+- **Parallel multi-core OCR** — Tesseract runs on multiple CPU cores simultaneously (measured ~11× on a full film, 767 PGS events: ~195 s single-core → ~15-20 s parallel)
 - **Per-track language detection** — Tesseract model selected automatically from the track's language tag; supported: Italian, English, Spanish, French, German, Portuguese, Dutch (tessdata_best)
 - **Automatic translation to Italian** — non-Italian tracks are OCR'd in their source language, saved as `<stem>.<lang>.srt`, then translated to Italian and saved as `<stem>.it.srt` (both files kept)
 - **Configurable strategy** — *Targeted review* (OCR + human review UI showing uncertain lines side-by-side with the original bitmap image) or *Automatic* (no review, direct output)
@@ -259,28 +259,32 @@ Models are loaded and unloaded sequentially to fit within available VRAM.
 
 ## Performance Benchmarks
 
-Tested on: i7-12700KF · 32 GB RAM · RTX 3060 12 GB · NVMe SSD
+Tested on: i7-12700KF · 32 GB RAM · RTX 3060 12 GB · NVMe SSD. Figures below are taken from real
+application logs (not synthetic benchmarks) and broken down by pipeline stage, since the stages have
+very different costs — GPU transcription is fast, a local LLM translation branch is not.
 
-### Audio transcription (GPU vs CPU)
+### Audio transcription (Faster-Whisper large-v3, batched, GPU)
 
-| Content | Duration | GPU | CPU | Speedup |
-|---------|----------|-----|-----|---------|
-| Short clip | 5 min | 45 sec | 7 min | 9.3× |
-| TV episode | 45 min | 7 min | 67 min | 9.5× |
-| Movie | 2 h 15 min | 20 min | 3 h 22 min | 10.1× |
-| Long documentary | 4 h | 38 min | 6 h 12 min | 9.8× |
+| Source | Audio length | Stage | Wall time | Realtime factor |
+|--------|-------------|-------|-----------|------------------|
+| TV episode (Italian audio) | 2 h 38 min | ASR only | 11 min 54 s | ~13× |
+| TV episode (Italian audio) | 2 h 38 min | Full pipeline (Demucs + ASR + diarization + gender correction — no translation needed) | 26 min 24 s | ~6× |
+| Feature film (French audio) | 1 h 32 min | ASR only | 2 min 55 s | ~31× |
+| Feature film (French audio) | 1 h 32 min | Full pipeline incl. TranslateGemma-12B translation | 62 min 07 s | ~1.5× |
 
-**Average: ~10× speedup with GPU.**
+The ASR stage itself is consistently fast (13-31× realtime observed across languages and file lengths,
+depending on the VRAM-adaptive batch size). Full end-to-end time depends heavily on the translation
+engine: a local LLM branch (TranslateGemma-12B) is the dominant cost when used; NLLB and the cloud APIs
+(Claude, GPT-4o-mini) are not yet benchmarked here but are architecturally much lighter than a 12B LLM
+running the same GPU.
 
-### Bitmap OCR (parallel multi-core, RTX 3060)
+### Bitmap OCR (parallel multi-core Tesseract)
 
 | File | Events | Single-core | 8-core parallel | Speedup |
-|------|--------|-------------|-----------------|---------|
-| Prospect (2018) PGS | 767 | ~195 s | ~17 s | ~11× |
-| The Aviator (2004) PGS | 1833 | ~329 s | ~40 s | ~8× |
-| Duplex (2003) VOBSUB | 934 | ~150 s | ~20 s | ~7.5× |
+|------|--------|-------------|------------------|---------|
+| Prospect (2018), PGS | 767 | ~195 s | ~15-20 s | ~11× |
 
-**Average OCR speedup: ~8× with 8 parallel workers.**
+Measured on one full film's worth of PGS events; the same ThreadPool mechanism applies to VOBSUB.
 
 ---
 
@@ -597,7 +601,7 @@ Transcriber Pro produce file `.srt` attraverso due pipeline complementari:
 
 ### OCR Bitmap (PGS / VOBSUB → SRT)
 - **Tracce PGS (Blu-ray) e VOBSUB (DVD)** convertite in SRT testuale — verbatim, nessuna allucinazione AI
-- **OCR parallelo multi-core** — Tesseract gira su più core CPU in contemporanea (~8× più veloce; ~1 min per un film intero)
+- **OCR parallelo multi-core** — Tesseract gira su più core CPU in contemporanea (misurato ~11× su un film intero, 767 eventi PGS: ~195 s single-core → ~15-20 s parallelo)
 - **Rilevamento lingua per traccia** — il modello Tesseract viene scelto automaticamente dal tag lingua della traccia; supportate: italiano, inglese, spagnolo, francese, tedesco, portoghese, olandese (tessdata_best)
 - **Traduzione automatica in italiano** — le tracce non italiane vengono salvate come `<nome>.<lingua>.srt` e tradotte in `<nome>.it.srt` (entrambi i file conservati)
 - **Strategia configurabile** — *Revisione mirata* (UI di revisione che mostra le righe incerte affiancate all'immagine bitmap originale) o *Solo automatico* (nessuna revisione, output diretto)
