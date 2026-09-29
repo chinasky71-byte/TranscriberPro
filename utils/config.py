@@ -98,6 +98,12 @@ class Config:
         # Solo l'inglese e' validato (il LID su rumore/applausi puo' allucinare altre
         # lingue: v. docstring del modulo). Vuota o rimossa la chiave = ['en'].
         'qwen3_lang_retry_accept_langs': ['en'],
+        # v1.30.0 (core/whisper_lang_retry.py): stessa correzione per Faster-Whisper, attiva SOLO quando la
+        # lingua e' forzata (mai in auto-detect). Utile soprattutto quando l'utente forza Faster-Whisper dal
+        # menu del motore (Impostazioni > Profilo) al posto di Qwen3. Esamina anche i VUOTI fra i segmenti
+        # (il VAD di Whisper spesso non rileva affatto il canto) e li divide in sotto-finestre se lunghi.
+        'whisper_lang_retry_enabled': True,
+        'whisper_lang_retry_accept_langs': ['en'],
         'canary_model_id': 'nvidia/canary-qwen-2.5b',
         'canary_python_path': '',              # vuoto = auto (<progetto>/venv_canary/Scripts/python.exe)
         'canary_batch_size': 8,                # chunk per chiamata a model.generate() nel subprocess

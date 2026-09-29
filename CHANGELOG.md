@@ -3,6 +3,27 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.0 — 2026-09-29 — Stessa correzione anche per Faster-Whisper
+
+- **`core/whisper_lang_retry.py` (nuovo) + `core/engines/faster_whisper_engine.py`**: quando la lingua è
+  FORZATA (mai in auto-detect), i segmenti sospetti E i vuoti fra i segmenti vengono ritrascritti con
+  rilevamento lingua, esattamente come per Qwen3-ASR (`core/qwen3_lang_retry.py`, v1.29.0). Config
+  `whisper_lang_retry_enabled` (default `True`) e `whisper_lang_retry_accept_langs` (default `['en']`).
+  Utile in particolare quando l'utente forza Faster-Whisper dal menu del motore (Impostazioni → Profilo →
+  motore di trascrizione) al posto di Qwen3, per esempio se non è soddisfatto dell'output di Qwen3.
+- **Due differenze rispetto a Qwen3, trovate misurando su Faster-Whisper** (`mt_eval/xfactor_canto/`):
+  - il VAD di Faster-Whisper spesso non rileva ALCUNA voce sul canto: interi tratti restano ASSENTI dai
+    segmenti (non "vuoti", proprio assenti). Si esaminano quindi anche i vuoti fra un segmento e il successivo:
+    se contengono voce, sono trattati come un segmento sospetto vuoto;
+  - un vuoto lungo ritrascritto in un'unica chiamata recupera pochissimo (misurato: 114 s di rap, solo 2 righe
+    recuperate — lo stesso VAD, riapplicato in blocco, scarta comunque la maggior parte). I vuoti più lunghi di
+    30 s vengono quindi divisi in sotto-finestre, con parametri VAD più permissivi per la ritrascrizione.
+  - Verificato end-to-end dopo la correzione: sulla clip "Bang Bang" (X Factor) il testo recuperato passa da 2
+    righe isolate a "bang bang into the room i know you want it bang bang all over you" + "Thank you for
+    watching!"; sulla clip dove un approccio senza filtro aveva sovrascritto parlato italiano vero con testo
+    allucinato in polacco, il parlato italiano resta ora invariato ("Grazie. Tocca...").
+- Esiti: `mt_eval/xfactor_canto/CONCLUSIONI.md`, `review/CONFRONTO.md`.
+
 ## 1.29.0 — 2026-09-29 — Canto in lingua diversa recuperato (Qwen3) + spagnolo su Whisper con split per frasi
 
 - **`core/qwen3_lang_retry.py` (nuovo) + `core/engines/qwen3_asr_engine.py`**: Qwen3-ASR forzava la lingua della
