@@ -3,6 +3,36 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.29.0 — 2026-09-29 — Canto in lingua diversa recuperato (Qwen3) + spagnolo su Whisper con split per frasi
+
+- **`core/qwen3_lang_retry.py` (nuovo) + `core/engines/qwen3_asr_engine.py`**: Qwen3-ASR forzava la lingua della
+  traccia su ogni chunk, anche nell'allineatore; le parti cantate/parlate in un'altra lingua (quasi sempre
+  l'inglese: canzoni, citazioni) sparivano o uscivano come testo storpiato nella lingua forzata. Un chunk
+  "sospetto" (vuoto, poche parole rispetto alla voce presente, o pieno di parole inglesi pur forzato in
+  un'altra lingua) viene ora ritrascritto con rilevamento lingua e tenuto solo se la lingua rilevata è diversa,
+  allineabile e nell'insieme accettato (di default solo l'inglese: è l'unica lingua validata su materiale
+  reale — il LID su rumore/applausi può allucinare altre lingue). Config `qwen3_lang_retry_enabled` (default
+  `True`) e `qwen3_lang_retry_accept_langs` (default `['en']`).
+  - **Misura** (`mt_eval/xfactor_canto/`, 9 esibizioni cantate di X Factor con canto perso dalla lingua forzata):
+    recupera testo inglese vero e leggibile in tutte le clip inglesi, zero rumore fuori dai chunk toccati, la
+    clip di controllo in italiano resta bit-per-bit identica. Verificato anche che l'approccio "senza filtro"
+    (rilevamento lingua su ogni segmento, provato su Faster-Whisper nella stessa misura) sia rischioso — ha
+    sovrascritto parlato italiano vero con testo allucinato in un'altra lingua vicino ai bordi delle esibizioni:
+    per questo la correzione resta mirata ai soli chunk sospetti, non generalizzata.
+- **`utils/config.py` (`whisper_model_by_language`, `whisper_split_sentence_langs`)**: lo spagnolo passa da
+  Qwen3-ASR a Faster-Whisper large-v3 e riceve lo split per frasi (regole in `core/whisper_sentence_split.py`).
+  Migrazione della config per revisione (rev 3 → 4).
+  - **Misura** (`mt_eval/asr_es/`, 5 motori su 4 film spagnoli originali — Qwen3, Whisper large-v3, NVIDIA
+    Canary-1B-v2, Cohere Transcribe, HiTZ/whisper-large-v3-es): nessun candidato nuovo ha superato la soglia
+    della regola congelata contro le due basi. Whisper e Qwen3 riconoscono le parole quasi allo stesso modo
+    (89,2% contro 88,5%), ma Whisper sbaglia meno, inventa meno testo, è più veloce e usa meno VRAM; con lo
+    split per frasi spagnolo i suoi blocchi migliorano nettamente (tagli senza punteggiatura 37,7% → 1,0%).
+    Il passaggio a Whisper non era coperto dalla regola (confrontava solo i candidati nuovi contro le basi):
+    scelta dell'utente. Verificato end-to-end (spagnolo → italiano): instradamento su Whisper confermato nel
+    log, nessuna riga rimasta non tradotta, blocchi corretti.
+  - Esiti completi: `mt_eval/asr_es/RESULT.md`, `mt_eval/xfactor_canto/CONCLUSIONI.md` e
+    `mt_eval/xfactor_canto/review/CONFRONTO.md`.
+
 ## 1.28.0 — 2026-09-28 — Split per frasi anche in tedesco
 
 - **`core/whisper_sentence_split.py`**: regole tedesche (`_boundary_type_de`, `SUPPORTED_LANGS` + `de`), con nomi

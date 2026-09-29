@@ -88,6 +88,16 @@ class Config:
         'qwen3_enabled': True,                 # Qwen3-ASR-1.7B + ForcedAligner-0.6B
         'qwen3_asr_model_id': 'Qwen/Qwen3-ASR-1.7B',
         'qwen3_aligner_model_id': 'Qwen/Qwen3-ForcedAligner-0.6B',
+        # v1.29.0 (core/qwen3_lang_retry.py, trovato su X Factor 28-29/09/2026): i chunk
+        # "sospetti" (vuoti, poche parole rispetto alla voce presente, o pieni di parole
+        # inglesi pur forzati in un'altra lingua — tipico di canzoni/citazioni in inglese
+        # dentro un audio di un'altra lingua) vengono ritrascritti con rilevamento lingua e
+        # tenuti solo se la lingua rilevata e' diversa, allineabile e accettata. Verificato
+        # su 9 clip reali: recupera il canto inglese, 0 rumore fuori dai chunk toccati.
+        'qwen3_lang_retry_enabled': True,
+        # Solo l'inglese e' validato (il LID su rumore/applausi puo' allucinare altre
+        # lingue: v. docstring del modulo). Vuota o rimossa la chiave = ['en'].
+        'qwen3_lang_retry_accept_langs': ['en'],
         'canary_model_id': 'nvidia/canary-qwen-2.5b',
         'canary_python_path': '',              # vuoto = auto (<progetto>/venv_canary/Scripts/python.exe)
         'canary_batch_size': 8,                # chunk per chiamata a model.generate() nel subprocess
@@ -101,10 +111,12 @@ class Config:
         # il criterio che conta anche i tagli su virgola, tagli senza punteggiatura 41,6% -> 2,1%;
         # acceso per scelta dell'utente) e tedesco (v1.28.0: regole proprie; conferma su 8 film: tagli senza
         # punteggiatura ne' congiunzione 37,0% -> 2,7%, "non vincente" per un sotto-criterio di densita'; acceso per
-        # scelta dell'utente). Le altre lingue usano sempre lo split originale.
-        'whisper_split_sentence_langs': ['en', 'it', 'fr', 'de'],
+        # scelta dell'utente) e spagnolo (v1.29.0: regole proprie; nessuna conferma su file interi ancora fatta,
+        # ma acceso insieme al passaggio a Whisper per lo spagnolo — scelta dell'utente 29/09/2026: coi blocchi
+        # nativi di Whisper i tagli senza punteggiatura erano al 37,7%). Le altre lingue usano lo split originale.
+        'whisper_split_sentence_langs': ['en', 'it', 'fr', 'de', 'es'],
         # Versione della lista sopra gia' applicata a questa config (migrazione una tantum in load()).
-        'whisper_split_sentence_langs_rev': 3,
+        'whisper_split_sentence_langs_rev': 4,
 
         # FFmpeg whisper settings (solo se transcription_method == 'ffmpeg')
         'ffmpeg_model_path': '',
@@ -117,13 +129,19 @@ class Config:
         # Valore: id HF ("utente/repo"), id HF con sottocartella ("utente/repo/sottocartella")
         # o percorso locale di una cartella CTranslate2. Se il caricamento fallisce si usa
         # 'whisper_model'. fr: misura del 28/09/2026 (mt_eval/asr_fr/RESULT.md); de: scelta
-        # dell'utente, NON misurata.
+        # dell'utente, NON misurata. es: misura del 29/09/2026 (mt_eval/asr_es/RESULT.md) —
+        # Whisper large-v3 pari a Qwen3 sul riconoscimento ma piu' veloce, meno VRAM, meno
+        # invenzioni, e coi blocchi molto migliori con lo split per frasi spagnolo; nessuno dei
+        # candidati nuovi (Canary-1B-v2, Cohere Transcribe, HiTZ) ha superato la soglia della
+        # regola. 'large-v3' = il modello Whisper standard, NON uno specializzato: qui la voce
+        # serve solo a instradare lo spagnolo su faster-whisper invece che su Qwen3.
         'whisper_model_by_language': {
             'fr': 'bofenghuang/whisper-large-v3-french/ctranslate2',
             # de: primeline/whisper-large-v3-german convertito CT2 float16; il model.bin di
             # questo repo e' identico byte per byte alla nostra conversione (sha 318956c2...),
             # repo non gated (reality-interface, stesso file, chiede l'accesso: 401).
             'de': 'TiMoMuc/whisper-large-v3-german-ct2',
+            'es': 'large-v3',
         },
         'whisper_device': 'auto',
         'whisper_compute_type': 'auto',
@@ -355,7 +373,7 @@ class Config:
     
     # default di whisper_split_sentence_langs per revisione (rev 1 = prima della migrazione, config salvate fino
     # alla v1.26.0): una config che ha ancora il default della SUA revisione passa al default attuale
-    _SPLIT_LANGS_BY_REV = {1: ['en', 'it'], 2: ['en', 'it', 'fr']}
+    _SPLIT_LANGS_BY_REV = {1: ['en', 'it'], 2: ['en', 'it', 'fr'], 3: ['en', 'it', 'fr', 'de']}
 
     def _migrate_split_langs(self, loaded: dict) -> bool:
         """Migrazione una tantum di whisper_split_sentence_langs (v1.27.0: +fr, v1.28.0: +de). Il load salva i
