@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.23.0-orange)
+![Version](https://img.shields.io/badge/Version-1.30.1-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -29,7 +29,11 @@ Transcriber Pro takes any video file and produces clean `.srt` subtitle files th
 ## Features
 
 ### Transcription & Translation
-- **Multi-engine transcription with automatic language routing** — NVIDIA Canary-Qwen-2.5B (English only, best WER; optional, requires a dedicated `venv_canary` with NeMo 3.0.0), Qwen3-ASR-1.7B + Qwen3-ForcedAligner-0.6B (11 languages with word-level timestamps: zh, en, yue, fr, de, it, ja, ko, pt, ru, es; native language auto-detect), Faster-Whisper `large-v3` as guaranteed universal fallback (99 languages, VAD filter) — the pipeline never fails because of a new engine. Only one ASR engine in VRAM at a time. Engine selector in profile settings (`transcription_engine_mode`: auto / canary / qwen3 / faster-whisper)
+- **Multi-engine transcription with automatic language routing** — NVIDIA Canary-Qwen-2.5B (English only, best WER; optional, requires a dedicated `venv_canary` with NeMo 3.0.0), Qwen3-ASR-1.7B + Qwen3-ForcedAligner-0.6B (11 languages with word-level timestamps: zh, en, yue, fr, de, it, ja, ko, pt, ru, es; native language auto-detect), Faster-Whisper `large-v3` as guaranteed universal fallback (99 languages, VAD filter) — the pipeline never fails because of a new engine. Only one ASR engine in VRAM at a time. Engine selector in profile settings (`transcription_engine_mode`: auto / canary / qwen3 / faster-whisper) — **force Faster-Whisper here whenever you're not happy with Qwen3's output on a given file**
+- **Language-specific Whisper models routed automatically** (`whisper_model_by_language`, `core/engine_router.py`) — French (`bofenghuang/whisper-large-v3-french`) and German (CTranslate2 conversion of `primeline/whisper-large-v3-german`) get a fine-tuned Whisper instead of Qwen3 in auto mode; Spanish is routed to plain `large-v3` after a 5-engine bench (Qwen3, Whisper, NVIDIA Canary-1B-v2, Cohere Transcribe, HiTZ) found Whisper matched Qwen3 on word recall with fewer hallucinations, more speed, and much better segmentation once combined with sentence-aware splitting. Falls back to the configured default model if the specialized one fails to load — a bad download never fails the file
+- **Sentence-aware splitting extended to French, German and Spanish** (`core/whisper_sentence_split.py`, `whisper_split_sentence_langs`, default now `["en", "it", "fr", "de", "es"]`) — language-specific rules (French `¿`-less but spaced punctuation, German capitalized-noun continuations, ordinals, Spanish `¿¡` inverted punctuation, per-language abbreviation/conjunction lists) cut mid-sentence blocks from 33-50% down to 1-6% on real films in each language, measured against professional subtitles and confirmed not to regress English/Italian (bit-for-bit identical on regression checks)
+- **Non-English sources translated with NLLB fine-tuned instead of TranslateGemma** — TranslateGemma's fine-tuning was English→Italian only and produced untranslated or hallucinated lines on other source languages; the pipeline now detects a non-English source and routes it to NLLB fine-tuned automatically, both in the main queue and in bitmap OCR translation
+- **Forced-language retry correction (Qwen3-ASR and Faster-Whisper)** — both engines used to force the declared track language on every chunk/segment, so content actually spoken/sung in a *different* language (typically an English song or quote inside a non-English film) came back empty or garbled into the wrong language. Suspect chunks/segments (empty, too few words for the amount of voice present, or full of English words despite the forced language) are now retried with automatic language detection and kept only if the detected language is accepted (English by default — the only language validated against real hallucination risk on noise/applause). For Faster-Whisper this also examines the *gaps* between segments, since its own VAD often misses sung content entirely, splitting long gaps into sub-windows so a single retry call doesn't silently drop most of a song. Config: `qwen3_lang_retry_enabled`/`accept_langs`, `whisper_lang_retry_enabled`/`accept_langs` (both default on, English only)
 - **Multiple translation engines**: NLLB-200-3.3B, NLLB fine-tuned, TranslateGemma-12B (LLM branch, optional LoRA adapter and custom local model path), Claude Sonnet API, OpenAI GPT-4o-mini
 - **Professional dialogue style (Netflix)** — "- " dashes only when two speakers share the same SRT block (one line per speaker); speaker diarization extended to all engines (`dialogue_style_enabled`, default ON, requires a HuggingFace token); dashes preserved in translated SRTs across all 4 translation backends; `core/subtitle_formatter.py` handles CPL 42, anti-flash, fragment merging and dialogue grouping
 - **Vocal separation** via Meta Demucs — isolates speech before transcription for better accuracy
@@ -37,6 +41,9 @@ Transcriber Pro takes any video file and produces clean `.srt` subtitle files th
 - **Transcription profiles** — Fast / Balanced / Quality / Maximum / Batch presets
 - **Force audio transcription** — bypass embedded subtitle extraction and always transcribe from audio
 - **Gender correction v2 (audio-driven)** — fixes Italian grammatical gender in 1st/2nd person by detecting the speaker's gender **from the voice** (pyannote diarization + ECAPA classifier, 95% acc), then applying a deterministic morphological rewrite guarded by a validator — no LLM, no extra VRAM, hallucinations impossible by construction. Feminine accuracy on first-person lines: 19% → 87% (validated on 700+ auto-extracted test points). Addressee gender for 2nd person comes from dialogue turn-taking (91% acc) and TMDB-cast vocatives
+
+### Subtitle Synchronization
+- **Multi-file sync queue + timing-only alignment engine** (`core/timing_aligner.py`) — aligns an out-of-sync external subtitle file to the correct timestamps using only timing/order heuristics (no LLM semantic matching needed for the common case), tested at 100% of rows within 0.5 s; replaced the Qwen2.5-14B semantic matcher as the default path, cutting a typical episode from ~81 minutes to ~2 seconds. Can now process a whole batch of files back to back instead of one at a time
 
 ### Bitmap OCR (PGS / VOBSUB → SRT)
 - **PGS (Blu-ray) and VOBSUB (DVD)** bitmap subtitle tracks converted to text SRT — verbatim, no AI hallucination
@@ -194,9 +201,11 @@ All credentials are optional except for the translation model you choose to use.
 
 | Model | Type | Size | VRAM | Quality | Speed |
 |-------|------|------|------|---------|-------|
-| Faster-Whisper large-v3 | Transcription (universal fallback) | 1.5 B params | ~4 GB | ★★★★★ | ★★★★☆ |
+| Faster-Whisper large-v3 | Transcription (universal fallback; default for Spanish) | 1.5 B params | ~4 GB | ★★★★★ | ★★★★☆ |
 | Qwen3-ASR-1.7B + ForcedAligner-0.6B | Transcription (11 languages, word-level timestamps) | 1.7 B + 0.6 B params | ~5 GB | ★★★★★ | ★★★★☆ |
 | NVIDIA Canary-Qwen-2.5B | Transcription (English only, optional venv) | 2.5 B params | ~6 GB | ★★★★★ | ★★★★☆ |
+| whisper-large-v3-french (bofenghuang) | Transcription (French, auto-routed) | 1.5 B params | ~4 GB | ★★★★★ | ★★★★☆ |
+| whisper-large-v3-german (primeline, CT2) | Transcription (German, auto-routed) | 1.5 B params | ~4 GB | ★★★★★ | ★★★★☆ |
 | NLLB-200-3.3B | Translation (local) | 3.3 B params | ~5 GB | ★★★☆☆ | ★★★★★ |
 | NLLB-200 fine-tuned | Translation (local) | 3.3 B params | ~5 GB | ★★★★☆ | ★★★★★ |
 | TranslateGemma-12B | Translation (local, LLM branch) | 12 B params | ~10 GB | ★★★★☆ | ★★★☆☆ |
@@ -224,9 +233,13 @@ Models are loaded and unloaded sequentially to fit within available VRAM.
 ┌──────────────────────────────────────────────────────────────┐
 │                   CORE PROCESSING LAYER                       │
 │          ProcessingPipeline (audio transcription)             │
+│  EngineRouter (per-language ASR + Whisper model selection)    │
 │  SubtitleExtractor · AudioProcessor · Transcriber             │
-│  Translator (NLLB / TranslateGemma / Claude / OpenAI)          │
+│  qwen3_lang_retry / whisper_lang_retry (forced-language retry)│
+│  whisper_sentence_split (en/it/fr/de/es sentence-aware split) │
+│  Translator (NLLB / NLLB-FT / TranslateGemma / Claude / OpenAI)│
 │  GenderCorrectorV2 (speaker gender map · selector · rewriter) │
+│  TimingAligner (multi-file subtitle sync queue)               │
 │                                                               │
 │          PgsOcr · VobSubOcr · BitmapOcrCommon                 │
 │  pgsreader (vendored) · vobsub parser (vendored)              │
@@ -289,6 +302,31 @@ This project is licensed under the MIT License.
 ---
 
 ## Changelog
+
+### v1.24.0 - v1.30.1
+Six weeks of work on translation/transcription quality for non-English sources, condensed here; full detail,
+measurement methodology and decision rules for every claim below are in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.1 / v1.30.0** — Forced-language retry for Qwen3-ASR and Faster-Whisper (`core/qwen3_lang_retry.py`,
+  `core/whisper_lang_retry.py`): both engines forced the declared track language on every chunk, so content in
+  another language (English songs inside non-English films, mostly) came back empty or garbled. Suspect
+  chunks/segments — and, for Whisper, the *gaps* its own VAD leaves around sung content — are retried with
+  language auto-detect and kept only if English is detected (the only language validated against false
+  positives on noise). Found and fixed on 9 real X Factor performances; covers both the whole-file and the
+  chunked Whisper code paths.
+- **v1.29.0** — Spanish routed to Faster-Whisper instead of Qwen3-ASR after a 5-engine bench (Qwen3, Whisper,
+  NVIDIA Canary-1B-v2, Cohere Transcribe, HiTZ) on 4 original-language films: no new candidate beat the two
+  incumbents on the bench's own pass/fail rule, but Whisper matched Qwen3 on recall with fewer hallucinations
+  and much better blocks once combined with sentence-aware splitting (now extended to Spanish too).
+- **v1.28.0 / v1.27.0** — Sentence-aware splitting extended to German and French, each confirmed on 8 unseen
+  original-language films against professional subtitles (mid-sentence blocks 37-51% → 1-6%).
+- **v1.26.0** — French and German routed to fine-tuned Whisper models (`whisper_model_by_language`) instead of
+  Qwen3, picked after a 5-engine bench against a proper-noun-heavy reference.
+- **v1.25.0** — Non-English sources no longer go through TranslateGemma (fine-tuned English→Italian only, which
+  hallucinated or left lines untranslated on other source languages) — automatically routed to NLLB fine-tuned
+  instead, in both the main queue and bitmap OCR.
+- **v1.24.0** — Multi-file subtitle sync queue + new timing-only alignment engine (`core/timing_aligner.py`):
+  100% of rows within 0.5 s on real episodes, ~2 s per episode instead of ~81 minutes; replaced Qwen2.5-14B as
+  the default path.
 
 ### v1.23.0
 - **Sentence-aware splitting of Whisper segments, now on for English and Italian.** faster-whisper used to cut long segments at 80 characters / 6 s regardless of punctuation, so 37-47% of subtitle blocks ended mid-sentence and translation received fragments. The split now prefers sentence boundaries (`core/whisper_sentence_split.py`, options `whisper_split_sentence_aware` and `whisper_split_sentence_langs`, default `["en", "it"]`; other languages keep the original split; `false` restores the previous behavior). Mid-sentence blocks drop to 6-11%, words are identical, and blocks no longer end on articles, prepositions or conjunctions (24.9% -> 2.1% in Italian, checked with an independent spaCy pass). Each language was confirmed on fresh whole files under pre-frozen decision rules (English: 8 files; Italian: 8 new files after a first round exposed a Whisper timestamp glitch inside words, now handled). Caveats: Italian is mostly covered by dubbed films (3 original-Italian files), and the effect on translation was not measured. Evidence, rules and verdicts are in `whisper_split_eval/`.
@@ -541,7 +579,11 @@ Transcriber Pro produce file `.srt` attraverso due pipeline complementari:
 ## Funzionalità
 
 ### Trascrizione e Traduzione
-- **Trascrizione multi-engine con routing automatico per lingua** — NVIDIA Canary-Qwen-2.5B (solo inglese, WER migliore; opzionale, richiede un `venv_canary` dedicato con NeMo 3.0.0), Qwen3-ASR-1.7B + Qwen3-ForcedAligner-0.6B (11 lingue con timestamp word-level: zh, en, yue, fr, de, it, ja, ko, pt, ru, es; auto-detect lingua nativo), Faster-Whisper `large-v3` come fallback universale garantito (99 lingue, filtro VAD) — la pipeline non fallisce mai per colpa di un engine nuovo. Un solo engine ASR in VRAM per volta. Selettore engine nelle impostazioni profilo (`transcription_engine_mode`: auto / canary / qwen3 / faster-whisper)
+- **Trascrizione multi-engine con routing automatico per lingua** — NVIDIA Canary-Qwen-2.5B (solo inglese, WER migliore; opzionale, richiede un `venv_canary` dedicato con NeMo 3.0.0), Qwen3-ASR-1.7B + Qwen3-ForcedAligner-0.6B (11 lingue con timestamp word-level: zh, en, yue, fr, de, it, ja, ko, pt, ru, es; auto-detect lingua nativo), Faster-Whisper `large-v3` come fallback universale garantito (99 lingue, filtro VAD) — la pipeline non fallisce mai per colpa di un engine nuovo. Un solo engine ASR in VRAM per volta. Selettore engine nelle impostazioni profilo (`transcription_engine_mode`: auto / canary / qwen3 / faster-whisper) — **forza Faster-Whisper qui quando l'output di Qwen3 su un file non convince**
+- **Modelli Whisper specifici per lingua instradati automaticamente** (`whisper_model_by_language`, `core/engine_router.py`) — francese (`bofenghuang/whisper-large-v3-french`) e tedesco (conversione CTranslate2 di `primeline/whisper-large-v3-german`) ricevono un Whisper fine-tuned al posto di Qwen3 in modalità auto; lo spagnolo è instradato su `large-v3` semplice dopo un banco a 5 motori (Qwen3, Whisper, NVIDIA Canary-1B-v2, Cohere Transcribe, HiTZ) che ha mostrato Whisper alla pari di Qwen3 sul recall delle parole ma con meno allucinazioni, più velocità e una segmentazione molto migliore una volta combinato con lo split per frasi. Ripiega sul modello di default configurato se quello specializzato non si carica — un download rotto non fa mai fallire il file
+- **Split per frasi esteso a francese, tedesco e spagnolo** (`core/whisper_sentence_split.py`, `whisper_split_sentence_langs`, default ora `["en", "it", "fr", "de", "es"]`) — regole specifiche per lingua (punteggiatura francese senza `¿` ma spaziata, continuazioni con sostantivo maiuscolo in tedesco, ordinali, punteggiatura invertita `¿¡` spagnola, liste di abbreviazioni/congiunzioni per lingua) riducono i blocchi spezzati a metà frase dal 33-50% all'1-6% su film reali in ciascuna lingua, misurato contro sottotitoli professionali e confermato senza regressioni su inglese/italiano (identico bit-per-bit nei controlli di regressione)
+- **Sorgenti non inglesi tradotte con NLLB finetuned al posto di TranslateGemma** — il fine-tuning di TranslateGemma era solo inglese→italiano e produceva righe non tradotte o allucinate sulle altre lingue sorgente; la pipeline ora rileva una sorgente non inglese e la instrada automaticamente su NLLB finetuned, sia nella coda principale che nella traduzione OCR bitmap
+- **Correzione a ritrascrizione per lingua forzata (Qwen3-ASR e Faster-Whisper)** — entrambi gli engine forzavano la lingua dichiarata della traccia su ogni chunk/segmento, per cui contenuto effettivamente parlato/cantato in una lingua *diversa* (tipicamente una canzone o citazione in inglese dentro un film non inglese) tornava vuoto o storpiato nella lingua sbagliata. I chunk/segmenti sospetti (vuoti, troppo poche parole rispetto alla voce presente, o pieni di parole inglesi nonostante la lingua forzata) vengono ora ritrascritti con rilevamento automatico della lingua e tenuti solo se la lingua rilevata è accettata (inglese di default — l'unica lingua validata contro il rischio reale di allucinazione su rumore/applausi). Per Faster-Whisper viene esaminato anche il *vuoto* tra i segmenti, dato che il suo VAD spesso perde del tutto il contenuto cantato, spezzando i vuoti lunghi in sotto-finestre così una singola chiamata di ritrascrizione non perde silenziosamente gran parte di una canzone. Config: `qwen3_lang_retry_enabled`/`accept_langs`, `whisper_lang_retry_enabled`/`accept_langs` (entrambi attivi di default, solo inglese)
 - **Motori di traduzione multipli**: NLLB-200-3.3B, NLLB finetuned, TranslateGemma-12B (ramo LLM, adattatore LoRA opzionale e path modello locale custom), Claude Sonnet API, OpenAI GPT-4o-mini
 - **Stile dialoghi professionale (Netflix)** — trattini "- " solo quando due parlanti condividono lo stesso blocco SRT (una battuta per riga); speaker diarization estesa a tutti gli engine (opzione `dialogue_style_enabled`, default ON, richiede token HuggingFace); trattini preservati anche negli SRT tradotti su tutti e 4 i backend di traduzione; `core/subtitle_formatter.py` gestisce CPL 42, anti-flash, merge frammenti e raggruppamento dialoghi
 - **Separazione vocale** via Meta Demucs — isola la voce prima della trascrizione per maggiore accuratezza
@@ -549,6 +591,9 @@ Transcriber Pro produce file `.srt` attraverso due pipeline complementari:
 - **Profili di trascrizione** — Fast / Balanced / Quality / Maximum / Batch
 - **Forza trascrizione audio** — ignora i sottotitoli embedded e trascrive sempre dall'audio
 - **Correzione genere v2 (audio-driven)** — corregge il genere grammaticale di 1ª/2ª persona deducendo il genere di chi parla **dalla voce** (diarization pyannote + classificatore ECAPA, 95%) e riscrivendo con un flip morfologico deterministico protetto da validatore — niente LLM, niente VRAM extra, allucinazioni impossibili. Accuratezza femminile in 1ª persona: 19% → 87%. La 2ª persona usa i turni di dialogo (91%) e i vocativi col cast TMDB
+
+### Sincronizzazione Sottotitoli
+- **Coda sync multi-file + motore di allineamento solo-tempi** (`core/timing_aligner.py`) — allinea un file sottotitoli esterno fuori sync ai timestamp corretti usando solo euristiche di tempo/ordine (nessun matching semantico LLM necessario nel caso comune), testato al 100% delle righe entro 0,5 s; ha sostituito il matcher semantico Qwen2.5-14B come percorso di default, riducendo un episodio tipico da ~81 minuti a ~2 secondi. Ora può processare un intero lotto di file in sequenza invece che uno alla volta
 
 ### OCR Bitmap (PGS / VOBSUB → SRT)
 - **Tracce PGS (Blu-ray) e VOBSUB (DVD)** convertite in SRT testuale — verbatim, nessuna allucinazione AI
@@ -705,9 +750,11 @@ Tutte le credenziali sono opzionali tranne quella del motore di traduzione scelt
 
 | Modello | Tipo | Dimensione | VRAM | Qualità | Velocità |
 |---------|------|-----------|------|---------|---------|
-| Faster-Whisper large-v3 | Trascrizione (fallback universale) | 1,5 B params | ~4 GB | ★★★★★ | ★★★★☆ |
+| Faster-Whisper large-v3 | Trascrizione (fallback universale; default per lo spagnolo) | 1,5 B params | ~4 GB | ★★★★★ | ★★★★☆ |
 | Qwen3-ASR-1.7B + ForcedAligner-0.6B | Trascrizione (11 lingue, timestamp word-level) | 1,7 B + 0,6 B params | ~5 GB | ★★★★★ | ★★★★☆ |
 | NVIDIA Canary-Qwen-2.5B | Trascrizione (solo inglese, venv opzionale) | 2,5 B params | ~6 GB | ★★★★★ | ★★★★☆ |
+| whisper-large-v3-french (bofenghuang) | Trascrizione (francese, auto-instradato) | 1,5 B params | ~4 GB | ★★★★★ | ★★★★☆ |
+| whisper-large-v3-german (primeline, CT2) | Trascrizione (tedesco, auto-instradato) | 1,5 B params | ~4 GB | ★★★★★ | ★★★★☆ |
 | NLLB-200-3.3B | Traduzione (locale) | 3,3 B params | ~5 GB | ★★★☆☆ | ★★★★★ |
 | NLLB-200 finetuned | Traduzione (locale) | 3,3 B params | ~5 GB | ★★★★☆ | ★★★★★ |
 | TranslateGemma-12B | Traduzione (locale, ramo LLM) | 12 B params | ~10 GB | ★★★★☆ | ★★★☆☆ |
@@ -728,6 +775,31 @@ Questo progetto è distribuito con licenza MIT.
 ---
 
 ## Changelog
+
+### v1.24.0 - v1.30.1
+Sei settimane di lavoro sulla qualità di traduzione/trascrizione per le sorgenti non inglesi, condensate qui; il
+dettaglio completo, la metodologia di misura e le regole di decisione per ogni affermazione sono in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.1 / v1.30.0** — Ritrascrizione per lingua forzata per Qwen3-ASR e Faster-Whisper (`core/qwen3_lang_retry.py`,
+  `core/whisper_lang_retry.py`): entrambi gli engine forzavano la lingua dichiarata della traccia su ogni chunk, per
+  cui contenuto in un'altra lingua (canzoni in inglese dentro film non inglesi, principalmente) tornava vuoto o
+  storpiato. I chunk/segmenti sospetti — e, per Whisper, i *vuoti* che il suo stesso VAD lascia intorno al cantato —
+  vengono ritrascritti con rilevamento automatico della lingua e tenuti solo se viene rilevato inglese (l'unica
+  lingua validata contro i falsi positivi su rumore). Trovato e corretto su 9 esibizioni reali di X Factor; copre
+  sia il percorso Whisper a file intero che quello a chunk.
+- **v1.29.0** — Spagnolo instradato su Faster-Whisper invece di Qwen3-ASR dopo un banco a 5 motori (Qwen3, Whisper,
+  NVIDIA Canary-1B-v2, Cohere Transcribe, HiTZ) su 4 film in lingua originale: nessun nuovo candidato ha battuto i
+  due incumbent sulla regola pass/fail del banco, ma Whisper era alla pari di Qwen3 sul recall con meno
+  allucinazioni e blocchi molto migliori una volta combinato con lo split per frasi (ora esteso anche allo spagnolo).
+- **v1.28.0 / v1.27.0** — Split per frasi esteso a tedesco e francese, confermato su 8 film in lingua originale mai
+  visti contro sottotitoli professionali (blocchi a metà frase dal 37-51% all'1-6%).
+- **v1.26.0** — Francese e tedesco instradati su modelli Whisper fine-tuned (`whisper_model_by_language`) al posto
+  di Qwen3, scelti dopo un banco a 5 motori su un riferimento denso di nomi propri.
+- **v1.25.0** — Le sorgenti non inglesi non passano più da TranslateGemma (fine-tuned solo inglese→italiano, che
+  allucinava o lasciava righe non tradotte sulle altre lingue sorgente) — instradate automaticamente su NLLB
+  finetuned, sia nella coda principale che nell'OCR bitmap.
+- **v1.24.0** — Coda sync multi-file sottotitoli + nuovo motore di allineamento solo-tempi (`core/timing_aligner.py`):
+  100% delle righe entro 0,5 s su episodi reali, ~2 s per episodio invece di ~81 minuti; ha sostituito Qwen2.5-14B
+  come percorso di default.
 
 ### v1.23.0
 - **Split dei segmenti Whisper sui confini di frase, ora attivo per inglese e italiano.** faster-whisper tagliava i segmenti lunghi a 80 caratteri / 6 s senza guardare la punteggiatura: il 37-47% dei blocchi finiva a metà frase e la traduzione riceveva frammenti. Ora lo split preferisce i confini di frase (`core/whisper_sentence_split.py`, opzioni `whisper_split_sentence_aware` e `whisper_split_sentence_langs`, default `["en", "it"]`; le altre lingue mantengono lo split originale; `false` ripristina il comportamento precedente). I blocchi a metà frase scendono al 6-11%, le parole restano identiche e i blocchi non finiscono più su articoli, preposizioni o congiunzioni (24,9% -> 2,1% in italiano, verificato con un controllo indipendente spaCy). Ogni lingua è stata confermata su file interi nuovi con regole congelate prima dei dati (inglese: 8 file; italiano: 8 file nuovi, dopo un primo giro che ha fatto emergere un glitch dei timestamp di Whisper dentro le parole, ora gestito). Riserve: l'italiano è coperto soprattutto da film doppiati (3 file in italiano originale) e l'effetto sulla traduzione non è stato misurato. Prove, regole e verdetti in `whisper_split_eval/`.
@@ -956,3 +1028,24 @@ Questo progetto è distribuito con licenza MIT.
 - [tessdata_best](https://github.com/tesseract-ocr/tessdata_best) — traineddata ad alta precisione
 - [OpenSubtitles](https://www.opensubtitles.com) — database sottotitoli e API
 - [jonatasgrosman](https://huggingface.co/jonatasgrosman) — modelli wav2vec2 per allineamento
+
+---
+
+## TODO / Roadmap
+
+Lista aggiornata a ogni commit + push di una nuova versione.
+
+**In corso**
+- Training NLLB "corpus massimo" (corpus ampliato per la traduzione fine-tuned)
+
+**Da validare / misurare**
+- Glossario per-show: GUI semi-automatica non ancora validata su uno show reale; canale Qwen su GPU non ancora misurato su uno show reale
+- Effetto dello split per frasi sulla qualità di traduzione, non ancora misurato
+- Installer per PC nuovi (`install.bat`/`.ps1`): non ancora verificati avvio GUI, pipeline diarization, caricamento modelli, e opzione `-WithModels` su una macchina pulita
+
+**Priorità decise, non ancora avviate**
+- Confronto Qwen2.5-7B-Q4 vs 14B nei tre punti della pipeline che usano lo stesso modello GGUF
+- Modello di ripristino punteggiatura con supporto al punto esclamativo (limite noto del modello attuale)
+
+**Bloccato su verifica umana**
+- Confronto accuratezza italiano Qwen3 vs Whisper: in attesa di un controllo d'ascolto manuale sui chunk incerti
