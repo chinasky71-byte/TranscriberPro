@@ -3,6 +3,24 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.1 — 2026-09-29 — Stessa correzione anche sul percorso "N chunk sequenziali"
+
+- **`core/engines/faster_whisper_engine.py`**: la correzione della lingua forzata (v1.30.0) copriva solo il
+  percorso "file unico" (BatchedInferencePipeline), usato quando l'utente forza Faster-Whisper o quando è il
+  motore pianificato. Ora copre anche il percorso a chunk multipli — usato quando Whisper interviene come
+  RIPIEGO automatico dopo un errore di Qwen3/Canary a metà file, con i chunk già tagliati dal motore
+  originale — riusando la stessa `core/whisper_lang_retry.apply()`, chunk per chunk.
+  - Gate su tre condizioni: mai in auto-detect, solo se il VAD è disponibile, e la chiave di config.
+  - Un solo riepilogo di log a fine file (non uno per chunk).
+  - Ripiego automatico se il modello caricato non accetta il parametro `batch_size` nella ritrascrizione
+    (caso raro: `WhisperModel` puro, senza `BatchedInferencePipeline`).
+  - Verificato end-to-end riusando l'audio già separato in cache (senza rieseguire Demucs) e chiamando il
+    motore direttamente con chunk tagliati come farebbe Qwen3: recupera il canto perso e lascia invariato il
+    parlato italiano, come sul percorso file-unico.
+- **`asr_eval/sandbox.py`**: `qwen3_lang_retry_enabled` e `whisper_lang_retry_enabled` spenti nei banchi di
+  misura ASR (`BENCH_SETTINGS`), che altrimenti misurerebbero i motori con la correzione già attiva sotto,
+  falsando i confronti futuri fra motori "grezzi".
+
 ## 1.30.0 — 2026-09-29 — Stessa correzione anche per Faster-Whisper
 
 - **`core/whisper_lang_retry.py` (nuovo) + `core/engines/faster_whisper_engine.py`**: quando la lingua è

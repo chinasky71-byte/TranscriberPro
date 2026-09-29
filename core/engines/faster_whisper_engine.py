@@ -520,6 +520,26 @@ class FasterWhisperEngine(TranscriptionEngine):
                 except Exception:
                     safe_ceiling = None
 
+            # v1.30.1 (core/whisper_lang_retry.py): stessa correzione del percorso file-unico, applicata
+            # PEZZO PER PEZZO (questo percorso riceve chunk già tagliati da un altro motore, es. il fallback
+            # dopo un errore di Qwen3/Canary a metà file). Gate su tre condizioni: mai in auto-detect (lingua
+            # già libera), serve il VAD (il ramo senza VAD sotto usa vad_filter=False, ma apply() ritenta
+            # sempre con vad_filter=True), e la chiave di config. Log accorpato a fine ciclo, non per chunk
+            # (su un film sarebbe una riga per ogni pezzo).
+            lang_retry_on = (not auto_detect and self.vad_available
+                            and self.config.get('whisper_lang_retry_enabled', True))
+            lang_retry_accept = frozenset(self.config.get('whisper_lang_retry_accept_langs', ['en']))
+            lang_retry_records: list = []
+
+            def _retry_transcribe(*a, **k):
+                # alcuni modelli (WhisperModel puro, senza BatchedInferencePipeline) non accettano
+                # 'batch_size': fallback silenzioso, stesso risultato senza il parametro.
+                try:
+                    return self.faster_whisper_model.transcribe(*a, **k)
+                except TypeError:
+                    k.pop('batch_size', None)
+                    return self.faster_whisper_model.transcribe(*a, **k)
+
             for i, (chunk_path, start_time, end_time) in enumerate(audio_chunks):
                 if self._cancelled:
                     break
@@ -558,6 +578,20 @@ class FasterWhisperEngine(TranscriptionEngine):
                         if detected_language and auto_detect:
                             self.log(f"  🔍 Lingua rilevata automaticamente: {detected_language}")
 
+                    segments = list(segments)
+                    if lang_retry_on:
+                        try:
+                            import soundfile as sf
+                            cx, csr = sf.read(str(chunk_path), dtype='float32', always_2d=True)
+                            cx = cx.mean(axis=1)
+                            from core.whisper_lang_retry import apply as lang_retry_apply
+                            segments = lang_retry_apply(
+                                _retry_transcribe, segments, cx, csr, whisper_language, lang_retry_accept,
+                                self.beam_size, log=None, records=lang_retry_records)
+                        except Exception as e:
+                            logger.warning(f"[whisper-lang-retry] chunk {chunk_num} disattivato: {e}",
+                                          exc_info=True)
+
                     for segment in segments:
                         all_segments.append({
                             'start': segment.start + start_time,
@@ -584,6 +618,9 @@ class FasterWhisperEngine(TranscriptionEngine):
             if failed_chunks > 0:
                 self.log(f"  ⚠️ Completato con {failed_chunks} chunks falliti su {total_chunks}")
             self.log(f"  ✅ Trascrizione: [██████████] 100% ({total_chunks}/{total_chunks}) │ {time_str}")
+            n_retried = sum(r.get('decision') == 'ritrascritto' for r in lang_retry_records)
+            if lang_retry_records:
+                self.log(f"  🌐 Segmenti/vuoti sospetti: {len(lang_retry_records)}, ritrascritti: {n_retried}")
             self._last_segments = all_segments   # esposto per diarization in pipeline
 
         self.log(f"  📝 Totale segmenti trascritti: {len(all_segments)}")

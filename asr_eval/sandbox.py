@@ -44,6 +44,12 @@ BENCH_SETTINGS: Dict[str, object] = {
     'qwen3_aligner_model_id': 'Qwen/Qwen3-ForcedAligner-0.6B',
     'canary_model_id': 'nvidia/canary-qwen-2.5b',
     'transcription_engine_mode': 'auto',
+    # v1.29.0/v1.30.0: di default in produzione (True). Spenti nei banchi ASR: senza, i motori misurati
+    # includerebbero silenziosamente la ritrascrizione dei chunk sospetti, confondendo il confronto fra
+    # motori "grezzi" (raccomandazione advisor, 29/09/2026, dopo mt_eval/xfactor_canto). Un banco che vuole
+    # misurare ANCHE l'effetto della correzione la riaccende nei propri overrides.
+    'qwen3_lang_retry_enabled': False,
+    'whisper_lang_retry_enabled': False,
 }
 
 _state: Dict[str, object] = {'active': False, 'real_sha': None, 'set_calls': []}
