@@ -84,6 +84,10 @@ class Qwen3AsrEngine(TranscriptionEngine):
         self.model = None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self._punct_restorer = None  # lazy, v. _maybe_restore_punctuation
+        # v1.29.0: default prudenti, sovrascritti in transcribe_chunks dalla config reale
+        # (qwen3_lang_retry_enabled/_accept_langs) — v. core/qwen3_lang_retry.py.
+        self._lang_retry_enabled = True
+        self._lang_retry_accept = frozenset({'en'})
 
         # Mappa batch dal profilo: batch_size_hint del profilo trascrizione,
         # con cap prudente a 8 (chunk da 25s in bf16 su 12GB condivisi con Demucs).
@@ -250,6 +254,44 @@ class Qwen3AsrEngine(TranscriptionEngine):
         self.log(f"  ✍️ Ripristino punteggiatura chunk {chunk_num}...")
         return self._punct_restorer.restore_words(words, language)
 
+    def _maybe_lang_retry(self, chunk_path: str, forced_iso: str, r, text: str, chunk_num: int):
+        """v1.29.0 (core/qwen3_lang_retry.py, trovato su X Factor): se il chunk forzato su
+        `forced_iso` è sospetto (vuoto, poche parole rispetto alla voce presente, o pieno di
+        parole inglesi pur forzato in un'altra lingua) prova un rilevamento lingua e, se la
+        lingua rilevata è diversa, supportata dall'aligner e accettata (di default solo
+        l'inglese: v. docstring del modulo), ritrascrive il chunk in quella lingua.
+        Ritorna (r, text, lingua_del_testo, ritentato) — INVARIATI se non si ritrascrive."""
+        from core import qwen3_lang_retry as LR
+        try:
+            st = LR.voice_stats(chunk_path)
+        except Exception as e:
+            logger.debug(f"[qwen3-lang-retry] chunk {chunk_num}: misura voce fallita: {e}")
+            return r, text, forced_iso, False
+        susp, why = LR.is_suspect(text, st['voice_s'], forced_iso)
+        if not susp:
+            return r, text, forced_iso, False
+        try:
+            lid = self.model.transcribe(audio=chunk_path, language=None, return_time_stamps=False)
+            lid_lang = (lid[0].language if lid else '') or ''
+            lid_text = ((lid[0].text if lid else '') or '').strip()
+            ok, iso, reason = LR.decide(forced_iso, lid_lang, lid_text, QWEN_NAME_TO_ISO,
+                                        ALIGNER_LANGS_639_1, self._lang_retry_accept)
+            if not ok:
+                logger.debug(f"[qwen3-lang-retry] chunk {chunk_num} sospetto ({why}): {reason}")
+                return r, text, forced_iso, False
+            det_name = lid_lang.split(',')[0].strip()
+            new = self.model.transcribe(audio=chunk_path, language=det_name, return_time_stamps=True)
+            new_text = ((new[0].text if new else '') or '').strip()
+            if not new_text:
+                logger.debug(f"[qwen3-lang-retry] chunk {chunk_num}: ritrascrizione in '{iso}' vuota, "
+                            "si tiene l'originale")
+                return r, text, forced_iso, False
+            self.log(f"  🌐 Chunk {chunk_num}: ritrascritto in '{iso}' (forzato '{forced_iso}', {why})")
+            return new[0], new_text, iso, True
+        except Exception as e:
+            logger.warning(f"[qwen3-lang-retry] chunk {chunk_num}: ritrascrizione fallita: {e}")
+            return r, text, forced_iso, False
+
     @staticmethod
     def _free_vram_gb() -> float:
         try:
@@ -319,8 +361,11 @@ class Qwen3AsrEngine(TranscriptionEngine):
         all_segments = []
         failed_chunks = 0
         truncation_suspects = 0
+        n_lang_retried = 0
         last_pct = -1
         t0 = time.time()
+        self._lang_retry_enabled = bool(self.config.get('qwen3_lang_retry_enabled', True))
+        self._lang_retry_accept = frozenset(self.config.get('qwen3_lang_retry_accept_langs', ['en']))
 
         # Elaborazione a lotti: il pacchetto batcha internamente fino a
         # max_inference_batch_size, ma iteriamo per chunk per progress/cancel.
@@ -342,8 +387,16 @@ class Qwen3AsrEngine(TranscriptionEngine):
                 )
                 r = results[0]
                 text = (r.text or '').strip()
+                text_lang = language
+
+                if self._lang_retry_enabled:
+                    r, text, text_lang, retried = self._maybe_lang_retry(
+                        chunk_path, language, r, text, chunk_num)
+                    if retried:
+                        n_lang_retried += 1
+
                 if not text:
-                    continue  # chunk silenzioso
+                    continue  # chunk silenzioso (originale o dopo ritrascrizione)
 
                 # Diagnostica (v. piano_fix_pipeline_trascrizione): capire se i
                 # tratti senza punteggiatura nell'SRT finale nascono già così
@@ -380,7 +433,7 @@ class Qwen3AsrEngine(TranscriptionEngine):
                 # disponibile a un modello testuale). 'off' = comportamento
                 # storico, nessuna chiamata.
                 if words:
-                    words = self._maybe_restore_punctuation(words, text, language, chunk_num)
+                    words = self._maybe_restore_punctuation(words, text, text_lang, chunk_num)
 
                 if words:
                     all_segments.extend(self._words_to_segments(words))
@@ -414,6 +467,9 @@ class Qwen3AsrEngine(TranscriptionEngine):
         if truncation_suspects:
             self.log(f"  ⚠️ Chunk con sospetto troncamento generazione "
                      f"(cap {self._max_new_tokens} token): {truncation_suspects}/{total_chunks}")
+        if n_lang_retried:
+            self.log(f"  🌐 Chunk ritrascritti per lingua diversa da quella forzata: "
+                     f"{n_lang_retried}/{total_chunks}")
 
         # Troppi fallimenti = engine inaffidabile su questo file → fallback
         if total_chunks > 0 and failed_chunks > total_chunks * 0.5:
