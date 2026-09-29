@@ -431,6 +431,23 @@ class FasterWhisperEngine(TranscriptionEngine):
                 if detected_language and auto_detect:
                     self.log(f"  🔍 Lingua rilevata automaticamente: {detected_language}")
 
+                segments = list(segments)
+                # v1.30.0 (core/whisper_lang_retry.py, trovato su X Factor): SOLO con lingua forzata (mai in
+                # auto-detect, che sceglie già liberamente) i segmenti/vuoti sospetti vengono ritrascritti con
+                # rilevamento lingua e sostituiti solo se la lingua rilevata è accettata (default solo 'en').
+                if not auto_detect and self.config.get('whisper_lang_retry_enabled', True):
+                    try:
+                        import soundfile as sf
+                        x, sr_wav = sf.read(str(chunk_path), dtype='float32', always_2d=True)
+                        x = x.mean(axis=1)
+                        from core.whisper_lang_retry import apply as lang_retry_apply
+                        accept = frozenset(self.config.get('whisper_lang_retry_accept_langs', ['en']))
+                        segments = lang_retry_apply(
+                            self.faster_whisper_model.transcribe, segments, x, sr_wav, whisper_language,
+                            accept, self.beam_size, log=self.log)
+                    except Exception as e:
+                        logger.warning(f"[whisper-lang-retry] disattivato per questo file: {e}", exc_info=True)
+
                 last_pct = -1
                 t0_transcribe = time.time()
                 for segment in segments:
@@ -594,7 +611,7 @@ class FasterWhisperEngine(TranscriptionEngine):
         # regole proprie). Se solleva o il risultato non e' valido si prosegue
         # con lo split originale qui sotto (intatto). Rimovibile in blocco.
         # codici a 3 lettere: 'ger'[:2] sarebbe 'ge' (tedesco mai attivo) -> mappa esplicita
-        _ss3 = {'eng': 'en', 'ita': 'it', 'fre': 'fr', 'fra': 'fr', 'ger': 'de', 'deu': 'de'}
+        _ss3 = {'eng': 'en', 'ita': 'it', 'fre': 'fr', 'fra': 'fr', 'ger': 'de', 'deu': 'de', 'spa': 'es'}
         _ss_norm = lambda x: _ss3.get(str(x).strip().lower(), str(x).strip().lower()[:2])
         _ss_lang = _ss_norm(getattr(self, '_split_lang', '') or '')
         if self.config.get('whisper_split_sentence_aware', False) and _ss_lang:
