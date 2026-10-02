@@ -273,6 +273,13 @@ class EngineRouter:
                 return False, None, None
             try:
                 engine = self.ensure_loaded(engine_name)
+                if engine_name != 'faster-whisper':
+                    # Whisper la emette da solo (con il modello realmente caricato)
+                    try:
+                        from utils.engine_labels import model_display
+                        self.log(f"🧩 Modello trascrizione: {model_display(engine_name, self.config)}")
+                    except Exception:
+                        pass
                 success, detected = engine.transcribe_chunks(
                     audio_chunks, output_path, attempt_lang)
                 if success:

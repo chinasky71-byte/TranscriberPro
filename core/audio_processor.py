@@ -29,7 +29,12 @@ import os
 import time
 from typing import List, Tuple, Optional, Callable
 
-logger = logging.getLogger(__name__)
+# NON logging.getLogger(__name__): il root logger non e' configurato in esecuzione normale e
+# ogni logger.info() verrebbe scartato (v. utils/adaptive_batch_manager.py): le righe nascoste
+# a schermo (Overlap, Merge, Chunking robusto...) non finirebbero nemmeno nel file di log.
+from utils.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 # Durata massima per chunk accettata da ciascun engine (v. piano_fix_
 # pipeline_trascrizione punto B.5). Cappa i valori di config: alzare i
@@ -46,7 +51,7 @@ ENGINE_CHUNK_CAP_S = {
 
 class AudioProcessor:
     def __init__(self):
-        self.logger = logging.getLogger(__name__)
+        self.logger = logger
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.demucs_model = None
         self.log_callback: Optional[Callable] = None

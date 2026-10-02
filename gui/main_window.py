@@ -39,6 +39,8 @@ from gui.settings_dialog import (
 from gui.collapsible_card import CollapsibleCard
 from gui.job_options_card import JobOptionsCard
 from gui.file_row_delegate import FileRowDelegate
+from gui.reorderable_list import ReorderableFileList
+from utils.engine_labels import ENGINE_MODE_LABELS, idle_model_label
 from gui.segmented_filter import SegmentedFilter
 from utils.file_handler import FileHandler
 from utils.logger import setup_logger
@@ -173,8 +175,9 @@ class MainWindow(QMainWindow):
         self.log_message(tr('app_started'))
         self.log_message(f"🎨 TMDB Client: {'✅ Attivo' if self.tmdb_client.api_key else '❌ Disattivo'}")
 
-        current_profile = self.config.get_transcription_profile()
-        self.log_message(f"⚙️ Profilo attivo: {tr(f'profile_{current_profile}_name')}")
+        self.log_message(
+            f"⚙️ Motore di trascrizione: "
+            f"{ENGINE_MODE_LABELS.get(self.config.get_transcription_engine_mode(), 'Auto')}")
 
         self.resource_monitor.start_monitoring()
     
@@ -388,18 +391,15 @@ class MainWindow(QMainWindow):
 
     def open_settings_dialog(self, initial_tab: str | None = None):
         """Apre il SettingsDialog unificato sulla tab indicata (default: ultima usata)."""
-        prev_profile = self.config.get_transcription_profile()
+        prev_engine = self.config.get_transcription_engine_mode()
         prev_model = self.config.get_translation_model()
 
         dialog = SettingsDialog(self, initial_tab=initial_tab)
         dialog.exec()
 
         # Aggiorna indicatori — incondizionale per evitare race condition embed
-        self._diag_modello._val.setText(
-            tr(f"profile_{self.config.get_transcription_profile()}_name")
-        )
         self._diag_traduttore._val.setText(self.config.get_translation_model())
-        self._diag_engine._val.setText(self._engine_mode_label())
+        self._refresh_engine_tiles()
 
         # Sync checkbox upload OS (può essere cambiato dal settings dialog)
         self.opensubtitles_checkbox.blockSignals(True)
@@ -408,10 +408,9 @@ class MainWindow(QMainWindow):
         )
         self.opensubtitles_checkbox.blockSignals(False)
 
-        if self.config.get_transcription_profile() != prev_profile:
-            self.update_profile_indicator()
+        if self.config.get_transcription_engine_mode() != prev_engine:
             self.log_message(
-                f"⚙️ Profilo cambiato: {self.config.get_transcription_profile()}"
+                f"⚙️ Motore di trascrizione: {self._engine_mode_label()}"
             )
 
         new_model = self.config.get_translation_model()
@@ -446,8 +445,10 @@ class MainWindow(QMainWindow):
         self.segmented_filter.filter_changed.connect(self._apply_filter)
         layout.addWidget(self.segmented_filter)
 
-        self.file_list = QListWidget()
+        self.file_list = ReorderableFileList()
         self.file_list.setObjectName("fileList")
+        self.file_list.can_move = self._can_reorder_item
+        self.file_list.apply_order = self._apply_queue_order
         self.file_list.setItemDelegate(FileRowDelegate(self.file_list))
         self.file_list.itemSelectionChanged.connect(self.on_file_selected)
         # Il testo è già eliso dal delegato: la scrollbar orizzontale non serve
@@ -677,12 +678,12 @@ class MainWindow(QMainWindow):
 
         diag_row2 = QHBoxLayout()
         diag_row2.setSpacing(6)
-        cur_profile = tr(f"profile_{self.config.get_transcription_profile()}_name")
+        cur_asr     = idle_model_label(self.config)
         cur_model   = self.config.get_translation_model()
-        self._diag_modello    = self._make_diag_tile(cur_profile, "Modello",    'mic')
+        self._diag_modello    = self._make_diag_tile(cur_asr,   "Modello",    'mic')
         self._diag_traduttore = self._make_diag_tile(cur_model,   "Traduttore", 'globe')
-        diag_row2.addWidget(self._diag_modello)
-        diag_row2.addWidget(self._diag_traduttore)
+        diag_row2.addWidget(self._diag_modello, 1)
+        diag_row2.addWidget(self._diag_traduttore, 1)
         layout.addLayout(diag_row2)
 
         diag_row3 = QHBoxLayout()
@@ -762,6 +763,23 @@ class MainWindow(QMainWindow):
 
     UPDATABLE_PATTERNS = ["Progresso:", "Demucs: [", "Traduzione: [", "Trascrizione: [", "Warm-up: [", "Correzione genere: [", "⚙️ OCR"]
 
+    # Righe che NON compaiono a schermo (rumore di fondo): restano nel file di log, perche'
+    # la pipeline le scrive anche con logger.info (v. core/pipeline.py::_log e engines/base_engine.py::log).
+    # NON mettere qui i "📦 Caricamento modello ..." (l'utente li vuole a schermo) ne' le barre.
+    _FILE_ONLY_RE = re.compile("|".join([
+        r"AdaptiveBatchManager avviato",
+        r"Parametri profilo caricati",
+        r"⚙️ Profilo: ", r"Profilo: .*Workers:", r"👷 Workers:",
+        r"VAD \(Voice Activity Detection\) disponibile", r"VAD test successful",
+        r"BatchedInferencePipeline attivo", r"BatchedInferencePipeline — file unico",
+        r"📊 VRAM", r"🧮 Safe batch", r"📊 Batch size: adaptive",
+        r"🛡️ Pipeline: ROBUST PATH", r"🛡️ Chunking robusto", r"📏 Overlap",
+        r"🔗 Merge chunks", r"📂 Caricamento audio", r"🎬 Audio: ",
+        r"\w+Engine unload completato",
+        r"Batch LLM \d+ → \d+", r"Recupero senza mascheramento",
+        r"Modello trascrizione:",
+    ]))
+
     _LOG_COLORS = {
         'success': '#3fcf8e',
         'danger':  '#ef5a5a',
@@ -795,27 +813,17 @@ class MainWindow(QMainWindow):
             logger.info(message)
             return
         message = self.fix_mojibake(message)
+        if 'Modello trascrizione:' in message:
+            self._on_transcription_model_line(message)
+        if '❌' not in message and '⚠' not in message and self._FILE_ONLY_RE.search(message):
+            return
         timestamp = datetime.now().strftime("%H:%M:%S")
         formatted = f"[{timestamp}] {message}"
         html_text = self._log_color_html(formatted)
 
-        if any(p in message for p in self.UPDATABLE_PATTERNS):
-            cursor = self.log_text.textCursor()
-            cursor.movePosition(QTextCursor.MoveOperation.End)
-            block = cursor.block()
-            if any(p in block.text() for p in self.UPDATABLE_PATTERNS):
-                cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
-                cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock,
-                                    QTextCursor.MoveMode.KeepAnchor)
-                cursor.insertHtml(html_text)
-            else:
-                if cursor.position() > 0:
-                    cursor.insertBlock()
-                cursor.insertHtml(html_text)
-            self.log_text.setTextCursor(cursor)
-            self.log_text.verticalScrollBar().setValue(
-                self.log_text.verticalScrollBar().maximum()
-            )
+        progress_key = next((p for p in self.UPDATABLE_PATTERNS if p in message), None)
+        if progress_key is not None:
+            self._write_progress_line(progress_key, message, html_text)
         elif not self.compact_log_enabled or any(k in message for k in ['✅', '⚙️', '🎉', '❌', '➕', '🎬']):
             cursor = self.log_text.textCursor()
             cursor.movePosition(QTextCursor.MoveOperation.End)
@@ -826,6 +834,62 @@ class MainWindow(QMainWindow):
             self.log_text.verticalScrollBar().setValue(
                 self.log_text.verticalScrollBar().maximum()
             )
+
+    _PROGRESS_SCAN_BLOCKS = 40
+
+    @staticmethod
+    def _pct_of(text: str):
+        m = re.search(r'(\d+)%', text)
+        return int(m.group(1)) if m else None
+
+    def _write_progress_line(self, key: str, message: str, html_text: str):
+        """Scrive/aggiorna una barra di avanzamento tenendola SEMPRE come ultima riga.
+
+        Prima la barra veniva riscritta solo se l'ultima riga era una barra qualsiasi: una riga
+        intercalata (es. un chunk ritrascritto, un avviso) la faceva ripartire su una riga nuova.
+        Ora si cerca all'indietro l'ultima riga della STESSA barra (stesso `key`): se e' ancora
+        in corso (non '✅' e percentuale non superiore alla nuova) viene tolta e la barra
+        riscritta in fondo; se invece e' completa o di una fase/file precedente si accoda.
+        """
+        new_pct = self._pct_of(message)
+        doc = self.log_text.document()
+        end_cur = QTextCursor(doc)
+        end_cur.movePosition(QTextCursor.MoveOperation.End)
+        last = end_cur.block()
+
+        target = None
+        blk, n = last, 0
+        while blk.isValid() and n < self._PROGRESS_SCAN_BLOCKS:
+            text = blk.text()
+            if key in text:
+                old_pct = self._pct_of(text)
+                if '✅' not in text and (new_pct is None or old_pct is None or old_pct <= new_pct):
+                    target = blk
+                break
+            blk = blk.previous()
+            n += 1
+
+        # Da decidere PRIMA di toccare il documento: dopo la rimozione `last` non e' piu' affidabile.
+        target_is_last = target is not None and target.blockNumber() == last.blockNumber()
+        if target is not None and not target_is_last and new_pct is None:
+            target = None   # righe di stato senza % (es. '⚙️ OCR'): si aggiornano solo se sono l'ultima
+        cursor = self.log_text.textCursor()
+        if target is not None and not target_is_last:
+            rm = QTextCursor(target)
+            rm.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+            rm.movePosition(QTextCursor.MoveOperation.NextBlock, QTextCursor.MoveMode.KeepAnchor)
+            rm.removeSelectedText()     # testo + separatore: nessuna riga vuota residua
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        if target_is_last:
+            cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+            cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
+            cursor.insertHtml(html_text)
+        else:
+            if cursor.position() > 0:
+                cursor.insertBlock()
+            cursor.insertHtml(html_text)
+        self.log_text.setTextCursor(cursor)
+        self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
 
     def on_file_selected(self):
         item = self.file_list.currentItem()
@@ -886,12 +950,39 @@ class MainWindow(QMainWindow):
     def _find_item_by_path(self, file_path: str):
         """Restituisce il QListWidgetItem corrispondente al path, o None."""
         name = Path(file_path).name
+        fallback = None
         for i in range(self.file_list.count()):
             item = self.file_list.item(i)
             data = item.data(Qt.ItemDataRole.UserRole) or {}
-            if data.get('path') == file_path or data.get('filename') == name:
-                return item
-        return None
+            if data.get('path') == file_path:
+                return item   # percorso esatto: sempre preferito
+            if fallback is None and data.get('filename') == name:
+                fallback = item
+        return fallback
+
+    # --- Riordino coda via drag & drop ---------------------------------
+
+    @staticmethod
+    def _can_reorder_item(item) -> bool:
+        """Solo righe in attesa e destinate al worker (no OCR, no in corso/finite)."""
+        data = item.data(Qt.ItemDataRole.UserRole) or {}
+        return data.get('status') == 'queued' and data.get('kind') != 'ocr'
+
+    def _apply_queue_order(self, items, moved_item) -> bool:
+        """Riscrive processing_queue secondo l'ordine delle righe. False se la
+        riga trascinata è già stata presa dal worker (spostamento annullato)."""
+        paths = [(it.data(Qt.ItemDataRole.UserRole) or {}).get('path') for it in items]
+        moved_path = (moved_item.data(Qt.ItemDataRole.UserRole) or {}).get('path')
+        with QMutexLocker(self.queue_mutex):
+            if moved_path not in self.processing_queue:
+                return False
+            in_queue = set(self.processing_queue)
+            ordered = [p for p in paths if p in in_queue]
+            seen = set(ordered)
+            ordered += [p for p in self.processing_queue if p not in seen]
+            # in place: il worker tiene un riferimento alla stessa lista
+            self.processing_queue[:] = ordered
+        return True
 
     def _update_filter_badges(self):
         counts = {'all': 0, 'queued': 0, 'processing': 0, 'completed': 0, 'failed': 0}
@@ -1108,7 +1199,7 @@ class MainWindow(QMainWindow):
         self._stat_eta._val.setText("–")
         self._diag_errori._val.setText("0")
         self._diag_tempo._val.setText("00:00")
-        self._diag_modello._val.setText(tr(f"profile_{self.config.get_transcription_profile()}_name"))
+        self._diag_modello._val.setText(idle_model_label(self.config))
         self._diag_traduttore._val.setText(self.config.get_translation_model())
         self._diag_engine._val.setText(self._engine_mode_label())
         if self._proc_elapsed_timer:
@@ -1254,7 +1345,20 @@ class MainWindow(QMainWindow):
     def _on_profile_selected(self, profile_key: str):
         self.config.set_transcription_profile(profile_key)
         self.update_profile_indicator()
-        self.log_message(f"⚙️ Profilo: {tr(f'profile_{profile_key}_name')}")
+        self.log_message(f"⚙️ Profilo selezionato: {tr(f'profile_{profile_key}_name')}")
+
+    def _refresh_engine_tiles(self):
+        """Tessera Engine = modalita' scelta; tessera Modello = modello a riposo
+        (durante l'elaborazione la aggiorna la riga di log 'Modello trascrizione')."""
+        self._diag_engine._val.setText(self._engine_mode_label())
+        if not self.is_processing:
+            self._diag_modello._val.setText(idle_model_label(self.config))
+
+    def _on_transcription_model_line(self, message: str):
+        """Riga '🧩 Modello trascrizione: X' emessa da core/pipeline.py."""
+        name = message.split('Modello trascrizione:', 1)[1].strip()
+        if name:
+            self._diag_modello._val.setText(name)
 
     def _create_tab_bar(self) -> QTabBar:
         bar = QTabBar()

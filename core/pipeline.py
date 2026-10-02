@@ -489,7 +489,7 @@ class ProcessingPipeline:
                         # routing sceglie Canary/Qwen3, la facade lo scarica
                         # prima di caricare l'engine nuovo.
                         # ================================================
-                        self._log("\n2.5. Pre-caricamento Whisper (prima di Demucs)...")
+                        self._log("\n2.5. Pre-caricamento Whisper (ordine CUDA / ripiego)...")
                         _planned_lang = self.LANG_MAP_639_2_TO_639_1.get(source_language_639_2)
                         if _planned_lang == 'und':
                             _planned_lang = None
@@ -514,6 +514,13 @@ class ProcessingPipeline:
                         }
                         _engine_label = _ENGINE_LABELS.get(_planned_engine, _planned_engine)
                         self._log(f"🧭 Engine pianificato: {_engine_label} ({_plan_reason})")
+                        # Riga letta dalla GUI (tessera "Modello" della Diagnostica).
+                        try:
+                            from utils.engine_labels import model_display
+                            self._log(f"🧩 Modello trascrizione: "
+                                      f"{model_display(_planned_engine, self.config, _planned_lang)}")
+                        except Exception as _e:
+                            logger.debug(f"Etichetta modello trascrizione non disponibile: {_e}")
 
                         # STEP 3: Processing audio (separazione vocale + chunking)
                         try:

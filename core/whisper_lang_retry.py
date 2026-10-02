@@ -37,6 +37,10 @@ from types import SimpleNamespace
 from typing import Callable, List, Optional, Tuple
 
 from core.qwen3_lang_retry import DEFAULT_ACCEPT_LANGS, is_suspect, voice_stats  # noqa: F401 (re-esportati)
+from utils.logger import setup_logger
+
+# setup_logger e non logging.getLogger: il root non e' configurato e un logger "nudo" scarta le info.
+logger = setup_logger(__name__)
 
 MIN_GAP_S = 1.5          # sotto, un vuoto fra due segmenti e' una pausa normale, non esaminato
 MIN_GAP_VOICE_S = 1.0    # voce minima nel vuoto perche' valga la pena tentare un rilevamento
@@ -143,8 +147,10 @@ def apply(transcribe_fn: Callable, segs: list, x, sr: int, forced_iso: str, acce
                                     'detected': iso, 'decision_reason': reason})
                 continue
             n_retried += 1
-            if log:
-                log(f"  🌐 [{kind}] {off:.1f}s: ritrascritto in '{iso}' (forzato '{forced_iso}', {why})")
+            # Per evento: solo nel file di log (a schermo interrompeva la barra di avanzamento);
+            # il riepilogo "Segmenti/vuoti sospetti: N, ritrascritti: M" resta a schermo.
+            logger.info(
+                f"  🌐 [{kind}] {off:.1f}s: ritrascritto in '{iso}' (forzato '{forced_iso}', {why})")
             if records is not None:
                 records.append({'kind': kind, 'start': round(off, 2), 'suspect_reason': why,
                                 'detected': iso, 'decision': 'ritrascritto', 'text_after': new_text})
