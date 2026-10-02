@@ -1,5 +1,0 @@
-work*/
-__pycache__/
-*.log
-tests/data_en_baseline.json
-tests/data_it_segments.json

@@ -29,14 +29,29 @@ models/
 # ---------------------------------------------------------------------------
 # Glossario per-show — output di lavoro
 #
-# mt_eval/glossary_work/ (estrazioni srt temporanee per show) e i report
+# glossary_engine/glossary_work/ (estrazioni srt temporanee per show) e i report
 # generati (glossary_report_*.json, glossary_candidates_*.jsonl) sono
 # rigenerabili da una run dello strumento — si versiona il motore
-# (glossary_*.py), non i suoi output per-show.
+# (glossary_engine/*.py), non i suoi output per-show.
 # ---------------------------------------------------------------------------
-mt_eval/glossary_work/
-mt_eval/glossary_report_*.json
-mt_eval/glossary_candidates_*.jsonl
+glossary_engine/glossary_work/
+glossary_engine/glossary_report_*.json
+glossary_engine/glossary_candidates_*.jsonl
+
+# ---------------------------------------------------------------------------
+# Banchi di prova e strumenti di valutazione — NON fanno parte del software
+#
+# Restano solo nella cartella di lavoro (decisione 03/10/2026): nel repo va il codice
+# attivo. Il codice attivo NON deve stare in queste cartelle (il Glossario per show
+# vive in glossary_engine/).
+# ---------------------------------------------------------------------------
+mt_eval/
+asr_eval/
+whisper_split_eval/
+split_eval/
+gender_eval/
+diar_eval/
+Gemma training/
 
 # ---------------------------------------------------------------------------
 # Corpus di addestramento
