@@ -3,6 +3,18 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.2.03.10.26 — 2026-10-03 — Metadati TMDB: l'anno della stagione nel nome del file non blocca più la ricerca
+
+- **`utils/tmdb_client.py`**: per `Bake Off Italia - Dolci In Forno (2026) s14e05` TMDB non restituiva nulla, perché l'anno nel
+  nome (2026, quello della stagione) veniva passato come `first_air_date_year` e la serie è del 2013: nessuna locandina,
+  nessun IMDb ID e quindi upload su OpenSubtitles disabilitato ("Metadati non trovati"). Ora `search_tv` prova prima col filtro
+  anno (che disambigua casi come "The Howard Stern Show 2026") e, SOLO se trova "nessun risultato" (non se la ricerca è fallita
+  per chiave API, timeout o rete), ripete la ricerca senza anno con il solo titolo intero (le varianti più larghe, senza anno,
+  davano risultati sbagliati, es. "The Corporation 2003" → serie del 1973). Nessuna ricerca che già riusciva cambia esito.
+  `_clean_title` toglie anche le parentesi vuote lasciate dall'anno estratto (`Dolci In Forno ()`).
+- Resta noto: per Bake Off l'IMDb ID è quello della serie (TMDB non ha un ID per l'episodio); il primo giro con l'anno può
+  restituire serie sbagliate per titoli omonimi (es. Ghosts 2026) — comportamento preesistente, non toccato.
+
 ## 1.30.2 — 2026-10-03 — Profilo di trascrizione fisso su Massimo, log pulito, riordino coda, Glossario in `glossary_engine/`
 
 - **Profilo di trascrizione fisso (`utils/config.py`, `gui/profile_dialog.py`)**: `Config.get_transcription_profile()` restituisce

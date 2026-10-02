@@ -530,8 +530,9 @@ class TMDBClient:
         # 2. Rimuovi numeri isolati alla fine (potrebbe essere anno già estratto)
         title = re.sub(r'\s+\d{1,4}\s*$', '', title)
         
-        # 3. Rimuovi caratteri speciali residui
+        # 3. Rimuovi caratteri speciali residui (e parentesi vuote lasciate dall'anno estratto)
         title = re.sub(r'[~`!@#$%^&*+={}|<>?]', '', title)
+        title = re.sub(r'\(\s*\)|\[\s*\]', '', title)
         
         # 4. Pulisci spazi multipli e trim
         title = re.sub(r'\s+', ' ', title).strip()
@@ -640,16 +641,38 @@ class TMDBClient:
         return None
     
     def search_tv(self, title: str, season: int = None, episode: int = None, year: int = None) -> Optional[Dict]:
-        """Cerca serie TV su TMDB con triplo fallback IMDb ID e fallback lingua episodio"""
+        """Cerca serie TV su TMDB con triplo fallback IMDb ID e fallback lingua episodio.
+
+        L'anno nel nome del file e' spesso quello della STAGIONE/EPISODIO e non quello della prima
+        messa in onda della serie (es. "Bake Off Italia ... (2026) s14e05": la serie e' del 2013), e
+        il filtro `first_air_date_year` di TMDB in quel caso non restituisce nulla. Si tenta quindi
+        prima col filtro (disambigua i casi come "The Howard Stern Show 2026") e, SOLO se non trova
+        niente, si ripete la ricerca senza anno: nessuna ricerca che oggi riesce cambia esito.
+        """
+        info, errored = self._search_tv_once(title, season, episode, year)
+        if info is None and year and not errored:
+            # Solo titolo INTERO e solo se il primo giro e' "nessun risultato" (non un errore di rete/chiave):
+            # le varianti larghe senza anno trasformerebbero un "non trovato" in un titolo sbagliato.
+            logger.info(f"   Nessun risultato con l'anno {year}: riprovo senza filtro anno (solo titolo intero)")
+            info, _ = self._search_tv_once(title, season, episode, None, full_title_only=True)
+        return info
+
+    def _search_tv_once(self, title: str, season: int = None, episode: int = None, year: int = None,
+                        full_title_only: bool = False):
+        """Una ricerca serie TV: v. search_tv. Ritorna (info|None, errore): `errore` e' True se la ricerca
+        e' fallita per un problema (chiave API, timeout, rete) e non per "nessun risultato".
+        `full_title_only`: solo il titolo intero, senza le varianti "larghe" (senza articoli, prima del
+        trattino...), che senza il filtro anno darebbero risultati sbagliati."""
         if not self.api_key:
             logger.error("âŒ API key non disponibile")
-            return None
+            return None, True
 
         if not title or not title.strip():
             logger.warning("⚠️ Titolo vuoto — ricerca TV saltata")
-            return None
+            return None, True
 
-        search_variants = self._generate_search_variants(title)
+        search_variants = [title] if full_title_only else self._generate_search_variants(title)
+        errored = False
         
         logger.info(f"ðŸ” Ricerca serie TV: '{title}'" + (f" ({year})" if year else ""))
         if len(search_variants) > 1:
@@ -674,7 +697,7 @@ class TMDBClient:
                 
                 if response.status_code == 401:
                     logger.error("âŒ API key non valida!")
-                    return None
+                    return None, True
                 
                 response.raise_for_status()
                 data = response.json()
@@ -772,19 +795,22 @@ class TMDBClient:
                         'episode': episode
                     }
                     
-                    return tv_info
+                    return tv_info, False
                 else:
                     logger.debug(f"   Nessun risultato per: '{variant}'")
                     
             except requests.exceptions.Timeout:
+                errored = True
                 logger.error("âŒ Timeout TMDB")
             except requests.exceptions.RequestException as e:
+                errored = True
                 logger.error(f"âŒ Errore TMDB: {e}")
             except Exception as e:
+                errored = True
                 logger.error(f"âŒ Errore inatteso: {e}")
         
         logger.warning(f"âš ï¸ Nessun risultato per: {title}")
-        return None
+        return None, errored
 
     def get_cast_info(self, tmdb_id: int, media_type: str,
                       season: int = None, episode: int = None,
