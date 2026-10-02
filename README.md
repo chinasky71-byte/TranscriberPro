@@ -307,10 +307,15 @@ This project is licensed under the MIT License.
 
 ## Changelog
 
+> **Note on this repository:** only active code is published here. The test benches and evaluation harnesses mentioned below
+> (`mt_eval/`, `asr_eval/`, `whisper_split_eval/`, `split_eval/`, `gender_eval/`, `diar_eval/`, `Gemma training/`) stay in the
+> author's working folder and are not part of the repository. The per-show glossary engine, which used to live in `mt_eval/`,
+> is now in `glossary_engine/`.
+
 ### v1.24.0 - v1.30.2
 Six weeks of work on translation/transcription quality for non-English sources, condensed here; full detail,
 measurement methodology and decision rules for every claim below are in [CHANGELOG.md](CHANGELOG.md).
-- **v1.30.2** — Transcription profile locked at Maximum, cleaner on-screen log, queue reordering. (1) `Config.get_transcription_profile()`
+- **v1.30.2** — Transcription profile locked at Maximum, cleaner on-screen log, queue reordering; Spanish sentence-split rules published; per-show glossary engine moved to `glossary_engine/` (benches removed from the repository). (1) `Config.get_transcription_profile()`
   always returns `maximum` while `transcription_profile_locked` is true (default; new installs used to start on Balanced). Measured on 40 min
   of Italian: Whisper 2.9 / 2.3 / 1.9 / 1.8 / 1.5 min per audio hour (Maximum / Quality / Batch / Balanced / Fast) with only 0.1–0.4 % of
   words different from Maximum; Qwen3-ASR 8.7–9.3 min/h with *identical* text at batch 2, 4 and 8, so the profile is useless there; Canary-Qwen
@@ -475,7 +480,7 @@ measurement methodology and decision rules for every claim below are in [CHANGEL
 - **2nd person support** — addressee gender inferred from dialogue turn-taking (91% acc, strict two-party mode) and TMDB-cast vocatives ("Sei cresciuta, *Veronica*"). Toggle: `gender_correction_second_person`.
 - **Diarization reuse** — transcription diarization turns are saved and reused by the corrector (~1–2 min saved per film).
 - **Separate NLP venv** — spaCy runs in its own throwaway subprocess environment (`venv_nlp/`): app dependencies untouched, RAM fully returned on exit. See Installation.
-- **Evaluation harness** (`gender_eval/`) — MT-GenEval benchmark, automatic ground-truth extraction from dual-track professional subtitles (~700 test points, zero manual annotation), engine comparison, A/B episode runner.
+- **Evaluation harness** (`gender_eval/`, local only — not published in this repository) — MT-GenEval benchmark, automatic ground-truth extraction from dual-track professional subtitles (~700 test points, zero manual annotation), engine comparison, A/B episode runner.
 - Migration: the GGUF model is no longer needed; requires NLP venv + HuggingFace token (pyannote). Settings UI updated.
 
 ### v1.5.4
@@ -790,10 +795,14 @@ Questo progetto è distribuito con licenza MIT.
 
 ## Changelog
 
+> **Nota sul repository:** qui si pubblica solo il codice attivo. I banchi di prova e gli strumenti di valutazione citati sotto
+> (`mt_eval/`, `asr_eval/`, `whisper_split_eval/`, `split_eval/`, `gender_eval/`, `diar_eval/`, `Gemma training/`) restano nella cartella
+> di lavoro dell'autore e non fanno parte del repository. Il motore del Glossario per show, che stava in `mt_eval/`, ora è in `glossary_engine/`.
+
 ### v1.24.0 - v1.30.2
 Sei settimane di lavoro sulla qualità di traduzione/trascrizione per le sorgenti non inglesi, condensate qui; il
 dettaglio completo, la metodologia di misura e le regole di decisione per ogni affermazione sono in [CHANGELOG.md](CHANGELOG.md).
-- **v1.30.2** — Profilo di trascrizione bloccato su Massimo, log a schermo più pulito, riordino della coda. (1) `Config.get_transcription_profile()`
+- **v1.30.2** — Profilo di trascrizione bloccato su Massimo, log a schermo più pulito, riordino della coda; pubblicate le regole dello split per frasi in spagnolo; motore del Glossario per show spostato in `glossary_engine/` (banchi rimossi dal repository). (1) `Config.get_transcription_profile()`
   restituisce sempre `maximum` finché `transcription_profile_locked` è true (default; le nuove installazioni partivano da Bilanciato). Misurato su
   40 min di italiano: Whisper 2,9 / 2,3 / 1,9 / 1,8 / 1,5 min per ora di audio (Massimo / Alta qualità / Batch / Bilanciato / Veloce) con solo lo
   0,1–0,4 % di parole diverse dal Massimo; Qwen3-ASR 8,7–9,3 min/h con testo *identico* a batch 2, 4 e 8, quindi il profilo lì non serve;
@@ -959,7 +968,7 @@ dettaglio completo, la metodologia di misura e le regole di decisione per ogni a
 - **Supporto 2ª persona** — genere dell'interlocutore dai turni di dialogo (91%, modalità strict a due parlanti) e dai vocativi col cast TMDB ("Sei cresciuta, *Veronica*"). Toggle: `gender_correction_second_person`.
 - **Riuso diarization** — i turni della trascrizione vengono salvati e riusati dal correttore (~1–2 min risparmiati a film).
 - **Venv NLP separato** — spaCy gira in un subprocess usa-e-getta col proprio ambiente (`venv_nlp/`): dipendenze dell'app intatte, RAM restituita all'uscita. Vedi Installazione.
-- **Harness di valutazione** (`gender_eval/`) — benchmark MT-GenEval, ground-truth automatico dai sottotitoli professionali dual-track (~700 punti di test, zero annotazione manuale), confronto motori, A/B su episodio.
+- **Harness di valutazione** (`gender_eval/`, solo locale — non pubblicato in questo repository) — benchmark MT-GenEval, ground-truth automatico dai sottotitoli professionali dual-track (~700 punti di test, zero annotazione manuale), confronto motori, A/B su episodio.
 - Migrazione: il modello GGUF non serve più; servono venv NLP + token HuggingFace (pyannote). UI impostazioni aggiornata.
 
 ### v1.5.4
