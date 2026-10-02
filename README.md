@@ -1065,7 +1065,7 @@ Lista aggiornata a ogni commit + push di una nuova versione.
 
 **Da validare / misurare**
 - Finestra principale con riordino della coda (trascinamento) e nuovo log a schermo: non ancora provati dall'utente su una coda reale (verifica che dimensioni e colonne non si muovano)
-- Glossario per-show: GUI semi-automatica non ancora validata su uno show reale; canale Qwen su GPU non ancora misurato su uno show reale
+- Glossario per-show: GUI semi-automatica non ancora validata su uno show reale (il canale Qwen su GPU è invece validato su uno show reale)
 - Effetto dello split per frasi sulla qualità di traduzione, non ancora misurato
 - Installer per PC nuovi (`install.bat`/`.ps1`): non ancora verificati avvio GUI, pipeline diarization, caricamento modelli, e opzione `-WithModels` su una macchina pulita
 

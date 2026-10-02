@@ -366,6 +366,7 @@ def build_full_report(show_dir: str, name: str, tmdb_id=None, min_freq: int = 3,
                        min_episodes: int = 6, min_blocks: int = 6000,
                        use_align: bool = True, use_qwen: bool = True,
                        qwen_model_path: str = None, align_device: str = "cpu",
+                       qwen_n_gpu_layers: int = -1,
                        exclude_keys=None, max_candidates: int = 25,
                        log=print, progress_cb=None, report_out: str = None) -> dict:
     """Orchestrazione completa: gate show -> shortlist candidati (segnale
@@ -435,25 +436,36 @@ def build_full_report(show_dir: str, name: str, tmdb_id=None, min_freq: int = 3,
                 pass
 
     # Passaggio 2: Qwen su TUTTI i termini, dopo aver scaricato LaBSE.
+    # Delegato al venv principale via subprocess (GPU) invece che caricato
+    # in locale — vedi glossary_qwen_bridge.py per il motivo.
     qwen_results_by_term = {}
+    qwen_channel_error = None
     if use_qwen and qwen_model_path:
         try:
-            import glossary_qwen_extract as gq
-            gq.load(qwen_model_path)
-            for idx, (term, _stats) in enumerate(ranked):
-                def _qwen_prog(done, total, _term=term):
-                    _prog("qwen", idx, len(ranked), f"{_term} ({done}/{total})")
-                qwen_results_by_term[term] = gq.extract_spans(
-                    term, term_pairs_by_term[term], _qwen_prog)
-            _prog("qwen", len(ranked), len(ranked), "")
+            import glossary_qwen_bridge as gqb
+            ranked_terms = [term for term, _stats in ranked]
+            # Prefissi cumulativi sulle coppie per termine: il subprocess
+            # riporta il progresso per-coppia con l'indice di TERMINE
+            # costante (term_idx), quindi senza questo conteggio globale la
+            # barra della GUI resterebbe ferma per tutta la durata di un
+            # singolo termine (minuti) pur ricevendo decine di eventi.
+            pair_counts = [len(term_pairs_by_term[t]) for t in ranked_terms]
+            prefix = [0]
+            for c in pair_counts:
+                prefix.append(prefix[-1] + c)
+            total_pairs = prefix[-1]
+
+            def _qwen_prog(term_idx, term_total, term, done, total):
+                global_done = prefix[term_idx] + done if term_idx < len(prefix) else done
+                _prog("qwen", global_done, total_pairs, f"{term} ({done}/{total})")
+
+            qwen_results_by_term = gqb.run_qwen_channel(
+                qwen_model_path, term_pairs_by_term, ranked_terms, work_dir,
+                n_gpu_layers=qwen_n_gpu_layers, progress_cb=_qwen_prog, log=log)
+            _prog("qwen", total_pairs, total_pairs, "")
         except Exception as e:
+            qwen_channel_error = str(e)
             log(f"  [Qwen] canale saltato: {e}")
-        finally:
-            try:
-                import glossary_qwen_extract as gq
-                gq.unload()
-            except Exception:
-                pass
 
     results = []
     for term, _stats in ranked:
@@ -467,6 +479,7 @@ def build_full_report(show_dir: str, name: str, tmdb_id=None, min_freq: int = 3,
         "show": name, "tmdb_id": tmdb_id, "gate": gate,
         "episodes_used": used_keys, "blocks": len(pairs),
         "skipped": skip_counters, "candidates": results,
+        "qwen_channel_error": qwen_channel_error,
     }
     return _write_report(report)
 
