@@ -3,6 +3,37 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.2 — 2026-10-03 — Profilo di trascrizione fisso su Massimo, log pulito, riordino coda, Glossario in `glossary_engine/`
+
+- **Profilo di trascrizione fisso (`utils/config.py`, `gui/profile_dialog.py`)**: `Config.get_transcription_profile()` restituisce
+  sempre `maximum` finché `transcription_profile_locked` è true (default). Default e ripieghi passano da `balanced` a `maximum`
+  (una nuova installazione partiva da Bilanciato). Le schede dei profili sono nascoste (`SHOW_PROFILE_CARDS = False`, codice mantenuto);
+  il selettore del motore resta e mostra i tempi tipici per motore. Misure su ~40 minuti di italiano, solo ASR: Whisper 2,9 / 2,3 / 1,9 /
+  1,8 / 1,5 min per ora di audio (Massimo / Alta qualità / Batch / Bilanciato / Veloce) con lo 0,1–0,4 % di parole diverse dal Massimo;
+  Qwen3-ASR 8,7–9,3 min/h con testo identico a batch 2, 4 e 8; Canary-Qwen non legge i profili.
+- **Tessera "Modello" della Diagnostica (`gui/main_window.py`, `core/pipeline.py`, `core/engine_router.py`, `core/engines/faster_whisper_engine.py`,
+  `utils/engine_labels.py`)**: mostra il modello realmente in uso, aggiornata dalla riga `🧩 Modello trascrizione` emessa dalla pipeline
+  (anticipo), da Whisper dopo il caricamento e dal router per Qwen3/Canary.
+- **Log a schermo (`gui/main_window.py`, engine, `core/whisper_lang_retry.py`, `core/audio_processor.py`)**: righe per chunk (ripristino
+  punteggiatura, chunk ritrascritti) e interni di caricamento solo nel file di log, con riepilogo a fine fase; le barre di avanzamento sono
+  sempre l'ultima riga e si riscrivono per singola barra; i `📦 Caricamento modello` restano a schermo. `audio_processor` e
+  `whisper_lang_retry` usano `setup_logger` (un logger "nudo" scarta le info). Il passo 2.5 si chiama "Pre-caricamento Whisper (ordine CUDA / ripiego)".
+- **"⚠️ Generazione rallentata" (`core/llm_subtitle_translator/translator.py`)**: il flag si azzerava a ogni cambio di batch e l'avviso
+  poteva comparire più volte nello stesso file; ora una sola volta per file a schermo, con il totale nella riga "Completato in".
+- **Riordino della coda (`gui/reorderable_list.py`)**: gli elementi ancora in attesa si riordinano con il trascinamento, anche a elaborazione
+  avviata; `processing_queue` è riscritta sotto mutex. Layout e dimensioni delle colonne invariati.
+- **Split per frasi in spagnolo (`core/whisper_sentence_split.py`)**: pubblicate le regole `lang='es'` (scritte il 29/09/2026); `es` era già tra
+  le lingue di `whisper_split_sentence_langs`. Attivo per scelta dell'utente.
+- **Glossario per show: motore in `glossary_engine/`**: i moduli attivi (`build_glossary_candidates.py`, `glossary_align.py`, `glossary_cluster.py`,
+  `glossary_qwen_bridge.py`, `glossary_qwen_extract.py`, `glossary_qwen_gpu_cli.py`) stavano in `mt_eval/`, cartella di banchi di prova; ora sono in
+  `glossary_engine/` insieme a `film_srt.py` (helper SRT copiati da `mt_eval/build_film_bench.py`). `build_glossary_candidates.py` nel repo era la
+  versione precedente al 04/09: ora delega il canale Qwen al venv principale (GPU) con progresso globale per coppia e `qwen_channel_error` nel
+  report. I dati di lavoro e i report vivono in `glossary_engine/` (ignorati da git). Percorsi aggiornati in `core/glossary_builder_cli.py`,
+  `gui/glossary_dialog.py`, `gui/glossary_worker.py`.
+- **Repository: solo codice attivo**: rimossi i banchi e gli strumenti di valutazione (`mt_eval/`, `asr_eval/`, `whisper_split_eval/`, `split_eval/`,
+  `gender_eval/`, `diar_eval/`, `Gemma training/`), che restano nella cartella di lavoro; `.gitignore` aggiornato. I riferimenti a quei percorsi nelle
+  voci precedenti di questo file sono storici.
+
 ## 1.30.1 — 2026-09-29 — Stessa correzione anche sul percorso "N chunk sequenziali"
 
 - **`core/engines/faster_whisper_engine.py`**: la correzione della lingua forzata (v1.30.0) copriva solo il
