@@ -101,7 +101,7 @@ class GlossaryBuilderWorker(QThread):
         if not venv_glossary_available():
             self.failed.emit(
                 "venv_glossary non trovato. Crea il venv dedicato prima "
-                "di usare questo strumento (vedi mt_eval/glossary_align.py).")
+                "di usare questo strumento (vedi glossary_engine/glossary_align.py).")
             return
 
         self._work_dir.mkdir(parents=True, exist_ok=True)

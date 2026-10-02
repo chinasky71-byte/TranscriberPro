@@ -4,7 +4,7 @@ Dialog "Glossario per show" — Strumenti -> Glossario per show.
 File: gui/glossary_dialog.py
 
 Interfaccia per lanciare la costruzione/validazione semi-automatica del
-glossario per-show (mt_eval/build_glossary_candidates.py, subprocess
+glossario per-show (glossary_engine/build_glossary_candidates.py, subprocess
 isolato in venv_glossary/) e approvare a mano i candidati proposti, un
 minuto di lavoro invece della riga di comando. NON in SettingsDialog:
 questo e' uno strumento con un output (un report da rivedere), non una
@@ -425,7 +425,7 @@ class GlossaryDialog(QDialog):
             "qwen_n_gpu_layers": -1,
             "exclude_episodes": exclude_episodes,
         }
-        work_dir = PROJECT_ROOT / 'mt_eval' / 'glossary_work' / name
+        work_dir = PROJECT_ROOT / 'glossary_engine' / 'glossary_work' / name
 
         self._clear_cards()
         self.save_btn.setEnabled(False)

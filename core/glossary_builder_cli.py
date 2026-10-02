@@ -3,16 +3,16 @@
 Glossario per-show CLI - Entrypoint subprocess isolato
 File: core/glossary_builder_cli.py
 
-Esegue mt_eval/build_glossary_candidates.py:build_full_report() in un
+Esegue glossary_engine/build_glossary_candidates.py:build_full_report() in un
 processo separato, lanciato con l'interprete del venv dedicato
 `venv_glossary/` (simalign/sentence-transformers/LaBSE sono incompatibili
 con transformers==4.57.6 del venv principale — vedi
-mt_eval/glossary_align.py). Stesso pattern di isolamento di
+glossary_engine/glossary_align.py). Stesso pattern di isolamento di
 core/gender_corrector_cli.py per il resto, MA lanciato come SCRIPT
 diretto, non con `-m core....`: `-m` importerebbe `core/__init__.py` ->
 `utils/__init__.py` (psutil, TMDBClient, ...), pacchetti NON installati
 nel venv_glossary snello e non necessari qui. Questo file non importa
-nulla dal package `core`, solo stdlib + mt_eval.build_glossary_candidates.
+nulla dal package `core`, solo stdlib + glossary_engine.build_glossary_candidates.
 
 Uso (chiamato dalla GUI, non manuale):
     venv_glossary\\Scripts\\python core\\glossary_builder_cli.py <args.json>
@@ -82,9 +82,9 @@ def main(argv: list) -> int:
     if qwen_n_gpu_layers is None:
         qwen_n_gpu_layers = -1
 
-    mt_eval_dir = str(Path(__file__).resolve().parent.parent / 'mt_eval')
-    if mt_eval_dir not in sys.path:
-        sys.path.insert(0, mt_eval_dir)
+    engine_dir = str(Path(__file__).resolve().parent.parent / 'glossary_engine')
+    if engine_dir not in sys.path:
+        sys.path.insert(0, engine_dir)
 
     try:
         from build_glossary_candidates import build_full_report
