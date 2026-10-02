@@ -25,6 +25,14 @@ from utils.transcription_profiles import ProfileConfig, TranscriptionProfile
 from utils.translations import tr
 
 
+# Decisione 02/10/2026: i profili sono fissi su 'maximum' (Config.get_transcription_profile
+# con transcription_profile_locked=True): Qwen3 e Canary non ne traggono vantaggio e Whisper
+# resta sempre alla massima qualita'. Le schede dei profili restano nel codice ma NON vengono
+# mostrate. Per riattivarle: SHOW_PROFILE_CARDS = True e transcription_profile_locked = false
+# nel config.json (la chiave viene scritta al primo salvataggio: cambiare il default non basta).
+SHOW_PROFILE_CARDS = False
+
+
 class ProfileSelectionDialog(QDialog):
     """
     Dialog per selezione profilo trascrizione
@@ -104,23 +112,25 @@ class ProfileSelectionDialog(QDialog):
         body_layout.setSpacing(10)
         body_layout.setContentsMargins(0, 0, 0, 0)
 
-        header = self.create_header()
-        body_layout.addWidget(header)
+        if SHOW_PROFILE_CARDS:
+            header = self.create_header()
+            body_layout.addWidget(header)
 
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setObjectName("separator")
-        body_layout.addWidget(separator)
+            separator = QFrame()
+            separator.setFrameShape(QFrame.Shape.HLine)
+            separator.setObjectName("separator")
+            body_layout.addWidget(separator)
 
-        desc_label = QLabel(tr('profiles_desc'))
-        desc_label.setObjectName("descLabel")
-        desc_label.setWordWrap(True)
-        body_layout.addWidget(desc_label)
+            desc_label = QLabel(tr('profiles_desc'))
+            desc_label.setObjectName("descLabel")
+            desc_label.setWordWrap(True)
+            body_layout.addWidget(desc_label)
 
         # ── Motore di trascrizione (sistema multi-engine) ──
         # Pattern userData: addItem(label, valore_config) + findData/itemData;
         # salvataggio immediato su cambio (stesso stile embed del resto del tab).
         engine_group = QGroupBox(tr('engine_group'))
+        engine_outer = QVBoxLayout()
         engine_layout = QHBoxLayout()
         engine_label = QLabel(tr('engine_label'))
         self.engine_combo = QComboBox()
@@ -142,7 +152,14 @@ class ProfileSelectionDialog(QDialog):
         engine_layout.addWidget(engine_label)
         engine_layout.addWidget(self.engine_combo)
         engine_layout.addStretch()
-        engine_group.setLayout(engine_layout)
+        engine_outer.addLayout(engine_layout)
+        # Tempi tipici per motore (misure 02/10/2026) + nota sul profilo fisso.
+        times_label = QLabel(tr('engine_times_info'))
+        times_label.setObjectName("engineTimesInfo")
+        times_label.setStyleSheet("color: #9095a0; font-size: 11px; font-weight: 400;")
+        times_label.setWordWrap(True)
+        engine_outer.addWidget(times_label)
+        engine_group.setLayout(engine_outer)
         body_layout.addWidget(engine_group)
 
         # ── Stile dialoghi professionale (trattini Netflix) ──
@@ -161,6 +178,10 @@ class ProfileSelectionDialog(QDialog):
         dialogue_layout.addStretch()
         dialogue_group.setLayout(dialogue_layout)
         body_layout.addWidget(dialogue_group)
+
+        if not SHOW_PROFILE_CARDS:
+            body_layout.addStretch(1)
+            return body
 
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
@@ -271,7 +292,7 @@ class ProfileSelectionDialog(QDialog):
         
         # Parametri tecnici compatti
         params_text = (
-            f"⚙️ W:{config['num_workers']} | "
+            f"⚙️ Whisper · W:{config['num_workers']} | "
             f"🎯 B:{config['beam_size']} | "
             f"⚡ {self._format_speed(config['speed_factor'])} | "
             f"✨ {config['quality_percent']:.0f}%"

@@ -152,8 +152,15 @@ class Config:
         'whisper_device': 'auto',
         'whisper_compute_type': 'auto',
         
-        # Sistema profili dinamici trascrizione
-        'transcription_profile': 'balanced',
+        # Sistema profili dinamici trascrizione.
+        # Decisione 02/10/2026: Whisper sempre a Qualita' Massima (Qwen3 e Canary non
+        # ne traggono vantaggio: il profilo cambia solo il batch). Con
+        # 'transcription_profile_locked' True get_transcription_profile() restituisce
+        # sempre 'maximum' e la scelta dell'utente e' ignorata; per riattivare i profili
+        # basta impostarlo a False nel config.json (la chiave viene scritta al primo salvataggio;
+        # il codice dei profili e la GUI sono solo nascosti).
+        'transcription_profile': 'maximum',
+        'transcription_profile_locked': True,
 
         # Adaptive Batch Size
         'adaptive_batch_enabled': True,
@@ -464,8 +471,8 @@ class Config:
         """Imposta valore configurazione"""
         if key == 'transcription_profile':
             if value not in self.VALID_PROFILES:
-                print(f"⚠️ Profilo '{value}' non valido. Uso 'balanced'.")
-                value = 'balanced'
+                print(f"⚠️ Profilo '{value}' non valido. Uso 'maximum'.")
+                value = 'maximum'
 
         if key == 'transcription_engine_mode':
             if value not in self.VALID_TRANSCRIPTION_ENGINE_MODES:
@@ -603,14 +610,21 @@ class Config:
     # ========================================================================
     
     def get_transcription_profile(self) -> str:
-        """Ottieni profilo trascrizione corrente"""
-        profile = self.get('transcription_profile', 'balanced')
-        
+        """Ottieni profilo trascrizione corrente.
+
+        Con 'transcription_profile_locked' (default True) il profilo e' fisso su
+        'maximum' (v. DEFAULTS): e' il punto unico di blocco, letto da Whisper e Qwen3.
+        """
+        if self.get('transcription_profile_locked', True):
+            return 'maximum'
+
+        profile = self.get('transcription_profile', 'maximum')
+
         if profile not in self.VALID_PROFILES:
-            print(f"⚠️ Profilo '{profile}' non valido. Uso 'balanced'.")
-            profile = 'balanced'
+            print(f"⚠️ Profilo '{profile}' non valido. Uso 'maximum'.")
+            profile = 'maximum'
             self.set('transcription_profile', profile)
-        
+
         return profile
     
     def set_transcription_profile(self, profile: str):
@@ -622,6 +636,9 @@ class Config:
             )
         
         self.set('transcription_profile', profile)
+        if self.get('transcription_profile_locked', True):
+            print("⚠️ Profilo bloccato su 'maximum': scelta salvata ma ignorata "
+                  "(transcription_profile_locked)")
         print(f"✅Profilo trascrizione impostato: {profile}")
     
     def get_available_profiles(self) -> list:
@@ -664,7 +681,7 @@ class Config:
         
         if profile not in self.VALID_PROFILES:
             print(f"⚠️ DEBUG: profile '{profile}' NON VALIDO")
-            profile = 'balanced'
+            profile = 'maximum'
         
         profile_enum = ProfileConfig.from_string(profile)
         config_data = ProfileConfig.get_profile_config(profile_enum)

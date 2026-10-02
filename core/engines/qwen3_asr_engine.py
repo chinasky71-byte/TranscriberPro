@@ -251,8 +251,12 @@ class Qwen3AsrEngine(TranscriptionEngine):
                 device=self.config.get('punctuation_device', 'cpu'),
                 log_callback=self.log,
             )
-        self.log(f"  ✍️ Ripristino punteggiatura chunk {chunk_num}...")
-        return self._punct_restorer.restore_words(words, language)
+        # Per chunk: SOLO nel file di log (a schermo disturbava la barra di avanzamento);
+        # a fine trascrizione compare il riepilogo "Punteggiatura ripristinata su N/M chunk".
+        logger.info(f"  ✍️ Ripristino punteggiatura chunk {chunk_num}...")
+        restored = self._punct_restorer.restore_words(words, language)
+        self._n_punct_restored = getattr(self, '_n_punct_restored', 0) + 1   # solo a chiamata riuscita
+        return restored
 
     def _maybe_lang_retry(self, chunk_path: str, forced_iso: str, r, text: str, chunk_num: int):
         """v1.29.0 (core/qwen3_lang_retry.py, trovato su X Factor): se il chunk forzato su
@@ -286,7 +290,8 @@ class Qwen3AsrEngine(TranscriptionEngine):
                 logger.debug(f"[qwen3-lang-retry] chunk {chunk_num}: ritrascrizione in '{iso}' vuota, "
                             "si tiene l'originale")
                 return r, text, forced_iso, False
-            self.log(f"  🌐 Chunk {chunk_num}: ritrascritto in '{iso}' (forzato '{forced_iso}', {why})")
+            # Per chunk: solo nel file di log; il riepilogo "Chunk ritrascritti N/M" e' a fine fase.
+            logger.info(f"  🌐 Chunk {chunk_num}: ritrascritto in '{iso}' (forzato '{forced_iso}', {why})")
             return new[0], new_text, iso, True
         except Exception as e:
             logger.warning(f"[qwen3-lang-retry] chunk {chunk_num}: ritrascrizione fallita: {e}")
@@ -362,6 +367,7 @@ class Qwen3AsrEngine(TranscriptionEngine):
         failed_chunks = 0
         truncation_suspects = 0
         n_lang_retried = 0
+        self._n_punct_restored = 0
         last_pct = -1
         t0 = time.time()
         self._lang_retry_enabled = bool(self.config.get('qwen3_lang_retry_enabled', True))
@@ -470,6 +476,8 @@ class Qwen3AsrEngine(TranscriptionEngine):
         if n_lang_retried:
             self.log(f"  🌐 Chunk ritrascritti per lingua diversa da quella forzata: "
                      f"{n_lang_retried}/{total_chunks}")
+        if self._n_punct_restored:
+            self.log(f"  ✍️ Punteggiatura ripristinata su {self._n_punct_restored}/{total_chunks} chunk")
 
         # Troppi fallimenti = engine inaffidabile su questo file → fallback
         if total_chunks > 0 and failed_chunks > total_chunks * 0.5:

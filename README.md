@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.30.1-orange)
+![Version](https://img.shields.io/badge/Version-1.30.2-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -38,7 +38,7 @@ Transcriber Pro takes any video file and produces clean `.srt` subtitle files th
 - **Professional dialogue style (Netflix)** — "- " dashes only when two speakers share the same SRT block (one line per speaker); speaker diarization extended to all engines (`dialogue_style_enabled`, default ON, requires a HuggingFace token); dashes preserved in translated SRTs across all 4 translation backends; `core/subtitle_formatter.py` handles CPL 42, anti-flash, fragment merging and dialogue grouping
 - **Vocal separation** via Meta Demucs — isolates speech before transcription for better accuracy
 - **Intelligent audio chunking** — splits at silence points for accurate timestamp alignment
-- **Transcription profiles** — Fast / Balanced / Quality / Maximum / Batch presets
+- **Transcription quality is fixed at Maximum** — the Fast / Balanced / Quality / Maximum / Batch profiles are kept in the code but hidden and locked (`transcription_profile_locked`): Faster-Whisper always runs at maximum quality, while for Qwen3-ASR and Canary-Qwen the profile only changed the batch size, with identical text (measured). The engine selector stays
 - **Force audio transcription** — bypass embedded subtitle extraction and always transcribe from audio
 - **Gender correction v2 (audio-driven)** — fixes Italian grammatical gender in 1st/2nd person by detecting the speaker's gender **from the voice** (pyannote diarization + ECAPA classifier, 95% acc), then applying a deterministic morphological rewrite guarded by a validator — no LLM, no extra VRAM, hallucinations impossible by construction. Feminine accuracy on first-person lines: 19% → 87% (validated on 700+ auto-extracted test points). Addressee gender for 2nd person comes from dialogue turn-taking (91% acc) and TMDB-cast vocatives
 
@@ -184,7 +184,7 @@ All credentials are optional except for the translation model you choose to use.
 
 ### Audio transcription
 1. Add video files — drag and drop or use the file picker
-2. Select a transcription profile (Balanced recommended)
+2. Pick the transcription engine under Settings → Transcription (Auto recommended; quality is fixed at maximum)
 3. Choose a translation engine
 4. Click **Start** — Demucs → chunking → Whisper → translation → SRT saved next to the video
 
@@ -307,9 +307,19 @@ This project is licensed under the MIT License.
 
 ## Changelog
 
-### v1.24.0 - v1.30.1
+### v1.24.0 - v1.30.2
 Six weeks of work on translation/transcription quality for non-English sources, condensed here; full detail,
 measurement methodology and decision rules for every claim below are in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.2** — Transcription profile locked at Maximum, cleaner on-screen log, queue reordering. (1) `Config.get_transcription_profile()`
+  always returns `maximum` while `transcription_profile_locked` is true (default; new installs used to start on Balanced). Measured on 40 min
+  of Italian: Whisper 2.9 / 2.3 / 1.9 / 1.8 / 1.5 min per audio hour (Maximum / Quality / Batch / Balanced / Fast) with only 0.1–0.4 % of
+  words different from Maximum; Qwen3-ASR 8.7–9.3 min/h with *identical* text at batch 2, 4 and 8, so the profile is useless there; Canary-Qwen
+  does not read profiles. The profile cards are hidden (code kept) and the engine group shows typical times per engine. (2) The Diagnostics
+  "Model" tile shows the model actually in use (`🧩 Modello trascrizione`, emitted by the pipeline, Whisper after load and the router).
+  (3) On-screen log: per-chunk lines (punctuation restore, retried chunks) and loading internals now go to the log file only, with an
+  end-of-phase summary; progress bars are always the last line and are rewritten per bar (an interleaved line used to restart them on a new
+  line); "Generazione rallentata" shows once per file and the total appears in the "Completato in" line. (4) Queue items still waiting can be
+  reordered by drag & drop, also while processing is running. Layout and column sizes are unchanged.
 - **v1.30.1 / v1.30.0** — Forced-language retry for Qwen3-ASR and Faster-Whisper (`core/qwen3_lang_retry.py`,
   `core/whisper_lang_retry.py`): both engines forced the declared track language on every chunk, so content in
   another language (English songs inside non-English films, mostly) came back empty or garbled. Suspect
@@ -592,7 +602,7 @@ Transcriber Pro produce file `.srt` attraverso due pipeline complementari:
 - **Stile dialoghi professionale (Netflix)** — trattini "- " solo quando due parlanti condividono lo stesso blocco SRT (una battuta per riga); speaker diarization estesa a tutti gli engine (opzione `dialogue_style_enabled`, default ON, richiede token HuggingFace); trattini preservati anche negli SRT tradotti su tutti e 4 i backend di traduzione; `core/subtitle_formatter.py` gestisce CPL 42, anti-flash, merge frammenti e raggruppamento dialoghi
 - **Separazione vocale** via Meta Demucs — isola la voce prima della trascrizione per maggiore accuratezza
 - **Chunking audio intelligente** — divide ai punti di silenzio per timestamp precisi
-- **Profili di trascrizione** — Fast / Balanced / Quality / Maximum / Batch
+- **Qualità di trascrizione fissa al massimo** — i profili Fast / Balanced / Quality / Maximum / Batch restano nel codice ma sono nascosti e bloccati (`transcription_profile_locked`): Faster-Whisper lavora sempre alla qualità massima, mentre per Qwen3-ASR e Canary-Qwen il profilo cambiava solo il batch, con testo identico (misurato). Il selettore del motore resta
 - **Forza trascrizione audio** — ignora i sottotitoli embedded e trascrive sempre dall'audio
 - **Correzione genere v2 (audio-driven)** — corregge il genere grammaticale di 1ª/2ª persona deducendo il genere di chi parla **dalla voce** (diarization pyannote + classificatore ECAPA, 95%) e riscrivendo con un flip morfologico deterministico protetto da validatore — niente LLM, niente VRAM extra, allucinazioni impossibili. Accuratezza femminile in 1ª persona: 19% → 87%. La 2ª persona usa i turni di dialogo (91%) e i vocativi col cast TMDB
 
@@ -737,7 +747,7 @@ Tutte le credenziali sono opzionali tranne quella del motore di traduzione scelt
 
 ### Trascrizione audio
 1. Aggiungi file video — trascina o usa il selettore file
-2. Scegli un profilo di trascrizione (Balanced consigliato)
+2. Scegli il motore di trascrizione in Impostazioni → Trascrizione (Auto consigliato; la qualità è fissa al massimo)
 3. Scegli il motore di traduzione
 4. Clicca **Avvia** — Demucs → chunking → Whisper → traduzione → SRT salvato accanto al video
 
@@ -780,9 +790,20 @@ Questo progetto è distribuito con licenza MIT.
 
 ## Changelog
 
-### v1.24.0 - v1.30.1
+### v1.24.0 - v1.30.2
 Sei settimane di lavoro sulla qualità di traduzione/trascrizione per le sorgenti non inglesi, condensate qui; il
 dettaglio completo, la metodologia di misura e le regole di decisione per ogni affermazione sono in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.2** — Profilo di trascrizione bloccato su Massimo, log a schermo più pulito, riordino della coda. (1) `Config.get_transcription_profile()`
+  restituisce sempre `maximum` finché `transcription_profile_locked` è true (default; le nuove installazioni partivano da Bilanciato). Misurato su
+  40 min di italiano: Whisper 2,9 / 2,3 / 1,9 / 1,8 / 1,5 min per ora di audio (Massimo / Alta qualità / Batch / Bilanciato / Veloce) con solo lo
+  0,1–0,4 % di parole diverse dal Massimo; Qwen3-ASR 8,7–9,3 min/h con testo *identico* a batch 2, 4 e 8, quindi il profilo lì non serve;
+  Canary-Qwen non legge i profili. Le schede dei profili sono nascoste (codice mantenuto) e il gruppo del motore mostra i tempi tipici per motore.
+  (2) La tessera "Modello" della Diagnostica mostra il modello realmente in uso (`🧩 Modello trascrizione`, emessa dalla pipeline, da Whisper dopo
+  il caricamento e dal router). (3) Log a schermo: le righe per chunk (ripristino punteggiatura, chunk ritrascritti) e gli interni di caricamento
+  vanno solo nel file di log, con un riepilogo a fine fase; le barre di avanzamento sono sempre l'ultima riga e si riscrivono per singola barra
+  (una riga intercalata le faceva ripartire su una riga nuova); "Generazione rallentata" compare una volta per file e il totale è nella riga
+  "Completato in". (4) Gli elementi della coda ancora in attesa si riordinano con il trascinamento, anche a elaborazione avviata. Layout e
+  dimensioni delle colonne invariati.
 - **v1.30.1 / v1.30.0** — Ritrascrizione per lingua forzata per Qwen3-ASR e Faster-Whisper (`core/qwen3_lang_retry.py`,
   `core/whisper_lang_retry.py`): entrambi gli engine forzavano la lingua dichiarata della traccia su ogni chunk, per
   cui contenuto in un'altra lingua (canzoni in inglese dentro film non inglesi, principalmente) tornava vuoto o
@@ -1043,6 +1064,7 @@ Lista aggiornata a ogni commit + push di una nuova versione.
 - Training NLLB "corpus massimo" (corpus ampliato per la traduzione fine-tuned)
 
 **Da validare / misurare**
+- Finestra principale con riordino della coda (trascinamento) e nuovo log a schermo: non ancora provati dall'utente su una coda reale (verifica che dimensioni e colonne non si muovano)
 - Glossario per-show: GUI semi-automatica non ancora validata su uno show reale; canale Qwen su GPU non ancora misurato su uno show reale
 - Effetto dello split per frasi sulla qualità di traduzione, non ancora misurato
 - Installer per PC nuovi (`install.bat`/`.ps1`): non ancora verificati avvio GUI, pipeline diarization, caricamento modelli, e opzione `-WithModels` su una macchina pulita
@@ -1052,4 +1074,4 @@ Lista aggiornata a ogni commit + push di una nuova versione.
 - Modello di ripristino punteggiatura con supporto al punto esclamativo (limite noto del modello attuale)
 
 **Bloccato su verifica umana**
-- Confronto accuratezza italiano Qwen3 vs Whisper: in attesa di un controllo d'ascolto manuale sui chunk incerti
+- Ascolto X Factor (chunk "MISTO" / lingua "?") prima di allargare le lingue accettate dal retry di lingua forzata oltre l'inglese

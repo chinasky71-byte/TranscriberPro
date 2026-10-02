@@ -174,8 +174,11 @@ class CanaryEngine(TranscriptionEngine):
                 device=self.config.get('punctuation_device', 'cpu'),
                 log_callback=self.log,
             )
-        self.log(f"  ✍️ Ripristino punteggiatura chunk {chunk_num}...")
-        return self._punct_restorer.restore_words(words, language)
+        # Per chunk: solo nel file di log; a fine fase compare il riepilogo.
+        logger.info(f"  ✍️ Ripristino punteggiatura chunk {chunk_num}...")
+        restored = self._punct_restorer.restore_words(words, language)
+        self._n_punct_restored = getattr(self, '_n_punct_restored', 0) + 1   # solo a chiamata riuscita
+        return restored
 
     # ------------------------------------------------------------------
     # Trascrizione
@@ -332,6 +335,7 @@ class CanaryEngine(TranscriptionEngine):
 
         all_segments = []
         failed_chunks = 0
+        self._n_punct_restored = 0
         for i, (chunk, text) in enumerate(zip(audio_chunks, texts)):
             if self._cancelled:
                 break
@@ -376,6 +380,8 @@ class CanaryEngine(TranscriptionEngine):
         if failed_chunks > 0:
             self.log(f"  ⚠️ Aligner fallito su {failed_chunks} chunk (timestamp a livello chunk)")
         self.log(f"  📝 Totale segmenti trascritti: {len(all_segments)}")
+        if self._n_punct_restored:
+            self.log(f"  ✍️ Punteggiatura ripristinata su {self._n_punct_restored}/{total_chunks} chunk")
 
         self._last_segments = all_segments
 

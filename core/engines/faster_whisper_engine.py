@@ -351,6 +351,14 @@ class FasterWhisperEngine(TranscriptionEngine):
         self.language_hint = language
         if self.faster_whisper_model is None:
             self.load()
+        # Modello effettivamente in uso (letto dalla GUI: tessera "Modello"); vale l'ultima
+        # riga ricevuta, quindi corregge quella anticipata dalla pianificazione della pipeline
+        # (ripiego da Qwen3/Canary, lingua rilevata dopo, modello specializzato caduto su large-v3).
+        try:
+            from utils.engine_labels import whisper_label
+            self.log(f"🧩 Modello trascrizione: {whisper_label(self.loaded_model)}")
+        except Exception:
+            pass
 
         whisper_language = language
         total_chunks = len(audio_chunks)

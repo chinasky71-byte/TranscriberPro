@@ -215,11 +215,18 @@ class SubtitleLLMTranslator:
                     and ms_per_char > base * self.SLOWDOWN_TRIP
                     and not getattr(self, "_slow_warned", False)):
                 self._slow_warned = True
-                self.log(
-                    f"  ⚠️ Generazione rallentata {ms_per_char / base:.1f}× "
-                    f"rispetto al ritmo migliore di questo file. Di solito "
-                    f"significa che un altro processo sta usando la GPU."
-                )
+                # `_slow_warned` si azzera a ogni cambio di batch (_reset_throughput_base): senza
+                # questo contatore l'avviso poteva comparire piu' volte nello stesso file. A
+                # schermo ne esce UNA per file; le altre restano nel file di log e il numero
+                # totale compare nella riga "Completato in ...".
+                self._slow_events = getattr(self, "_slow_events", 0) + 1
+                msg = (f"  ⚠️ Generazione rallentata {ms_per_char / base:.1f}× "
+                       f"rispetto al ritmo migliore di questo file. Di solito "
+                       f"significa che un altro processo sta usando la GPU.")
+                if self._slow_events == 1:
+                    self.log(msg)
+                else:
+                    logger.info(f"{msg} (segnalazione n. {self._slow_events}, non mostrata a schermo)")
         except Exception as exc:
             logger.debug(f"_check_throughput: {exc}")
 
@@ -588,8 +595,10 @@ class SubtitleLLMTranslator:
             self.log(f"  Recupero senza mascheramento: {total} blocchi in "
                      f"{(time.time() - t0) / 60:.1f} min")
         else:
+            _slow_n = getattr(self, "_slow_events", 0)
             self.log(f"  Completato in {(time.time() - t0) / 60:.1f} min | "
                      f"batch {self.stats['batch']} | retry "
                      f"{self.stats['retry_single']} | fallback "
-                     f"{self.stats['fallback_blocks']}")
+                     f"{self.stats['fallback_blocks']}"
+                     + (f" | rallentamenti {_slow_n}" if _slow_n > 1 else ""))
         return results

@@ -108,8 +108,8 @@ class Translations:
 
             # ── profile_dialog ────────────────────────────────────────────
             'profiles_title':           'Transcription Profiles',
-            'profiles_header':          '⚙️ Transcription Profiles',
-            'profiles_desc':            'Select the optimal profile for your use case.',
+            'profiles_header':          '⚙️ Faster-Whisper Profiles',
+            'profiles_desc':            'Apply to Faster-Whisper: also the French/German Whisper and the fallback of the other engines. Qwen3-ASR only uses their batch size (speed and VRAM, not quality); Canary-Qwen is not affected.',
             'engine_group':             'Transcription engine',
             'engine_label':             'Engine:',
             'engine_auto':              'Auto (language-based routing)',
@@ -117,6 +117,7 @@ class Translations:
             'engine_qwen3':             'Qwen3-ASR',
             'engine_whisper':           'Faster-Whisper',
             'engine_tip':               'Auto: Canary for English, language-specific Whisper for French and German, Qwen3-ASR for its other supported languages, Faster-Whisper for everything else. Any engine error automatically falls back to Faster-Whisper.',
+            'engine_times_info':        'Typical transcription-only time per hour of audio (RTX 3060): Canary-Qwen ~2 min (English) · Faster-Whisper ~3 min · Qwen3-ASR ~9 min (Italian). Faster-Whisper always runs at maximum quality.',
             'dialogue_style_group':     'Professional dialogue style',
             'dialogue_style_label':     'Speaker-change dashes (Netflix style)',
             'dialogue_style_tip':       'Runs speaker diarization on every transcription and formats subtitles professionally: when two speakers share the same subtitle, each line starts with "- ". Requires a HuggingFace token. Adds a few minutes per file.',
@@ -547,8 +548,8 @@ class Translations:
 
             # ── profile_dialog ────────────────────────────────────────────
             'profiles_title':           'Profili Trascrizione',
-            'profiles_header':          '⚙️ Profili di Trascrizione',
-            'profiles_desc':            'Seleziona il profilo ottimale per il tuo caso d\'uso.',
+            'profiles_header':          '⚙️ Profili Faster-Whisper',
+            'profiles_desc':            'Valgono per Faster-Whisper: anche il Whisper di francese/tedesco e il ripiego degli altri motori. Qwen3-ASR ne usa solo il batch (velocità e VRAM, non qualità); Canary-Qwen non ne è influenzato.',
             'engine_group':             'Motore di trascrizione',
             'engine_label':             'Motore:',
             'engine_auto':              'Auto (routing per lingua)',
@@ -556,6 +557,7 @@ class Translations:
             'engine_qwen3':             'Qwen3-ASR',
             'engine_whisper':           'Faster-Whisper',
             'engine_tip':               'Auto: Canary per l\'inglese, Whisper specializzato per francese e tedesco, Qwen3-ASR per le altre sue lingue supportate, Faster-Whisper per tutto il resto. Qualsiasi errore di un motore ripiega automaticamente su Faster-Whisper.',
+            'engine_times_info':        'Tempi tipici di sola trascrizione per ora di audio (RTX 3060): Canary-Qwen ~2 min (inglese) · Faster-Whisper ~3 min · Qwen3-ASR ~9 min (italiano). Faster-Whisper lavora sempre alla massima qualità.',
             'dialogue_style_group':     'Stile dialoghi professionale',
             'dialogue_style_label':     'Trattini cambio parlante (stile Netflix)',
             'dialogue_style_tip':       'Esegue la diarization dei parlanti su ogni trascrizione e formatta i sottotitoli in modo professionale: quando due parlanti condividono lo stesso sottotitolo, ogni battuta inizia con "- ". Richiede il token HuggingFace. Aggiunge qualche minuto per file.',
