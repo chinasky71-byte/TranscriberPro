@@ -37,7 +37,8 @@ split originale.
 
 Modulo PURO: solo libreria standard, nessun import del progetto o di torch.
 Lingue: `lang='en'` (default, liste inglesi, comportamento misurato) e
-`lang='it'` (liste italiane in _boundary_type_it; stessi parametri numerici);
+`lang='it'` (liste italiane in _boundary_type_it; stessi parametri numerici),
+`lang='fr'`, `lang='de'` e `lang='es'` (regole a priori, _boundary_type_fr/_de/_es);
 altre lingue -> None (split originale).
 Lo usa FasterWhisperEngine._split_segment_by_words solo se la config ha
 'whisper_split_sentence_aware' = True e la lingua del file e' in
@@ -520,7 +521,137 @@ def _boundary_type_de(word: str, next_word: Optional[str]) -> str:
     return WORD
 
 
-_LANG3 = {'eng': 'en', 'ita': 'it', 'fre': 'fr', 'fra': 'fr', 'ger': 'de', 'deu': 'de'}
+# ── regole SPAGNOLE (lang='es') ──────────────────────────────────────────────
+# Scritte A PRIORI il 29/09/2026, senza dati di taratura, sul modello di it/fr/de; NON accese in
+# produzione (lo spagnolo si accende solo aggiungendo 'es' a 'whisper_split_sentence_langs').
+# Nomi locali _*_es: le funzioni generiche (_core, _starts_lower, _CLOSERS...) non sono toccate.
+# Specificita':
+#   - ¿ ¡ d'APERTURA: mai tagliare dopo un ¿/¡ isolato ne' dopo la prima parola di una domanda/
+#     esclamazione ancora aperta ("¿Qué | haces?"); un token che apre con ¿/¡ e' un buon confine
+#     (fine frase se la parola prima la chiude, altrimenti come una virgola mancante: "Oye | ¿qué...").
+#     _starts_lower generica salta gia' ¿¡ (lstrip '"\'“‘«([¿¡-–—'): usata cosi' com'e'.
+#   - abbreviazioni: Sr. Sra. Srta. Dr. Dra. Ud. Uds. Vd. Vds. D. Dña. núm. pág.; "p. ej." ed
+#     "EE. UU." spezzati in due token; "etc." ambigua come in italiano.
+#   - numeri col punto: fine frase come in italiano (nessuna regola per gli ordinali, "1.º" e' un token).
+#   - trattino di battuta isolato ("—", "-"): si taglia PRIMA, non dopo (come il tedesco).
+_OPENQ_ES = '"\'“‘«([¿¡'
+_INV_ES = '¿¡'
+_DASHES_ES = '-–—'
+_ABBREV_ES = frozenset("""
+    sr sra srta sres srs dr dra drs dras ud uds vd vds dn dña lic lcdo lcda ing prof profa
+    núm num pág pag págs tel av avda ej pej
+    mr mrs ms
+""".split())   # chiave: minuscolo senza punti ("p.ej." -> "pej"); NON inclusi (sono anche parole): "no" "art" "cap"
+_ABBREV_ES_AMBIG = frozenset(['etc'])        # + minuscola/cifra: abbreviazione; + maiuscola: fine frase incerta
+_ABBREV_ES_US = frozenset(['uu', 'eeuu'])    # "UU." / "EE.UU.": a fine frase o dentro la frase, decide la parola dopo
+_UPPER_ABBREV_ES = frozenset(['D', 'EE'])     # "D. Quijote" (Don), "EE." (prima meta' di EE. UU.)
+_UPPER_INITIAL_ES = re.compile(r"^[A-ZÁÉÍÓÚÑ]\.$")
+_LOWER_INITIAL_ES = re.compile(r"^[a-záéíóúñ]\.$")
+_ACRONYM_ES = re.compile(r"^(?:[A-Za-zÁÉÍÓÚÑáéíóúñ]\.){2,}$")
+_CONJ_ES = frozenset("""
+    y e o u ni pero sino aunque porque pues que como cuando si mientras donde
+""".split())
+_FUNCTION_ES = frozenset("""
+    el la los las un una unos unas lo
+    a al de del en con por para sin sobre entre hasta desde hacia contra según tras
+    me te se nos os le les yo tú él ella
+    he has ha hemos habéis han había habías habían estoy estás está estamos están
+    es eres somos son era eras eran fue fui ser estar
+    mi mis tu tus su sus nuestro nuestra nuestros nuestras vuestro vuestra vuestros vuestras
+    no muy más tan
+    y e o u ni pero sino aunque porque pues que como cuando si mientras donde
+""".split())
+# parola + congiunzione = locuzione che resta unita ("ya | que", "así | que", "tanto | como",
+# "puesto | que", "siempre | que", "ahora | que", "claro | que", "mientras | que", "igual | que";
+# "para/sin/lo/el/la/más | que" sono gia' parole funzionali)
+_CONJ_GLUE_ES = frozenset("""
+    ya así tanto menos puesto dado visto siempre ahora claro igual mismo solo sólo aun antes después luego
+""".split())
+# parola + "de" dentro una locuzione ("antes | de que", "después | de que", "a pesar | de que")
+_DE_GLUE_ES = frozenset(['antes', 'después', 'despues', 'pesar', 'luego', 'cerca', 'lejos', 'además', 'encima'])
+
+
+def _lead_stripped_es(word: str) -> str:
+    return (word or '').strip().lstrip(_OPENQ_ES + _DASHES_ES + ' ')
+
+
+def _starts_digit_es(word: str) -> bool:
+    s = _lead_stripped_es(word)
+    return bool(s) and s[0].isdigit()
+
+
+def _opens_inv_es(word: str) -> bool:
+    """Il token apre con ¿ o ¡ (anche dopo virgolette/trattino: '«¿Qué', '—¡Vamos')."""
+    s = (word or '').strip().lstrip('"\'“‘«([' + _DASHES_ES + ' ')
+    return s[:1] in ('¿', '¡')
+
+
+def _boundary_type_es(word: str, next_word: Optional[str]) -> str:
+    """Tipo del confine DOPO `word` (seguita da `next_word`), regole spagnole."""
+    c = _core(word)
+    nxt = next_word or ''
+    if next_word is not None and nxt and not nxt[:1].isspace():
+        return INSIDE                     # token attaccato: mai tagliare dentro la parola
+    if next_word is not None and _PUNCT_ONLY.match(nxt.strip()):
+        return INSIDE                     # " ?" / " !" staccati: mai aprire un pezzo con "?" o "!"
+    if not c:
+        return WORD
+    lead = c.lstrip(_OPENQ_ES)
+    if not lead:
+        return FUNC                       # "¿" / "¡" / "«" isolati: mai chiudere un pezzo con l'apertura
+    if lead in ('-', '–', '—', '--'):
+        return FUNC                       # trattino di battuta isolato: tagliare PRIMA, non dopo
+    if c.endswith('…') or c.endswith('...'):
+        return SENT_WEAK if _starts_lower(nxt) else SENT
+    last = c[-1]
+    if last in '?!':
+        return SENT_WEAK if _starts_lower(nxt) else SENT
+    if last == '.':
+        body = lead[:-1]
+        key = body.lower().replace('.', '')
+        if key in _ABBREV_ES_AMBIG:
+            return ABBREV if (_starts_lower(nxt) or _starts_digit_es(nxt)) else SENT_WEAK
+        if key in _ABBREV_ES_US:
+            # "EE. UU." / "EE.UU.": + minuscola/cifra -> dentro la frase, altrimenti fine frase incerta
+            if next_word is None or not _lead_stripped_es(nxt):
+                return SENT
+            return ABBREV if (_starts_lower(nxt) or _starts_digit_es(nxt)) else SENT_WEAK
+        if body in _UPPER_ABBREV_ES:
+            return ABBREV                 # "D. Quijote", "EE. | UU."
+        if key in _ABBREV_ES:
+            return ABBREV
+        if _LOWER_INITIAL_ES.match(lead):
+            # "p." (p. ej.), "a." / "d." (a. C., d. C.): abbreviazione se segue altra sigla o minuscola
+            if next_word is not None and (_starts_lower(nxt) or re.match(r"^[A-Za-z]{1,3}\.$", nxt.strip())):
+                return ABBREV
+            return SENT_WEAK if _starts_lower(nxt) else SENT
+        if _UPPER_INITIAL_ES.match(lead):
+            # lettera maiuscola + punto: "el plan B. Vamos" fine frase incerta; "J. García"
+            # indistinguibile; + minuscola/cifra ("a. C. y") dentro la frase
+            return ABBREV if (_starts_lower(nxt) or _starts_digit_es(nxt)) else SENT_WEAK
+        if _ACRONYM_ES.match(lead):
+            return SENT_WEAK if (nxt.strip()[:1].isupper() and not _starts_lower(nxt)) else ABBREV
+        return SENT_WEAK if _starts_lower(nxt) else SENT   # anche i numeri: "Tengo 42. Ella" fine frase
+    if last in ';:':
+        return CLAUSE
+    if last in ',' + _DASHES_ES:
+        return COMMA
+    if _opens_inv_es(c):
+        return FUNC                       # prima parola di una domanda/esclamazione aperta: "¿Qué | haces?"
+    b = _bare(c)
+    nb = _bare(nxt)
+    if b in _FUNCTION_ES:
+        return FUNC                       # la parola funzionale PRIMA prevale ("para | que", "lo | que")
+    if nb in _CONJ_ES:
+        return FUNC if b in _CONJ_GLUE_ES else CONJ
+    if nb in ('de', 'del') and b in _DE_GLUE_ES:
+        return FUNC                       # "antes | de que", "a pesar | de que"
+    if _opens_inv_es(nxt):
+        return COMMA                      # "Oye | ¿qué haces?": virgola mancante davanti alla domanda
+    return WORD
+
+
+_LANG3 = {'eng': 'en', 'ita': 'it', 'fre': 'fr', 'fra': 'fr', 'ger': 'de', 'deu': 'de', 'spa': 'es'}
 
 
 def _norm_lang(lang) -> str:
@@ -528,7 +659,7 @@ def _norm_lang(lang) -> str:
     return _LANG3.get(l, l[:2])      # 'ger'[:2] sarebbe 'ge': i codici a 3 lettere passano dalla mappa
 
 
-SUPPORTED_LANGS = ('en', 'it', 'fr', 'de')
+SUPPORTED_LANGS = ('en', 'it', 'fr', 'de', 'es')
 
 
 def boundary_type(word: str, next_word: Optional[str], lang: str = 'en') -> str:
@@ -539,6 +670,8 @@ def boundary_type(word: str, next_word: Optional[str], lang: str = 'en') -> str:
         return _boundary_type_fr(word, next_word)
     if lang != 'en' and _norm_lang(lang) == 'de':
         return _boundary_type_de(word, next_word)
+    if lang != 'en' and _norm_lang(lang) == 'es':
+        return _boundary_type_es(word, next_word)
     c = _core(word)
     nxt = next_word or ''
     if next_word is not None and nxt and not nxt[:1].isspace():
@@ -610,8 +743,8 @@ def sentence_aware_split(segment: dict, max_chars: int = 80, max_duration: float
     """Stessa interfaccia e formato di FasterWhisperEngine._split_segment_by_words:
     lista di dict {start, end, text, words}. Ritorna None se non sa decidere
     (il chiamante usa allora lo split originale). `lang`: 'en' (default,
-    regole inglesi) o 'it' (regole italiane; anche codici a 3 lettere, si
-    guardano le prime 2); per ogni altra lingua None (nessuna regola misurata)."""
+    regole inglesi), 'it', 'fr', 'de', 'es' (anche codici a 3 lettere, via
+    _LANG3); per ogni altra lingua None (nessuna regola)."""
     lang = _norm_lang(lang)
     if lang not in SUPPORTED_LANGS:
         return None
