@@ -169,8 +169,10 @@ class MainWindow(QMainWindow):
         self._error_count: int = 0
         self._proc_elapsed_timer = None
 
+        self._overlay_title_cache = {}
         self.init_ui()
         self.apply_modern_theme()
+        self._fix_info_strip_height()
 
         self.log_message(tr('app_started'))
         self.log_message(f"🎨 TMDB Client: {'✅ Attivo' if self.tmdb_client.api_key else '❌ Disattivo'}")
@@ -567,11 +569,11 @@ class MainWindow(QMainWindow):
         self.poster_label.setMinimumHeight(200)
         stage_lay.addWidget(self.poster_label, stretch=1)
 
-        # Info strip (nascosta di default, mostrata su file selezionato)
+        # Info strip sotto la locandina: SEMPRE presente con altezza FISSA (v. _fix_info_strip_height),
+        # cosi' la locandina non cambia dimensione quando si seleziona un file o parte l'elaborazione.
+        # Contenuto: pillole lingua/stato, "Nome show SxxExx", sotto in piccolo "dimensione · percentuale", barra.
         self._info_strip = QFrame()
         self._info_strip.setObjectName("posterInfoStrip")
-        self._info_strip.setMinimumHeight(0)
-        self._info_strip.setMaximumHeight(0)   # nascosto senza uscire dal layout
         strip_lay = QVBoxLayout(self._info_strip)
         strip_lay.setContentsMargins(12, 8, 12, 10)
         strip_lay.setSpacing(4)
@@ -581,6 +583,11 @@ class MainWindow(QMainWindow):
         self._overlay_lang_pill.setObjectName("overlayLangPill")
         self._overlay_status_pill = QLabel()
         self._overlay_status_pill.setObjectName("overlayStatusPill")
+        for pill in (self._overlay_lang_pill, self._overlay_status_pill):
+            # nascoste (nessun file selezionato) tengono lo spazio: il contenuto della striscia non si sposta
+            sp = pill.sizePolicy()
+            sp.setRetainSizeWhenHidden(True)
+            pill.setSizePolicy(sp)
         pills_row.addWidget(self._overlay_lang_pill)
         pills_row.addStretch()
         pills_row.addWidget(self._overlay_status_pill)
@@ -590,7 +597,8 @@ class MainWindow(QMainWindow):
         self._overlay_title.setObjectName("overlayTitle")
         strip_lay.addWidget(self._overlay_title)
 
-        self._overlay_meta = QLabel()
+        # ElideLabel (non QLabel): il testo cambia durante l'elaborazione e non deve allargare il pannello
+        self._overlay_meta = ElideLabel()
         self._overlay_meta.setObjectName("overlayMeta")
         strip_lay.addWidget(self._overlay_meta)
 
@@ -711,7 +719,9 @@ class MainWindow(QMainWindow):
         lay = QVBoxLayout(tile)
         lay.setContentsMargins(10, 6, 10, 6)
         lay.setSpacing(1)
-        val = QLabel(value)
+        # ElideLabel: l'ETA cambia durante l'elaborazione ("–" -> "12h 59m") e una QLabel semplice
+        # allargherebbe il minimo del pannello destro facendo ridistribuire le colonne dallo splitter.
+        val = ElideLabel(value)
         val.setObjectName("logStatValue")
         lbl = QLabel(label)
         lbl.setObjectName("logStatLabel")
@@ -1407,10 +1417,67 @@ class MainWindow(QMainWindow):
     # Overlay / stats / diagnostic helpers
     # ------------------------------------------------------------------
 
+    def _fix_info_strip_height(self):
+        """Altezza FISSA della striscia sotto la locandina, misurata una volta con testo di prova a tema
+        applicato: resta uguale con qualsiasi contenuto (nessun file, in coda, in elaborazione)."""
+        strip = self._info_strip
+        self._overlay_lang_pill.setText("→ ITA")
+        self._overlay_status_pill.setText("✅ Completato")
+        self._overlay_title.setText("Ag")
+        self._overlay_meta.setText("Ag")
+        strip.ensurePolished()
+        strip.setFixedHeight(strip.sizeHint().height())
+        for lbl in (self._overlay_lang_pill, self._overlay_status_pill, self._overlay_title, self._overlay_meta):
+            lbl.setText("")
+        self._overlay_lang_pill.setVisible(False)
+        self._overlay_status_pill.setVisible(False)
+
+    def _overlay_title_for(self, path: str, filename: str) -> str:
+        """'Nome show SxxExx' per le serie; per i film solo il titolo. Calcolato una volta per file
+        (parse_filename scrive righe di debug: non va chiamato a ogni tick di avanzamento).
+        Anime con solo il numero assoluto ("Titolo.E01"): SxxExx appena la ricerca TMDB ha risolto la
+        stagione (resolved_episode); fino ad allora "Titolo E01" e il risultato NON viene messo in cache."""
+        key = path or filename
+        cached = self._overlay_title_cache.get(key)
+        if cached is not None:
+            return cached
+        label = Path(filename or path).stem
+        final = True
+        try:
+            parsed = self.tmdb_client.parse_filename(filename or Path(path).name)
+            title = (parsed.get('title') or '').strip()
+            if title:
+                season, episode = parsed.get('season'), parsed.get('episode')
+                absolute = parsed.get('absolute')
+                # season < 100: 'The.Corporation.720x480' non e' una stagione 720
+                if parsed.get('type') == 'tv' and season is not None and episode is not None and int(season) < 100:
+                    label = f"{title} S{int(season):02d}E{int(episode):02d}"
+                elif parsed.get('type') == 'tv' and absolute is not None:
+                    resolved = self.tmdb_client.resolved_episode(title, absolute, parsed.get('year'))
+                    if resolved:
+                        label = f"{title} S{int(resolved[0]):02d}E{int(resolved[1]):02d}"
+                    else:
+                        label = f"{title} E{int(absolute):02d}"
+                        final = False
+                else:
+                    label = title
+            elif parsed.get('type') == 'movie':
+                # titolo vuoto (es. '1917.2019.1080p'): stessa pulizia usata per la ricerca, non il nome grezzo
+                label = (self.tmdb_client._clean_title(self.tmdb_client._pre_clean_title(label)) or label)
+        except Exception:
+            pass
+        if final:
+            self._overlay_title_cache[key] = label
+        return label
+
     def _update_overlay(self):
         item = self.file_list.currentItem()
         if not item:
-            self._info_strip.setMaximumHeight(0)
+            self._overlay_lang_pill.setVisible(False)
+            self._overlay_status_pill.setVisible(False)
+            self._overlay_title.setText("")
+            self._overlay_meta.setText("")
+            self._overlay_progress.setValue(0)
             self.preview_filename_pill.setVisible(False)
             return
         data = item.data(Qt.ItemDataRole.UserRole) or {}
@@ -1423,21 +1490,17 @@ class MainWindow(QMainWindow):
         self.preview_filename_pill.setText(filename)
         self.preview_filename_pill.setVisible(True)
 
-        if status == 'queued':
-            self._info_strip.setMaximumHeight(0)
-            return
-
-        self._info_strip.setMaximumHeight(16777215)
-        dst = self.config.get_target_language().upper()
-        self._overlay_lang_pill.setText(f"→ {dst}")
         status_map = {
+            'queued':     'In coda',
             'processing': '⟳ Elaborazione',
             'completed':  '✅ Completato',
             'failed':     '❌ Fallito',
         }
+        self._overlay_lang_pill.setText(f"→ {self.config.get_target_language().upper()}")
         self._overlay_status_pill.setText(status_map.get(status, status))
-        stem = Path(path).stem if path else filename
-        self._overlay_title.setText(stem)
+        self._overlay_lang_pill.setVisible(True)
+        self._overlay_status_pill.setVisible(True)
+        self._overlay_title.setText(self._overlay_title_for(path, filename))
         parts = [size] if size else []
         if progress > 0:
             parts.append(f"{progress}%")
@@ -1486,6 +1549,12 @@ class MainWindow(QMainWindow):
         with QMutexLocker(self.queue_mutex):
             self.processing_queue.clear()
             self.file_list.clear()
+        # itemSelectionChanged scatta DURANTE clear() quando l'elemento esiste ancora: striscia, contatore
+        # dei rimanenti e badge dei filtri restavano quelli del file precedente.
+        self._overlay_title_cache.clear()
+        self._update_overlay()
+        self.update_remaining_files_label()
+        self._update_filter_badges()
         self.poster_label.setText("🎬\n\n" + tr('no_preview'))
 
     # Le 4 funzioni on_*_changed (shutdown/os/gender/target_language) sono ora

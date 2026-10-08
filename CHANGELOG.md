@@ -3,6 +3,24 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.2.08.10.26 — 2026-10-08 — Anime con numerazione assoluta, striscia sotto la locandina a spazio fisso, colonne stabili
+
+- **Anime con file grezzi (`utils/tmdb_client.py`)**: `RahXephon.E01.1080p[WEB-DL]...` veniva trattato come film ("RahXephon E01"):
+  nessun risultato TMDB, quindi nessuna locandina, nessun IMDb ID e upload OpenSubtitles disabilitato. `parse_filename` ora riconosce,
+  SOLO con un indizio esplicito, `Titolo.E01` / `.EP05`, `Titolo - 12 [...]` (almeno 2 cifre), `[Gruppo] Titolo - 12` e la stagione
+  nel titolo (`Oshi no Ko S2 - 05`, `Season 2 - 05`). Esclusi anni, numeri decimali (`- 1.55GB`), un anno DOPO il numero (film) e i batch
+  `01-12`. Il numero assoluto diventa stagione/episodio con gli episodi per stagione di TMDB (speciali esclusi), scegliendo tra i primi
+  4 risultati il primo con abbastanza episodi (AoT - 30 → S02E05, - 60 → S04E01); se nessuno è compatibile si ripiega sul film.
+  I nomi nel formato Sonarr/TRaSH (`Titolo (Anno) - S01E01 - 001 - Titolo episodio`) restano invariati. Su 839 nomi della cronologia nessuno cambia.
+  Con gli anime l'IMDb ID è quello della serie.
+- **`gui/workers.py`**: il caricamento della locandina passa il nome file completo (il doppio `.stem` toglieva `.E26` e il nome veniva cercato come film).
+- **Striscia sotto la locandina (`gui/main_window.py`)**: spazio SEMPRE riservato (altezza fissa), così la locandina non cambia più dimensione a inizio
+  file. Contenuto: pillole lingua/stato, `Nome show SxxExx` (film: solo titolo), sotto in piccolo `dimensione · percentuale`, barra. "Pulisci" ora
+  svuota anche striscia, contatore dei rimanenti e badge dei filtri.
+- **Colonne stabili (`gui/widgets.py`, `gui/main_window.py`)**: i valori del Monitor Risorse (CPU/RAM/GPU/VRAM) e l'ETA erano `QLabel` semplici:
+  quando il testo si allarga ("5.0%" → "100.0%", "9.7GB" → "10.66GB", "–" → "12h 59m") crescevano i minimi dei pannelli e lo splitter
+  ridistribuiva le colonne (misurato offscreen, anche sulla 1.30.1). Ora sono `ElideLabel`.
+
 ## 1.30.2.03.10.26 — 2026-10-03 — Metadati TMDB: l'anno della stagione nel nome del file non blocca più la ricerca
 
 - **`utils/tmdb_client.py`**: per `Bake Off Italia - Dolci In Forno (2026) s14e05` TMDB non restituiva nulla, perché l'anno nel
