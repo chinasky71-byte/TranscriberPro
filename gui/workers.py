@@ -69,7 +69,9 @@ class PosterLoaderWorker(QThread):
             logger.debug(f"PosterLoader: Caricamento info per '{video_name}'")
             
             # API call TMDB (1-2 sec)
-            media_info = self.tmdb_client.get_media_info(video_name)
+            # nome COMPLETO (con estensione): parse_filename fa gia' .stem, un secondo .stem toglierebbe
+            # il suffisso finale ('.E26' in 'Titolo.E26') e il nome verrebbe cercato come film
+            media_info = self.tmdb_client.get_media_info(Path(self.video_path).name)
             
             if self.is_cancelled:
                 return

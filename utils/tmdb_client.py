@@ -62,6 +62,8 @@ class TMDBClient:
         self.api_key = api_key or self._load_api_key()
         self.base_url = "https://api.themoviedb.org/3"
         self.image_base_url = "https://image.tmdb.org/t/p/w500"
+        # (titolo minuscolo, anno, numero assoluto) -> (stagione, episodio) risolti da TMDB (v. search_tv)
+        self._absolute_cache = {}
         
         self.cache_dir = Path.home() / '.transcriberpro' / 'posters'
         self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -370,7 +372,7 @@ class TMDBClient:
         
         return None
     
-    def parse_filename(self, filename: str) -> Dict[str, any]:
+    def parse_filename(self, filename: str, allow_absolute: bool = True) -> Dict[str, any]:
         """
         Estrae informazioni dal nome file
         âœ… FIX CRITICO: Pulizia piÃ¹ aggressiva e mirata del titolo TV show
@@ -423,6 +425,28 @@ class TMDBClient:
                     'year': year
                 }
         
+        # Numerazione ASSOLUTA (anime NON rinominati da Sonarr: "Titolo.E01", "Titolo - 12",
+        # "[Gruppo] Titolo - 12"): solo con un indizio esplicito, mai un numero nudo. La stagione la
+        # risolve search_tv con gli episodi per stagione di TMDB. Con allow_absolute=False si salta
+        # (ripiego su film quando la ricerca come serie non trova nulla).
+        if allow_absolute:
+            sm = re.search(r'^(?:\[[^\]]{1,40}\]\s*)?(?P<t>.+?)[ ._](?:S(?P<s>\d{1,2})|Season[ ._]?(?P<s2>\d{1,2})'
+                           r'|(?P<s3>\d{1,2})(?:st|nd|rd|th)[ ._]Season)\s*[-\u2013]\s*(?P<n>\d{1,4})(?!\d)',
+                           name, re.IGNORECASE)
+            if sm and not re.search(r'\b(19|20)\d{2}\b', name[sm.end('n'):]):
+                s_title, s_year = self._clean_tv_title(sm.group('t'))
+                if s_title:
+                    return {'type': 'tv', 'title': s_title,
+                            'season': int(sm.group('s') or sm.group('s2') or sm.group('s3')),
+                            'episode': int(sm.group('n')), 'year': s_year}
+            abs_hit = self._match_absolute_episode(name)
+            if abs_hit:
+                title, year = self._clean_tv_title(abs_hit[0])
+                if title:
+                    logger.debug(f"Anime con numero assoluto: {title} ep.{abs_hit[1]}")
+                    return {'type': 'tv', 'title': title, 'season': None, 'episode': None,
+                            'absolute': abs_hit[1], 'year': year}
+
         # Film
         title = self._pre_clean_title(name)
         
@@ -443,6 +467,68 @@ class TMDBClient:
             'year': year
         }
     
+    # Indizi ESPLICITI di numero assoluto (v. parse_filename). Un anno (1900-2099) non e' un episodio.
+    _ABS_PATTERNS = (
+        # [Gruppo] Titolo - 12 ...
+        re.compile(r'^\[[^\]]{1,40}\]\s*(?P<t>.+?)\s*(?<!\d)[-\u2013]\s*(?P<n>\d{1,4})(?:v\d+)?(?=\s|\[|\(|\.(?!\d)|$)'),
+        # Titolo.E01 / Titolo E01 (separatore prima della E, nessuna lettera dopo il numero)
+        re.compile(r'^(?P<t>.+?)(?<=[ ._])(?i:EP?)\.?(?P<n>\d{1,4})(?:v\d+)?(?=[ ._\[\(-]|$)'),
+        # Titolo - 12 [1080p] / Titolo - 12 (BD) / Titolo - 12.mkv / Titolo - 12 1080p
+        re.compile(r'^(?P<t>.+?)\s+[-\u2013]\s+(?P<n>\d{2,4})(?:v\d+)?(?=\s*[\[\(]|\s*\.(?!\d)|\s*$|\s+(?:\d{3,4}p|WEB|BD|Blu|HDTV|x26|HEVC|AAC))', re.IGNORECASE),
+    )
+
+    def _match_absolute_episode(self, name: str):
+        """(parte titolo, numero assoluto) se il nome ha un indizio esplicito, altrimenti None."""
+        for rx in self._ABS_PATTERNS:
+            m = rx.search(name)
+            if not m:
+                continue
+            n = int(m.group('n'))
+            if n < 1 or 1900 <= n <= 2099:
+                continue
+            if re.search(r'\b(19|20)\d{2}\b', name[m.end('n'):]):
+                continue   # anno dopo il numero: e' un film, non un anime con numero assoluto
+            title_part = m.group('t').strip(' ._-')
+            if title_part:
+                return title_part, n
+        return None
+
+    def _clean_tv_title(self, title_part: str):
+        """Pulizia del titolo per il ramo con numero assoluto: (titolo, anno). A differenza di
+        _clean_title NON toglie il numero finale (puo' far parte del titolo: "Mob Psycho 100")."""
+        title = self._pre_clean_title(title_part)
+        year = None
+        year_match = re.search(r'\b(19|20)\d{2}\b', title)
+        if year_match:
+            year = int(year_match.group(0))
+            title = re.sub(r'\b(19|20)\d{2}\b', '', title).strip()
+        title = re.sub(r'[._-]+', ' ', title)
+        title = re.sub(r'[~`!@#$%^&*+={}|<>?]', '', title)
+        title = re.sub(r'\(\s*\)|\[\s*\]', '', title)
+        return re.sub(r'\s+', ' ', title).strip(' -'), year
+
+    def _absolute_to_season_episode(self, tmdb_id: int, absolute: int):
+        """Numero assoluto -> (stagione, episodio) con gli episodi per stagione di TMDB (speciali esclusi).
+        None se TMDB non ha dati, se c'e' un errore o se il numero supera il totale degli episodi."""
+        try:
+            r = requests.get(f"{self.base_url}/tv/{tmdb_id}",
+                             params={'api_key': self.api_key, 'language': 'it-IT'}, timeout=10)
+            r.raise_for_status()
+            seasons = sorted((s['season_number'], int(s.get('episode_count') or 0))
+                             for s in r.json().get('seasons', []) if (s.get('season_number') or 0) > 0)
+            remaining = absolute
+            for number, count in seasons:
+                if count and remaining <= count:
+                    return number, remaining
+                remaining -= count
+        except Exception as e:
+            logger.debug(f"Risoluzione numero assoluto {absolute} (TMDB {tmdb_id}): {e}")
+        return None
+
+    def resolved_episode(self, title: str, absolute: int, year: int = None):
+        """(stagione, episodio) gia' risolti da una ricerca precedente per (titolo, anno, numero assoluto), o None."""
+        return self._absolute_cache.get(((title or '').strip().lower(), year, absolute))
+
     def _pre_clean_title(self, title: str) -> str:
         """
         Pre-pulizia AGGRESSIVA del titolo
@@ -640,7 +726,8 @@ class TMDBClient:
         logger.warning(f"âš ï¸ Nessun risultato per: {title}")
         return None
     
-    def search_tv(self, title: str, season: int = None, episode: int = None, year: int = None) -> Optional[Dict]:
+    def search_tv(self, title: str, season: int = None, episode: int = None, year: int = None,
+                  absolute: int = None) -> Optional[Dict]:
         """Cerca serie TV su TMDB con triplo fallback IMDb ID e fallback lingua episodio.
 
         L'anno nel nome del file e' spesso quello della STAGIONE/EPISODIO e non quello della prima
@@ -649,16 +736,17 @@ class TMDBClient:
         prima col filtro (disambigua i casi come "The Howard Stern Show 2026") e, SOLO se non trova
         niente, si ripete la ricerca senza anno: nessuna ricerca che oggi riesce cambia esito.
         """
-        info, errored = self._search_tv_once(title, season, episode, year)
+        info, errored = self._search_tv_once(title, season, episode, year, absolute=absolute, cache_year=year)
         if info is None and year and not errored:
             # Solo titolo INTERO e solo se il primo giro e' "nessun risultato" (non un errore di rete/chiave):
             # le varianti larghe senza anno trasformerebbero un "non trovato" in un titolo sbagliato.
             logger.info(f"   Nessun risultato con l'anno {year}: riprovo senza filtro anno (solo titolo intero)")
-            info, _ = self._search_tv_once(title, season, episode, None, full_title_only=True)
+            info, _ = self._search_tv_once(title, season, episode, None, full_title_only=True, absolute=absolute,
+                                           cache_year=year)
         return info
 
     def _search_tv_once(self, title: str, season: int = None, episode: int = None, year: int = None,
-                        full_title_only: bool = False):
+                        full_title_only: bool = False, absolute: int = None, cache_year: int = None):
         """Una ricerca serie TV: v. search_tv. Ritorna (info|None, errore): `errore` e' True se la ricerca
         e' fallita per un problema (chiave API, timeout, rete) e non per "nessun risultato".
         `full_title_only`: solo il titolo intero, senza le varianti "larghe" (senza articoli, prima del
@@ -704,6 +792,22 @@ class TMDBClient:
                 
                 if data.get('results'):
                     result = data['results'][0]
+                    if season is None and episode is None and absolute is not None:
+                        # Il numero assoluto e' anche un controllo di plausibilita': tra i primi risultati si prende il
+                        # primo con abbastanza episodi (evita show omonimi corti, es. "...: Junior High"). Se nessuno e'
+                        # compatibile NON si inventa un S01E{N}: variante successiva / ripiego su film.
+                        resolved = None
+                        for cand in data['results'][:4]:
+                            resolved = self._absolute_to_season_episode(cand['id'], absolute)
+                            if resolved:
+                                result = cand
+                                break
+                        if not resolved:
+                            logger.debug(f"   Numero assoluto {absolute} non compatibile con i risultati per: '{variant}'")
+                            continue
+                        season, episode = resolved
+                        self._absolute_cache[((title or '').strip().lower(), cache_year, absolute)] = resolved
+                        logger.info(f"   Numero assoluto {absolute} -> S{season:02d}E{episode:02d}")
                     tmdb_id = result['id']
                     
                     logger.info(f"âœ… Trovato TMDB: {result.get('name', 'N/A')} ({result.get('first_air_date', 'N/A')[:4]})")
@@ -895,8 +999,15 @@ class TMDBClient:
                 parsed['title'],
                 parsed.get('season'),
                 parsed.get('episode'),
-                parsed.get('year')
+                parsed.get('year'),
+                absolute=parsed.get('absolute')
             )
+            if info is None and parsed.get('absolute') is not None:
+                # il "numero assoluto" era solo un'euristica: se come serie non si trova nulla il
+                # nome potrebbe essere un film (es. "Fast & Furious - 6 (2013)")
+                movie = self.parse_filename(filename, allow_absolute=False)
+                if movie['type'] == 'movie':
+                    info = self.search_movie(movie['title'], movie.get('year'))
         
         if not info:
             logger.error("âŒ Nessuna informazione trovata su TMDB")

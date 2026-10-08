@@ -166,7 +166,11 @@ class ResourceMonitor(QWidget):
         name_lbl = QLabel(name)
         name_lbl.setObjectName("metricName")
         name_lbl.setMinimumWidth(0)
-        val_lbl = QLabel("–")
+        # ElideLabel e NON QLabel: il valore cambia durante l'elaborazione ("5.0%" -> "100.0%", "9.7GB" ->
+        # "10.66GB") e una QLabel semplice ha minimumSizeHint = larghezza del testo: allargava il minimo del
+        # pannello della locandina e lo splitter ridistribuiva le colonne (la locandina cambiava larghezza,
+        # il nome file sotto si ri-elideva). v. feedback_qlabel_resize_gotcha.
+        val_lbl = ElideLabel("–")
         val_lbl.setObjectName("metricValue")
         val_lbl.setMinimumWidth(0)
         top.addWidget(name_lbl)
