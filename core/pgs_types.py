@@ -64,17 +64,26 @@ _ITALIAN_CODES = {'it', 'ita', 'italian', 'italiano'}
 
 
 def lang_to_2(code) -> str:
-    """Normalizza un codice lingua a ISO 639-1 (2 lettere)."""
-    if not code:
-        return 'und'
-    c = str(code).lower().strip()
-    if len(c) == 2:
-        return c
-    return LANG_3_TO_2.get(c, c[:2])
+    """Normalizza un codice lingua a ISO 639-1 (2 lettere); un codice non riconosciuto -> 'und'
+    (prima prendeva le prime 2 lettere: 'zxx' -> 'zx')."""
+    from core.subtitle_lang import normalize_lang
+    return normalize_lang(code)
 
 
 def is_italian(code) -> bool:
-    return str(code or '').lower() in _ITALIAN_CODES
+    return str(code or '').lower() in _ITALIAN_CODES or lang_to_2(code) == 'it'
+
+
+class ContentNotItalian(Exception):
+    """Una traccia bitmap data per italiana (tag) ha prodotto, dopo l'OCR, testo di un'altra lingua:
+    va tradotta come una traccia non italiana. Porta il testo SRT dell'OCR (non gli eventi con le immagini:
+    occuperebbero molta RAM) e la lingua riconosciuta."""
+
+    def __init__(self, srt_text: str, lang: str, stream_index=None):
+        super().__init__(f"contenuto OCR non italiano ({lang})")
+        self.srt_text = srt_text
+        self.lang = lang
+        self.stream_index = stream_index
 
 
 def resolve_ocr_workers(value) -> int:

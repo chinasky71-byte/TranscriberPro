@@ -39,6 +39,23 @@ def available_tesseract_langs():
     return _AVAILABLE_LANGS
 
 
+def refine_content_lang(events, presumed: str, log=None) -> str:
+    """Lingua del testo OCR (ISO 639-1). Se il testo OCR da' un verdetto affidabile che contraddice la lingua
+    presunta dal tag/titolo, vince il testo (caso: traccia inglese marcata `it`); altrimenti resta `presumed`."""
+    try:
+        from core.pgs_types import events_to_srt
+        from core.subtitle_lang import detect_text_language, contradicts
+        verdict, evidence = detect_text_language(events_to_srt(events))
+        if contradicts(presumed, verdict):
+            if log:
+                log(f"⚠️ Il testo OCR e' {verdict.upper()}, non {str(presumed).upper()}: "
+                    f"lingua del contenuto corretta.")
+            return verdict
+    except Exception:
+        pass
+    return presumed
+
+
 def pick_tesseract_lang(stream_lang3: str, fallback: str = 'eng') -> str:
     """
     Sceglie il modello Tesseract per la lingua della traccia (ISO 639-2, 3 lettere).

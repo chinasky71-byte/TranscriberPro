@@ -325,8 +325,8 @@ class ProcessingWorker(QThread):
         # Cache modelli HF/torch: pulizia UNA volta sola qui, a coda conclusa
         # (fine naturale o "Ferma"). Prima stava in pipeline._cleanup() e
         # girava a ogni file, riscaricando gli stessi modelli decine di volte.
-        # cache_cleaner importa solo shutil/pathlib: nessun costo ML nel
-        # processo GUI.
+        # cache_cleaner importa solo shutil/pathlib (e in modo lazy config/engine
+        # dell'LLM, senza torch): nessun costo ML nel processo GUI.
         try:
             from utils.cache_cleaner import cleanup_non_italian_caches
 

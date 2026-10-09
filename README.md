@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.30.2.08.10.26-orange)
+![Version](https://img.shields.io/badge/Version-1.30.2.09.10.26-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -83,7 +83,7 @@ Transcriber Pro takes any video file and produces clean `.srt` subtitle files th
 - **Real-time resource monitor** — GPU / CPU / RAM usage during processing
 - **GPU memory management** — sequential model loading/unloading; Demucs, ASR engine, and translation model never run simultaneously; cuBLAS workspace cleanup; Demucs tensors kept on CPU (only the segment being processed moves to GPU) → constant ~0.6 GB VRAM peak regardless of file length
 - **Freeze-free startup** — torch is never imported in the GUI process (environment check via external CLI); async I/O; splash in ~2 s, Translation tab from 3719 ms to 15 ms
-- **Embedded subtitle extraction** — skips transcription when clean text subtitles already exist; bitmap-only streams trigger the OCR pipeline instead
+- **Embedded subtitle extraction** — skips transcription when clean text subtitles already exist; bitmap-only streams trigger the OCR pipeline instead. Track choice is one ranking (Italian text > Italian bitmap > English text > English bitmap > other languages); the language of a track is decided by its *content* (wrong or missing tags are corrected from the extracted text / OCR text, never from the title alone); "forced" tracks are recognised by flag or title, except a flagged track that is clearly the full subtitle (many events per minute). In the pipeline the OCR output is always written as a `.it.srt` next to the video — the MKV is never modified
 - **Immediate stop** — confirmation dialog; kills FFmpeg / Demucs / Whisper within seconds; cleans temp files automatically
 - **Processing queue** — Queued / Active / Completed / Failed filters with live badges
 
@@ -315,6 +315,7 @@ This project is licensed under the MIT License.
 ### v1.24.0 - v1.30.2
 Six weeks of work on translation/transcription quality for non-English sources, condensed here; full detail,
 measurement methodology and decision rules for every claim below are in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.2.09.10.26** — Embedded subtitle selection by content (new `core/subtitle_lang.py`): a track tagged `it` that was not recognised (two-letter code) was translated Italian→Italian and a full subtitle flagged "forced" was ignored in favour of transcribing the audio (RahXephon); "Forced SRT" titled tracks were chosen over the regular one in 3 films of the history. Also: engine model caches (Canary, Qwen3, pyannote…) are no longer wiped at the end of a queue (a 54-minute re-download), switch `model_cache_cleanup_enabled`. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.30.2** — Transcription profile locked at Maximum, cleaner on-screen log, queue reordering; Spanish sentence-split rules published; per-show glossary engine moved to `glossary_engine/` (benches removed from the repository). (1) `Config.get_transcription_profile()`
   always returns `maximum` while `transcription_profile_locked` is true (default; new installs used to start on Balanced). Measured on 40 min
   of Italian: Whisper 2.9 / 2.3 / 1.9 / 1.8 / 1.5 min per audio hour (Maximum / Quality / Batch / Balanced / Fast) with only 0.1–0.4 % of
@@ -1073,6 +1074,7 @@ Lista aggiornata a ogni commit + push di una nuova versione.
 - Training NLLB "corpus massimo" (corpus ampliato per la traduzione fine-tuned)
 
 **Da validare / misurare**
+- Selezione sottotitoli embedded per contenuto (lingua dal testo, flag forced anomalo): provata su un episodio reale (RahXephon) e, in sola lettura, su 682 file della cronologia; non ancora su un'intera coda
 - Finestra principale con riordino della coda (trascinamento) e nuovo log a schermo: non ancora provati dall'utente su una coda reale (verifica che dimensioni e colonne non si muovano)
 - Glossario per-show: GUI semi-automatica non ancora validata su uno show reale (il canale Qwen su GPU è invece validato su uno show reale)
 - Effetto dello split per frasi sulla qualità di traduzione, non ancora misurato

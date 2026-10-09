@@ -834,7 +834,7 @@ class MainWindow(QMainWindow):
         progress_key = next((p for p in self.UPDATABLE_PATTERNS if p in message), None)
         if progress_key is not None:
             self._write_progress_line(progress_key, message, html_text)
-        elif not self.compact_log_enabled or any(k in message for k in ['✅', '⚙️', '🎉', '❌', '➕', '🎬']):
+        elif not self.compact_log_enabled or any(k in message for k in ['✅', '⚙️', '🎉', '❌', '➕', '🎬', '📥']):
             cursor = self.log_text.textCursor()
             cursor.movePosition(QTextCursor.MoveOperation.End)
             if cursor.position() > 0:

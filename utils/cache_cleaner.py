@@ -22,10 +22,27 @@ logger = setup_logger('utils.cache_cleaner')
 # ricostruito dal nome dir HF (`models--ORG--NAME`).
 PRESERVE_PATTERNS = (
     'jonatasgrosman/wav2vec2-large-xlsr-53-italian',
+    # Allineamento fr/es/de: NON preservato (scelta utente 09/10/2026, scaricato a ogni coda)
+    'jonatasgrosman/wav2vec2-large-xlsr-53-english',
+    'sentence-transformers/labse',    # canale di allineamento del Glossario per show
     'systran/faster-whisper-large-v3',
     'guillaumekln/faster-whisper-large-v3',
     'openai/whisper-large-v3',
+    # Motori di trascrizione e modelli di supporto (decisione 08/10/2026): prima venivano cancellati a
+    # fine coda e il primo file della coda successiva li riscaricava (Canary 4,8 GB: da 2 minuti fino a
+    # 54 con una rete lenta). Oltre a questi, _configured_engine_slugs() preserva quelli in config.
+    'nvidia/canary-qwen-2.5b',
+    'qwen/qwen3-1.7b',                # tokenizer/config del SALM Canary
+    'qwen/qwen3-asr-1.7b',
+    'qwen/qwen3-forcedaligner-0.6b',
+    'oliverguhr/fullstop-punctuation-multilang-large',
+    'pyannote/',
+    'jaesunghuh/voice-gender-classifier',
 )
+
+# Checkpoint della cache torch hub da NON svuotare (prefisso del nome file): Demucs htdemucs
+# (955717e8-8726e21a.th, 80 MB, scaricato da dl.fbaipublicfiles.com a ogni coda).
+TORCH_PRESERVE_PREFIXES = ('955717e8',)
 
 
 def _slug_from_dir(dir_name: str) -> str:
@@ -57,10 +74,56 @@ def _production_llm_slug() -> str:
         return ''
 
 
+def _org_name(spec) -> str:
+    """'org/nome[/sottocartella]' -> 'org/nome'. Vuoto per percorsi locali o nomi senza org ('large-v3')."""
+    text = str(spec or '').strip().replace(chr(92), '/')
+    if not text or text.startswith('/') or (len(text) > 1 and text[1] == ':'):
+        return ''
+    parts = [x for x in text.split('/') if x]
+    return f"{parts[0]}/{parts[1]}" if len(parts) >= 2 else ''
+
+
+def _configured_engine_slugs() -> tuple:
+    """Slug dei modelli HF configurati per i motori di trascrizione, per la diarizzazione, per la
+    punteggiatura e i Whisper specializzati per lingua (whisper_model_by_language): se si cambia modello
+    in config, la sua cache viene preservata senza toccare questa lista."""
+    slugs = []
+    try:
+        from utils.config import get_config
+        cfg = get_config()
+        for key in ('canary_model_id', 'qwen3_asr_model_id', 'qwen3_aligner_model_id',
+                    'punctuation_model_id', 'diarization_model'):
+            slugs.append(_org_name(cfg.get(key, '')))
+        table = cfg.get('whisper_model_by_language', {}) or {}
+        if isinstance(table, dict):
+            slugs.extend(_org_name(v) for v in table.values())
+    except Exception as e:
+        logger.warning(f"Slug motori configurati non risolti: {e}")
+    return tuple(x for x in slugs if x)
+
+
+def _cleanup_enabled() -> bool:
+    """Interruttore `model_cache_cleanup_enabled` (default True: la pulizia resta attiva per i modelli
+    NON preservati)."""
+    try:
+        from utils.config import get_config
+        v = get_config().get('model_cache_cleanup_enabled', True)
+        if v is None:
+            return True
+        return v if isinstance(v, bool) else str(v).strip().lower() not in ('0', 'false', 'no', 'off')
+    except Exception:
+        return True
+
+
 def _is_preserved(slug: str, extra_patterns: tuple = ()) -> bool:
+    """Confronto ESATTO sullo slug (minuscolo); un pattern che finisce con '/' vale come prefisso
+    ('pyannote/'). Prima era per sottostringa e preservava anche modelli "fratelli" (-Base, -turbo...)."""
     s = slug.lower()
-    patterns = PRESERVE_PATTERNS + tuple(p for p in extra_patterns if p)
-    return any(p.lower() in s for p in patterns)
+    for p in PRESERVE_PATTERNS + tuple(x for x in extra_patterns if x):
+        p = p.lower()
+        if (s.startswith(p) if p.endswith('/') else s == p):
+            return True
+    return False
 
 
 def _try_rmtree(path: Path, retries: int = 2) -> bool:
@@ -88,7 +151,12 @@ def cleanup_non_italian_caches(log_callback=None) -> dict:
     result = {'removed': [], 'preserved': [], 'failed': []}
     log = log_callback or (lambda m: None)
 
+    if not _cleanup_enabled():
+        logger.info("Pulizia cache modelli disattivata (model_cache_cleanup_enabled=false)")
+        return result
+
     llm_slug = _production_llm_slug()
+    engine_slugs = _configured_engine_slugs()
 
     hf_root = Path(HF_HUB_CACHE_DIR)
     if hf_root.exists():
@@ -96,7 +164,7 @@ def cleanup_non_italian_caches(log_callback=None) -> dict:
             if not entry.is_dir() or not entry.name.startswith('models--'):
                 continue
             slug = _slug_from_dir(entry.name)
-            if _is_preserved(slug, extra_patterns=(llm_slug,)):
+            if _is_preserved(slug, extra_patterns=(llm_slug, *engine_slugs)):
                 result['preserved'].append(slug)
                 continue
             if _try_rmtree(entry):
@@ -105,9 +173,30 @@ def cleanup_non_italian_caches(log_callback=None) -> dict:
             else:
                 result['failed'].append(slug)
 
+    # Archivio di blob CONDIVISO (huggingface_hub 1.x, usato da venv_cohere/venv_glossary): i file veri stanno in
+    # hub/blobs/<xx>/<hash> e le cartelle models--*/blobs hanno solo collegamenti. Cancellata la cartella del
+    # modello il blob restava su disco (3,85 GB di Cohere): si tolgono quelli senza piu' nessun riferimento vivo.
+    store = hf_root / 'blobs'
+    if store.is_dir() and (store / '.huggingface-shared-blobs').exists():
+        for refs in store.glob('*/*.refs'):
+            try:
+                lines = [ln.strip() for ln in refs.read_text(encoding='utf-8', errors='replace').splitlines() if ln.strip()]
+                if any((hf_root / ln).exists() or (hf_root / ln).is_symlink() for ln in lines):
+                    continue
+                blob = refs.with_suffix('')
+                for f in (blob, refs, blob.with_suffix('.lock')):
+                    if f.exists():
+                        f.unlink()
+                result['removed'].append(f"shared-blob/{blob.name[:12]}")
+            except Exception as e:
+                logger.warning(f"Sweep blob condiviso {refs.name}: {e}")
+
     torch_ckpt = Path(TORCH_HUB_CACHE_DIR)
     if torch_ckpt.exists():
         for entry in torch_ckpt.iterdir():
+            if entry.name.startswith(TORCH_PRESERVE_PREFIXES):
+                result['preserved'].append(f"torch/{entry.name}")
+                continue
             try:
                 if entry.is_file():
                     entry.unlink()

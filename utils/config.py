@@ -105,6 +105,9 @@ class Config:
         'whisper_lang_retry_enabled': True,
         'whisper_lang_retry_accept_langs': ['en'],
         'canary_model_id': 'nvidia/canary-qwen-2.5b',
+        # Pulizia della cache modelli (HF/torch) a fine coda: v. utils/cache_cleaner.py. I modelli dei motori
+        # configurati sono comunque preservati; False = non cancella nulla.
+        'model_cache_cleanup_enabled': True,
         'canary_python_path': '',              # vuoto = auto (<progetto>/venv_canary/Scripts/python.exe)
         'canary_batch_size': 8,                # chunk per chiamata a model.generate() nel subprocess
         # faster-whisper: divide i segmenti lunghi sui confini di frase invece che a
