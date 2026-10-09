@@ -35,21 +35,36 @@ def make_bitmap_ocr(video_path, config, kind: str,
                   log_callback=log_callback, progress_callback=progress_callback)
 
 
-def run_ocr_auto(ocr, log_callback=None) -> bool:
+def run_ocr_auto(ocr, log_callback=None, italian: bool = True) -> bool:
     """Esegue l'OCR AUTO su un motore già istanziato (`make_bitmap_ocr`).
 
     - tracce ITALIANE → `run_auto()` (writeback / mux);
     - nessuna italiana (`BitmapNotSupported`) → OCR traccia migliore + traduzione.
+
+    `italian=False`: la traccia scelta NON e' italiana (classifica di core/subtitle_extractor): si salta
+    `run_auto()` — che convertirebbe eventuali tracce italiane forced — e si fa OCR della traccia migliore
+    + traduzione. Se una traccia data per italiana risulta, dopo l'OCR, di un'altra lingua
+    (`ContentNotItalian`), si traduce anche quella.
 
     Propaga `BitmapNotSupported` se non c'è alcun bitmap e `UnsupportedLanguage`
     se manca il tessdata della lingua.
     """
     from core.pgs_ocr import BitmapNotSupported as PgsNotSupported
     from core.vobsub_ocr import BitmapNotSupported as VobNotSupported
+    from core.pgs_types import ContentNotItalian
     _not_supported = (PgsNotSupported, VobNotSupported)
+
+    if not italian:
+        events, content_lang = ocr.ocr_to_events()
+        return convert_and_translate(ocr, events, content_lang, log_callback)
 
     try:
         return ocr.run_auto()
+    except ContentNotItalian as exc:
+        if log_callback:
+            log_callback(f"⚙️ OCR — la traccia {exc.stream_index} contiene testo {exc.lang.upper()}: "
+                         f"verra' tradotta.")
+        return convert_and_translate(ocr, exc.srt_text, exc.lang, log_callback)
     except _not_supported:
         # Nessuna traccia italiana di questo codec → OCR della traccia migliore
         # (non italiana) + traduzione verso l'italiano. Se non c'è NESSUN bitmap,
@@ -59,7 +74,8 @@ def run_ocr_auto(ocr, log_callback=None) -> bool:
 
 
 def convert_and_translate(ocr, events, content_lang: str, log_callback=None) -> bool:
-    """Traccia NON italiana: OCR sorgente → traduzione → `.it.srt`.
+    """`events`: lista di OcrEvent oppure testo SRT gia' pronto.
+    Traccia NON italiana: OCR sorgente → traduzione → `.it.srt`.
     Se la modalità è mux, rimux nel video e cancella i sidecar intermedi; se
     sidecar, mantiene `.it.srt` e cancella il sorgente intermedio.
     """
@@ -69,10 +85,14 @@ def convert_and_translate(ocr, events, content_lang: str, log_callback=None) -> 
         if log_callback:
             log_callback(msg)
 
-    src_text = events_to_srt(events)
+    src_text = events if isinstance(events, str) else events_to_srt(events)
     if not src_text.strip():
         _log("Nessun testo OCR prodotto")
         return False
+
+    if content_lang == 'it':
+        # Il testo OCR e' gia' italiano (il tag lo dava per un'altra lingua): niente traduzione.
+        return ocr.writeback(src_text, 'it')
 
     src_path = ocr.write_sidecar(src_text, content_lang)   # <stem>.<lang>.srt
     video = ocr.video_path

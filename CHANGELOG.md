@@ -3,6 +3,34 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.2.09.10.26 — 2026-10-09 — Selezione sottotitoli embedded per contenuto, cache dei modelli preservata, OCR sempre in sidecar
+
+- **Lingua di una traccia dal contenuto (`core/subtitle_lang.py`, nuovo)**: normalizzatore unico dei codici lingua (2 e 3 lettere, nomi,
+  varianti regionali; un codice ignoto diventa `und`, mai le prime 2 lettere). Prima `it` a 2 lettere non era nella mappa di `pipeline.py`:
+  una traccia davvero italiana diventava `und`, veniva instradata su NLLB e "tradotta" italiano→italiano (RahXephon E01). Il titolo della
+  traccia completa il tag solo se manca; la lingua si verifica sul testo estratto (parole frequenti it/en/es/fr/de/pt/nl + controllo degli
+  alfabeti; ≥40 parole riconosciute, quota ≥65 %, rapporto ≥2,5, verdetto coerente in almeno 2 terzi del file, battute con ♪ escluse) e,
+  per i bitmap, sul testo OCR. Se il verdetto contraddice il tag si corregge la lingua (una volta per traccia); se non c'è verdetto non
+  cambia nulla. Misurato: 146/150 SRT italiani reali riconosciuti (4 senza verdetto: dialoghi misti), 14/14 `.en.srt` reali, nessun falso verdetto.
+- **Forced (`core/subtitle_extractor.py`)**: forced anche dal titolo ("Forced", "forzati", "signs"; non "non-forced"). Il flag del contenitore
+  viene ignorato solo se i tag mkvmerge (NUMBER_OF_FRAMES, PGS = frame/2) mostrano ≥150 battute e ≥5 al minuto, non esiste un'altra traccia non
+  forced nella stessa lingua e il codec non è ASS/SSA: RahXephon marca forced+default la PGS "English Translation" (≈195 battute in 24 min).
+  Su 682 file della cronologia 3 film sceglievano la traccia "Forced SRT" italiana invece della regolare: corretto.
+- **Classifica unica (`pipeline.py` STEP 1)**: testo it > bitmap it > testo en > bitmap en > altre lingue (testo, poi bitmap) > lingua ignota;
+  a parità regolare > HI > commento > indice. Le tracce testo senza lingua si verificano prima della classifica; `dvb_subtitle`/`xsub`
+  (senza motore OCR) non sono candidate; se l'OCR di un tipo fallisce si passa al testo o alla trascrizione.
+- **OCR (`pgs_ocr.py`, `vobsub_ocr.py`, `ocr_auto.py`, `bitmap_ocr_common.py`)**: usano la lingua effettiva della traccia; dopo l'OCR la lingua
+  del testo corregge quella presunta (e rilegge con il modello Tesseract giusto); una traccia data per italiana ma con testo straniero viene
+  tradotta (`ContentNotItalian`, porta il testo SRT, non gli eventi con le immagini); la decisione si prende sulle sole tracce complete, non
+  sulle forced. **Nella pipeline l'OCR scrive sempre `<video>.it.srt` accanto al file e non tocca l'MKV** (`writeback_override`); l'impostazione
+  `ocr_writeback` resta valida per Library Scanner e GUI OCR.
+- **Cache dei modelli preservata (`utils/cache_cleaner.py`, `utils/config.py`, `core/engines/canary_engine.py`)**: a fine coda veniva cancellata anche
+  la cache di Canary: il file successivo la riscaricava (4,8 GB, fino a 54 minuti con 1,6 MB/s). Ora sono preservati i modelli di
+  trascrizione, allineamento inglese, punteggiatura, diarizzazione, genere, LaBSE del Glossario e il checkpoint Demucs, più quelli configurati
+  (`canary_model_id`, `qwen3_*`, `whisper_model_by_language`…); l'allineamento fr/es/de resta scaricato a ogni coda per scelta; confronto esatto
+  sullo slug; pulizia dei blob condivisi orfani (3,85 GB di Cohere). Interruttore `model_cache_cleanup_enabled` (False = non cancella nulla).
+  Avviso a schermo "📥 Modello Canary non in cache: download di circa 5 GB…" e `hf-xet` in `requirements-canary.txt`.
+
 ## 1.30.2.08.10.26 — 2026-10-08 — Anime con numerazione assoluta, striscia sotto la locandina a spazio fisso, colonne stabili
 
 - **Anime con file grezzi (`utils/tmdb_client.py`)**: `RahXephon.E01.1080p[WEB-DL]...` veniva trattato come film ("RahXephon E01"):

@@ -52,6 +52,7 @@ import time
 
 # Core Modules
 from core.subtitle_extractor import SubtitleExtractor
+from core.subtitle_lang import detect_text_language, contradicts, lang2_to_3, normalize_lang
 from core.subtitle_cleaner import SubtitleCleaner
 from core.translator import BaseTranslator, get_translator
 from core.transcriber import Transcriber
@@ -264,7 +265,7 @@ class ProcessingPipeline:
             return 'vobsub'
         return 'pgs'
 
-    def _run_bitmap_ocr(self, kind: str) -> bool:
+    def _run_bitmap_ocr(self, kind: str, italian: bool = True) -> bool:
         """Esegue l'OCR bitmap AUTO (PGS/VOBSUB → SRT) tramite core.ocr_auto.
 
         Ritorna False su qualsiasi problema (nessun bitmap OCR-abile, lingua
@@ -285,13 +286,17 @@ class ProcessingPipeline:
         from core.ocr_auto import make_bitmap_ocr, run_ocr_auto
         from core.pgs_ocr import BitmapNotSupported as PgsNotSupported
         from core.vobsub_ocr import BitmapNotSupported as VobNotSupported
-        from core.pgs_types import UnsupportedLanguage, CFG_WRITEBACK, WRITEBACK_MUX
+        from core.pgs_types import UnsupportedLanguage, CFG_WRITEBACK, WRITEBACK_MUX, WRITEBACK_SIDECAR
         self._ocr_upload_srt: Optional[Path] = None
         _ocr_started_at = time.time()
         try:
             self._ocr = make_bitmap_ocr(
                 self.video_path, self.config, kind, log_callback=self._log_callback)
-            ok = bool(run_ocr_auto(self._ocr, log_callback=self._log_callback))
+            # Nella pipeline l'OCR scrive SEMPRE il `.it.srt` accanto al video e non tocca l'MKV (scelta
+            # utente 09/10/2026: nessuna traccia OCR dentro i file); l'impostazione `ocr_writeback` resta
+            # valida per il Library Scanner e la GUI OCR.
+            self._ocr.writeback_override = WRITEBACK_SIDECAR
+            ok = bool(run_ocr_auto(self._ocr, log_callback=self._log_callback, italian=italian))
             if ok:
                 is_mux = self._ocr._cfg(CFG_WRITEBACK, WRITEBACK_MUX) == WRITEBACK_MUX
                 if is_mux:
@@ -372,73 +377,104 @@ class ProcessingPipeline:
                 self._log("\n1. Estrazione sottotitoli embedded...")
                 extractor = SubtitleExtractor(str(self.video_path))
                 self._subtitle_extractor = extractor
-                selected_stream = extractor.select_best_subtitle()
-                selected_is_ita = bool(
-                    selected_stream
-                    and (selected_stream.get('language') or '').lower().startswith('it'))
+                extractor.detect_subtitles()
 
-                def _use_text_sub(stream):
-                    """Estrae la traccia testo selezionata → (path, lang) o (None, None)."""
-                    p = self.file_handler.get_temp_path(
-                        self.video_path, f"embedded_{stream['language']}.srt")
-                    if extractor.extract_subtitle(p, stream['index']):
-                        self._log(f"✅ Sottotitoli embedded trovati "
-                                  f"({stream['language']}). Salto trascrizione.")
-                        return p, stream['language']
-                    self._log("❌ Estrazione sottotitoli fallita. Passo a trascrizione.")
-                    return None, None
+                # Classifica unica (testo/bitmap, v. SubtitleExtractor._rank_key): testo it > bitmap it >
+                # testo en > bitmap en > altre lingue. La lingua di una traccia testo si VERIFICA sul contenuto
+                # appena estratto (un tag sbagliato, es. "English" marcata `it`, non deve far credere italiano
+                # un testo inglese); per i bitmap la verifica avviene dopo l'OCR (core/ocr_auto.py).
+                tried: set = set()        # tracce gia' provate/fallite
+                extracted: dict = {}      # indice -> SRT estratto (non si riestrae dopo una correzione)
+                corrected: set = set()    # tracce la cui lingua e' gia' stata corretta dal contenuto
 
-                # Bitmap ITALIANO ha priorità sul testo NON italiano: si privilegia
-                # l'italiano nativo (testo o bitmap) alla traduzione da un'altra lingua.
-                try:
-                    ita_bitmaps = extractor.select_all_italian_bitmap_subtitles()
-                except Exception:
-                    ita_bitmaps = []
+                def _text_path(st):
+                    """SRT estratto della traccia testo (una sola volta) o None se l'estrazione fallisce."""
+                    path = extracted.get(st['index'])
+                    if path is None:
+                        path = self.file_handler.get_temp_path(
+                            self.video_path, f"embedded_{st['lang']}_{st['index']}.srt")
+                        if not extractor.extract_subtitle(path, st['index']):
+                            return None
+                        extracted[st['index']] = path
+                    return path
 
-                if selected_is_ita:
-                    # (2) Testo ITALIANO → usa quello (migliore dell'OCR).
-                    p, lang = _use_text_sub(selected_stream)
-                    if p:
-                        subtitle_path, source_language_639_2 = p, lang
-
-                elif ita_bitmaps:
-                    # (3) Bitmap ITALIANO → OCR, anche se esiste un testo non italiano.
-                    kind = self._bitmap_kind(ita_bitmaps[0].get('codec'))
-                    self._log(f"\n1b. Sottotitoli bitmap italiani ({kind.upper()}) → OCR...")
-                    if self._run_bitmap_ocr(kind):
-                        self._log("✅ OCR bitmap completato.")
-                        if self._ocr_upload_srt is not None:
-                            self._upload_opensubtitles(self._ocr_upload_srt, 'it', imdb_id)
-                        return True
-                    self._log("⚠️ OCR bitmap non riuscito.")
-                    if selected_stream:  # ripiega sul testo non italiano, se presente
-                        p, lang = _use_text_sub(selected_stream)
-                        if p:
-                            subtitle_path, source_language_639_2 = p, lang
-
-                elif selected_stream:
-                    # (4) Testo NON italiano → usa quello (tradotto a valle).
-                    p, lang = _use_text_sub(selected_stream)
-                    if p:
-                        subtitle_path, source_language_639_2 = p, lang
-
-                else:
-                    # (5) Nessun testo: c'è un bitmap (non italiano)? → OCR + traduzione.
+                def _verdict(path):
                     try:
-                        best_bitmap = extractor.select_best_bitmap_subtitle()
-                    except Exception:
-                        best_bitmap = None
-                    if best_bitmap:
-                        kind = self._bitmap_kind(best_bitmap.get('codec'))
-                        self._log(f"\n1b. Sottotitoli bitmap ({kind.upper()}) → OCR + traduzione...")
-                        if self._run_bitmap_ocr(kind):
+                        return detect_text_language(Path(path).read_text(encoding='utf-8', errors='replace'))
+                    except Exception as e:
+                        logger.debug(f"Riconoscimento lingua sottotitoli non riuscito: {e}")
+                        return None, {}
+
+                # Tracce testo SENZA lingua (tag assente/ignoto e titolo muto): si verificano prima della
+                # classifica, altrimenti finirebbero dietro a un bitmap inglese anche se sono italiane.
+                for st in list(extractor.subtitle_streams):
+                    if self._cancelled:
+                        break
+                    if st['forced'] or extractor._is_bitmap(st) or st['lang'] != 'und':
+                        continue
+                    path = _text_path(st)
+                    if path is None:
+                        tried.add(st['index'])
+                        continue
+                    verdict, evidence = _verdict(path)
+                    if verdict:
+                        self._log(f"ℹ️ La traccia {st['index']} non ha una lingua dichiarata: il testo e' "
+                                  f"{verdict.upper()}.")
+                        logger.info(f"   Prove lingua stream {st['index']}: {evidence}")
+                        extractor.set_language(st['index'], verdict, 'text')
+                        corrected.add(st['index'])
+
+                for _ in range(2 * len(extractor.subtitle_streams) + 4):
+                    if self._cancelled:
+                        break
+                    cand = extractor.select_best_candidate(exclude=tried)
+                    if cand is None:
+                        break
+
+                    if extractor._is_bitmap(cand):
+                        kind = self._bitmap_kind(cand.get('codec'))
+                        is_ita = cand.get('lang') == 'it'
+                        if is_ita:
+                            self._log(f"\n1b. Sottotitoli bitmap italiani ({kind.upper()}) → OCR...")
+                        else:
+                            self._log(f"\n1b. Sottotitoli bitmap ({kind.upper()}) → OCR + traduzione...")
+                        if self._run_bitmap_ocr(kind, italian=is_ita):
                             self._log("✅ OCR bitmap completato.")
                             if self._ocr_upload_srt is not None:
                                 self._upload_opensubtitles(self._ocr_upload_srt, 'it', imdb_id)
                             return True
-                        self._log("⚠️ OCR bitmap non riuscito. Procedo con trascrizione.")
-                    else:
-                        self._log("ℹ️ Nessun sottotitolo embedded. Procedo con trascrizione.")
+                        self._log("⚠️ OCR bitmap non riuscito.")
+                        # dopo un OCR fallito non si riprovano i bitmap dello stesso tipo (stesso motore OCR)
+                        tried |= {x['index'] for x in extractor.subtitle_streams
+                                  if extractor._is_bitmap(x) and self._bitmap_kind(x['codec']) == kind}
+                        continue
+
+                    # Traccia testo: estrai (una sola volta) e verifica la lingua sul contenuto
+                    path = _text_path(cand)
+                    if path is None:
+                        self._log("❌ Estrazione sottotitoli fallita. Provo la traccia successiva.")
+                        tried.add(cand['index'])
+                        continue
+                    verdict, evidence = _verdict(path)
+                    if contradicts(cand['lang'], verdict) and cand['index'] not in corrected:
+                        corrected.add(cand['index'])
+                        self._log(f"⚠️ La traccia {cand['index']} (tag '{cand['language']}', "
+                                  f"titolo '{cand['title']}') contiene testo {verdict.upper()}: "
+                                  f"lingua corretta da {cand['lang'].upper()} a {verdict.upper()}.")
+                        logger.info(f"   Prove lingua stream {cand['index']}: {evidence}")
+                        extractor.set_language(cand['index'], verdict, 'text')
+                        continue
+                    if verdict is None and cand.get('lang_conflict'):
+                        logger.warning(f"   Stream {cand['index']}: tag e titolo in contrasto, il testo non da' "
+                                       f"un verdetto affidabile ({evidence}): resta la lingua del tag.")
+                    self._log(f"✅ Sottotitoli embedded trovati ({cand['lang']}). Salto trascrizione.")
+                    subtitle_path, source_language_639_2 = path, lang2_to_3(cand['lang'])
+                    break
+                else:
+                    logger.warning("Selezione sottotitoli: limite di tentativi raggiunto")
+
+                if subtitle_path is None:
+                    self._log("ℹ️ Nessun sottotitolo embedded utilizzabile. Procedo con trascrizione.")
 
             if self._cancelled:
                 self._log("⏹ Elaborazione annullata")
@@ -812,7 +848,8 @@ class ProcessingPipeline:
             # ============================================================
             # STEP 6: Traduzione (se lingua sorgente != lingua target)
             # ============================================================
-            source_language_639_1 = self.LANG_MAP_639_2_TO_639_1.get(source_language_639_2, 'und')
+            source_language_639_1 = (self.LANG_MAP_639_2_TO_639_1.get(source_language_639_2)
+                                     or normalize_lang(source_language_639_2))
             target_language_639_1 = self.LANG_MAP_639_2_TO_639_1.get(target_language, 'und')
 
             # Traccia se una traduzione è stata EFFETTIVAMENTE eseguita:

@@ -24,14 +24,15 @@ from typing import Optional, Callable, List, Tuple
 from core.subtitle_extractor import SubtitleExtractor
 from core.bitmap_ocr_common import (
     preprocess_for_ocr, ocr_image_verbatim, ocr_images_parallel, pick_tesseract_lang,
-    srt_track_title)
+    srt_track_title, refine_content_lang, available_tesseract_langs)
+from core.subtitle_lang import tesseract_name
 from core.pgs_types import (
     OcrEvent, events_to_srt, resolve_ocr_workers, lang_to_2, is_italian,
     CFG_LANGUAGE, CFG_CONF_THRESHOLD, CFG_TESSERACT_PATH, CFG_WRITEBACK, CFG_OCR_WORKERS,
     DEFAULT_LANGUAGE, DEFAULT_CONF_THRESHOLD, DEFAULT_WRITEBACK, DEFAULT_OCR_WORKERS,
     WRITEBACK_MUX, WRITEBACK_SIDECAR,
     FLAG_LOW_CONF, FLAG_EMPTY, FLAG_MULTI_ODS,
-    UnsupportedLanguage,
+    UnsupportedLanguage, ContentNotItalian,
 )
 
 logger = logging.getLogger(__name__)
@@ -88,7 +89,13 @@ class PgsOcr:
                 pass
 
     # ── Config helpers ────────────────────────────────────────────────────
+    # Se impostato (es. dalla pipeline) vince sulla chiave CFG_WRITEBACK della config: 'sidecar' = scrive il
+    # `.it.srt` accanto al video senza toccare l'MKV.
+    writeback_override: Optional[str] = None
+
     def _cfg(self, key, default):
+        if key == CFG_WRITEBACK and self.writeback_override:
+            return self.writeback_override
         if self.config is None:
             return default
         try:
@@ -166,14 +173,22 @@ class PgsOcr:
         OCR di UNA traccia PGS (helper condiviso da ocr_to_events e run_auto).
         Ritorna (eventi, lingua_contenuto 2-lettere). VERBATIM.
         """
-        stream_lang3 = (sub.get("language") or "und").lower()
+        # lingua EFFETTIVA della traccia (tag normalizzato, completato dal titolo): i codici a 2 lettere o
+        # non standard non diventano piu' "sconosciuti"; il tag grezzo resta solo come ripiego.
+        lang2 = sub.get("lang") or lang_to_2(sub.get("language"))
+        stream_lang3 = tesseract_name(lang2)
+        if stream_lang3 == 'und':
+            # lingua fuori tabella ma con traineddata installato (es. 'lat', 'tgl'): si usa il codice grezzo
+            raw = (sub.get("language") or "").lower()
+            if raw and raw in available_tesseract_langs():
+                stream_lang3 = raw
         ocr_lang = pick_tesseract_lang(stream_lang3, fallback=self._cfg(CFG_LANGUAGE, DEFAULT_LANGUAGE))
         if stream_lang3 not in ('und', 'unk', '') and ocr_lang != stream_lang3:
             from core.bitmap_ocr_common import available_tesseract_langs
             if stream_lang3 not in available_tesseract_langs():
                 raise UnsupportedLanguage(
                     f"Lingua '{stream_lang3}' non supportata da Tesseract (traineddata mancante)")
-        content_lang = lang_to_2(stream_lang3)
+        content_lang = lang2
 
         from utils.file_handler import FileHandler
         try:
@@ -190,6 +205,13 @@ class PgsOcr:
 
         self._log("⚙️ OCR — Analisi bitmap...")
         events = self._sup_to_events(sup_path, ocr_lang)
+        refined = refine_content_lang(events, content_lang, self._log)
+        if refined != content_lang:
+            better = tesseract_name(refined)
+            if better != ocr_lang and better in available_tesseract_langs():
+                self._log(f"⚙️ OCR — rileggo la traccia col modello {better}...")
+                events = self._sup_to_events(sup_path, better)
+            content_lang = refined
 
         try:
             sup_path.unlink(missing_ok=True)
@@ -337,6 +359,15 @@ class PgsOcr:
         if not results:
             self._log("❌ Nessun testo OCR prodotto")
             return False
+
+        # Tracce COMPLETE (non forced) date per italiane dal tag ma con testo di un'altra lingua: da
+        # tradurre, non da salvare come italiano. Una forced (poche battute, nessun verdetto sulla lingua)
+        # non decide: si traduce la traccia completa con piu' testo.
+        full = [r for r in results if not r[0].get("forced")]
+        if full and not any(lang == 'it' for _, _, lang in full):
+            sub_x, srt_x, lang_x = max(full, key=lambda r: len(r[1]))
+            self._bitmap_stream_abs_idx = sub_x["index"]
+            raise ContentNotItalian(srt_x, lang_x, sub_x["index"])
 
         if len(results) == 1:
             sub, srt, lang = results[0]

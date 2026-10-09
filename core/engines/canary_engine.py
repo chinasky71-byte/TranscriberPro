@@ -31,7 +31,7 @@ import torch
 from core.engines.base_engine import TranscriptionEngine
 from utils.logger import setup_logger
 from utils.config import get_config
-from utils.cache_bootstrap import HF_CACHE
+from utils.cache_bootstrap import HF_CACHE, HF_HUB_CACHE_DIR
 
 logger = setup_logger()
 
@@ -228,6 +228,16 @@ class CanaryEngine(TranscriptionEngine):
 
         cli_path = Path(__file__).resolve().parent / 'canary_cli.py'
         t0 = time.time()
+        try:
+            # Senza i pesi in cache il subprocess li scarica (~5 GB, senza barra di avanzamento): lo si
+            # dice, altrimenti sembra un blocco (08/10/2026: 54 minuti a 1,6 MB/s).
+            mid = str(args_payload['model_id'])
+            snaps = Path(HF_HUB_CACHE_DIR) / ('models--' + mid.replace('/', '--')) / 'snapshots'
+            if '/' in mid and not Path(mid).exists() and not any(snaps.glob('*/model.safetensors')):
+                self.log("  📥 Modello Canary non in cache: download di circa 5 GB in corso (puo' richiedere "
+                         "molto tempo, non c'e' una barra di avanzamento)...")
+        except Exception:
+            pass
         self.log("  🚀 Avvio subprocess Canary (venv dedicato)...")
         try:
             # stderr separato: il rumore NeMo/lightning va solo nel file di log
