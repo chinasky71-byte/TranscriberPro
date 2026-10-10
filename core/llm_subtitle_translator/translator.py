@@ -303,6 +303,13 @@ class SubtitleLLMTranslator:
         # schermo sembrerebbe che la traduzione ricominci da capo.
         if getattr(self, "_quiet_bar", False):
             return
+        # Durante il warm-up del gestore batch a schermo compare solo la sua
+        # riga "Warm-up: [...]": la barra della traduzione parte a warm-up
+        # concluso (vedi `_translate_mt`), non prima.
+        _mgr = getattr(self, "_batch_mgr", None)
+        if not chiuso and _mgr is not None and _mgr.is_warming_up:
+            return
+        self._bar_shown = True
         import time as _t
         trascorso = _t.time() - t0
         if chiuso:
@@ -474,13 +481,18 @@ class SubtitleLLMTranslator:
         results: Dict[int, str] = {}
         total = len(units)
         t0 = time.time()
+        self._bar_shown = False
         self._bar(0, total, t0)
         # Le battute sono corte: il tetto serve solo contro le degenerazioni.
         max_new = 160
 
         i = 0
         while i < total:
-            batch = list(units[i:i + self._next_batch_size()])
+            size = self._next_batch_size()
+            if not self._bar_shown:
+                # Il warm-up e' appena finito (o non c'e'): prima barra.
+                self._bar(i, total, t0)
+            batch = list(units[i:i + size])
             self.stats["batch"] += 1
             # Il prompt nativo lo costruisce il motore: TranslateGemma vuole
             # un content strutturato coi codici lingua, gli altri una frase.

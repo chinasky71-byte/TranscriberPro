@@ -3,6 +3,13 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.2.10.10.26 — 2026-10-10 — Ordine warm-up / barra di traduzione
+
+- **Barra di traduzione dopo il warm-up (`core/llm_subtitle_translator/translator.py`, `core/translator.py`)**: all'avvio della traduzione
+  compariva prima la barra "Traduzione: [░░░░░░░░░░] 0%" e subito sotto le righe "Warm-up: [...]". Ora a schermo c'è prima il warm-up del
+  gestore batch e la barra della traduzione parte solo a warm-up concluso (TranslateGemma e NLLB/NLLB fine-tuned). Senza gestore batch
+  la barra compare subito come prima; la riga finale ✅ 100% non cambia. Solo estetica: nessuna modifica a batch, qualità o tempi.
+
 ## 1.30.2.09.10.26 — 2026-10-09 — Selezione sottotitoli embedded per contenuto, cache dei modelli preservata, OCR sempre in sidecar
 
 - **Lingua di una traccia dal contenuto (`core/subtitle_lang.py`, nuovo)**: normalizzatore unico dei codici lingua (2 e 3 lettere, nomi,

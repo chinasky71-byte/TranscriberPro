@@ -1690,8 +1690,9 @@ class NLLBTranslator(BaseTranslator):
 
             import time as _time
             t0 = _time.time()
-            # Barra iniziale (aggiornata in-place dal pattern "Traduzione: [")
-            self.log(f"  🌐 Traduzione: [░░░░░░░░░░]   0% (0/{total}) │ batch:-")
+            # Nessuna barra iniziale a 0%: il warm-up del gestore batch emette
+            # la propria riga "Warm-up: [...]" e la barra della traduzione
+            # compare solo a warm-up concluso (vedi sotto, `not is_warming_up`).
 
             i = 0
             last_progress = -1
