@@ -3,6 +3,20 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.3 — 2026-10-11 — Opzione job "Muxa nel video"
+
+- **Nuova opzione nella card "Opzioni job" (`gui/job_options_card.py`)**: casella "🎞️ Muxa nel video" sulla stessa riga di "Upload
+  OpenSubtitles" (le due caselle non impongono larghezza minima al pannello). Chiave `mux_subtitle_into_video` (default spenta).
+  A fine job, dopo l'upload (l'hash OpenSubtitles resta quello del file originale), il sottotitolo creato entra nel MKV come nuova
+  traccia con lingua e titolo corretti; **il sidecar resta accanto al video**. La traccia è predefinita solo se il file non ha già un
+  sottotitolo predefinito. Vale per traduzione, trascrizione e OCR bitmap; non si aggiunge una copia di una traccia embedded già nella
+  lingua finale e non si tocca il file se la sostituzione di una traccia segnata per errore come italiana è stata tentata.
+- **Remux comune (`core/pipeline.py`, `_remux_with_sidecar`)**: una sola funzione per aggiungere o sostituire (v. 1.30.2.11.10.26) una
+  traccia: file temporaneo `.converting`, verifica (stesse tracce più quella nuova, durata entro 1 s, lingua, battute identiche al
+  sidecar) e solo dopo la sostituzione dell'originale; un input `.srt` usa il video vero accanto. Solo MKV.
+- **Stop**: i ffmpeg del remux sono annullabili, il file di verifica sta nella cartella temporanea e il worker cancella un eventuale
+  `<video>.converting` rimasto dopo lo Stop (che uccide l'albero dei processi).
+
 ## 1.30.2.11.10.26 — 2026-10-11 — Traccia italiana errata sostituita dal sidecar
 
 - **Sostituzione della traccia segnata per errore come italiana (`core/pipeline.py`, `_replace_mislabeled_italian_track`)**: in un MKV una

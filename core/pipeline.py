@@ -337,6 +337,7 @@ class ProcessingPipeline:
         # `_replace_mislabeled_italian_track`.
         self._mislabeled_it_stream: Optional[int] = None
         self._embedded_source_stream: Optional[int] = None   # traccia da cui deriva il sottotitolo usato
+        self._embedded_lang_639_1: Optional[str] = None      # lingua (verificata) di quella traccia
 
         try:
             # ============================================================
@@ -446,6 +447,7 @@ class ProcessingPipeline:
                             self._log("✅ OCR bitmap completato.")
                             if self._ocr_upload_srt is not None:
                                 self._upload_opensubtitles(self._ocr_upload_srt, 'it', imdb_id)
+                                self._mux_subtitle_into_video(self._ocr_upload_srt, 'it')
                             return True
                         self._log("⚠️ OCR bitmap non riuscito.")
                         # dopo un OCR fallito non si riprovano i bitmap dello stesso tipo (stesso motore OCR)
@@ -476,6 +478,7 @@ class ProcessingPipeline:
                     self._log(f"✅ Sottotitoli embedded trovati ({cand['lang']}). Salto trascrizione.")
                     subtitle_path, source_language_639_2 = path, lang2_to_3(cand['lang'])
                     self._embedded_source_stream = cand['index']
+                    self._embedded_lang_639_1 = cand['lang']
                     break
                 else:
                     logger.warning("Selezione sottotitoli: limite di tentativi raggiunto")
@@ -1215,9 +1218,19 @@ class ProcessingPipeline:
 
             # Una traccia dichiarata italiana ma con testo straniero viene sostituita dal sidecar
             # (dopo l'upload: l'hash OpenSubtitles e' quello del file originale).
+            replaced = attempted = False
             if (final_language_639_1 == 'it' and self._mislabeled_it_stream is not None
                     and self._mislabeled_it_stream == self._embedded_source_stream):
-                self._replace_mislabeled_italian_track(final_output_path)
+                attempted = True
+                replaced = self._replace_mislabeled_italian_track(final_output_path)
+
+            # Opzione job "Muxa nel video": il sottotitolo CREATO entra nel file come nuova traccia. Non si
+            # incorpora una copia di una traccia embedded gia' nella lingua finale (nessuna traduzione), ne'
+            # se la sostituzione della traccia errata e' stata tentata (riuscita o no): in quel caso il file
+            # si lascia com'e' invece di aggiungere una seconda traccia italiana accanto a quella sbagliata.
+            if not attempted and not (self._embedded_source_stream is not None
+                                      and self._embedded_lang_639_1 == final_language_639_1):
+                self._mux_subtitle_into_video(final_output_path, final_language_639_1)
             
             # ============================================================
             # STEP 9: Finalizzazione
@@ -1264,6 +1277,142 @@ class ProcessingPipeline:
         finally:
             self._current_proc = None
 
+    # Nomi delle tracce create dal programma (titolo nel contenitore).
+    _SUB_TITLES = {'it': 'Italian', 'en': 'English', 'fr': 'French', 'es': 'Spanish', 'de': 'German',
+                   'pt': 'Portuguese', 'ru': 'Russian', 'ja': 'Japanese', 'zh': 'Chinese', 'ar': 'Arabic',
+                   'ko': 'Korean', 'nl': 'Dutch', 'pl': 'Polish', 'tr': 'Turkish'}
+
+    @staticmethod
+    def _ffprobe_streams(path):
+        """(durata, [stream]) letti da ffprobe, o None se il file non si legge."""
+        r = subprocess.run(
+            ['ffprobe', '-v', 'error', '-show_entries',
+             'format=duration:stream=index,codec_type,codec_name:stream_tags=language,title'
+             ':stream_disposition=default,forced', '-of', 'json', str(path)],
+            capture_output=True, text=True, encoding='utf-8', errors='replace',
+            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0)
+        if r.returncode != 0:
+            return None
+        j = json.loads(r.stdout)
+        return float(j.get('format', {}).get('duration') or 0), j.get('streams', [])
+
+    def _remux_with_sidecar(self, sidecar: Path, lang_639_1: str, remove_idx: Optional[int] = None,
+                            force_default: Optional[bool] = None) -> bool:
+        """Mette il sidecar come ultima traccia sottotitoli dell'MKV, togliendo (se `remove_idx`) una
+        traccia testo. File temporaneo `.converting`, verifica (stesse tracce piu' quella aggiunta, durata
+        entro 1 s, traccia nuova con la lingua giusta e battute identiche al sidecar) e solo allora
+        sostituzione dell'originale. Non solleva: in caso di problema il video resta com'era.
+
+        `force_default`: None = come la traccia sostituita se `remove_idx`, altrimenti predefinita solo se
+        il file non ha gia' un sottotitolo predefinito.
+        """
+        video = self._resolve_video_path() or self.video_path   # input .srt: il video vero accanto
+        temp = Path(str(video) + ".converting")
+        lang3 = self._convert_639_1_to_639_2(lang_639_1)
+        title = self._SUB_TITLES.get(lang_639_1, lang3.upper())
+        what = f"traccia {remove_idx}" if remove_idx is not None else "sottotitolo"
+        try:
+            if temp.exists():
+                try:
+                    temp.unlink()   # residuo di un'esecuzione interrotta (Stop = kill dell'albero)
+                except Exception:
+                    pass
+            if video.suffix.lower() != '.mkv':
+                self._log(f"ℹ️ {what.capitalize()}: il file non e' un MKV, non lo modifico.")
+                return False
+            if not sidecar.exists() or sidecar.stat().st_size < 200:
+                self._log(f"ℹ️ {what.capitalize()}: sottotitolo assente o vuoto, non modifico il video.")
+                return False
+            before = self._ffprobe_streams(video)
+            if before is None:
+                self._log(f"⚠️ {what.capitalize()}: ffprobe non ha letto il file, non lo modifico.")
+                return False
+            dur0, streams0 = before
+            subs0 = [s for s in streams0 if s.get('codec_type') == 'subtitle']
+            was_default = any(s.get('disposition', {}).get('default') for s in subs0)
+            if remove_idx is not None:
+                target = next((s for s in subs0 if s.get('index') == remove_idx), None)
+                if target is None or target.get('codec_name') not in self._TEXT_SUB_CODECS:
+                    self._log(f"ℹ️ Traccia {remove_idx} assente o non testuale: non la sostituisco.")
+                    return False
+                if target.get('disposition', {}).get('forced'):
+                    self._log(f"ℹ️ La traccia {remove_idx} ha il flag forced del contenitore: non la sostituisco.")
+                    return False
+                is_default = bool(target.get('disposition', {}).get('default'))
+                n_after = len(subs0)           # una tolta, una aggiunta
+            else:
+                is_default = not was_default
+                n_after = len(subs0) + 1
+            if force_default is not None:
+                is_default = force_default
+            new_rel = n_after - 1              # la nuova traccia e' l'ultima
+
+            cmd = ['ffmpeg', '-y', '-loglevel', 'error', '-i', str(video),
+                   '-sub_charenc', 'UTF-8', '-i', str(sidecar), '-map', '0']
+            if remove_idx is not None:
+                cmd += ['-map', f'-0:{remove_idx}']
+            cmd += ['-map', '1:0', '-map_chapters', '0', '-c', 'copy',
+                    f'-metadata:s:s:{new_rel}', f'language={lang3}',
+                    f'-metadata:s:s:{new_rel}', f'title={title}',
+                    f'-disposition:s:{new_rel}', 'default' if is_default else '0',
+                    '-f', 'matroska', str(temp)]
+            rc, _out, err = self._run_cancellable(cmd, 3600)
+            if self._cancelled:
+                return False
+            if rc != 0 or not temp.exists() or temp.stat().st_size < 1024:
+                logger.error(f"Mux sottotitolo: ffmpeg fallito (rc={rc}): {(err or '')[-300:]}")
+                self._log("⚠️ Mux del sottotitolo non riuscito: il file video e' rimasto invariato.")
+                return False
+
+            after = self._ffprobe_streams(temp)
+            ok = after is not None
+            subs1 = []
+            if ok:
+                dur1, streams1 = after
+                subs1 = [s for s in streams1 if s.get('codec_type') == 'subtitle']
+                ok = (len(streams1) == len(streams0) + (1 if remove_idx is None else 0)
+                      and len(subs1) == n_after and abs(dur1 - dur0) < 1.0
+                      and subs1[-1].get('tags', {}).get('language') == lang3)
+            if ok:
+                # fuori dalla cartella del video: un residuo non deve sembrare un sottotitolo esterno
+                chk = Path(tempfile.gettempdir()) / f"tp_mux_chk_{os.getpid()}.srt"
+                try:
+                    e_rc, _o, _e = self._run_cancellable(
+                        ['ffmpeg', '-y', '-loglevel', 'error', '-i', str(temp), '-map', f'0:s:{len(subs1) - 1}',
+                         str(chk)], 1800)
+                    if self._cancelled:
+                        return False
+
+                    def _n(p):
+                        import re as _re
+                        t = Path(p).read_text(encoding='utf-8-sig', errors='replace').replace('\r\n', '\n')
+                        return [_re.sub(r'\s+', ' ', b.split('\n', 2)[-1]).strip()
+                                for b in _re.split(r'\n\s*\n', t.strip()) if b.strip()]
+                    ok = e_rc == 0 and chk.exists() and _n(chk) == _n(sidecar)
+                except Exception as exc:
+                    logger.warning(f"Verifica del file con il sottotitolo non riuscita: {exc}")
+                    ok = False
+                finally:
+                    try:
+                        chk.unlink()
+                    except Exception:
+                        pass
+            if not ok:
+                self._log("⚠️ Verifica del file con il sottotitolo non superata: il video e' rimasto invariato.")
+                return False
+            temp.replace(video)
+            return True
+        except Exception as exc:
+            logger.error(f"Mux sottotitolo fallito: {exc}", exc_info=True)
+            self._log("⚠️ Mux del sottotitolo non riuscito: il file video e' rimasto invariato.")
+            return False
+        finally:
+            try:
+                if temp.exists():
+                    temp.unlink()
+            except Exception:
+                pass
+
     def _replace_mislabeled_italian_track(self, sidecar: Path) -> bool:
         """Sostituisce nell'MKV la traccia segnata come italiana ma con testo di un'altra lingua
         (es. inglese con tag `ita`) con il sidecar italiano appena prodotto. Il sidecar resta accanto
@@ -1280,113 +1429,23 @@ class ProcessingPipeline:
         if not self.config.get('replace_mislabeled_italian_track', True):
             self._log("ℹ️ Sostituzione della traccia segnata per errore come italiana disattivata.")
             return False
-        video = self.video_path
-        temp = Path(str(video) + ".converting")
-        try:
-            if video.suffix.lower() != '.mkv':
-                self._log(f"ℹ️ La traccia {idx} e' segnata per errore come italiana, ma il file non e' un MKV: "
-                          f"non lo modifico.")
-                return False
-            if not sidecar.exists() or sidecar.stat().st_size < 200:
-                self._log(f"ℹ️ Sostituzione della traccia {idx} non eseguita: sottotitolo italiano assente o vuoto.")
-                return False
-
-            def _probe(path):
-                r = subprocess.run(
-                    ['ffprobe', '-v', 'error', '-show_entries',
-                     'format=duration:stream=index,codec_type,codec_name:stream_tags=language,title'
-                     ':stream_disposition=default,forced', '-of', 'json', str(path)],
-                    capture_output=True, text=True, encoding='utf-8', errors='replace',
-                    creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0)
-                if r.returncode != 0:
-                    return None
-                j = json.loads(r.stdout)
-                return float(j.get('format', {}).get('duration') or 0), j.get('streams', [])
-
-            before = _probe(video)
-            if before is None:
-                self._log(f"⚠️ Sostituzione della traccia {idx} non eseguita: ffprobe non ha letto il file.")
-                return False
-            dur0, streams0 = before
-            subs0 = [s for s in streams0 if s.get('codec_type') == 'subtitle']
-            target = next((s for s in subs0 if s.get('index') == idx), None)
-            if target is None or target.get('codec_name') not in self._TEXT_SUB_CODECS:
-                self._log(f"ℹ️ Sostituzione della traccia {idx} non eseguita: traccia assente o non testuale.")
-                return False
-            if target.get('disposition', {}).get('forced'):
-                self._log(f"ℹ️ La traccia {idx} ha il flag forced del contenitore: non la sostituisco.")
-                return False
-            was_default = bool(target.get('disposition', {}).get('default'))
-            new_rel = len(subs0) - 1   # si toglie una traccia e si aggiunge in coda: stesso numero
-
-            self._log(f"\n9. Sostituzione della traccia {idx} (segnata come italiana, testo non italiano) "
-                      f"con il sottotitolo italiano...")
-            cmd = ['ffmpeg', '-y', '-loglevel', 'error', '-i', str(video),
-                   '-sub_charenc', 'UTF-8', '-i', str(sidecar),
-                   '-map', '0', '-map', f'-0:{idx}', '-map', '1:0', '-map_chapters', '0',
-                   '-c', 'copy',
-                   f'-metadata:s:s:{new_rel}', 'language=ita',
-                   f'-metadata:s:s:{new_rel}', 'title=Italian',
-                   f'-disposition:s:{new_rel}', 'default' if was_default else '0',
-                   '-f', 'matroska', str(temp)]
-            rc, _out, err = self._run_cancellable(cmd, 3600)
-            if self._cancelled:
-                return False
-            if rc != 0 or not temp.exists() or temp.stat().st_size < 1024:
-                logger.error(f"Sostituzione traccia {idx}: ffmpeg fallito (rc={rc}): {(err or '')[-300:]}")
-                self._log("⚠️ Sostituzione della traccia non riuscita: il file video e' rimasto invariato.")
-                return False
-
-            # Verifica prima di toccare l'originale: stesse tracce, stessa durata, traccia nuova italiana
-            # e con le stesse battute del sidecar.
-            after = _probe(temp)
-            ok = after is not None
-            if ok:
-                dur1, streams1 = after
-                subs1 = [s for s in streams1 if s.get('codec_type') == 'subtitle']
-                ok = (len(streams1) == len(streams0) and len(subs1) == len(subs0)
-                      and abs(dur1 - dur0) < 1.0
-                      and subs1[-1].get('tags', {}).get('language') == 'ita')
-            if ok:
-                chk = temp.with_suffix('.chk.srt')
-                try:
-                    e_rc, _o, _e = self._run_cancellable(
-                        ['ffmpeg', '-y', '-loglevel', 'error', '-i', str(temp), '-map', f'0:s:{len(subs1) - 1}',
-                         str(chk)], 1800)
-                    if self._cancelled:
-                        return False
-
-                    def _n(p):
-                        import re as _re
-                        t = Path(p).read_text(encoding='utf-8-sig', errors='replace').replace('\r\n', '\n')
-                        return [_re.sub(r'\s+', ' ', b.split('\n', 2)[-1]).strip()
-                                for b in _re.split(r'\n\s*\n', t.strip()) if b.strip()]
-                    ok = e_rc == 0 and chk.exists() and _n(chk) == _n(sidecar)
-                except Exception as exc:
-                    logger.warning(f"Verifica traccia sostituita non riuscita: {exc}")
-                    ok = False
-                finally:
-                    try:
-                        chk.unlink()
-                    except Exception:
-                        pass
-            if not ok:
-                self._log("⚠️ Verifica del file con la traccia sostituita non superata: il video e' rimasto invariato.")
-                temp.unlink()
-                return False
-            temp.replace(video)
+        self._log(f"\n9. Sostituzione della traccia {idx} (segnata come italiana, testo non italiano) "
+                  f"con il sottotitolo italiano...")
+        if self._remux_with_sidecar(sidecar, 'it', remove_idx=idx):
             self._log(f"✅ Traccia {idx} sostituita con il sottotitolo italiano (sidecar mantenuto: {sidecar.name}).")
             return True
-        except Exception as exc:
-            logger.error(f"Sostituzione traccia {idx} fallita: {exc}", exc_info=True)
-            self._log("⚠️ Sostituzione della traccia non riuscita: il file video e' rimasto invariato.")
+        return False
+
+    def _mux_subtitle_into_video(self, sidecar: Path, lang_639_1: str) -> bool:
+        """Opzione job "Muxa nel video": aggiunge al MKV il sottotitolo creato come nuova traccia
+        (il sidecar resta accanto al video). Va chiamato DOPO l'upload (hash originale). Non solleva."""
+        if not self.config.get('mux_subtitle_into_video', False):
             return False
-        finally:
-            try:
-                if temp.exists():
-                    temp.unlink()
-            except Exception:
-                pass
+        self._log("\n9. Mux del sottotitolo nel video...")
+        if self._remux_with_sidecar(sidecar, lang_639_1):
+            self._log(f"✅ Sottotitolo incorporato nel video (sidecar mantenuto: {sidecar.name}).")
+            return True
+        return False
 
     @staticmethod
     def _route_non_english_away_from_llm(selected_model: str, source_lang_639_1: str) -> str:
