@@ -108,6 +108,8 @@ class Config:
         # Pulizia della cache modelli (HF/torch) a fine coda: v. utils/cache_cleaner.py. I modelli dei motori
         # configurati sono comunque preservati; False = non cancella nulla.
         'model_cache_cleanup_enabled': True,
+        # Sostituisce nell'MKV la traccia dichiarata italiana ma con testo straniero con il sidecar italiano.
+        'replace_mislabeled_italian_track': True,
         'canary_python_path': '',              # vuoto = auto (<progetto>/venv_canary/Scripts/python.exe)
         'canary_batch_size': 8,                # chunk per chiamata a model.generate() nel subprocess
         # faster-whisper: divide i segmenti lunghi sui confini di frase invece che a

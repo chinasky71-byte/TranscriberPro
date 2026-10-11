@@ -333,6 +333,10 @@ class ProcessingPipeline:
         """
         start_time = time.time()
         self._cleanup_done = False  # reset guard per questa elaborazione
+        # Traccia segnata italiana ma con testo di un'altra lingua (verificato sul contenuto): vedi
+        # `_replace_mislabeled_italian_track`.
+        self._mislabeled_it_stream: Optional[int] = None
+        self._embedded_source_stream: Optional[int] = None   # traccia da cui deriva il sottotitolo usato
 
         try:
             # ============================================================
@@ -458,6 +462,8 @@ class ProcessingPipeline:
                     verdict, evidence = _verdict(path)
                     if contradicts(cand['lang'], verdict) and cand['index'] not in corrected:
                         corrected.add(cand['index'])
+                        if cand['lang'] == 'it' and not cand['forced']:
+                            self._mislabeled_it_stream = cand['index']
                         self._log(f"⚠️ La traccia {cand['index']} (tag '{cand['language']}', "
                                   f"titolo '{cand['title']}') contiene testo {verdict.upper()}: "
                                   f"lingua corretta da {cand['lang'].upper()} a {verdict.upper()}.")
@@ -469,6 +475,7 @@ class ProcessingPipeline:
                                        f"un verdetto affidabile ({evidence}): resta la lingua del tag.")
                     self._log(f"✅ Sottotitoli embedded trovati ({cand['lang']}). Salto trascrizione.")
                     subtitle_path, source_language_639_2 = path, lang2_to_3(cand['lang'])
+                    self._embedded_source_stream = cand['index']
                     break
                 else:
                     logger.warning("Selezione sottotitoli: limite di tentativi raggiunto")
@@ -1205,6 +1212,12 @@ class ProcessingPipeline:
             # STEP 8: Upload OpenSubtitles (Opzionale) - DA v3.8
             # ============================================================
             self._upload_opensubtitles(final_output_path, final_language_639_1, imdb_id)
+
+            # Una traccia dichiarata italiana ma con testo straniero viene sostituita dal sidecar
+            # (dopo l'upload: l'hash OpenSubtitles e' quello del file originale).
+            if (final_language_639_1 == 'it' and self._mislabeled_it_stream is not None
+                    and self._mislabeled_it_stream == self._embedded_source_stream):
+                self._replace_mislabeled_italian_track(final_output_path)
             
             # ============================================================
             # STEP 9: Finalizzazione
@@ -1230,6 +1243,151 @@ class ProcessingPipeline:
             # Esegue il cleanup in ogni caso
             self._cleanup()
             
+    # Codec testo che ffmpeg puo' togliere/sostituire in un MKV senza perdere informazione.
+    _TEXT_SUB_CODECS = {'subrip', 'srt', 'ass', 'ssa', 'mov_text', 'webvtt', 'text'}
+
+    def _run_cancellable(self, cmd, timeout):
+        """Esegue un comando registrandolo in `_current_proc`: `cancel()` lo uccide. Ritorna
+        (returncode, stdout, stderr); su timeout il processo viene ucciso e returncode e' -1."""
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace',
+            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0)
+        self._current_proc = proc
+        try:
+            try:
+                out, err = proc.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                out, err = proc.communicate()
+                return -1, out, err
+            return proc.returncode, out, err
+        finally:
+            self._current_proc = None
+
+    def _replace_mislabeled_italian_track(self, sidecar: Path) -> bool:
+        """Sostituisce nell'MKV la traccia segnata come italiana ma con testo di un'altra lingua
+        (es. inglese con tag `ita`) con il sidecar italiano appena prodotto. Il sidecar resta accanto
+        al video.
+
+        Scatta SOLO se, nello STEP 1, il contenuto di una traccia testo completa (non forced) ha
+        contraddetto la sua dichiarazione di italiano (`_mislabeled_it_stream`). Va chiamato DOPO
+        l'upload: l'hash OpenSubtitles e' quello del file originale. Non solleva mai: un
+        fallimento lascia il video com'era e il job riuscito.
+        """
+        idx = getattr(self, '_mislabeled_it_stream', None)
+        if idx is None:
+            return False
+        if not self.config.get('replace_mislabeled_italian_track', True):
+            self._log("ℹ️ Sostituzione della traccia segnata per errore come italiana disattivata.")
+            return False
+        video = self.video_path
+        temp = Path(str(video) + ".converting")
+        try:
+            if video.suffix.lower() != '.mkv':
+                self._log(f"ℹ️ La traccia {idx} e' segnata per errore come italiana, ma il file non e' un MKV: "
+                          f"non lo modifico.")
+                return False
+            if not sidecar.exists() or sidecar.stat().st_size < 200:
+                self._log(f"ℹ️ Sostituzione della traccia {idx} non eseguita: sottotitolo italiano assente o vuoto.")
+                return False
+
+            def _probe(path):
+                r = subprocess.run(
+                    ['ffprobe', '-v', 'error', '-show_entries',
+                     'format=duration:stream=index,codec_type,codec_name:stream_tags=language,title'
+                     ':stream_disposition=default,forced', '-of', 'json', str(path)],
+                    capture_output=True, text=True, encoding='utf-8', errors='replace',
+                    creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0)
+                if r.returncode != 0:
+                    return None
+                j = json.loads(r.stdout)
+                return float(j.get('format', {}).get('duration') or 0), j.get('streams', [])
+
+            before = _probe(video)
+            if before is None:
+                self._log(f"⚠️ Sostituzione della traccia {idx} non eseguita: ffprobe non ha letto il file.")
+                return False
+            dur0, streams0 = before
+            subs0 = [s for s in streams0 if s.get('codec_type') == 'subtitle']
+            target = next((s for s in subs0 if s.get('index') == idx), None)
+            if target is None or target.get('codec_name') not in self._TEXT_SUB_CODECS:
+                self._log(f"ℹ️ Sostituzione della traccia {idx} non eseguita: traccia assente o non testuale.")
+                return False
+            if target.get('disposition', {}).get('forced'):
+                self._log(f"ℹ️ La traccia {idx} ha il flag forced del contenitore: non la sostituisco.")
+                return False
+            was_default = bool(target.get('disposition', {}).get('default'))
+            new_rel = len(subs0) - 1   # si toglie una traccia e si aggiunge in coda: stesso numero
+
+            self._log(f"\n9. Sostituzione della traccia {idx} (segnata come italiana, testo non italiano) "
+                      f"con il sottotitolo italiano...")
+            cmd = ['ffmpeg', '-y', '-loglevel', 'error', '-i', str(video),
+                   '-sub_charenc', 'UTF-8', '-i', str(sidecar),
+                   '-map', '0', '-map', f'-0:{idx}', '-map', '1:0', '-map_chapters', '0',
+                   '-c', 'copy',
+                   f'-metadata:s:s:{new_rel}', 'language=ita',
+                   f'-metadata:s:s:{new_rel}', 'title=Italian',
+                   f'-disposition:s:{new_rel}', 'default' if was_default else '0',
+                   '-f', 'matroska', str(temp)]
+            rc, _out, err = self._run_cancellable(cmd, 3600)
+            if self._cancelled:
+                return False
+            if rc != 0 or not temp.exists() or temp.stat().st_size < 1024:
+                logger.error(f"Sostituzione traccia {idx}: ffmpeg fallito (rc={rc}): {(err or '')[-300:]}")
+                self._log("⚠️ Sostituzione della traccia non riuscita: il file video e' rimasto invariato.")
+                return False
+
+            # Verifica prima di toccare l'originale: stesse tracce, stessa durata, traccia nuova italiana
+            # e con le stesse battute del sidecar.
+            after = _probe(temp)
+            ok = after is not None
+            if ok:
+                dur1, streams1 = after
+                subs1 = [s for s in streams1 if s.get('codec_type') == 'subtitle']
+                ok = (len(streams1) == len(streams0) and len(subs1) == len(subs0)
+                      and abs(dur1 - dur0) < 1.0
+                      and subs1[-1].get('tags', {}).get('language') == 'ita')
+            if ok:
+                chk = temp.with_suffix('.chk.srt')
+                try:
+                    e_rc, _o, _e = self._run_cancellable(
+                        ['ffmpeg', '-y', '-loglevel', 'error', '-i', str(temp), '-map', f'0:s:{len(subs1) - 1}',
+                         str(chk)], 1800)
+                    if self._cancelled:
+                        return False
+
+                    def _n(p):
+                        import re as _re
+                        t = Path(p).read_text(encoding='utf-8-sig', errors='replace').replace('\r\n', '\n')
+                        return [_re.sub(r'\s+', ' ', b.split('\n', 2)[-1]).strip()
+                                for b in _re.split(r'\n\s*\n', t.strip()) if b.strip()]
+                    ok = e_rc == 0 and chk.exists() and _n(chk) == _n(sidecar)
+                except Exception as exc:
+                    logger.warning(f"Verifica traccia sostituita non riuscita: {exc}")
+                    ok = False
+                finally:
+                    try:
+                        chk.unlink()
+                    except Exception:
+                        pass
+            if not ok:
+                self._log("⚠️ Verifica del file con la traccia sostituita non superata: il video e' rimasto invariato.")
+                temp.unlink()
+                return False
+            temp.replace(video)
+            self._log(f"✅ Traccia {idx} sostituita con il sottotitolo italiano (sidecar mantenuto: {sidecar.name}).")
+            return True
+        except Exception as exc:
+            logger.error(f"Sostituzione traccia {idx} fallita: {exc}", exc_info=True)
+            self._log("⚠️ Sostituzione della traccia non riuscita: il file video e' rimasto invariato.")
+            return False
+        finally:
+            try:
+                if temp.exists():
+                    temp.unlink()
+            except Exception:
+                pass
+
     @staticmethod
     def _route_non_english_away_from_llm(selected_model: str, source_lang_639_1: str) -> str:
         """Delega a `core.translator.route_non_english_away_from_llm` (funzione

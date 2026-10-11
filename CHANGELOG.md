@@ -3,6 +3,18 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.2.11.10.26 — 2026-10-11 — Traccia italiana errata sostituita dal sidecar
+
+- **Sostituzione della traccia segnata per errore come italiana (`core/pipeline.py`, `_replace_mislabeled_italian_track`)**: in un MKV una
+  traccia testo dichiarata `ita` (tag o titolo) conteneva inglese (V/H/S Mixtape). La pipeline la riconosceva dal contenuto, la traduceva e
+  scriveva il sidecar `.it.srt`, ma nel file restava una traccia "italiana" in inglese. Ora, dopo l'upload OpenSubtitles (l'hash resta quello
+  del file originale), quella traccia viene tolta dall'MKV e al suo posto c'e' il sidecar come `ita` "Italian", con lo stesso flag predefinito;
+  **il sidecar resta accanto al video**. Scatta solo se: traccia testo completa (non forced, nemmeno per flag del contenitore), il contenuto
+  contraddice la dichiarazione di italiano, il sottotitolo usato deriva proprio da quella traccia, file MKV, traduzione riuscita.
+  Verifica prima di sostituire (stesse tracce, durata entro 1 s, ultima traccia `ita`, battute identiche al sidecar); in caso contrario il
+  video resta com'era. Non copre i bitmap (PGS/VobSub). Interruttore `replace_mislabeled_italian_track` (default True).
+  I ffmpeg interni sono annullabili dallo Stop.
+
 ## 1.30.2.10.10.26 — 2026-10-10 — Ordine warm-up / barra di traduzione
 
 - **Barra di traduzione dopo il warm-up (`core/llm_subtitle_translator/translator.py`, `core/translator.py`)**: all'avvio della traduzione
