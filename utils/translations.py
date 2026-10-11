@@ -30,6 +30,9 @@ class Translations:
             'processing_log':           'Processing Log',
             'compact_log':              '📋 Compact Log',
             'upload_opensubtitles':     '📤 Upload OpenSubtitles',
+            'mux_into_video_checkbox':  '🎞️ Mux subtitle into video',
+            'mux_into_video_tip':       ('Adds the created subtitle to the MKV as a new track '
+                                         '(the .srt file stays next to the video). MKV only.'),
             'shutdown_checkbox':        '💤 Shutdown when done',
             'translation_model_tip':    'Translation model',
             'batch_settings_tip':       'Adaptive Batch Size — memory settings',
@@ -470,6 +473,9 @@ class Translations:
             'processing_log':           'Log di elaborazione',
             'compact_log':              '📋 Log Sintetico',
             'upload_opensubtitles':     '📤 Upload OpenSubtitles',
+            'mux_into_video_checkbox':  '🎞️ Muxa nel video',
+            'mux_into_video_tip':       ('Aggiunge il sottotitolo creato al file MKV come nuova traccia '
+                                         '(il file .srt resta accanto al video). Solo MKV.'),
             'shutdown_checkbox':        '💤 Spegni al completamento',
             'translation_model_tip':    'Modello di traduzione',
             'batch_settings_tip':       'Adaptive Batch Size — impostazioni memoria',

@@ -110,6 +110,8 @@ class Config:
         'model_cache_cleanup_enabled': True,
         # Sostituisce nell'MKV la traccia dichiarata italiana ma con testo straniero con il sidecar italiano.
         'replace_mislabeled_italian_track': True,
+        # Opzione job: incorpora nel MKV il sottotitolo creato (il sidecar resta accanto al video).
+        'mux_subtitle_into_video': False,
         'canary_python_path': '',              # vuoto = auto (<progetto>/venv_canary/Scripts/python.exe)
         'canary_batch_size': 8,                # chunk per chiamata a model.generate() nel subprocess
         # faster-whisper: divide i segmenti lunghi sui confini di frase invece che a

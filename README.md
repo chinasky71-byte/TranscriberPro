@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.30.2.11.10.26-orange)
+![Version](https://img.shields.io/badge/Version-1.30.3-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -315,6 +315,7 @@ This project is licensed under the MIT License.
 ### v1.24.0 - v1.30.2
 Six weeks of work on translation/transcription quality for non-English sources, condensed here; full detail,
 measurement methodology and decision rules for every claim below are in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.3** — New job option "Mux into video" (Job options card, next to the OpenSubtitles upload): the subtitle created by the job is added to the MKV as a new track after the upload; the `.srt` stays next to the video. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.30.2.11.10.26** — An embedded text track tagged Italian whose content is another language (e.g. English tagged `ita`) is replaced in the MKV by the generated Italian sidecar (kept next to the video); only for that case, after the OpenSubtitles upload. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.30.2.10.10.26** — Cosmetic: the translation progress bar now appears after the batch warm-up lines instead of before them (TranslateGemma and NLLB). Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.30.2.09.10.26** — Embedded subtitle selection by content (new `core/subtitle_lang.py`): a track tagged `it` that was not recognised (two-letter code) was translated Italian→Italian and a full subtitle flagged "forced" was ignored in favour of transcribing the audio (RahXephon); "Forced SRT" titled tracks were chosen over the regular one in 3 films of the history. Also: engine model caches (Canary, Qwen3, pyannote…) are no longer wiped at the end of a queue (a 54-minute re-download), switch `model_cache_cleanup_enabled`. Details in [CHANGELOG.md](CHANGELOG.md).
@@ -1076,6 +1077,7 @@ Lista aggiornata a ogni commit + push di una nuova versione.
 - Training NLLB "corpus massimo" (corpus ampliato per la traduzione fine-tuned)
 
 **Da validare / misurare**
+- Opzione job "Muxa nel video": provata su MKV sintetici e sulla GUI offscreen; non ancora su una coda reale
 - Sostituzione della traccia segnata per errore come italiana: provata su MKV sintetico e sul caso reale solo a mano; non ancora su una coda reale
 - Selezione sottotitoli embedded per contenuto (lingua dal testo, flag forced anomalo): provata su un episodio reale (RahXephon) e, in sola lettura, su 682 file della cronologia; non ancora su un'intera coda
 - Finestra principale con riordino della coda (trascinamento) e nuovo log a schermo: non ancora provati dall'utente su una coda reale (verifica che dimensioni e colonne non si muovano)

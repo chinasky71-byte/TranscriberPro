@@ -12,7 +12,7 @@ Introdotto in Fase 3 del GUI revamp per ridurre densita' del pannello sinistro.
 """
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QCheckBox, QComboBox, QLabel,
+    QWidget, QVBoxLayout, QHBoxLayout, QCheckBox, QComboBox, QLabel, QSizePolicy,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
@@ -99,7 +99,25 @@ class JobOptionsCard(CollapsibleCard):
             self.config.get('opensubtitles_upload_enabled', True)
         )
         self.opensubtitles_checkbox.stateChanged.connect(self._on_os_changed)
-        layout.addWidget(self.opensubtitles_checkbox)
+
+        # --- Muxa il sottotitolo creato nel video ---------------------
+        self.mux_checkbox = QCheckBox(tr('mux_into_video_checkbox'))
+        self.mux_checkbox.setObjectName("modernCheckbox")
+        self.mux_checkbox.setToolTip(tr('mux_into_video_tip'))
+        self.mux_checkbox.setChecked(
+            self.config.get('mux_subtitle_into_video', False)
+        )
+        self.mux_checkbox.stateChanged.connect(self._on_mux_changed)
+
+        # Upload OpenSubtitles e Muxa nel video sulla STESSA riga. Politica orizzontale Ignored: il testo
+        # delle caselle non impone una larghezza minima al pannello (il ridimensionamento delle colonne
+        # resta libero); le caselle si dividono la riga in proporzione alla lunghezza del testo.
+        os_mux_row = QHBoxLayout()
+        os_mux_row.setSpacing(12)
+        for cb in (self.opensubtitles_checkbox, self.mux_checkbox):
+            cb.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+            os_mux_row.addWidget(cb, max(1, len(cb.text())))
+        layout.addLayout(os_mux_row)
 
         # --- Gender correction ----------------------------------------
         self.gender_correction_checkbox = QCheckBox(tr('gender_correction_checkbox'))
@@ -138,6 +156,13 @@ class JobOptionsCard(CollapsibleCard):
         )
         self._refresh_summary()
 
+    def _on_mux_changed(self, state):
+        self.config.set(
+            'mux_subtitle_into_video',
+            state == Qt.CheckState.Checked.value,
+        )
+        self._refresh_summary()
+
     def _on_gender_changed(self, state):
         self.config.set(
             'gender_correction_enabled',
@@ -166,6 +191,8 @@ class JobOptionsCard(CollapsibleCard):
 
         if self.opensubtitles_checkbox.isChecked():
             parts.append("↗ OS")
+        if self.mux_checkbox.isChecked():
+            parts.append("⧉ mux")
         if self.gender_correction_checkbox.isChecked():
             parts.append("⚧")
         if self.shutdown_checkbox.isChecked():

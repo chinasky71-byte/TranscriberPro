@@ -495,6 +495,12 @@ class ProcessingWorker(QThread):
 
         if self.is_cancelled:
             self.log_message.emit(tr('worker_cancelled_file').format(filename=filename))
+            # Lo Stop uccide l'albero del subprocess: un remux ffmpeg in corso (sostituzione/mux di un
+            # sottotitolo) lascerebbe `<video>.converting` accanto al video.
+            try:
+                Path(str(video_path) + ".converting").unlink(missing_ok=True)
+            except Exception:
+                pass
             shutil.rmtree(ipc_dir, ignore_errors=True)
             return False
 
