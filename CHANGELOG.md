@@ -3,6 +3,13 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.3.14.10.26 — 2026-10-14 — Barre di avanzamento del log di sincronizzazione
+
+- **Log del dialogo Sincronizzazione sottotitoli (`gui/progress_log.py` nuovo, `gui/sync_dialog.py`)**: le barre di avanzamento
+  (Demucs, Traduzione, Trascrizione...) comparivano come una riga nuova per ogni aggiornamento (0/23, 1/23, 2/23...). Ora si riscrivono
+  sul posto come nel log principale: la barra sostituisce la propria precedente se non e' completa (✅) e la percentuale non scende,
+  altrimenti si accoda; una riga intercalata la lascia come ultima riga. Solo estetica.
+
 ## 1.30.3 — 2026-10-11 — Opzione job "Muxa nel video"
 
 - **Nuova opzione nella card "Opzioni job" (`gui/job_options_card.py`)**: casella "🎞️ Muxa nel video" sulla stessa riga di "Upload

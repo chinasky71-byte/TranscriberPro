@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QTextCursor
 
+from gui.progress_log import append_log_line
 from gui.sync_worker import SyncWorker
 from gui.sync_batch_worker import SyncBatchWorker
 from core import sync_pairing as SP
@@ -469,9 +470,8 @@ class SyncDialog(QDialog):
     # ── Worker callbacks ──────────────────────────────────────────────────────
 
     def _append_log(self, msg: str):
-        self.log_edit.moveCursor(QTextCursor.MoveOperation.End)
-        self.log_edit.insertPlainText(msg if msg.endswith('\n') else msg + '\n')
-        self.log_edit.moveCursor(QTextCursor.MoveOperation.End)
+        # Le barre di avanzamento (Demucs, Traduzione...) si riscrivono sul posto come nel log principale.
+        append_log_line(self.log_edit, msg)
 
     def _on_finished(self):
         self.start_btn.setEnabled(True)
