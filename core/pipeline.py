@@ -288,6 +288,7 @@ class ProcessingPipeline:
         from core.vobsub_ocr import BitmapNotSupported as VobNotSupported
         from core.pgs_types import UnsupportedLanguage, CFG_WRITEBACK, WRITEBACK_MUX, WRITEBACK_SIDECAR
         self._ocr_upload_srt: Optional[Path] = None
+        self._mislabeled_bitmap_stream: Optional[int] = None   # bitmap `ita` con testo straniero, tradotto
         _ocr_started_at = time.time()
         try:
             self._ocr = make_bitmap_ocr(
@@ -298,6 +299,7 @@ class ProcessingPipeline:
             self._ocr.writeback_override = WRITEBACK_SIDECAR
             ok = bool(run_ocr_auto(self._ocr, log_callback=self._log_callback, italian=italian))
             if ok:
+                self._mislabeled_bitmap_stream = getattr(self._ocr, 'mislabeled_stream_index', None)
                 is_mux = self._ocr._cfg(CFG_WRITEBACK, WRITEBACK_MUX) == WRITEBACK_MUX
                 if is_mux:
                     self._log("ℹ️ Upload OpenSubtitles da OCR non disponibile in modalità "
@@ -450,7 +452,14 @@ class ProcessingPipeline:
                             self._log("✅ OCR bitmap completato.")
                             if self._ocr_upload_srt is not None:
                                 self._upload_opensubtitles(self._ocr_upload_srt, 'it', imdb_id)
-                                self._mux_subtitle_into_video(self._ocr_upload_srt, 'it')
+                                # Bitmap dichiarato italiano ma con testo straniero: la traccia errata viene
+                                # sostituita dal sidecar (se l'interruttore e' acceso); in quel caso, riuscita
+                                # o no, non si aggiunge anche la traccia "Muxa nel video".
+                                if self._mislabeled_bitmap_stream is None:
+                                    self._mux_subtitle_into_video(self._ocr_upload_srt, 'it')
+                                else:
+                                    self._replace_mislabeled_italian_track(
+                                        self._ocr_upload_srt, idx=self._mislabeled_bitmap_stream, bitmap=True)
                             return True
                         self._log("⚠️ OCR bitmap non riuscito.")
                         # dopo un OCR fallito non si riprovano i bitmap dello stesso tipo (stesso motore OCR)
@@ -1261,6 +1270,8 @@ class ProcessingPipeline:
             
     # Codec testo che ffmpeg puo' togliere/sostituire in un MKV senza perdere informazione.
     _TEXT_SUB_CODECS = {'subrip', 'srt', 'ass', 'ssa', 'mov_text', 'webvtt', 'text'}
+    # Bitmap sostituibili solo quando l'OCR ha provato che il testo non e' italiano (v. ocr_auto).
+    _BITMAP_SUB_CODECS = {'hdmv_pgs_subtitle', 'dvd_subtitle', 'dvb_subtitle', 'xsub'}
 
     def _sig_target(self) -> Path:
         """Il video su cui si controlla la firma (con input .srt, il video accanto). Mai eccezioni: una
@@ -1332,7 +1343,7 @@ class ProcessingPipeline:
         return float(j.get('format', {}).get('duration') or 0), j.get('streams', [])
 
     def _remux_with_sidecar(self, sidecar: Path, lang_639_1: str, remove_idx: Optional[int] = None,
-                            force_default: Optional[bool] = None) -> bool:
+                            force_default: Optional[bool] = None, allow_bitmap: bool = False) -> bool:
         """Mette il sidecar come ultima traccia sottotitoli dell'MKV, togliendo (se `remove_idx`) una
         traccia testo. File temporaneo `.converting`, verifica (stesse tracce piu' quella aggiunta, durata
         entro 1 s, traccia nuova con la lingua giusta e battute identiche al sidecar) e solo allora
@@ -1340,6 +1351,8 @@ class ProcessingPipeline:
 
         `force_default`: None = come la traccia sostituita se `remove_idx`, altrimenti predefinita solo se
         il file non ha gia' un sottotitolo predefinito.
+        `allow_bitmap`: la traccia da togliere puo' essere un bitmap (PGS/VobSub): solo per una traccia
+        gia' tradotta dal suo OCR, di cui il sidecar e' il sostituto.
         """
         video = self._resolve_video_path() or self.video_path   # input .srt: il video vero accanto
         temp = Path(str(video) + ".converting")
@@ -1369,10 +1382,13 @@ class ProcessingPipeline:
             was_default = any(s.get('disposition', {}).get('default') for s in subs0)
             if remove_idx is not None:
                 target = next((s for s in subs0 if s.get('index') == remove_idx), None)
-                if target is None or target.get('codec_name') not in self._TEXT_SUB_CODECS:
-                    self._log(f"ℹ️ Traccia {remove_idx} assente o non testuale: non la sostituisco.")
+                removable = self._TEXT_SUB_CODECS | (self._BITMAP_SUB_CODECS if allow_bitmap else set())
+                if target is None or target.get('codec_name') not in removable:
+                    self._log(f"ℹ️ Traccia {remove_idx} assente o di tipo non sostituibile: non la sostituisco.")
                     return False
-                if target.get('disposition', {}).get('forced'):
+                # Con `allow_bitmap` l'OCR ha gia' trattato la traccia come COMPLETA (flag forced anomalo ignorato,
+                # SubtitleExtractor) e ne ha provato il testo non italiano: il flag del contenitore non la protegge.
+                if target.get('disposition', {}).get('forced') and not allow_bitmap:
                     self._log(f"ℹ️ La traccia {remove_idx} ha il flag forced del contenitore: non la sostituisco.")
                     return False
                 is_default = bool(target.get('disposition', {}).get('default'))
@@ -1453,7 +1469,8 @@ class ProcessingPipeline:
             except Exception:
                 pass
 
-    def _replace_mislabeled_italian_track(self, sidecar: Path) -> bool:
+    def _replace_mislabeled_italian_track(self, sidecar: Path, idx: Optional[int] = None,
+                                          bitmap: bool = False) -> bool:
         """Sostituisce nell'MKV la traccia segnata come italiana ma con testo di un'altra lingua
         (es. inglese con tag `ita`) con il sidecar italiano appena prodotto. Il sidecar resta accanto
         al video.
@@ -1463,7 +1480,8 @@ class ProcessingPipeline:
         l'upload: l'hash OpenSubtitles e' quello del file originale. Non solleva mai: un
         fallimento lascia il video com'era e il job riuscito.
         """
-        idx = getattr(self, '_mislabeled_it_stream', None)
+        if idx is None:
+            idx = getattr(self, '_mislabeled_it_stream', None)
         if idx is None:
             return False
         if not self.config.get('replace_mislabeled_italian_track', True):
@@ -1471,7 +1489,7 @@ class ProcessingPipeline:
             return False
         self._log(f"\n9. Sostituzione della traccia {idx} (segnata come italiana, testo non italiano) "
                   f"con il sottotitolo italiano...")
-        if self._remux_with_sidecar(sidecar, 'it', remove_idx=idx):
+        if self._remux_with_sidecar(sidecar, 'it', remove_idx=idx, allow_bitmap=bitmap):
             self._log(f"✅ Traccia {idx} sostituita con il sottotitolo italiano (sidecar mantenuto: {sidecar.name}).")
             return True
         return False

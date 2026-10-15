@@ -3,6 +3,19 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.6 — 2026-10-15 — Sostituzione del bitmap italiano con testo straniero; fix OCR con lingua corretta dal contenuto
+
+- **Bitmap (PGS/VobSub) dichiarato italiano ma con testo di un'altra lingua**: dopo OCR e traduzione la traccia errata viene
+  sostituita nell'MKV dal sidecar italiano (come gia' avveniva per le tracce testo), dopo l'upload. Si sostituisce solo la traccia
+  che l'OCR ha trattato come completa e di cui ha provato il testo non italiano; il flag forced del contenitore (anomalo, ignorato
+  dalla selezione) non la protegge. Sidecar sempre mantenuto; se la sostituzione e' tentata, riuscita o no, non si aggiunge anche la
+  traccia dell'opzione "Muxa nel video". Interruttore: `replace_mislabeled_italian_track` (default acceso).
+- **Bug corretto (`core/pgs_ocr.py`, `core/vobsub_ocr.py`)**: un `import` locale di `available_tesseract_langs` la rendeva variabile
+  locale e dava `UnboundLocalError` ogni volta che la lingua del contenuto veniva corretta dopo l'OCR o il tag era `und`: l'OCR
+  falliva e la pipeline ripiegava in silenzio sulla trascrizione da audio. Rimosso l'import locale (c'e' gia' quello di modulo).
+- **Validazione**: banco su clip reali, nuovo caso `c6_pgs_mislabel` (PGS inglese dichiarato `ita` → una sola traccia `subrip` `ita`,
+  nessun ripiego audio) piu' `c4_pgs_ocr_mux` invariato. Fix VobSub: stessa correzione, solo compilata.
+
 ## 1.30.5 — 2026-10-15 — Coda headless con file di stato; ETA arrotondato; banco di validazione
 
 - **Coda headless (`core/queue_runner.py`, nuovo)**: esegue i file uno alla volta con lo stesso `core.pipeline_cli` della GUI e
