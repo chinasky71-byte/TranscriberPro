@@ -336,6 +336,9 @@ class ProcessingPipeline:
         # Traccia segnata italiana ma con testo di un'altra lingua (verificato sul contenuto): vedi
         # `_replace_mislabeled_italian_track`.
         self._mislabeled_it_stream: Optional[int] = None
+        # Firma (dimensione, data) del video a inizio job: un altro programma (es. FileFlows) puo' riscriverlo
+        # mentre la coda gira. Vedi `_video_unchanged`.
+        self._video_sig0 = self._file_sig(self._sig_target())
         self._embedded_source_stream: Optional[int] = None   # traccia da cui deriva il sottotitolo usato
         self._embedded_lang_639_1: Optional[str] = None      # lingua (verificata) di quella traccia
 
@@ -1259,6 +1262,38 @@ class ProcessingPipeline:
     # Codec testo che ffmpeg puo' togliere/sostituire in un MKV senza perdere informazione.
     _TEXT_SUB_CODECS = {'subrip', 'srt', 'ass', 'ssa', 'mov_text', 'webvtt', 'text'}
 
+    def _sig_target(self) -> Path:
+        """Il video su cui si controlla la firma (con input .srt, il video accanto). Mai eccezioni: una
+        cartella non leggibile (share offline) non deve far crollare `process()` ne' l'upload."""
+        try:
+            return self._resolve_video_path() or self.video_path
+        except Exception:
+            return self.video_path
+
+    @staticmethod
+    def _file_sig(path):
+        """(dimensione, data di modifica in ns) o None se il file non esiste/non si legge."""
+        try:
+            st = Path(path).stat()
+            return (st.st_size, st.st_mtime_ns)
+        except Exception:
+            return None
+
+    def _video_unchanged(self, what: str) -> bool:
+        """True se il video e' ancora quello visto a inizio job. Altrimenti (cambiato o sparito) logga e
+        ritorna False: remux e upload non vanno fatti su un file che nel frattempo e' stato riscritto da
+        un altro programma (il remux ne sovrascriverebbe il risultato, l'hash dell'upload non sarebbe piu'
+        quello del file). Senza firma di riferimento non si puo' dire: True (comportamento storico)."""
+        sig0 = getattr(self, '_video_sig0', None)
+        if sig0 is None:
+            return True
+        video = self._sig_target()
+        if self._file_sig(video) == sig0:
+            return True
+        self._log(f"⚠️ Il file video e' cambiato (o non esiste piu') durante l'elaborazione, forse a opera di un "
+                  f"altro programma: {what} non eseguito. Il sottotitolo resta accanto al video.")
+        return False
+
     def _run_cancellable(self, cmd, timeout):
         """Esegue un comando registrandolo in `_current_proc`: `cancel()` lo uccide. Ritorna
         (returncode, stdout, stderr); su timeout il processo viene ucciso e returncode e' -1."""
@@ -1322,6 +1357,8 @@ class ProcessingPipeline:
                 return False
             if not sidecar.exists() or sidecar.stat().st_size < 200:
                 self._log(f"ℹ️ {what.capitalize()}: sottotitolo assente o vuoto, non modifico il video.")
+                return False
+            if not self._video_unchanged("il mux del sottotitolo"):
                 return False
             before = self._ffprobe_streams(video)
             if before is None:
@@ -1400,7 +1437,10 @@ class ProcessingPipeline:
             if not ok:
                 self._log("⚠️ Verifica del file con il sottotitolo non superata: il video e' rimasto invariato.")
                 return False
+            if not self._video_unchanged("il mux del sottotitolo"):
+                return False            # il `finally` cancella il temporaneo
             temp.replace(video)
+            self._video_sig0 = self._file_sig(video)   # il file e' cambiato per mano nostra: nuovo riferimento
             return True
         except Exception as exc:
             logger.error(f"Mux sottotitolo fallito: {exc}", exc_info=True)
@@ -1508,6 +1548,9 @@ class ProcessingPipeline:
         # ============================================================
         if not imdb_id:
             self._log("⚠️ IMDb ID non disponibile. Upload OpenSubtitles saltato (obbligatorio).")
+            return
+
+        if not self._video_unchanged("l'upload OpenSubtitles"):
             return
 
         self._log("\n8. Upload OpenSubtitles...")
