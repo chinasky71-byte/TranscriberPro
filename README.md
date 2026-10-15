@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.30.8-orange)
+![Version](https://img.shields.io/badge/Version-1.30.9-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -315,6 +315,7 @@ This project is licensed under the MIT License.
 ### v1.24.0 - v1.30.2
 Six weeks of work on translation/transcription quality for non-English sources, condensed here; full detail,
 measurement methodology and decision rules for every claim below are in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.9** — Internal refactor completed: subtitle selection/OCR (STEP 0/1/1b) moved out of `process()`, behaviour unchanged (9/9 bench cases). Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.30.8** — Internal refactor: `process()` split into private step methods, behaviour unchanged (9/9 bench cases, identical traces). Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.30.7** — The pipeline now reports what it is doing as structured events next to the text log (opt-in via `TP_EVENTS=1`, text parsing kept as a fallback); per-file progress no longer depends on log wording. Validated on real clips (9/9). Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.30.6** — A bitmap subtitle track (PGS/VobSub) tagged Italian but containing another language is now replaced in the MKV by the Italian sidecar after OCR + translation; fixes an `UnboundLocalError` that made OCR fall back silently to audio transcription when the content language was corrected. Details in [CHANGELOG.md](CHANGELOG.md).
