@@ -371,16 +371,11 @@ class ProcessingWorker(QThread):
 
         filename = Path(video_path).name
 
-        # Mappa STEP-numero → percentuale (identica al percorso in-process).
-        _STEP_PCT = {
-            '0': 2, '1': 5, '2': 15, '2.5': 25, '3': 40,
-            '4': 60, '4.2': 68, '4.5': 74, '5': 80, '5.5': 83,
-            '6': 88, '6.5': 93, '7': 97, '8': 99, '9': 100,
-        }
-        _step_re = re.compile(r'\n?(\d+(?:\.\d+)?)\.\s')
-
         from utils.config import get_config
         target_language = get_config().get_target_language()
+        # Avanzamento del file: fasi pesate per durata reale + barra interna di fase (gui/file_progress.py).
+        from gui.file_progress import FileProgress
+        _file_progress = FileProgress(target_language)
         files_done = self.completed_files + self.failed_files
 
         # Dir IPC separata dalla temp dir del video (che il cleanup rimuove).
@@ -478,11 +473,12 @@ class ProcessingWorker(QThread):
                 # di step: escludile dal match progress (le inoltra comunque a
                 # log_message, che le centralizza nel file di log del parent).
                 if '[DIAG-RAM]' not in line:
-                    m = _step_re.search(line)
-                    if m:
-                        pct = _STEP_PCT.get(m.group(1))
-                        if pct is not None:
-                            self.file_progress.emit(video_path, pct)
+                    try:
+                        _pct = _file_progress.feed(line)
+                    except Exception:
+                        _pct = None      # mai far fallire lo streaming del log per la barra
+                    if _pct is not None:
+                        self.file_progress.emit(video_path, _pct)
             return_code = proc.wait()
         finally:
             self._current_proc = None
