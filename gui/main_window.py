@@ -170,6 +170,7 @@ class MainWindow(QMainWindow):
         self._proc_elapsed_timer = None
 
         self._overlay_title_cache = {}
+        self._overlay_title_provisional = {}   # chiave -> (etichetta provvisoria, istante): rivalutata ogni pochi secondi
         self.init_ui()
         self.apply_modern_theme()
         self._fix_info_strip_height()
@@ -1441,6 +1442,12 @@ class MainWindow(QMainWindow):
         cached = self._overlay_title_cache.get(key)
         if cached is not None:
             return cached
+        # Titolo provvisorio (stagione non ancora risolta da TMDB): si rivaluta al massimo ogni 5 s, non a ogni
+        # aggiornamento della barra (fino a ~99 per file), cosi' parse_filename non scrive debug a raffica.
+        prov = self._overlay_title_provisional.get(key)
+        now = time.monotonic()
+        if prov is not None and (now - prov[1]) < 5.0:
+            return prov[0]
         label = Path(filename or path).stem
         final = True
         try:
@@ -1468,6 +1475,9 @@ class MainWindow(QMainWindow):
             pass
         if final:
             self._overlay_title_cache[key] = label
+            self._overlay_title_provisional.pop(key, None)
+        else:
+            self._overlay_title_provisional[key] = (label, now)
         return label
 
     def _update_overlay(self):
@@ -1552,6 +1562,7 @@ class MainWindow(QMainWindow):
         # itemSelectionChanged scatta DURANTE clear() quando l'elemento esiste ancora: striscia, contatore
         # dei rimanenti e badge dei filtri restavano quelli del file precedente.
         self._overlay_title_cache.clear()
+        self._overlay_title_provisional.clear()
         self._update_overlay()
         self.update_remaining_files_label()
         self._update_filter_badges()

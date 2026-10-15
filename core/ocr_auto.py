@@ -117,6 +117,13 @@ def convert_and_translate(ocr, events, content_lang: str, log_callback=None) -> 
                  f"dall'inglese ({content_lang}): instradato automaticamente "
                  f"su NLLB fine-tuned.")
         translator = get_translator(model_type=routed or model_type)
+        if log_callback:
+            # Senza callback le barre di avanzamento / ETA / warm-up del traduttore non andavano da nessuna parte:
+            # durante l'OCR+traduzione (~15 min per episodio) il log e la barra del file restavano muti.
+            try:
+                translator.set_log_callback(log_callback)
+            except Exception:
+                pass
         ok = translator.translate_file(
             Path(src_path), it_path, src_lang=content_lang, tgt_lang='it')
         try:

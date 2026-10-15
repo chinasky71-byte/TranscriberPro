@@ -3,6 +3,21 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.4 — 2026-10-15 — Avanzamento del file proporzionale alla durata reale delle fasi
+
+- **Barra del singolo file (`gui/file_progress.py` nuovo, `gui/workers.py`)**: la percentuale (barra nell'elenco della coda e barra sotto la
+  locandina) si muoveva solo sui marcatori di passo con una tabella fissa: la trascrizione (84% di un job solo-trascrizione, misurato)
+  aveva la fascia 60->68% e la traduzione (88-99% di un job con traduzione) la fascia 88->93%, quindi la barra restava ferma per ore e
+  poi saltava a 100%. Ora ogni fase pesa in proporzione alla durata MISURATA sui log reali (Demucs 1, trascrizione 2,5-6 secondo il
+  motore, traduzione 30, genere 1,5), dentro la fase segue la barra interna che la fase stampa ("Trascrizione: [", "Traduzione: [",
+  "Progresso:", "Correzione genere: ["; "Warm-up: [" ignorato) e le fasi che non avverranno (traduzione con lingua gia' finale, audio con
+  sottotitoli embedded, OCR fallito) escono dal calcolo. Mai 100 (lo mette la GUI a fine file), mai in calo; classe senza Qt e a prova di
+  eccezione. Curva misurata sui log reali: Bake Off 17/25/44/67/86/96% a 10/30/50/70/90/100% del tempo, V/H/S 11/29/48/67/87/98%.
+- **OCR + traduzione (`core/ocr_auto.py`)**: il traduttore dell'OCR non aveva nessun callback di log: durante la traduzione (~15 min per
+  episodio) non stampava barre, warm-up ne' ETA e la barra del file restava ferma. Ora riceve il `log_callback`.
+- **Titolo sotto la locandina (`gui/main_window.py`)**: il titolo provvisorio degli anime con solo numero assoluto veniva ricalcolato a
+  ogni aggiornamento della barra (fino a ~99 volte per file, con righe di debug); ora al massimo ogni 5 s.
+
 ## 1.30.3.15.10.26 — 2026-10-15 — ETA nella barra di trascrizione
 
 - **Tempo rimanente nella fase di trascrizione (`utils/eta.py` nuovo; `qwen3_asr_engine.py`, `canary_engine.py`, `faster_whisper_engine.py`)**:
