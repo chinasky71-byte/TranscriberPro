@@ -3,6 +3,17 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.8 — 2026-10-15 — `process()` spezzato (solo spostamento di codice)
+
+- **Refactor senza cambi di comportamento**: `ProcessingPipeline.process()` (970 righe) cede i blocchi a metodi privati:
+  `_transcribe_step` (STEP 2-4.5), `_clean_subtitles_step` (cleanup anticipato + 5), `_release_asr_models_before_translation`
+  (5.5), `_translate_step` (6), `_gender_correction_step` (6.5), `_finalize_output` (7-9). Stesso log, stessi eventi, stesse
+  eccezioni; il `try/finally` con `_cleanup` resta in `process()`. Resta in `process()` la selezione dei sottotitoli (STEP 0/1/1b).
+- **Verifica**: stringhe costanti e chiamate `_log`/`_ev` identiche prima/dopo; banco su clip reali 9/9 OK con tracce
+  (eventi non-barra e righe-marcatore) uguali al riferimento 1.30.7 (unica differenza: il conteggio dei blocchi non tradotti
+  in `c3b_force_audio`, trascrizione non deterministica); bugcheck Opus senza difetti. Il banco ha intercettato un `return`
+  mancante introdotto durante il lavoro (corretto prima del rilascio).
+
 ## 1.30.7 — 2026-10-15 — Eventi strutturati dalla pipeline per l'avanzamento (accanto al log, non al suo posto)
 
 - **Eventi strutturati (`utils/events.py`, nuovo)**: la pipeline dichiara direttamente cosa sta facendo (fase, motore ASR,
