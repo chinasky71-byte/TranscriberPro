@@ -28,6 +28,7 @@ import torch
 from core.engines.base_engine import TranscriptionEngine, LanguageNotAlignable
 from utils.logger import setup_logger
 from utils.config import get_config
+from utils.eta import EtaEstimator
 
 logger = setup_logger()
 
@@ -370,6 +371,7 @@ class Qwen3AsrEngine(TranscriptionEngine):
         self._n_punct_restored = 0
         last_pct = -1
         t0 = time.time()
+        eta = EtaEstimator()
         self._lang_retry_enabled = bool(self.config.get('qwen3_lang_retry_enabled', True))
         self._lang_retry_accept = frozenset(self.config.get('qwen3_lang_retry_accept_langs', ['en']))
 
@@ -452,10 +454,11 @@ class Qwen3AsrEngine(TranscriptionEngine):
                     })
 
                 pct = int((chunk_num / total_chunks) * 100)
+                eta_txt = eta.update(chunk_num / total_chunks)
                 if pct != last_pct:
                     bars = int(pct / 10)
                     bar = '█' * bars + '░' * (10 - bars)
-                    self.log(f"  🎙️ Trascrizione: [{bar}] {pct:3d}% ({chunk_num}/{total_chunks})")
+                    self.log(f"  🎙️ Trascrizione: [{bar}] {pct:3d}% ({chunk_num}/{total_chunks}){eta_txt}")
                     last_pct = pct
 
             except Exception as e:

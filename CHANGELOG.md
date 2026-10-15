@@ -3,6 +3,16 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.3.15.10.26 — 2026-10-15 — ETA nella barra di trascrizione
+
+- **Tempo rimanente nella fase di trascrizione (`utils/eta.py` nuovo; `qwen3_asr_engine.py`, `canary_engine.py`, `faster_whisper_engine.py`)**:
+  la barra "🎙️ Trascrizione" mostra ora ` │ ~12m` / ` │ ~40s`, nello stesso formato della traduzione. La stima usa il ritmo recente
+  (ultimo 15% del lavoro, almeno 5 s reali), con ripiego sulla media; non compare prima del 3% di avanzamento e dei primi 20 s.
+  Vale per tutti i job che trascrivono (con o senza traduzione successiva).
+- **Whisper, percorso a file unico**: `list(segments)` consumava il generatore pigro (cioe' tutta la trascrizione) prima del ciclo con la
+  barra, che saltava da 0 a 99% in un istante. Ora il generatore si consuma con barra ed ETA reali; il tempo finale "│ Nm" include la
+  trascrizione vera. **Canary**: il cronometro parte a modello caricato (`LOAD_DONE`).
+
 ## 1.30.3.14.10.26 — 2026-10-14 — Barre di avanzamento del log di sincronizzazione
 
 - **Log del dialogo Sincronizzazione sottotitoli (`gui/progress_log.py` nuovo, `gui/sync_dialog.py`)**: le barre di avanzamento
