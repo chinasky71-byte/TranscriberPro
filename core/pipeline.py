@@ -213,6 +213,12 @@ class ProcessingPipeline:
             except Exception:
                 pass
     
+    @staticmethod
+    def _ev(kind: str, **fields) -> None:
+        """Evento strutturato (utils/events.py): accanto al log, mai al suo posto. Senza sink non fa nulla."""
+        from utils.events import emit
+        emit(kind, **fields)
+
     def _log(self, message: str):
         """Logga il messaggio sia a logger che a callback GUI"""
         logger.info(message)
@@ -320,6 +326,7 @@ class ProcessingPipeline:
             return False
         except Exception as e:
             logger.warning(f"OCR bitmap fallito: {e}", exc_info=True)
+            self._ev('ocr_leave')
             self._log(f"⚠️ Errore OCR bitmap: {e}")
             return False
 
@@ -382,8 +389,10 @@ class ProcessingPipeline:
             # ============================================================
             force_audio = self.config.get('force_audio_transcription', False)
             if force_audio:
+                self._ev('phase', name='setup')
                 self._log("\n1. Forza trascrizione da audio attivata. Salto check sottotitoli embedded.")
             else:
+                self._ev('phase', name='setup')
                 self._log("\n1. Estrazione sottotitoli embedded...")
                 extractor = SubtitleExtractor(str(self.video_path))
                 self._subtitle_extractor = extractor
@@ -445,10 +454,13 @@ class ProcessingPipeline:
                         kind = self._bitmap_kind(cand.get('codec'))
                         is_ita = cand.get('lang') == 'it'
                         if is_ita:
+                            self._ev('route', path='ocr', translate=False)
                             self._log(f"\n1b. Sottotitoli bitmap italiani ({kind.upper()}) → OCR...")
                         else:
+                            self._ev('route', path='ocr', translate=True)
                             self._log(f"\n1b. Sottotitoli bitmap ({kind.upper()}) → OCR + traduzione...")
                         if self._run_bitmap_ocr(kind, italian=is_ita):
+                            self._ev('phase', name='final')
                             self._log("✅ OCR bitmap completato.")
                             if self._ocr_upload_srt is not None:
                                 self._upload_opensubtitles(self._ocr_upload_srt, 'it', imdb_id)
@@ -461,6 +473,7 @@ class ProcessingPipeline:
                                     self._replace_mislabeled_italian_track(
                                         self._ocr_upload_srt, idx=self._mislabeled_bitmap_stream, bitmap=True)
                             return True
+                        self._ev('ocr_leave')
                         self._log("⚠️ OCR bitmap non riuscito.")
                         # dopo un OCR fallito non si riprovano i bitmap dello stesso tipo (stesso motore OCR)
                         tried |= {x['index'] for x in extractor.subtitle_streams
@@ -487,6 +500,7 @@ class ProcessingPipeline:
                     if verdict is None and cand.get('lang_conflict'):
                         logger.warning(f"   Stream {cand['index']}: tag e titolo in contrasto, il testo non da' "
                                        f"un verdetto affidabile ({evidence}): resta la lingua del tag.")
+                    self._ev('embedded', lang=cand['lang'])
                     self._log(f"✅ Sottotitoli embedded trovati ({cand['lang']}). Salto trascrizione.")
                     subtitle_path, source_language_639_2 = path, lang2_to_3(cand['lang'])
                     self._embedded_source_stream = cand['index']
@@ -508,6 +522,7 @@ class ProcessingPipeline:
             if subtitle_path is None:
 
                 # STEP 2: Estrazione audio
+                self._ev('phase', name='extract')
                 self._log("\n2. Estrazione traccia audio...")
                 audio_selector = AudioTrackSelector(str(self.video_path))
                 self._track_selector = audio_selector
@@ -522,6 +537,7 @@ class ProcessingPipeline:
                     if audio_selector.extract_audio_track(audio_path, audio_stream['index']):
                         # Usa get_selected_language() per ottenere lingua traccia
                         source_language_639_2 = audio_selector.get_selected_language()
+                        self._ev('audio_lang', lang=source_language_639_2)
                         self._log(f"âœ… Audio estratto. Lingua: {source_language_639_2}")
 
                         if self._cancelled:
@@ -547,6 +563,7 @@ class ProcessingPipeline:
                         # routing sceglie Canary/Qwen3, la facade lo scarica
                         # prima di caricare l'engine nuovo.
                         # ================================================
+                        self._ev('phase', name='extract')
                         self._log("\n2.5. Pre-caricamento Whisper (ordine CUDA / ripiego)...")
                         _planned_lang = self.LANG_MAP_639_2_TO_639_1.get(source_language_639_2)
                         if _planned_lang == 'und':
@@ -588,6 +605,7 @@ class ProcessingPipeline:
                             _use_batched = False
 
                         step3_label = "Demucs + BatchedInferencePipeline" if _use_batched else "Demucs + Chunking"
+                        self._ev('phase', name='demucs')
                         self._log(f"\n3. Processing audio ({step3_label})...")
                         if self._audio_processor is None:
                             self._audio_processor = AudioProcessor()
@@ -632,6 +650,7 @@ class ProcessingPipeline:
                             # STEP 4: Trascrizione (engine dal router; su
                             # errore degli engine nuovi → fallback automatico
                             # su Faster-Whisper dentro la facade)
+                            self._ev('phase', name='asr', engine=str(_engine_label))
                             self._log(f"\n4. Trascrizione audio ({_engine_label})...")
                             if self._transcriber is None:
                                 # Fallback: non dovrebbe mai entrare qui dopo il pre-load 2.5
@@ -838,6 +857,7 @@ class ProcessingPipeline:
             if subtitle_path is None:
                  raise Exception("Nessun sottotitolo o trascrizione disponibile.")
                  
+            self._ev('phase', name='clean')
             self._log("\n5. Pulizia e normalizzazione sottotitoli...")
             cleaned_srt_path = self.file_handler.get_temp_path(
                 self.video_path, 
@@ -883,6 +903,7 @@ class ProcessingPipeline:
 
             if source_language_639_1 != target_language_639_1:
 
+                self._ev('phase', name='translate')
                 self._log(f"\n6. Traduzione ({source_language_639_1} â†’ {target_language_639_1})...")
                 # âœ… FIX TRANSLATOR SELECTION: Usa il metodo corretto per leggere il modello dalla config
                 # Leggi il modello di traduzione selezionato dall'utente
@@ -972,6 +993,7 @@ class ProcessingPipeline:
                     translation_failed = True
             else:
                 final_language_639_1 = source_language_639_1
+                self._ev('skip', phases=['translate', 'gender'])
                 self._log("\n6. Lingua originale == Lingua target. Salto traduzione.")
 
             if self._cancelled:
@@ -993,11 +1015,13 @@ class ProcessingPipeline:
                     and self.config.get('gender_correction_enabled', False)):
                 # Italiano NATIVO (nessuna traduzione): il corrector sarebbe
                 # inutile (niente errori di genere da traduzione) e costoso.
+                self._ev('skip', phases=['gender'])
                 self._log("\n6.5. Correzione genere saltata: italiano nativo, nessuna traduzione.")
 
             if (final_language_639_1 == 'it'
                     and translation_performed
                     and self.config.get('gender_correction_enabled', False)):
+                self._ev('phase', name='gender')
                 self._log("\n6.5. Correzione genere grammaticale (v2, subprocess)...")
                 try:
                     from core.gender_corrector_v2 import find_selector_python
@@ -1155,6 +1179,15 @@ class ProcessingPipeline:
                                         break
                                     line = line.rstrip()
                                     if line:
+                                        from utils import events as _tp_events
+                                        _ev = _tp_events.parse_line(line)
+                                        if _ev is not None:
+                                            if _ev[0]:
+                                                try:
+                                                    _tp_events.emit(_ev[0], **_ev[1])
+                                                except Exception:
+                                                    pass
+                                            continue
                                         self._log(f"   [Gender] {line}")
                                 return_code = proc.wait()
                             finally:
@@ -1183,6 +1216,7 @@ class ProcessingPipeline:
             # ============================================================
             # STEP 7: Salvataggio File Finale
             # ============================================================
+            self._ev('phase', name='final', fraction=0.4)
             self._log("\n7. Salvataggio file finale...")
             
             # Crea nome file finale: [nome_video].[lang].srt
@@ -1487,6 +1521,7 @@ class ProcessingPipeline:
         if not self.config.get('replace_mislabeled_italian_track', True):
             self._log("ℹ️ Sostituzione della traccia segnata per errore come italiana disattivata.")
             return False
+        self._ev('phase', name='final', fraction=0.9)
         self._log(f"\n9. Sostituzione della traccia {idx} (segnata come italiana, testo non italiano) "
                   f"con il sottotitolo italiano...")
         if self._remux_with_sidecar(sidecar, 'it', remove_idx=idx, allow_bitmap=bitmap):
@@ -1499,6 +1534,7 @@ class ProcessingPipeline:
         (il sidecar resta accanto al video). Va chiamato DOPO l'upload (hash originale). Non solleva."""
         if not self.config.get('mux_subtitle_into_video', False):
             return False
+        self._ev('phase', name='final', fraction=0.9)
         self._log("\n9. Mux del sottotitolo nel video...")
         if self._remux_with_sidecar(sidecar, lang_639_1):
             self._log(f"✅ Sottotitolo incorporato nel video (sidecar mantenuto: {sidecar.name}).")
@@ -1571,6 +1607,7 @@ class ProcessingPipeline:
         if not self._video_unchanged("l'upload OpenSubtitles"):
             return
 
+        self._ev('phase', name='final', fraction=0.7)
         self._log("\n8. Upload OpenSubtitles...")
 
         try:

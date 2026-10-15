@@ -458,6 +458,8 @@ class Qwen3AsrEngine(TranscriptionEngine):
                 if pct != last_pct:
                     bars = int(pct / 10)
                     bar = '█' * bars + '░' * (10 - bars)
+                    from utils.events import emit as _tp_emit
+                    _tp_emit('bar', phase='asr', pct=pct)
                     self.log(f"  🎙️ Trascrizione: [{bar}] {pct:3d}% ({chunk_num}/{total_chunks}){eta_txt}")
                     last_pct = pct
 
@@ -471,6 +473,8 @@ class Qwen3AsrEngine(TranscriptionEngine):
         time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
         if failed_chunks > 0:
             self.log(f"  ⚠️ Completato con {failed_chunks} chunks falliti su {total_chunks}")
+        from utils.events import emit as _tp_emit
+        _tp_emit('bar', phase='asr', pct=100)
         self.log(f"  ✅ Trascrizione: [██████████] 100% ({total_chunks}/{total_chunks}) │ {time_str}")
         self.log(f"  📝 Totale segmenti trascritti: {len(all_segments)}")
         if truncation_suspects:

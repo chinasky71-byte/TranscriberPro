@@ -567,6 +567,8 @@ class GenderCorrectionEngine:
                         eta_str = f"{int(eta)}s"
                     else:
                         eta_str = "-"
+                    from utils.events import emit as _tp_emit
+                    _tp_emit('bar', phase='gender', pct=progress)
                     self._log(
                         f"   Correzione genere: [{bar}] {progress:3d}% "
                         f"({chunks_processed}/{chunks_with_gender}) "

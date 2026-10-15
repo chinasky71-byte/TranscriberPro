@@ -278,6 +278,7 @@ def run_one(video: Path, target_language: str, files_done: int, file_progress_cl
         env['PYTHONIOENCODING'] = 'utf-8'
         env['TP_SUBPROCESS'] = '1'
         env['TQDM_DISABLE'] = '1'
+        env['TP_EVENTS'] = '1'      # eventi strutturati (utils/events.py)
         flags = 0
         for name in ('CREATE_NEW_PROCESS_GROUP', 'CREATE_NO_WINDOW'):
             flags |= getattr(subprocess, name, 0)
@@ -293,12 +294,23 @@ def run_one(video: Path, target_language: str, files_done: int, file_progress_cl
         def _out():
             last_write = 0.0
             for line in proc.stdout:
-                with lock:
-                    lf.write(line)
-                try:
-                    pct = fp.feed(line.rstrip())
-                except Exception:
-                    pct = None
+                from utils import events as _tp_events
+                _ev = _tp_events.parse_line(line.rstrip())
+                if _ev is not None:
+                    # evento strutturato: resta nel log del file (utile per la diagnosi), alla barra come percentuale
+                    with lock:
+                        lf.write(line)
+                    try:
+                        pct = fp.feed_event(_ev[0], _ev[1]) if _ev[0] else None
+                    except Exception:
+                        pct = None
+                else:
+                    with lock:
+                        lf.write(line)
+                    try:
+                        pct = fp.feed(line.rstrip())
+                    except Exception:
+                        pct = None
                 now = time.time()
                 if pct is not None or now - last_write > 15:
                     on_progress(fp.value, fp.phase or '')

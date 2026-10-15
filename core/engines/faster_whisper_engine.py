@@ -456,6 +456,8 @@ class FasterWhisperEngine(TranscriptionEngine):
                         if int(_f * 100) != _live_pct:
                             _live_pct = int(_f * 100)
                             _bar = '█' * (_live_pct // 10) + '░' * (10 - _live_pct // 10)
+                            from utils.events import emit as _tp_emit
+                            _tp_emit('bar', phase='asr', pct=_live_pct)
                             self.log(f"  🎙️ Trascrizione: [{_bar}] {_live_pct:3d}%{_txt}")
                 segments = _seg_list
                 # v1.30.0 (core/whisper_lang_retry.py, trovato su X Factor): SOLO con lingua forzata (mai in
@@ -491,6 +493,8 @@ class FasterWhisperEngine(TranscriptionEngine):
                 elapsed = time.time() - t0_transcribe
                 mins, secs = divmod(int(elapsed), 60)
                 time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
+                from utils.events import emit as _tp_emit
+                _tp_emit('bar', phase='asr', pct=100)
                 self.log(f"  ✅ Trascrizione: [██████████] 100% │ {time_str}")
 
                 # Suddividi segmenti lunghi usando i word timestamps
@@ -623,6 +627,8 @@ class FasterWhisperEngine(TranscriptionEngine):
                     if pct != last_progress_pct:
                         bars = int(pct / 10)
                         bar = '█' * bars + '░' * (10 - bars)
+                        from utils.events import emit as _tp_emit
+                        _tp_emit('bar', phase='asr', pct=pct)
                         self.log(f"  🎙️ Trascrizione: [{bar}] {pct:3d}% ({chunk_num}/{total_chunks}){eta_txt}")
                         last_progress_pct = pct
 
@@ -637,6 +643,8 @@ class FasterWhisperEngine(TranscriptionEngine):
             time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
             if failed_chunks > 0:
                 self.log(f"  ⚠️ Completato con {failed_chunks} chunks falliti su {total_chunks}")
+            from utils.events import emit as _tp_emit
+            _tp_emit('bar', phase='asr', pct=100)
             self.log(f"  ✅ Trascrizione: [██████████] 100% ({total_chunks}/{total_chunks}) │ {time_str}")
             n_retried = sum(r.get('decision') == 'ritrascritto' for r in lang_retry_records)
             if lang_retry_records:

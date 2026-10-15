@@ -129,6 +129,14 @@ if __name__ == '__main__':
     if str(_project_root) not in sys.path:
         sys.path.insert(0, str(_project_root))
 
+    # Eventi strutturati su stdout (utils/events.py) SOLO se il genitore ha impostato TP_EVENTS=1 e solo quando
+    # questo modulo e' il programma: un processo che lo importa (es. fallback_translate_cli) non li emette.
+    try:
+        from utils.events import install_stdout_sink as _tp_install_sink
+        _tp_install_sink()
+    except Exception:
+        pass
+
     # Niente flash di finestre console: le librerie del diarizer
     # (speechbrain/torchaudio) e il selettore spaCy spawnano subprocess
     # senza CREATE_NO_WINDOW. Stesso monkeypatch di pipeline_cli.

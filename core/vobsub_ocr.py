@@ -239,6 +239,8 @@ class VobSubOcr:
         self._log("⚙️ OCR — Estrazione traccia VOBSUB...")
         idx, sub = self.extract_idx_sub(sub_info["index"], out_base)
 
+        from utils.events import emit as _tp_emit
+        _tp_emit('phase', name='ocr_read')
         self._log("⚙️ OCR — Analisi bitmap...")
         events = self._idxsub_to_events(idx, sub, ocr_lang)
         refined = refine_content_lang(events, content_lang, self._log)
