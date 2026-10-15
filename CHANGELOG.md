@@ -3,6 +3,24 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.7 — 2026-10-15 — Eventi strutturati dalla pipeline per l'avanzamento (accanto al log, non al suo posto)
+
+- **Eventi strutturati (`utils/events.py`, nuovo)**: la pipeline dichiara direttamente cosa sta facendo (fase, motore ASR,
+  ramo OCR con o senza traduzione, lingua dell'audio, sottotitoli embedded scelti, fasi saltate, percentuale delle barre di
+  Demucs/trascrizione/traduzione/genere) invece di lasciarlo ricavare dal testo del log. Una riga su stdout con prefisso
+  `@@TPEV@@ ` e un JSON; il genitore (GUI e coda headless) la toglie dal log e la passa a `FileProgress.feed_event`.
+  **Opt-in**: il figlio li emette solo se il genitore imposta `TP_EVENTS=1`; senza sink `emit` non fa nulla (Library Scanner,
+  chiamate in-process). Il sink si installa solo quando `pipeline_cli`/`gender_corrector_cli` sono il programma, non quando
+  vengono importati. Il testo visibile del log e' identico.
+- **`FileProgress` ibrido**: testo ed eventi aggiornano lo stesso stato (decisioni idempotenti); per le barre interne, dopo il
+  primo evento `bar` di un gruppo il testo di quel gruppo non conta piu'. Il parsing del testo resta come ripiego.
+- **Correzioni dal bugcheck**: anche le righe finali "100%" emettono l'evento (senza, la barra restava a ~90-97% fino alla fase
+  successiva); un evento anomalo nel relay del correttore di genere non puo' piu' interrompere il ciclo.
+- **Validazione**: banco su clip reali, 9 casi su 9 (nuovi `c3b_force_audio`, `c7_gender`); il banco verifica che gli eventi
+  arrivino davvero e che la sola via eventi dia la stessa percentuale finale del solo testo (+-8). Test su CPU in
+  `pipeline_bench/test_events.py` (fuori dal repo). Non esercitato: eventi dal processo del correttore di genere (la v2 non
+  stampa barre, quindi non c'e' emettitore) e il traduttore con Canary/Whisper batched.
+
 ## 1.30.6 — 2026-10-15 — Sostituzione del bitmap italiano con testo straniero; fix OCR con lingua corretta dal contenuto
 
 - **Bitmap (PGS/VobSub) dichiarato italiano ma con testo di un'altra lingua**: dopo OCR e traduzione la traccia errata viene

@@ -202,6 +202,8 @@ class PgsOcr:
         if not self.extract_sup(sub["index"], sup_path):
             raise RuntimeError(f"Estrazione .sup fallita (stream {sub['index']})")
 
+        from utils.events import emit as _tp_emit
+        _tp_emit('phase', name='ocr_read')
         self._log("⚙️ OCR — Analisi bitmap...")
         events = self._sup_to_events(sup_path, ocr_lang)
         refined = refine_content_lang(events, content_lang, self._log)

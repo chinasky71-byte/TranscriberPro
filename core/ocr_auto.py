@@ -104,6 +104,8 @@ def convert_and_translate(ocr, events, content_lang: str, log_callback=None) -> 
     video = ocr.video_path
     it_path = video.with_name(f"{video.stem}.it.srt")
 
+    from utils.events import emit as _tp_emit
+    _tp_emit('phase', name='ocr_translate')
     _log(f"⚙️ OCR — Traduzione {content_lang}→it...")
     try:
         from core.translator import get_translator, route_non_english_away_from_llm

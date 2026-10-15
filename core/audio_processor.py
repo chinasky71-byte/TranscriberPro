@@ -444,6 +444,8 @@ class AudioProcessor:
                     bars = int((chunk_num / num_chunks) * 10)
                     pct = int((chunk_num / num_chunks) * 100)
                     bar = '█' * bars + '░' * (10 - bars)
+                    from utils.events import emit as _tp_emit
+                    _tp_emit('bar', phase='demucs', pct=pct)
                     self._log(f"    📦 Demucs: [{bar}] {chunk_num}/{num_chunks} ({pct}%)")
 
                     # Cleanup immediato
@@ -472,6 +474,8 @@ class AudioProcessor:
                         bars = int((chunk_num / num_chunks) * 10)
                         pct = int((chunk_num / num_chunks) * 100)
                         bar = '█' * bars + '░' * (10 - bars)
+                        from utils.events import emit as _tp_emit
+                        _tp_emit('bar', phase='demucs', pct=pct)
                         self._log(f"    📦 Demucs: [{bar}] {chunk_num}/{num_chunks} ({pct}%)")
                     else:
                         raise

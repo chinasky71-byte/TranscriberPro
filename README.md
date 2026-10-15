@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.30.6-orange)
+![Version](https://img.shields.io/badge/Version-1.30.7-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -315,6 +315,7 @@ This project is licensed under the MIT License.
 ### v1.24.0 - v1.30.2
 Six weeks of work on translation/transcription quality for non-English sources, condensed here; full detail,
 measurement methodology and decision rules for every claim below are in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.7** — The pipeline now reports what it is doing as structured events next to the text log (opt-in via `TP_EVENTS=1`, text parsing kept as a fallback); per-file progress no longer depends on log wording. Validated on real clips (9/9). Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.30.6** — A bitmap subtitle track (PGS/VobSub) tagged Italian but containing another language is now replaced in the MKV by the Italian sidecar after OCR + translation; fixes an `UnboundLocalError` that made OCR fall back silently to audio transcription when the content language was corrected. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.30.5** — Headless queue runner (`python -m core.queue_runner <folder>`) with a live `queue_status.json`; transcription ETA rounds to the nearest minute. Validated on real clips with a bench (outside the repo). Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.30.4.15.10.26** — Guard against the video being rewritten by another program (e.g. FileFlows) during a job: upload and in-place remux are skipped if its size/mtime changed. Details in [CHANGELOG.md](CHANGELOG.md).
@@ -1083,7 +1084,7 @@ Lista aggiornata a ogni commit + push di una nuova versione.
 - Training NLLB "corpus massimo" (corpus ampliato per la traduzione fine-tuned)
 
 **Da validare / misurare**
-- Avanzamento del file per fasi pesate (v1.30.4): validato in replay su log reali e su 6 clip reali; resta da vedere l'aspetto delle barre in GUI (lo verifica l'utente)
+- Avanzamento del file per fasi pesate (v1.30.4) ed eventi strutturati (v1.30.7): barra in GUI validata dall'utente (15/10/2026) per la versione a testo; gli eventi sono validati su 9 clip reali, non ancora in uso su una coda lunga in GUI
 - Opzione job "Muxa nel video": validata su clip reali (aggiunta, copia embedded non duplicata, OCR, trascrizione); non ancora usata dall'utente in GUI
 - Sostituzione della traccia segnata per errore come italiana: validata su clip reali (testo e bitmap PGS, e guardia contro il file riscritto); VobSub condivide la stessa logica ma non ha una clip di prova; OCR multi-traccia (completa + forced) ancora a parte
 - Selezione sottotitoli embedded per contenuto: validata su clip reali (tag errato, lingua non dichiarata, flag forced anomalo, italiano corretto); non ancora su una coda lunga reale e il caso OCR fallito con ripiego sull'audio non ha una clip

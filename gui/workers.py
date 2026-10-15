@@ -400,6 +400,7 @@ class ProcessingWorker(QThread):
         env['PYTHONIOENCODING'] = 'utf-8'
         env['TP_SUBPROCESS'] = '1'   # nel child: niente console handler dei logger
         env['TQDM_DISABLE'] = '1'    # niente barre di progresso (download modelli)
+        env['TP_EVENTS'] = '1'       # eventi strutturati (utils/events.py): il genitore li toglie dal log
         creationflags = 0
         if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP'):
             creationflags |= subprocess.CREATE_NEW_PROCESS_GROUP
@@ -467,6 +468,17 @@ class ProcessingWorker(QThread):
                     continue
                 if line.lstrip().startswith(_stdout_noise):
                     logger.info(f"[child-stdout] {line}")
+                    continue
+                from utils import events as _tp_events
+                _ev = _tp_events.parse_line(line)
+                if _ev is not None:
+                    # evento strutturato: non e' testo per l'utente, muove solo la barra del file
+                    try:
+                        _pct = _file_progress.feed_event(_ev[0], _ev[1]) if _ev[0] else None
+                    except Exception:
+                        _pct = None
+                    if _pct is not None:
+                        self.file_progress.emit(video_path, _pct)
                     continue
                 self.log_message.emit(line)
                 # Le righe [DIAG-RAM] contengono "N. Step" ma NON sono boundary

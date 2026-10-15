@@ -315,6 +315,8 @@ class SubtitleLLMTranslator:
         if chiuso:
             m, sec = divmod(int(trascorso), 60)
             durata = f"{m}m {sec:02d}s" if m else f"{sec}s"
+            from utils.events import emit as _tp_emit
+            _tp_emit('bar', phase='translate', pct=100)
             self.log(f"  ✅ Traduzione: [██████████] 100% "
                      f"({totale}/{totale}) │ {durata}")
             return
@@ -326,6 +328,8 @@ class SubtitleLLMTranslator:
             manca = trascorso / fatti * (totale - fatti)
             m = int(manca // 60)
             coda = f" │ ~{m}m" if m else f" │ ~{int(manca)}s"
+        from utils.events import emit as _tp_emit
+        _tp_emit('bar', phase='translate', pct=pct)
         self.log(f"  🌐 Traduzione: [{barra}] {pct:3d}% ({fatti}/{totale}) "
                  f"│ batch:{self.batch_size}{coda}")
 

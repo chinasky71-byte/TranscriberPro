@@ -1713,6 +1713,8 @@ class NLLBTranslator(BaseTranslator):
                     bars = int(progress / 10)
                     bar = '█' * bars + '░' * (10 - bars)
                     bs = self.batch_manager.current_batch_size
+                    from utils.events import emit as _tp_emit
+                    _tp_emit('bar', phase='translate', pct=progress)
                     self.log(f"  🌐 Traduzione: [{bar}] {progress:3d}% ({i}/{total}) │ batch:{bs}")
                     last_progress = progress
 
@@ -1865,6 +1867,8 @@ class NLLBTranslator(BaseTranslator):
             elapsed = _time.time() - t0
             mins, secs = divmod(int(elapsed), 60)
             time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
+            from utils.events import emit as _tp_emit
+            _tp_emit('bar', phase='translate', pct=100)
             self.log(f"  ✅ Traduzione: [██████████] 100% ({total}/{total}) │ {time_str}")
 
             self.batch_manager.log_summary()
@@ -2805,6 +2809,8 @@ OUTPUT: Return ONLY numbered translations (1., 2., 3., etc.). Nothing else. No q
 
                 progress = int((i / total) * 100)
                 if progress != last_progress:
+                    from utils.events import emit as _tp_emit
+                    _tp_emit('bar', phase='translate', pct=progress)
                     self.log(f"   Progresso: {progress}% ({i}/{total})")
                     last_progress = progress
 
@@ -2824,6 +2830,8 @@ OUTPUT: Return ONLY numbered translations (1., 2., 3., etc.). Nothing else. No q
                 
                 i = batch_end
 
+            from utils.events import emit as _tp_emit
+            _tp_emit('bar', phase='translate', pct=100)
             self.log(f"   Progresso: 100% ({total}/{total})")
             srt_content = self._generate_srt(translated_subtitles, dash_flags)
             with open(output_path, 'w', encoding='utf-8') as f:
@@ -3089,6 +3097,8 @@ Provide translations as a numbered list matching the input format exactly. DO NO
 
                 progress = int((i / total) * 100)
                 if progress != last_progress:
+                    from utils.events import emit as _tp_emit
+                    _tp_emit('bar', phase='translate', pct=progress)
                     self.log(f"   Progresso: {progress}% ({i}/{total})")
                     last_progress = progress
 
@@ -3106,6 +3116,8 @@ Provide translations as a numbered list matching the input format exactly. DO NO
 
                 i = batch_end
 
+            from utils.events import emit as _tp_emit
+            _tp_emit('bar', phase='translate', pct=100)
             self.log(f"   Progresso: 100% ({total}/{total})")
             srt_content = self._generate_srt(translated_subtitles, dash_flags)
             with open(output_path, 'w', encoding='utf-8') as f:

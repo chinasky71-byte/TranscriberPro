@@ -49,6 +49,11 @@ _LANG3_TO_2 = {'ita': 'it', 'eng': 'en', 'fra': 'fr', 'fre': 'fr', 'deu': 'de', 
                'por': 'pt', 'rus': 'ru', 'jpn': 'ja', 'zho': 'zh', 'chi': 'zh', 'kor': 'ko', 'ara': 'ar',
                'nld': 'nl', 'dut': 'nl', 'pol': 'pl', 'tur': 'tr'}
 
+# Barre interne: gruppo dell'evento `bar` -> fasi in cui vale; fase -> gruppo (per cedere il passo al testo).
+_BAR_PHASES = {'demucs': ('demucs',), 'asr': ('asr',), 'translate': ('translate', 'ocr_translate'),
+               'gender': ('gender',)}
+_PHASE_BAR = {p: g for g, ps in _BAR_PHASES.items() for p in ps}
+
 _STEP_RE = re.compile(r'^\s*(\d+(?:\.\d+)?[a-z]?)\.\s+(\S.*)$')
 _PCT_RE = re.compile(r'(\d+)\s*%')
 _AUDIO_LANG_RE = re.compile(r'Audio estratto\. Lingua:\s*([A-Za-z]+)')
@@ -70,6 +75,8 @@ class FileProgress:
         self.fraction: Dict[str, float] = {}
         self.phase: Optional[str] = None
         self.value = 0
+        # gruppi di barre per cui sono arrivati eventi `bar`: per quelli il testo non conta piu'
+        self._evt_bars: Set[str] = set()
 
     # ------------------------------------------------------------------
     def feed(self, line: str) -> Optional[int]:
@@ -78,11 +85,69 @@ class FileProgress:
             self._consume(line or '')
         except Exception:
             return None
+        return self._bump()
+
+    def feed_event(self, kind: str, fields: Optional[dict] = None) -> Optional[int]:
+        """Elabora un evento strutturato (utils/events.py). Stessa regola di `feed`: ritorna la nuova
+        percentuale solo se e' aumentata. Gli eventi e il testo convivono sullo stesso stato (le decisioni
+        sono idempotenti); per le barre interne, dopo il primo evento `bar` di un gruppo il testo di quel
+        gruppo non conta piu'."""
+        try:
+            self._event(kind, fields or {})
+        except Exception:
+            return None
+        return self._bump()
+
+    def _bump(self) -> Optional[int]:
         v = self._compute()
         if v > self.value:
             self.value = v
             return v
         return None
+
+    def _event(self, kind: str, f: dict) -> None:
+        if kind == 'phase':
+            name = f.get('name')
+            if name not in _ORDER:
+                return
+            if name in ('setup', 'extract', 'demucs', 'asr', 'clean', 'translate', 'gender'):
+                self._leave_ocr()       # come i marcatori 1..6.5 del testo
+            if name == 'asr':
+                engine = str(f.get('engine') or '').lower()
+                for key, w in _ASR_BY_ENGINE:
+                    if key in engine:
+                        self.weights['asr'] = w
+                        break
+            self._enter(name)
+            if f.get('fraction') is not None:
+                self.fraction[name] = max(self.fraction.get(name, 0.0), min(1.0, float(f['fraction'])))
+        elif kind == 'route':
+            if f.get('path') == 'ocr':
+                self.possible = {'setup', 'ocr_extract', 'ocr_read', 'final'}
+                if f.get('translate'):
+                    self.possible.add('ocr_translate')
+                self._enter('ocr_extract')
+        elif kind == 'audio_lang':
+            if self._same_as_target(str(f.get('lang') or '')):
+                self._drop('translate', 'gender')
+        elif kind == 'embedded':
+            self._leave_ocr()
+            self._drop('extract', 'demucs', 'asr')
+            if self._same_as_target(str(f.get('lang') or '')):
+                self._drop('translate', 'gender')
+        elif kind == 'skip':
+            self._drop(*[p for p in (f.get('phases') or []) if p in _ORDER])
+        elif kind == 'ocr_leave':
+            self._leave_ocr()
+        elif kind == 'bar':
+            group = str(f.get('phase') or '')
+            if group not in _BAR_PHASES:
+                return
+            self._evt_bars.add(group)
+            if self.phase in _BAR_PHASES[group] and f.get('pct') is not None:
+                fr = min(max(int(f['pct']), 0), 100) / 100.0
+                if fr > self.fraction.get(self.phase, 0.0):
+                    self.fraction[self.phase] = fr
 
     # ------------------------------------------------------------------
     def _compute(self) -> int:
@@ -161,7 +226,8 @@ class FileProgress:
                 return
 
         # barra interna della fase corrente
-        if self.phase in _INNER_KEYS and any(k in line for k in _INNER_KEYS[self.phase]):
+        if (self.phase in _INNER_KEYS and _PHASE_BAR.get(self.phase) not in self._evt_bars
+                and any(k in line for k in _INNER_KEYS[self.phase])):
             p = _PCT_RE.search(line)
             if p:
                 f = min(int(p.group(1)), 100) / 100.0
