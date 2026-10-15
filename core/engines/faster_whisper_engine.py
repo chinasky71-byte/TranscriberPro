@@ -25,6 +25,7 @@ import torch
 from core.engines.base_engine import TranscriptionEngine
 from utils.logger import setup_logger
 from utils.config import get_config
+from utils.eta import EtaEstimator
 from utils.transcription_profiles import ProfileConfig, TranscriptionProfile
 from utils.cache_bootstrap import HF_HUB_CACHE_DIR
 
@@ -428,6 +429,7 @@ class FasterWhisperEngine(TranscriptionEngine):
                 word_timestamps=True,
             )
             try:
+                t0_transcribe = time.time()
                 segments, info = self.faster_whisper_model.transcribe(
                     str(chunk_path),
                     vad_filter=True,
@@ -439,11 +441,28 @@ class FasterWhisperEngine(TranscriptionEngine):
                 if detected_language and auto_detect:
                     self.log(f"  🔍 Lingua rilevata automaticamente: {detected_language}")
 
-                segments = list(segments)
+                # `segments` e' un generatore pigro: e' QUI che avviene la trascrizione. Si consuma con barra
+                # ed ETA reali (prima `list()` la nascondeva e la barra saltava da 0 a 99% in un istante).
+                _seg_list = []
+                _live_pct = -1
+                _live_eta = EtaEstimator()
+                for _seg in segments:
+                    if self._cancelled:
+                        break
+                    _seg_list.append(_seg)
+                    if total_duration > 0:
+                        _f = min(_seg.end / total_duration, 0.99)
+                        _txt = _live_eta.update(_f)
+                        if int(_f * 100) != _live_pct:
+                            _live_pct = int(_f * 100)
+                            _bar = '█' * (_live_pct // 10) + '░' * (10 - _live_pct // 10)
+                            self.log(f"  🎙️ Trascrizione: [{_bar}] {_live_pct:3d}%{_txt}")
+                segments = _seg_list
                 # v1.30.0 (core/whisper_lang_retry.py, trovato su X Factor): SOLO con lingua forzata (mai in
                 # auto-detect, che sceglie già liberamente) i segmenti/vuoti sospetti vengono ritrascritti con
                 # rilevamento lingua e sostituiti solo se la lingua rilevata è accettata (default solo 'en').
-                if not auto_detect and self.config.get('whisper_lang_retry_enabled', True):
+                if (not auto_detect and not self._cancelled
+                        and self.config.get('whisper_lang_retry_enabled', True)):
                     try:
                         import soundfile as sf
                         x, sr_wav = sf.read(str(chunk_path), dtype='float32', always_2d=True)
@@ -456,8 +475,6 @@ class FasterWhisperEngine(TranscriptionEngine):
                     except Exception as e:
                         logger.warning(f"[whisper-lang-retry] disattivato per questo file: {e}", exc_info=True)
 
-                last_pct = -1
-                t0_transcribe = time.time()
                 for segment in segments:
                     if self._cancelled:
                         break
@@ -470,13 +487,6 @@ class FasterWhisperEngine(TranscriptionEngine):
                             for w in (segment.words or [])
                         ],
                     })
-                    if total_duration > 0:
-                        pct = min(int((segment.end / total_duration) * 100), 99)
-                        if pct != last_pct:
-                            bars = int(pct / 10)
-                            bar = '█' * bars + '░' * (10 - bars)
-                            self.log(f"  🎙️ Trascrizione: [{bar}] {pct:3d}%")
-                            last_pct = pct
 
                 elapsed = time.time() - t0_transcribe
                 mins, secs = divmod(int(elapsed), 60)
@@ -502,6 +512,7 @@ class FasterWhisperEngine(TranscriptionEngine):
             # ── Modalità classica: N chunk sequenziali ──
             failed_chunks = 0
             last_progress_pct = -1
+            eta = EtaEstimator()
             t0_transcribe = time.time()
 
             self.log(f"  📊 Trascrizione di {total_chunks} chunks audio...")
@@ -608,10 +619,11 @@ class FasterWhisperEngine(TranscriptionEngine):
                         })
 
                     pct = int((chunk_num / total_chunks) * 100)
+                    eta_txt = eta.update(chunk_num / total_chunks)
                     if pct != last_progress_pct:
                         bars = int(pct / 10)
                         bar = '█' * bars + '░' * (10 - bars)
-                        self.log(f"  🎙️ Trascrizione: [{bar}] {pct:3d}% ({chunk_num}/{total_chunks})")
+                        self.log(f"  🎙️ Trascrizione: [{bar}] {pct:3d}% ({chunk_num}/{total_chunks}){eta_txt}")
                         last_progress_pct = pct
 
                 except Exception as e:

@@ -31,6 +31,7 @@ import torch
 from core.engines.base_engine import TranscriptionEngine
 from utils.logger import setup_logger
 from utils.config import get_config
+from utils.eta import EtaEstimator
 from utils.cache_bootstrap import HF_CACHE, HF_HUB_CACHE_DIR
 
 logger = setup_logger()
@@ -271,6 +272,7 @@ class CanaryEngine(TranscriptionEngine):
         threading.Thread(target=_drain_stderr, args=(proc.stderr,), daemon=True).start()
 
         last_pct = -1
+        eta = EtaEstimator()
         try:
             for line in proc.stdout:
                 if self._cancelled:
@@ -286,14 +288,16 @@ class CanaryEngine(TranscriptionEngine):
                     try:
                         done, tot = line.split()[1].split('/')
                         pct = int((int(done) / max(int(tot), 1)) * 100)
+                        eta_txt = eta.update(int(done) / max(int(tot), 1))
                         if pct != last_pct:
                             bars = int(pct / 10)
                             bar = '█' * bars + '░' * (10 - bars)
-                            self.log(f"  🎙️ Trascrizione: [{bar}] {pct:3d}% ({done}/{tot})")
+                            self.log(f"  🎙️ Trascrizione: [{bar}] {pct:3d}% ({done}/{tot}){eta_txt}")
                             last_pct = pct
                     except Exception:
                         pass
                 elif line.startswith("LOAD_DONE"):
+                    eta = EtaEstimator()   # il caricamento del modello non fa parte del ritmo di trascrizione
                     self.log(f"  ✅ Canary caricato nel subprocess ({line.split()[-1]})")
                 elif line.startswith("ERRORE"):
                     self.log(f"  ❌ {line}")
