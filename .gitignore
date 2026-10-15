@@ -51,6 +51,7 @@ whisper_split_eval/
 split_eval/
 gender_eval/
 diar_eval/
+pipeline_bench/
 Gemma training/
 
 # ---------------------------------------------------------------------------

@@ -41,8 +41,9 @@ class EtaEstimator:
             remaining = self.remaining_seconds(now, f)
             if remaining is None:
                 return ""
-            minutes = int(remaining // 60)
-            return f" │ ~{minutes}m" if minutes else f" │ ~{max(1, int(remaining))}s"
+            if remaining < 60:
+                return f" │ ~{max(1, int(remaining))}s"
+            return f" │ ~{int(remaining / 60 + 0.5)}m"       # minuto piu' vicino: il troncamento sottostimava
         except Exception:
             return ""
 
