@@ -3,6 +3,14 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.9 — 2026-10-15 — `process()` spezzato: anche STEP 0/1/1b (solo spostamento di codice)
+
+- Selezione dei sottotitoli embedded e OCR dei bitmap spostati in `_select_subtitles_step`, che restituisce
+  `(subtitle_path, source_language_639_2, ocr_done)`; `process()` e' ora un orchestratore di ~230 righe (era 970).
+  Stesso log, stessi eventi, stesse eccezioni.
+- **Verifica**: stringhe costanti identiche; banco 9/9 OK con tracce uguali al riferimento 1.30.8 (salvo il conteggio dei
+  blocchi non tradotti in `c3b_force_audio`, ASR non deterministico); bugcheck Opus senza difetti.
+
 ## 1.30.8 — 2026-10-15 — `process()` spezzato (solo spostamento di codice)
 
 - **Refactor senza cambi di comportamento**: `ProcessingPipeline.process()` (970 righe) cede i blocchi a metodi privati:
