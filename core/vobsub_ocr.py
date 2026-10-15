@@ -222,7 +222,6 @@ class VobSubOcr:
                 stream_lang3 = raw
         ocr_lang = pick_tesseract_lang(stream_lang3, fallback=self._cfg(CFG_LANGUAGE, DEFAULT_LANGUAGE))
         if stream_lang3 not in ('und', 'unk', '') and ocr_lang != stream_lang3:
-            from core.bitmap_ocr_common import available_tesseract_langs
             if stream_lang3 not in available_tesseract_langs():
                 raise UnsupportedLanguage(
                     f"Lingua '{stream_lang3}' non supportata da Tesseract (traineddata mancante)")

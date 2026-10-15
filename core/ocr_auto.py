@@ -53,6 +53,9 @@ def run_ocr_auto(ocr, log_callback=None, italian: bool = True) -> bool:
     from core.vobsub_ocr import BitmapNotSupported as VobNotSupported
     from core.pgs_types import ContentNotItalian
     _not_supported = (PgsNotSupported, VobNotSupported)
+    # Indice (ffprobe) della traccia bitmap data per italiana ma con testo di un'altra lingua, se il
+    # job la ha tradotta con successo: lo legge la pipeline per sostituirla nell'MKV col sidecar.
+    ocr.mislabeled_stream_index = None
 
     if not italian:
         events, content_lang = ocr.ocr_to_events()
@@ -64,7 +67,10 @@ def run_ocr_auto(ocr, log_callback=None, italian: bool = True) -> bool:
         if log_callback:
             log_callback(f"⚙️ OCR — la traccia {exc.stream_index} contiene testo {exc.lang.upper()}: "
                          f"verra' tradotta.")
-        return convert_and_translate(ocr, exc.srt_text, exc.lang, log_callback)
+        done = convert_and_translate(ocr, exc.srt_text, exc.lang, log_callback)
+        if done and exc.lang != 'it':
+            ocr.mislabeled_stream_index = exc.stream_index
+        return done
     except _not_supported:
         # Nessuna traccia italiana di questo codec → OCR della traccia migliore
         # (non italiana) + traduzione verso l'italiano. Se non c'è NESSUN bitmap,
