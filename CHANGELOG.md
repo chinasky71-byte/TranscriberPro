@@ -3,6 +3,16 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.4.15.10.26 — 2026-10-15 — Guardia contro la riscrittura del video durante il job
+
+- **File cambiato da un altro programma (`core/pipeline.py`, `_video_unchanged`)**: il remux in place (sostituzione della traccia segnata
+  come italiana, opzione "Muxa nel video") finisce con `temp.replace(video)`. Se un altro programma (es. FileFlows) riscrive il file mentre
+  la pipeline lavora, la sostituzione ne cancellerebbe in silenzio il risultato, e l'upload avrebbe l'hash di un file non piu' esistente
+  (visto con RahXephon E04, sparito a meta' job). Ora la firma del video (dimensione + data di modifica) si registra a inizio job e si
+  ricontrolla prima dell'upload, all'inizio del mux e subito prima di sostituire l'originale: se e' cambiato o sparito non si fa ne'
+  upload ne' remux, il video resta intatto, il sidecar si mantiene e il log lo dice. Dopo un mux nostro la firma si aggiorna.
+  Con input `.srt` la risoluzione del video non puo' sollevare eccezioni (share offline).
+
 ## 1.30.4 — 2026-10-15 — Avanzamento del file proporzionale alla durata reale delle fasi
 
 - **Barra del singolo file (`gui/file_progress.py` nuovo, `gui/workers.py`)**: la percentuale (barra nell'elenco della coda e barra sotto la

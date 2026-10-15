@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.30.4-orange)
+![Version](https://img.shields.io/badge/Version-1.30.4.15.10.26-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -315,6 +315,7 @@ This project is licensed under the MIT License.
 ### v1.24.0 - v1.30.2
 Six weeks of work on translation/transcription quality for non-English sources, condensed here; full detail,
 measurement methodology and decision rules for every claim below are in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.4.15.10.26** — Guard against the video being rewritten by another program (e.g. FileFlows) during a job: upload and in-place remux are skipped if its size/mtime changed. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.30.4** — Per-file progress (queue row and poster bar) follows the real duration of each phase instead of a fixed step table: no more freezing at 60% during transcription or 88% during translation. OCR+translation now shows its progress bars. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.30.3.15.10.26** — The transcription progress bar shows the estimated time remaining (Qwen3, Canary, Whisper); Whisper's single-file path now reports real progress. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.30.3.14.10.26** — Cosmetic: progress bars in the subtitle-sync dialog log are rewritten in place like in the main log. Details in [CHANGELOG.md](CHANGELOG.md).
