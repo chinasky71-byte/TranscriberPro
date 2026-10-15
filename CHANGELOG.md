@@ -3,6 +3,18 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.5 — 2026-10-15 — Coda headless con file di stato; ETA arrotondato; banco di validazione
+
+- **Coda headless (`core/queue_runner.py`, nuovo)**: esegue i file uno alla volta con lo stesso `core.pipeline_cli` della GUI e
+  scrive a ogni evento `~/.transcriberpro/queue_status.json` (file corrente, fase, percentuale, ETA del file e della coda,
+  completati/falliti, un log per file), con la stessa percentuale della GUI (`FileProgress`). Ctrl+C uccide l'intero albero dei
+  processi e segna la coda `cancelled`; ogni errore su un file lo segna fallito e la coda prosegue; lock tra due code; avviso se la GUI
+  e' aperta; `--skip-existing`, `--recursive`, `--notify` (notifica di Windows). Uso: `python -m core.queue_runner "<cartella>"`.
+- **ETA della trascrizione (`utils/eta.py`)**: il suffisso `~Nm` troncava i minuti e sottostimava sempre (errore medio 15% sul log
+  reale di Bake Off, fino a -39% nel finale); ora arrotonda al minuto piu' vicino.
+- **Validazione**: banco su clip reali (fuori dal repo) che copre selezione per contenuto, sostituzione della traccia segnata come
+  italiana, guardia contro il file riscritto, opzione "Muxa nel video", OCR+traduzione con barre, ETA e avanzamento: 6 casi su 6.
+
 ## 1.30.4.15.10.26 — 2026-10-15 — Guardia contro la riscrittura del video durante il job
 
 - **File cambiato da un altro programma (`core/pipeline.py`, `_video_unchanged`)**: il remux in place (sostituzione della traccia segnata

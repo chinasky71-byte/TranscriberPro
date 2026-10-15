@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.30.4.15.10.26-orange)
+![Version](https://img.shields.io/badge/Version-1.30.5-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -315,6 +315,7 @@ This project is licensed under the MIT License.
 ### v1.24.0 - v1.30.2
 Six weeks of work on translation/transcription quality for non-English sources, condensed here; full detail,
 measurement methodology and decision rules for every claim below are in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.5** — Headless queue runner (`python -m core.queue_runner <folder>`) with a live `queue_status.json`; transcription ETA rounds to the nearest minute. Validated on real clips with a bench (outside the repo). Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.30.4.15.10.26** — Guard against the video being rewritten by another program (e.g. FileFlows) during a job: upload and in-place remux are skipped if its size/mtime changed. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.30.4** — Per-file progress (queue row and poster bar) follows the real duration of each phase instead of a fixed step table: no more freezing at 60% during transcription or 88% during translation. OCR+translation now shows its progress bars. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.30.3.15.10.26** — The transcription progress bar shows the estimated time remaining (Qwen3, Canary, Whisper); Whisper's single-file path now reports real progress. Details in [CHANGELOG.md](CHANGELOG.md).
@@ -1081,10 +1082,10 @@ Lista aggiornata a ogni commit + push di una nuova versione.
 - Training NLLB "corpus massimo" (corpus ampliato per la traduzione fine-tuned)
 
 **Da validare / misurare**
-- Avanzamento del file per fasi pesate (v1.30.4): provato in replay sui log reali; la curva dell'OCR+traduzione si vedra' al prossimo job reale
-- Opzione job "Muxa nel video": provata su MKV sintetici e sulla GUI offscreen; non ancora su una coda reale
-- Sostituzione della traccia segnata per errore come italiana: provata su MKV sintetico e sul caso reale solo a mano; non ancora su una coda reale
-- Selezione sottotitoli embedded per contenuto (lingua dal testo, flag forced anomalo): provata su un episodio reale (RahXephon) e, in sola lettura, su 682 file della cronologia; non ancora su un'intera coda
+- Avanzamento del file per fasi pesate (v1.30.4): validato in replay su log reali e su 6 clip reali; resta da vedere l'aspetto delle barre in GUI (lo verifica l'utente)
+- Opzione job "Muxa nel video": validata su clip reali (aggiunta, copia embedded non duplicata, OCR, trascrizione); non ancora usata dall'utente in GUI
+- Sostituzione della traccia segnata per errore come italiana: validata su clip reale (e guardia contro il file riscritto); resta non coperto il caso bitmap dichiarato italiano ma con testo straniero
+- Selezione sottotitoli embedded per contenuto: validata su clip reali (tag errato, lingua non dichiarata, flag forced anomalo, italiano corretto); non ancora su una coda lunga reale e il caso OCR fallito con ripiego sull'audio non ha una clip
 - Finestra principale con riordino della coda (trascinamento) e nuovo log a schermo: non ancora provati dall'utente su una coda reale (verifica che dimensioni e colonne non si muovano)
 - Glossario per-show: GUI semi-automatica non ancora validata su uno show reale (il canale Qwen su GPU è invece validato su uno show reale)
 - Effetto dello split per frasi sulla qualità di traduzione, non ancora misurato
