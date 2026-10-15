@@ -519,308 +519,10 @@ class ProcessingPipeline:
             # ============================================================
             # STEP 2-4: Trascrizione (se necessaria)
             # ============================================================
-            if subtitle_path is None:
-
-                # STEP 2: Estrazione audio
-                self._ev('phase', name='extract')
-                self._log("\n2. Estrazione traccia audio...")
-                audio_selector = AudioTrackSelector(str(self.video_path))
-                self._track_selector = audio_selector
-                audio_stream = audio_selector.select_best_track()
-                
-                if audio_stream:
-                    audio_path = self.file_handler.get_temp_path(
-                        self.video_path, 
-                        "extracted_audio.wav"
-                    )
-                    
-                    if audio_selector.extract_audio_track(audio_path, audio_stream['index']):
-                        # Usa get_selected_language() per ottenere lingua traccia
-                        source_language_639_2 = audio_selector.get_selected_language()
-                        self._ev('audio_lang', lang=source_language_639_2)
-                        self._log(f"âœ… Audio estratto. Lingua: {source_language_639_2}")
-
-                        if self._cancelled:
-                            self._log("⏹ Elaborazione annullata")
-                            return False
-
-                        # ================================================
-                        # STEP 2.5: Pre-carica WhisperModel PRIMA di Demucs
-                        #
-                        # ctranslate2 ≥4.7 usa lazy CUDA init: il suo backend
-                        # CUDA si inizializza al primo WhisperModel().
-                        # Se PyTorch ha già usato CUDA pesantemente (Demucs),
-                        # ctranslate2 trova il contesto in uno stato che non
-                        # gestisce → std::abort() silenzioso.
-                        #
-                        # Caricando Whisper QUI (contesto CUDA vergine), Demucs
-                        # viene poi eseguito con ctranslate2 già inizializzato,
-                        # senza conflitti. VRAM: ~1.5GB Whisper + ~5GB Demucs
-                        # peak = ~6.5GB su 12GB → sicuro.
-                        #
-                        # Multi-engine: whisper viene pre-caricato SEMPRE
-                        # (fallback caldo + ordine CUDA garantito); se il
-                        # routing sceglie Canary/Qwen3, la facade lo scarica
-                        # prima di caricare l'engine nuovo.
-                        # ================================================
-                        self._ev('phase', name='extract')
-                        self._log("\n2.5. Pre-caricamento Whisper (ordine CUDA / ripiego)...")
-                        _planned_lang = self.LANG_MAP_639_2_TO_639_1.get(source_language_639_2)
-                        if _planned_lang == 'und':
-                            _planned_lang = None
-                        if self._transcriber is None:
-                            # language_hint: carica subito il Whisper specializzato
-                            # della lingua (whisper_model_by_language), niente reload
-                            self._transcriber = Transcriber(log_callback=self._log_callback,
-                                                            language_hint=_planned_lang)
-
-                        # ── Pianificazione engine (sistema multi-engine) ──
-                        # Decide QUI (prima di Demucs) l'engine per la lingua
-                        # della traccia: determina anche la strategia di
-                        # chunking — la modalità batched (file unico) è
-                        # gestibile solo da faster-whisper (Qwen3 max 1200s,
-                        # Canary max ~40s per input).
-                        from core.engine_router import EngineRouter
-                        _planned_engine, _plan_reason = EngineRouter.plan(_planned_lang, self.config)
-                        _ENGINE_LABELS = {
-                            'canary': 'Canary-Qwen-2.5B',
-                            'qwen3': 'Qwen3-ASR',
-                            'faster-whisper': 'Faster-Whisper',
-                        }
-                        _engine_label = _ENGINE_LABELS.get(_planned_engine, _planned_engine)
-                        self._log(f"🧭 Engine pianificato: {_engine_label} ({_plan_reason})")
-                        # Riga letta dalla GUI (tessera "Modello" della Diagnostica).
-                        try:
-                            from utils.engine_labels import model_display
-                            self._log(f"🧩 Modello trascrizione: "
-                                      f"{model_display(_planned_engine, self.config, _planned_lang)}")
-                        except Exception as _e:
-                            logger.debug(f"Etichetta modello trascrizione non disponibile: {_e}")
-
-                        # STEP 3: Processing audio (separazione vocale + chunking)
-                        try:
-                            from faster_whisper import BatchedInferencePipeline
-                            _use_batched = (_planned_engine == 'faster-whisper')
-                        except ImportError:
-                            _use_batched = False
-
-                        step3_label = "Demucs + BatchedInferencePipeline" if _use_batched else "Demucs + Chunking"
-                        self._ev('phase', name='demucs')
-                        self._log(f"\n3. Processing audio ({step3_label})...")
-                        if self._audio_processor is None:
-                            self._audio_processor = AudioProcessor()
-                            self._audio_processor.set_log_callback(self._log_callback)
-
-                        chunk_list = self._audio_processor.process_for_transcription(
-                            audio_path=audio_path,
-                            output_dir=temp_dir,
-                            use_batched_pipeline=_use_batched,
-                            engine=_planned_engine
-                        )
-
-                        if self._cancelled:
-                            self._log("⏹ Elaborazione annullata")
-                            return False
-
-                        if chunk_list:
-                            self._log(f"âœ… Audio processato: {len(chunk_list)} chunks creati")
-
-                            if self._cancelled:
-                                self._log("⏹ Elaborazione annullata")
-                                return False
-
-                            # ================================================
-                            # Unload anticipato (solo engine ≠ whisper):
-                            # Demucs e whisper pre-caricato non servono più —
-                            # scaricarli QUI fa partire il load di Qwen3/
-                            # Canary con VRAM massima (niente spillover WDDM).
-                            # Con len==1 la facade forza whisper → non si
-                            # scarica (evita unload/reload inutile).
-                            # Whisper resta ricaricabile per il fallback.
-                            # ================================================
-                            if _planned_engine != 'faster-whisper' and len(chunk_list) > 1:
-                                self._log("🧹 Unload anticipato Demucs + Whisper (engine pianificato: "
-                                          f"{_engine_label})...")
-                                if self._audio_processor:
-                                    self._audio_processor.cleanup_model()
-                                if self._transcriber:
-                                    self._transcriber.unload_engines()
-                                release_ram_to_os()
-
-                            # STEP 4: Trascrizione (engine dal router; su
-                            # errore degli engine nuovi → fallback automatico
-                            # su Faster-Whisper dentro la facade)
-                            self._ev('phase', name='asr', engine=str(_engine_label))
-                            self._log(f"\n4. Trascrizione audio ({_engine_label})...")
-                            if self._transcriber is None:
-                                # Fallback: non dovrebbe mai entrare qui dopo il pre-load 2.5
-                                self._transcriber = Transcriber(log_callback=self._log_callback,
-                                                                language_hint=_planned_lang)
-                            
-
-                            # Inietta fatigue counter per OOM prevention
-                            if self._files_processed_in_batch > 0:
-                                self._transcriber.set_files_processed(self._files_processed_in_batch)
-
-                            subtitle_path = self.file_handler.get_temp_path(
-                                self.video_path, 
-                                "transcribed.srt"
-                            )
-                            
-                            # Whisper vuole ISO 639-1 (2 lettere, es. 'sr').
-                            # source_language_639_2 viene dal MKV in ISO 639-2 (3 lettere, es. 'srp').
-                            # Convertiamo prima; 'und' diventa None (auto-detect Whisper).
-                            _whisper_lang = self.LANG_MAP_639_2_TO_639_1.get(source_language_639_2)
-                            if _whisper_lang == 'und':
-                                _whisper_lang = None
-
-                            success, detected_lang_639_1 = self._transcriber.transcribe_chunks(
-                                audio_chunks=chunk_list,
-                                output_path=str(subtitle_path),
-                                whisper_language=_whisper_lang
-                            )
-                            
-                            # Validazione risultato
-                            if success and detected_lang_639_1 and subtitle_path.exists():
-                                # Converti da ISO 639-1 (2 lettere) a ISO 639-2 (3 lettere)
-                                source_language_639_2 = self._convert_639_1_to_639_2(detected_lang_639_1)
-                                self._log(f"âœ… Trascrizione completata. Lingua rilevata: {source_language_639_2}")
-                            else:
-                                raise Exception("Trascrizione fallita o file SRT non creato.")
-
-                            if self._cancelled:
-                                self._log("⏹ Elaborazione annullata")
-                                return False
-
-                            # ================================================
-                            # STEP 4.2: Forced Alignment (opzionale)
-                            # Whisper ancora in VRAM — Wav2Vec2 caricato
-                            # affianco (~5GB totali, dentro i 12GB).
-                            # Aggiorna _last_segments con timestamp precisi
-                            # che verranno poi usati dalla diarization.
-                            # ================================================
-                            enable_forced_alignment = self.config.get('enable_forced_alignment', False)
-                            if enable_forced_alignment and len(chunk_list) == 1:
-                                vocals_path_align = str(chunk_list[0][0])
-                                from core.aligner import ForcedAligner
-                                from core.transcriber import save_srt_file
-                                aligner = ForcedAligner(self._log)
-                                try:
-                                    device_align = "cuda" if torch.cuda.is_available() else "cpu"
-                                    loaded = aligner.load(detected_lang_639_1, device_align)
-                                    if loaded:
-                                        self._log("🔠 Forced alignment in corso...")
-                                        aligned_segs = aligner.align(
-                                            list(self._transcriber._last_segments),
-                                            vocals_path_align,
-                                        )
-                                        self._transcriber._last_segments = aligned_segs
-                                        save_srt_file(aligned_segs, subtitle_path)
-                                        self._log("✅ Timestamp riallineati con precisione fonema")
-                                except Exception as e:
-                                    self._log(f"⚠️ Forced alignment fallito: {e} — timestamp Whisper mantenuti")
-                                finally:
-                                    aligner.unload()
-
-                            # ================================================
-                            # STEP 4.5: Speaker Diarization
-                            #
-                            # Si attiva con 'enable_diarization' (storica) O
-                            # con 'dialogue_style_enabled' (stile dialoghi
-                            # professionale, default ON). Funziona con TUTTI
-                            # gli engine: in modalità batched il vocals è il
-                            # chunk unico; in modalità chunk classici si usa
-                            # il file vocals COMPLETO che Demucs lascia su
-                            # disco (extracted_audio_vocals.wav), con
-                            # fallback sull'audio estratto.
-                            # ================================================
-                            enable_diarization = (
-                                self.config.get('enable_diarization', False)
-                                or self.config.get('dialogue_style_enabled', True)
-                            )
-                            # Copia dei segmenti per la formattazione di ripiego
-                            # (il transcriber viene liberato prima della diarization)
-                            _segments_snapshot = list(
-                                getattr(self._transcriber, '_last_segments', None) or [])
-                            if enable_diarization:
-                                if self.config.is_huggingface_token_set():
-                                    segments_for_diarization = list(self._transcriber._last_segments)
-                                    # A/B diarization (v. piano_fix_pipeline_trascrizione
-                                    # punto A): 'original' bypassa Demucs anche in modalità
-                                    # batched — valutato PRIMA del ramo su len(chunk_list),
-                                    # altrimenti il caso a chunk singolo lo ignorerebbe.
-                                    _diar_src = self.config.get('diarization_audio_source', 'vocals')
-                                    if _diar_src == 'original':
-                                        vocals_path = str(audio_path)
-                                        self._log("  🎭 Diarization su audio ORIGINALE (A/B: bypass Demucs)")
-                                    elif len(chunk_list) == 1:
-                                        vocals_path = str(chunk_list[0][0])
-                                    else:
-                                        _vocals_candidate = audio_path.parent / f"{audio_path.stem}_vocals.wav"
-                                        vocals_path = str(
-                                            _vocals_candidate if _vocals_candidate.exists()
-                                            else audio_path)
-
-                                    # Cleanup modelli (libera VRAM per pyannote)
-                                    if self._transcriber:
-                                        self._transcriber.cleanup()
-                                        self._transcriber = None
-                                    if self._audio_processor:
-                                        self._audio_processor.cleanup_model()
-                                        self._audio_processor = None
-                                    if torch.cuda.is_available():
-                                        torch.cuda.synchronize()
-                                        gc.collect()
-                                        torch.cuda.empty_cache()
-                                    release_ram_to_os()
-
-                                    from core.diarizer import Diarizer
-                                    from core.subtitle_formatter import SubtitleFormatter
-                                    self._log("🎭 Speaker diarization in corso...")
-                                    diarizer = Diarizer(self.config.get_huggingface_token(), self._log)
-                                    try:
-                                        diarizer.load()
-                                        num_spk = self.config.get('diarization_num_speakers', 0)
-                                        diarization_result = diarizer.diarize(
-                                            vocals_path, num_speakers=num_spk,
-                                            audio_source_label=_diar_src)
-                                        # Salva i turni per il riuso nello STEP 6.5
-                                        # (Gender Corrector v2: risparmia ~1-2 min/film)
-                                        try:
-                                            _diar_json = self.file_handler.get_temp_path(
-                                                self.video_path, "diarization_turns.json")
-                                            _diar_json.write_text(
-                                                json.dumps(diarization_result),
-                                                encoding='utf-8')
-                                        except Exception as e:
-                                            logger.warning(f"Salvataggio diarization per riuso fallito: {e}")
-                                        annotated = diarizer.assign_speakers(segments_for_diarization, diarization_result)
-                                        formatter = SubtitleFormatter(
-                                            log_callback=self._log,
-                                            readability=bool(self.config.get(
-                                                'subtitle_readability_enabled', True)))
-                                        if formatter.save(annotated, subtitle_path):
-                                            self._log("✅ Speaker labels + formattazione professionale applicati")
-                                        else:
-                                            self._log("⚠️ Formattazione con speaker non riuscita — provo senza speaker")
-                                            self._format_srt_fallback(_segments_snapshot, subtitle_path)
-                                    except Exception as e:
-                                        self._log(f"⚠️ Diarization fallita: {e} — SRT senza speaker labels")
-                                        self._format_srt_fallback(_segments_snapshot, subtitle_path)
-                                    finally:
-                                        diarizer.unload()
-                                else:
-                                    self._log("⚠️ Diarization abilitata ma token HuggingFace non configurato.")
-                                    self._format_srt_fallback(_segments_snapshot, subtitle_path)
-                            else:
-                                self._format_srt_fallback(_segments_snapshot, subtitle_path)
-
-                        else:
-                            raise Exception("Processing audio fallito - nessun chunk creato.")
-                    else:
-                        raise Exception("Estrazione traccia audio fallita.")
-                else:
-                    raise Exception("Nessuna traccia audio trovata nel video.")
+            _r = self._transcribe_step(subtitle_path, source_language_639_2, temp_dir)
+            if _r is None:
+                return False
+            subtitle_path, source_language_639_2 = _r
 
             # ============================================================
             # CLEANUP ANTICIPATO: Whisper + Demucs non servono piu' dopo
@@ -829,44 +531,7 @@ class ProcessingPipeline:
             # piu' memoria libera. Idempotente: STEP 5.5/6.5 ripeteranno
             # questo blocco come rete di sicurezza.
             # ============================================================
-            if self._transcriber is not None:
-                try:
-                    self._transcriber.cleanup()
-                except Exception as e:
-                    logger.warning(f"Errore cleanup transcriber (post-trascrizione): {e}")
-                try:
-                    del self._transcriber
-                except Exception:
-                    pass
-                self._transcriber = None
-            if self._audio_processor is not None:
-                try:
-                    self._audio_processor.cleanup_model()
-                except Exception as e:
-                    logger.warning(f"Errore cleanup audio_processor (post-trascrizione): {e}")
-                try:
-                    del self._audio_processor
-                except Exception:
-                    pass
-                self._audio_processor = None
-            self._clear_vram()
-
-            # ============================================================
-            # STEP 5: Pulizia e Normalizzazione SRT
-            # ============================================================
-            if subtitle_path is None:
-                 raise Exception("Nessun sottotitolo o trascrizione disponibile.")
-                 
-            self._ev('phase', name='clean')
-            self._log("\n5. Pulizia e normalizzazione sottotitoli...")
-            cleaned_srt_path = self.file_handler.get_temp_path(
-                self.video_path, 
-                f"temp_{source_language_639_2}_cleaned.srt"
-            )
-            
-            SubtitleCleaner.clean_file(subtitle_path, cleaned_srt_path)
-            subtitle_path = cleaned_srt_path
-            self._log("âœ… Pulizia e fix overlap completati.")
+            subtitle_path = self._clean_subtitles_step(subtitle_path, source_language_639_2)
 
             if self._cancelled:
                 self._log("⏹ Elaborazione annullata")
@@ -875,418 +540,26 @@ class ProcessingPipeline:
             # ============================================================
             # STEP 5.5: Scarica Whisper e Demucs prima della traduzione
             # ============================================================
-            if self._transcriber:
-                self._transcriber.cleanup()
-                self._transcriber = None
-            if self._audio_processor:
-                self._audio_processor.cleanup_model()
-                self._audio_processor = None
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-                torch.cuda.empty_cache()
-            release_ram_to_os()
+            self._release_asr_models_before_translation()
 
             # ============================================================
             # STEP 6: Traduzione (se lingua sorgente != lingua target)
             # ============================================================
-            source_language_639_1 = (self.LANG_MAP_639_2_TO_639_1.get(source_language_639_2)
-                                     or normalize_lang(source_language_639_2))
-            target_language_639_1 = self.LANG_MAP_639_2_TO_639_1.get(target_language, 'und')
-
-            # Traccia se una traduzione è stata EFFETTIVAMENTE eseguita:
-            # il gender corrector (STEP 6.5) corregge gli errori di genere
-            # introdotti dalla traduzione — su italiano NATIVO (trascrizione
-            # diretta o sottotitoli embedded ita) non deve girare.
-            translation_performed = False
-            translation_failed = False
-
-            if source_language_639_1 != target_language_639_1:
-
-                self._ev('phase', name='translate')
-                self._log(f"\n6. Traduzione ({source_language_639_1} â†’ {target_language_639_1})...")
-                # âœ… FIX TRANSLATOR SELECTION: Usa il metodo corretto per leggere il modello dalla config
-                # Leggi il modello di traduzione selezionato dall'utente
-                selected_model = self.config.get_translation_model()
-
-                # Instradamento automatico (v1.25.0): TranslateGemma ('llm') e' stato
-                # addestrato SEMPRE con source_lang_code "en" (vedi Gemma
-                # training/make_dataset.py), anche sulle coppie non inglesi. Misurato
-                # il 27/09/2026 su 140 blocchi francesi: l'etichetta 'en' storica
-                # lascia molto francese non tradotto; l'etichetta vera 'fr' lo
-                # dimezza ma peggiora la fluidita' oltre la soglia della regola
-                # (GEMBA fluency+style +14,3%) -> NON adottata. NLLB fine-tuned sulla
-                # stessa misura batte entrambe (francese residuo quasi azzerato,
-                # fluidita' comparabile): finche' TranslateGemma non e' addestrato
-                # anche su sorgenti non inglesi, si instrada li' automaticamente.
-                # Non tocca la scelta esplicita dell'utente per gli altri motori
-                # (NLLB base, Claude, OpenAI, OpenSubtitles): quelli dichiarano gia'
-                # la lingua sorgente vera nel loro prompt. Dettagli: memoria
-                # traduzione_non_inglese_2026_09_27.md.
-                _routed = self._route_non_english_away_from_llm(
-                    selected_model, source_language_639_1)
-                if _routed != selected_model:
-                    self._log(f"⚠️ TranslateGemma non e' pronto per sorgenti diverse "
-                              f"dall'inglese ({source_language_639_1}): instradato "
-                              f"automaticamente su NLLB fine-tuned.")
-                    selected_model = _routed
-
-                self._log(f"📋 Modello di traduzione selezionato: {selected_model.upper()}")
-
-                # Contesto dell'opera per il traduttore: titolo e trama sono
-                # già in self.metadata e aiutano soprattutto sui nomi propri e
-                # sul registro. I motori che non lo usano lo ignorano.
-                translation_context = None
-                if self.metadata:
-                    _bits = [self.metadata.get('title') or self.metadata.get('name'),
-                             self.metadata.get('overview')]
-                    translation_context = ". ".join(
-                        str(b).strip() for b in _bits if b) or None
-
-                # Glossario a resa fissa per la serie (core/glossary.py):
-                # {} se non esiste, nessun cambio di comportamento.
-                translation_glossary = {}
-                if self.metadata and self.metadata.get('id'):
-                    from core.glossary import load_glossary
-                    translation_glossary = load_glossary(self.metadata['id'])
-                    if translation_glossary:
-                        self._log(f"   Glossario attivo: {len(translation_glossary)} termini")
-
-                # Usa la factory intelligente passando la scelta esplicita del modello.
-                # Ogni eccezione qui (factory, callback, traduzione) equivale a
-                # "traduzione fallita": si prosegue con la regola di STEP 7
-                # (salva comunque + job fallito) invece di perdere il lavoro.
-                try:
-                    self._translator = get_translator(model_type=selected_model,
-                                                      context=translation_context,
-                                                      glossary=translation_glossary)
-                    self._motore_traduzione = selected_model
-                    self._translator.set_log_callback(self._log_callback)
-
-                    translated_srt_path = self.file_handler.get_temp_path(
-                        self.video_path,
-                        f"translated_{target_language}.srt"
-                    )
-
-                    _translation_ok = self._translator.translate_file(
-                        input_path=str(subtitle_path),
-                        output_path=str(translated_srt_path),
-                        src_lang=source_language_639_1,
-                        tgt_lang=target_language_639_1,
-                        context=translation_context
-                    )
-                except InterruptedError:
-                    raise
-                except Exception as e:
-                    logger.error(f"Errore traduzione: {e}", exc_info=True)
-                    self._log(f"❌ Errore traduzione: {e}")
-                    _translation_ok = False
-
-                if _translation_ok:
-                    subtitle_path = translated_srt_path
-                    final_language_639_1 = target_language_639_1
-                    translation_performed = True
-                    self._log("âœ… Traduzione completata con successo.")
-                else:
-                    self._log("âŒ Traduzione fallita. Uso i sottotitoli originali.")
-                    final_language_639_1 = source_language_639_1
-                    translation_failed = True
-            else:
-                final_language_639_1 = source_language_639_1
-                self._ev('skip', phases=['translate', 'gender'])
-                self._log("\n6. Lingua originale == Lingua target. Salto traduzione.")
+            (subtitle_path, final_language_639_1,
+             translation_performed, translation_failed) = self._translate_step(
+                subtitle_path, source_language_639_2, target_language)
 
             if self._cancelled:
                 self._log("⏹ Elaborazione annullata")
                 return False
 
 
-            # ============================================================
-            # STEP 6.5: Correzione Genere (solo italiano, opzionale)
-            #
-            # Eseguito in SUBPROCESS isolato per liberare l'intera VRAM al
-            # LLM. Il processo principale (Python+CUDA+ctranslate2) tiene
-            # sempre ~4 GB di contesto incollato che non si puo' rilasciare
-            # senza terminare l'interprete. Lo spawn di un child process
-            # parte da CUDA context vergine -> ~11.5 GB liberi per Qwen 14B.
-            # ============================================================
-            if (final_language_639_1 == 'it'
-                    and not translation_performed
-                    and self.config.get('gender_correction_enabled', False)):
-                # Italiano NATIVO (nessuna traduzione): il corrector sarebbe
-                # inutile (niente errori di genere da traduzione) e costoso.
-                self._ev('skip', phases=['gender'])
-                self._log("\n6.5. Correzione genere saltata: italiano nativo, nessuna traduzione.")
+            # STEP 6.5: Correzione genere -> _gender_correction_step()
+            subtitle_path = self._gender_correction_step(subtitle_path, final_language_639_1,
+                                                         translation_performed)
 
-            if (final_language_639_1 == 'it'
-                    and translation_performed
-                    and self.config.get('gender_correction_enabled', False)):
-                self._ev('phase', name='gender')
-                self._log("\n6.5. Correzione genere grammaticale (v2, subprocess)...")
-                try:
-                    from core.gender_corrector_v2 import find_selector_python
-                    if not self.config.get('huggingface_token', ''):
-                        self._log("⚠️ Token HuggingFace mancante (serve per pyannote). Salto.")
-                    elif find_selector_python() is None:
-                        self._log("⚠️ Venv NLP (spaCy) non trovato. Salto.")
-                    else:
-                        # Cleanup parent: libera RAM/VRAM prima dello spawn.
-                        # Non aiuta direttamente la VRAM del child (CUDA context
-                        # parent resta), ma libera RAM e rompe ref Python locali.
-                        self._log("   Cleanup risorse parent prima dello spawn...")
-
-                        if self._transcriber is not None:
-                            try:
-                                self._transcriber.cleanup()
-                            except Exception as e:
-                                logger.warning(f"Errore cleanup transcriber (pre-LLM): {e}")
-                            try:
-                                del self._transcriber
-                            except Exception:
-                                pass
-                            self._transcriber = None
-
-                        if self._audio_processor is not None:
-                            try:
-                                self._audio_processor.cleanup_model()
-                            except Exception as e:
-                                logger.warning(f"Errore cleanup audio_processor (pre-LLM): {e}")
-                            try:
-                                del self._audio_processor
-                            except Exception:
-                                pass
-                            self._audio_processor = None
-
-                        if self._translator is not None:
-                            try:
-                                if hasattr(self._translator, 'model') and self._translator.model is not None:
-                                    try:
-                                        del self._translator.model
-                                    except Exception as e:
-                                        logger.warning(f"Errore del translator.model: {e}")
-                                self._translator.cleanup()
-                            except Exception as e:
-                                logger.warning(f"Errore cleanup translator (pre-LLM): {e}")
-                            try:
-                                del self._translator
-                            except Exception:
-                                pass
-                            self._translator = None
-
-                        for _ in range(3):
-                            self._clear_vram()
-                        release_ram_to_os()
-
-                        # Prepara args.json per il subprocess (v2: serve il
-                        # video per la speaker gender map dall'audio)
-                        corrected_path = self.file_handler.get_temp_path(
-                            self.video_path, f"gender_corrected_{final_language_639_1}.srt")
-                        args_path = self.file_handler.get_temp_path(
-                            self.video_path, "gender_correction_args.json")
-                        # Riuso diarization della trascrizione (se disponibile)
-                        _diar_json = self.file_handler.get_temp_path(
-                            self.video_path, "diarization_turns.json")
-                        # Cast TMDB per i vocativi 2ª persona (API leggera)
-                        character_context = {}
-                        if self.metadata and self.metadata.get('id'):
-                            try:
-                                character_context = self.tmdb_client.get_cast_info(
-                                    self.metadata['id'],
-                                    'tv' if self.metadata.get('season') else 'movie',
-                                    season=self.metadata.get('season'),
-                                    episode=self.metadata.get('episode'))
-                            except Exception as e:
-                                logger.warning(f"TMDB cast error: {e}")
-                        # Se l'input della pipeline è già un .srt (non un video),
-                        # self.video_path punta al sottotitolo stesso: la speaker
-                        # gender map ha bisogno dell'audio, quindi va risolto il
-                        # video reale corrispondente (stesso meccanismo usato per
-                        # l'hash upload OpenSubtitles).
-                        _gender_video_path = self._resolve_video_path()
-                        args_payload = {
-                            "input_srt": str(subtitle_path),
-                            "output_srt": str(corrected_path),
-                            "video_path": str(_gender_video_path) if _gender_video_path else None,
-                            "diarization_json": str(_diar_json) if _diar_json.exists() else None,
-                            "character_context": character_context or {},
-                        }
-                        args_path.write_text(
-                            json.dumps(args_payload, ensure_ascii=False),
-                            encoding='utf-8')
-
-                        # Spawn subprocess isolato
-                        project_root = Path(__file__).resolve().parent.parent
-                        env = os.environ.copy()
-                        env['PYTHONIOENCODING'] = 'utf-8'
-                        env['PYTHONUTF8'] = '1'
-
-                        self._log("   Avvio subprocess Gender Corrector...")
-                        try:
-                            # stderr SEPARATO: il rumore di libreria (warning
-                            # transformers/speechbrain/torchaudio) va solo nel
-                            # file di log, mai a schermo (stesso pattern di
-                            # workers._process_single_file_subprocess).
-                            proc = subprocess.Popen(
-                                [sys.executable, "-m", "core.gender_corrector_cli",
-                                 str(args_path)],
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                                cwd=str(project_root),
-                                env=env,
-                                text=True,
-                                encoding='utf-8',
-                                errors='replace',
-                                bufsize=1,
-                            )
-                        except Exception as e:
-                            self._log(f"⚠️ Spawn subprocess fallito: {e}")
-                            proc = None
-
-                        if proc is not None:
-                            self._current_proc = proc
-
-                            # Drena lo stderr del child in un thread: solo nel
-                            # file di log del parent, mai a schermo.
-                            import threading as _threading
-
-                            def _drain_gender_stderr(stream):
-                                try:
-                                    for eline in stream:
-                                        eline = eline.rstrip()
-                                        if eline:
-                                            logger.info(
-                                                f"[gender-stderr] {eline}")
-                                except Exception:
-                                    pass
-
-                            _threading.Thread(
-                                target=_drain_gender_stderr,
-                                args=(proc.stderr,), daemon=True).start()
-
-                            try:
-                                # Stream stdout linea per linea -> log GUI.
-                                # Cancel: a ogni linea controlliamo _cancelled.
-                                for line in proc.stdout:
-                                    if self._cancelled:
-                                        try:
-                                            proc.terminate()
-                                            try:
-                                                proc.wait(timeout=5)
-                                            except subprocess.TimeoutExpired:
-                                                proc.kill()
-                                        except Exception:
-                                            pass
-                                        break
-                                    line = line.rstrip()
-                                    if line:
-                                        from utils import events as _tp_events
-                                        _ev = _tp_events.parse_line(line)
-                                        if _ev is not None:
-                                            if _ev[0]:
-                                                try:
-                                                    _tp_events.emit(_ev[0], **_ev[1])
-                                                except Exception:
-                                                    pass
-                                            continue
-                                        self._log(f"   [Gender] {line}")
-                                return_code = proc.wait()
-                            finally:
-                                self._current_proc = None
-
-                            if self._cancelled:
-                                self._log("⏹ Correzione genere annullata.")
-                            elif return_code == 0 and corrected_path.exists():
-                                subtitle_path = corrected_path
-                                self._log("✅ Correzione genere completata.")
-                            else:
-                                self._log(
-                                    f"⚠️ Correzione genere fallita "
-                                    f"(exit code {return_code}). Uso originale.")
-
-                        # Cleanup args temp file (best effort)
-                        try:
-                            if args_path.exists():
-                                args_path.unlink()
-                        except Exception:
-                            pass
-                except Exception as e:
-                    self._log(f"⚠️ Errore correzione genere: {e}")
-                    logger.error(f"Gender correction error: {e}", exc_info=True)
-
-            # ============================================================
-            # STEP 7: Salvataggio File Finale
-            # ============================================================
-            self._ev('phase', name='final', fraction=0.4)
-            self._log("\n7. Salvataggio file finale...")
-            
-            # Crea nome file finale: [nome_video].[lang].srt
-            final_name = self.video_name + f".{final_language_639_1}.srt"
-            final_output_path = self.video_path.parent / final_name
-            if translation_failed and final_output_path.exists():
-                # Traduzione fallita: il file esistente (es. X.en.srt d'ingresso)
-                # non va MAI sovrascritto con la versione ripulita.
-                self._log(f"❌ Traduzione fallita: {final_output_path.name} esiste già e "
-                          f"NON viene sovrascritto.")
-                # La cartella temporanea viene cancellata a fine job: si
-                # conserva il lavoro (trascrizione/OCR) FUORI dalla libreria.
-                saved = self._preserve_recovered_srt(
-                    subtitle_path, f"{self.video_name}.{final_language_639_1}.srt")
-                if saved:
-                    self._log(f"💾 Copia di recupero (lingua originale): {saved}")
-                return False
-
-            self.last_output_path = final_output_path
-
-            try:
-                shutil.copy(subtitle_path, final_output_path)
-            except PermissionError:
-                self._log(f"❌ Impossibile salvare il file: permesso negato.\n"
-                          f"   Percorso: {final_output_path}\n"
-                          f"   Verificare che la cartella di destinazione non sia in sola lettura.")
-                return False
-
-            if translation_failed:
-                # Salvato per non perdere la trascrizione, ma il job NON e'
-                # riuscito: niente watermark del motore, niente upload.
-                self._log(f"⚠️ Salvato {final_output_path.name} nella lingua ORIGINALE "
-                          f"perché la traduzione è fallita. Job segnato come fallito.")
-                return False
-
-            self._add_watermark_subtitle(final_output_path,
-                                         self._motore_traduzione)
-
-            self._log(f"✅ File salvato: {final_output_path.name}")
-            
-            # ============================================================
-            # STEP 8: Upload OpenSubtitles (Opzionale) - DA v3.8
-            # ============================================================
-            self._upload_opensubtitles(final_output_path, final_language_639_1, imdb_id)
-
-            # Una traccia dichiarata italiana ma con testo straniero viene sostituita dal sidecar
-            # (dopo l'upload: l'hash OpenSubtitles e' quello del file originale).
-            replaced = attempted = False
-            if (final_language_639_1 == 'it' and self._mislabeled_it_stream is not None
-                    and self._mislabeled_it_stream == self._embedded_source_stream):
-                attempted = True
-                replaced = self._replace_mislabeled_italian_track(final_output_path)
-
-            # Opzione job "Muxa nel video": il sottotitolo CREATO entra nel file come nuova traccia. Non si
-            # incorpora una copia di una traccia embedded gia' nella lingua finale (nessuna traduzione), ne'
-            # se la sostituzione della traccia errata e' stata tentata (riuscita o no): in quel caso il file
-            # si lascia com'e' invece di aggiungere una seconda traccia italiana accanto a quella sbagliata.
-            if not attempted and not (self._embedded_source_stream is not None
-                                      and self._embedded_lang_639_1 == final_language_639_1):
-                self._mux_subtitle_into_video(final_output_path, final_language_639_1)
-            
-            # ============================================================
-            # STEP 9: Finalizzazione
-            # ============================================================
-            self.last_execution_time = time.time() - start_time
-            self._log(f"\n{'='*80}")
-            self._log(f"✅ Elaborazione completata! Tempo totale: {self.last_execution_time:.2f} secondi.")
-            self._log(f"{'='*80}")
-            
-            return True
+            return self._finalize_output(subtitle_path, final_language_639_1, translation_failed,
+                                         imdb_id, start_time)
 
         except InterruptedError:
             self._log("⏹ Elaborazione annullata")
@@ -1302,6 +575,777 @@ class ProcessingPipeline:
             # Esegue il cleanup in ogni caso
             self._cleanup()
             
+    def _finalize_output(self, subtitle_path, final_language_639_1: str, translation_failed: bool,
+                         imdb_id, start_time: float) -> bool:
+        """STEP 7-9 di process(): salva il file finale, upload, sostituzione/mux, chiusura.
+        Spostato da process() senza modifiche al comportamento (stesso log, stessi eventi)."""
+        # ============================================================
+        # STEP 7: Salvataggio File Finale
+        # ============================================================
+        self._ev('phase', name='final', fraction=0.4)
+        self._log("\n7. Salvataggio file finale...")
+            
+        # Crea nome file finale: [nome_video].[lang].srt
+        final_name = self.video_name + f".{final_language_639_1}.srt"
+        final_output_path = self.video_path.parent / final_name
+        if translation_failed and final_output_path.exists():
+            # Traduzione fallita: il file esistente (es. X.en.srt d'ingresso)
+            # non va MAI sovrascritto con la versione ripulita.
+            self._log(f"❌ Traduzione fallita: {final_output_path.name} esiste già e "
+                      f"NON viene sovrascritto.")
+            # La cartella temporanea viene cancellata a fine job: si
+            # conserva il lavoro (trascrizione/OCR) FUORI dalla libreria.
+            saved = self._preserve_recovered_srt(
+                subtitle_path, f"{self.video_name}.{final_language_639_1}.srt")
+            if saved:
+                self._log(f"💾 Copia di recupero (lingua originale): {saved}")
+            return False
+
+        self.last_output_path = final_output_path
+
+        try:
+            shutil.copy(subtitle_path, final_output_path)
+        except PermissionError:
+            self._log(f"❌ Impossibile salvare il file: permesso negato.\n"
+                      f"   Percorso: {final_output_path}\n"
+                      f"   Verificare che la cartella di destinazione non sia in sola lettura.")
+            return False
+
+        if translation_failed:
+            # Salvato per non perdere la trascrizione, ma il job NON e'
+            # riuscito: niente watermark del motore, niente upload.
+            self._log(f"⚠️ Salvato {final_output_path.name} nella lingua ORIGINALE "
+                      f"perché la traduzione è fallita. Job segnato come fallito.")
+            return False
+
+        self._add_watermark_subtitle(final_output_path,
+                                     self._motore_traduzione)
+
+        self._log(f"✅ File salvato: {final_output_path.name}")
+            
+        # ============================================================
+        # STEP 8: Upload OpenSubtitles (Opzionale) - DA v3.8
+        # ============================================================
+        self._upload_opensubtitles(final_output_path, final_language_639_1, imdb_id)
+
+        # Una traccia dichiarata italiana ma con testo straniero viene sostituita dal sidecar
+        # (dopo l'upload: l'hash OpenSubtitles e' quello del file originale).
+        replaced = attempted = False
+        if (final_language_639_1 == 'it' and self._mislabeled_it_stream is not None
+                and self._mislabeled_it_stream == self._embedded_source_stream):
+            attempted = True
+            replaced = self._replace_mislabeled_italian_track(final_output_path)
+
+        # Opzione job "Muxa nel video": il sottotitolo CREATO entra nel file come nuova traccia. Non si
+        # incorpora una copia di una traccia embedded gia' nella lingua finale (nessuna traduzione), ne'
+        # se la sostituzione della traccia errata e' stata tentata (riuscita o no): in quel caso il file
+        # si lascia com'e' invece di aggiungere una seconda traccia italiana accanto a quella sbagliata.
+        if not attempted and not (self._embedded_source_stream is not None
+                                  and self._embedded_lang_639_1 == final_language_639_1):
+            self._mux_subtitle_into_video(final_output_path, final_language_639_1)
+            
+        # ============================================================
+        # STEP 9: Finalizzazione
+        # ============================================================
+        self.last_execution_time = time.time() - start_time
+        self._log(f"\n{'='*80}")
+        self._log(f"✅ Elaborazione completata! Tempo totale: {self.last_execution_time:.2f} secondi.")
+        self._log(f"{'='*80}")
+            
+        return True
+
+    def _gender_correction_step(self, subtitle_path, final_language_639_1: str,
+                                translation_performed: bool):
+        """STEP 6.5 di process(): correzione genere in subprocess. Ritorna il percorso del sottotitolo
+        (corretto, o quello ricevuto se saltata/fallita). Spostato da process() senza modifiche."""
+        # ============================================================
+        # STEP 6.5: Correzione Genere (solo italiano, opzionale)
+        #
+        # Eseguito in SUBPROCESS isolato per liberare l'intera VRAM al
+        # LLM. Il processo principale (Python+CUDA+ctranslate2) tiene
+        # sempre ~4 GB di contesto incollato che non si puo' rilasciare
+        # senza terminare l'interprete. Lo spawn di un child process
+        # parte da CUDA context vergine -> ~11.5 GB liberi per Qwen 14B.
+        # ============================================================
+        if (final_language_639_1 == 'it'
+                and not translation_performed
+                and self.config.get('gender_correction_enabled', False)):
+            # Italiano NATIVO (nessuna traduzione): il corrector sarebbe
+            # inutile (niente errori di genere da traduzione) e costoso.
+            self._ev('skip', phases=['gender'])
+            self._log("\n6.5. Correzione genere saltata: italiano nativo, nessuna traduzione.")
+
+        if (final_language_639_1 == 'it'
+                and translation_performed
+                and self.config.get('gender_correction_enabled', False)):
+            self._ev('phase', name='gender')
+            self._log("\n6.5. Correzione genere grammaticale (v2, subprocess)...")
+            try:
+                from core.gender_corrector_v2 import find_selector_python
+                if not self.config.get('huggingface_token', ''):
+                    self._log("⚠️ Token HuggingFace mancante (serve per pyannote). Salto.")
+                elif find_selector_python() is None:
+                    self._log("⚠️ Venv NLP (spaCy) non trovato. Salto.")
+                else:
+                    # Cleanup parent: libera RAM/VRAM prima dello spawn.
+                    # Non aiuta direttamente la VRAM del child (CUDA context
+                    # parent resta), ma libera RAM e rompe ref Python locali.
+                    self._log("   Cleanup risorse parent prima dello spawn...")
+
+                    if self._transcriber is not None:
+                        try:
+                            self._transcriber.cleanup()
+                        except Exception as e:
+                            logger.warning(f"Errore cleanup transcriber (pre-LLM): {e}")
+                        try:
+                            del self._transcriber
+                        except Exception:
+                            pass
+                        self._transcriber = None
+
+                    if self._audio_processor is not None:
+                        try:
+                            self._audio_processor.cleanup_model()
+                        except Exception as e:
+                            logger.warning(f"Errore cleanup audio_processor (pre-LLM): {e}")
+                        try:
+                            del self._audio_processor
+                        except Exception:
+                            pass
+                        self._audio_processor = None
+
+                    if self._translator is not None:
+                        try:
+                            if hasattr(self._translator, 'model') and self._translator.model is not None:
+                                try:
+                                    del self._translator.model
+                                except Exception as e:
+                                    logger.warning(f"Errore del translator.model: {e}")
+                            self._translator.cleanup()
+                        except Exception as e:
+                            logger.warning(f"Errore cleanup translator (pre-LLM): {e}")
+                        try:
+                            del self._translator
+                        except Exception:
+                            pass
+                        self._translator = None
+
+                    for _ in range(3):
+                        self._clear_vram()
+                    release_ram_to_os()
+
+                    # Prepara args.json per il subprocess (v2: serve il
+                    # video per la speaker gender map dall'audio)
+                    corrected_path = self.file_handler.get_temp_path(
+                        self.video_path, f"gender_corrected_{final_language_639_1}.srt")
+                    args_path = self.file_handler.get_temp_path(
+                        self.video_path, "gender_correction_args.json")
+                    # Riuso diarization della trascrizione (se disponibile)
+                    _diar_json = self.file_handler.get_temp_path(
+                        self.video_path, "diarization_turns.json")
+                    # Cast TMDB per i vocativi 2ª persona (API leggera)
+                    character_context = {}
+                    if self.metadata and self.metadata.get('id'):
+                        try:
+                            character_context = self.tmdb_client.get_cast_info(
+                                self.metadata['id'],
+                                'tv' if self.metadata.get('season') else 'movie',
+                                season=self.metadata.get('season'),
+                                episode=self.metadata.get('episode'))
+                        except Exception as e:
+                            logger.warning(f"TMDB cast error: {e}")
+                    # Se l'input della pipeline è già un .srt (non un video),
+                    # self.video_path punta al sottotitolo stesso: la speaker
+                    # gender map ha bisogno dell'audio, quindi va risolto il
+                    # video reale corrispondente (stesso meccanismo usato per
+                    # l'hash upload OpenSubtitles).
+                    _gender_video_path = self._resolve_video_path()
+                    args_payload = {
+                        "input_srt": str(subtitle_path),
+                        "output_srt": str(corrected_path),
+                        "video_path": str(_gender_video_path) if _gender_video_path else None,
+                        "diarization_json": str(_diar_json) if _diar_json.exists() else None,
+                        "character_context": character_context or {},
+                    }
+                    args_path.write_text(
+                        json.dumps(args_payload, ensure_ascii=False),
+                        encoding='utf-8')
+
+                    # Spawn subprocess isolato
+                    project_root = Path(__file__).resolve().parent.parent
+                    env = os.environ.copy()
+                    env['PYTHONIOENCODING'] = 'utf-8'
+                    env['PYTHONUTF8'] = '1'
+
+                    self._log("   Avvio subprocess Gender Corrector...")
+                    try:
+                        # stderr SEPARATO: il rumore di libreria (warning
+                        # transformers/speechbrain/torchaudio) va solo nel
+                        # file di log, mai a schermo (stesso pattern di
+                        # workers._process_single_file_subprocess).
+                        proc = subprocess.Popen(
+                            [sys.executable, "-m", "core.gender_corrector_cli",
+                             str(args_path)],
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            cwd=str(project_root),
+                            env=env,
+                            text=True,
+                            encoding='utf-8',
+                            errors='replace',
+                            bufsize=1,
+                        )
+                    except Exception as e:
+                        self._log(f"⚠️ Spawn subprocess fallito: {e}")
+                        proc = None
+
+                    if proc is not None:
+                        self._current_proc = proc
+
+                        # Drena lo stderr del child in un thread: solo nel
+                        # file di log del parent, mai a schermo.
+                        import threading as _threading
+
+                        def _drain_gender_stderr(stream):
+                            try:
+                                for eline in stream:
+                                    eline = eline.rstrip()
+                                    if eline:
+                                        logger.info(
+                                            f"[gender-stderr] {eline}")
+                            except Exception:
+                                pass
+
+                        _threading.Thread(
+                            target=_drain_gender_stderr,
+                            args=(proc.stderr,), daemon=True).start()
+
+                        try:
+                            # Stream stdout linea per linea -> log GUI.
+                            # Cancel: a ogni linea controlliamo _cancelled.
+                            for line in proc.stdout:
+                                if self._cancelled:
+                                    try:
+                                        proc.terminate()
+                                        try:
+                                            proc.wait(timeout=5)
+                                        except subprocess.TimeoutExpired:
+                                            proc.kill()
+                                    except Exception:
+                                        pass
+                                    break
+                                line = line.rstrip()
+                                if line:
+                                    from utils import events as _tp_events
+                                    _ev = _tp_events.parse_line(line)
+                                    if _ev is not None:
+                                        if _ev[0]:
+                                            try:
+                                                _tp_events.emit(_ev[0], **_ev[1])
+                                            except Exception:
+                                                pass
+                                        continue
+                                    self._log(f"   [Gender] {line}")
+                            return_code = proc.wait()
+                        finally:
+                            self._current_proc = None
+
+                        if self._cancelled:
+                            self._log("⏹ Correzione genere annullata.")
+                        elif return_code == 0 and corrected_path.exists():
+                            subtitle_path = corrected_path
+                            self._log("✅ Correzione genere completata.")
+                        else:
+                            self._log(
+                                f"⚠️ Correzione genere fallita "
+                                f"(exit code {return_code}). Uso originale.")
+
+                    # Cleanup args temp file (best effort)
+                    try:
+                        if args_path.exists():
+                            args_path.unlink()
+                    except Exception:
+                        pass
+            except Exception as e:
+                self._log(f"⚠️ Errore correzione genere: {e}")
+                logger.error(f"Gender correction error: {e}", exc_info=True)
+
+        return subtitle_path
+
+    def _translate_step(self, subtitle_path, source_language_639_2: str, target_language: str):
+        """STEP 6 di process(): traduzione se lingua sorgente != target. Ritorna (subtitle_path,
+        final_language_639_1, translation_performed, translation_failed). Spostato da process() senza modifiche."""
+        source_language_639_1 = (self.LANG_MAP_639_2_TO_639_1.get(source_language_639_2)
+                                 or normalize_lang(source_language_639_2))
+        target_language_639_1 = self.LANG_MAP_639_2_TO_639_1.get(target_language, 'und')
+
+        # Traccia se una traduzione è stata EFFETTIVAMENTE eseguita:
+        # il gender corrector (STEP 6.5) corregge gli errori di genere
+        # introdotti dalla traduzione — su italiano NATIVO (trascrizione
+        # diretta o sottotitoli embedded ita) non deve girare.
+        translation_performed = False
+        translation_failed = False
+
+        if source_language_639_1 != target_language_639_1:
+
+            self._ev('phase', name='translate')
+            self._log(f"\n6. Traduzione ({source_language_639_1} â†’ {target_language_639_1})...")
+            # âœ… FIX TRANSLATOR SELECTION: Usa il metodo corretto per leggere il modello dalla config
+            # Leggi il modello di traduzione selezionato dall'utente
+            selected_model = self.config.get_translation_model()
+
+            # Instradamento automatico (v1.25.0): TranslateGemma ('llm') e' stato
+            # addestrato SEMPRE con source_lang_code "en" (vedi Gemma
+            # training/make_dataset.py), anche sulle coppie non inglesi. Misurato
+            # il 27/09/2026 su 140 blocchi francesi: l'etichetta 'en' storica
+            # lascia molto francese non tradotto; l'etichetta vera 'fr' lo
+            # dimezza ma peggiora la fluidita' oltre la soglia della regola
+            # (GEMBA fluency+style +14,3%) -> NON adottata. NLLB fine-tuned sulla
+            # stessa misura batte entrambe (francese residuo quasi azzerato,
+            # fluidita' comparabile): finche' TranslateGemma non e' addestrato
+            # anche su sorgenti non inglesi, si instrada li' automaticamente.
+            # Non tocca la scelta esplicita dell'utente per gli altri motori
+            # (NLLB base, Claude, OpenAI, OpenSubtitles): quelli dichiarano gia'
+            # la lingua sorgente vera nel loro prompt. Dettagli: memoria
+            # traduzione_non_inglese_2026_09_27.md.
+            _routed = self._route_non_english_away_from_llm(
+                selected_model, source_language_639_1)
+            if _routed != selected_model:
+                self._log(f"⚠️ TranslateGemma non e' pronto per sorgenti diverse "
+                          f"dall'inglese ({source_language_639_1}): instradato "
+                          f"automaticamente su NLLB fine-tuned.")
+                selected_model = _routed
+
+            self._log(f"📋 Modello di traduzione selezionato: {selected_model.upper()}")
+
+            # Contesto dell'opera per il traduttore: titolo e trama sono
+            # già in self.metadata e aiutano soprattutto sui nomi propri e
+            # sul registro. I motori che non lo usano lo ignorano.
+            translation_context = None
+            if self.metadata:
+                _bits = [self.metadata.get('title') or self.metadata.get('name'),
+                         self.metadata.get('overview')]
+                translation_context = ". ".join(
+                    str(b).strip() for b in _bits if b) or None
+
+            # Glossario a resa fissa per la serie (core/glossary.py):
+            # {} se non esiste, nessun cambio di comportamento.
+            translation_glossary = {}
+            if self.metadata and self.metadata.get('id'):
+                from core.glossary import load_glossary
+                translation_glossary = load_glossary(self.metadata['id'])
+                if translation_glossary:
+                    self._log(f"   Glossario attivo: {len(translation_glossary)} termini")
+
+            # Usa la factory intelligente passando la scelta esplicita del modello.
+            # Ogni eccezione qui (factory, callback, traduzione) equivale a
+            # "traduzione fallita": si prosegue con la regola di STEP 7
+            # (salva comunque + job fallito) invece di perdere il lavoro.
+            try:
+                self._translator = get_translator(model_type=selected_model,
+                                                  context=translation_context,
+                                                  glossary=translation_glossary)
+                self._motore_traduzione = selected_model
+                self._translator.set_log_callback(self._log_callback)
+
+                translated_srt_path = self.file_handler.get_temp_path(
+                    self.video_path,
+                    f"translated_{target_language}.srt"
+                )
+
+                _translation_ok = self._translator.translate_file(
+                    input_path=str(subtitle_path),
+                    output_path=str(translated_srt_path),
+                    src_lang=source_language_639_1,
+                    tgt_lang=target_language_639_1,
+                    context=translation_context
+                )
+            except InterruptedError:
+                raise
+            except Exception as e:
+                logger.error(f"Errore traduzione: {e}", exc_info=True)
+                self._log(f"❌ Errore traduzione: {e}")
+                _translation_ok = False
+
+            if _translation_ok:
+                subtitle_path = translated_srt_path
+                final_language_639_1 = target_language_639_1
+                translation_performed = True
+                self._log("âœ… Traduzione completata con successo.")
+            else:
+                self._log("âŒ Traduzione fallita. Uso i sottotitoli originali.")
+                final_language_639_1 = source_language_639_1
+                translation_failed = True
+        else:
+            final_language_639_1 = source_language_639_1
+            self._ev('skip', phases=['translate', 'gender'])
+            self._log("\n6. Lingua originale == Lingua target. Salto traduzione.")
+        return subtitle_path, final_language_639_1, translation_performed, translation_failed
+
+    def _release_asr_models_before_translation(self) -> None:
+        """STEP 5.5 di process(): scarica Whisper e Demucs prima della traduzione. Spostato senza modifiche."""
+        if self._transcriber:
+            self._transcriber.cleanup()
+            self._transcriber = None
+        if self._audio_processor:
+            self._audio_processor.cleanup_model()
+            self._audio_processor = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+        release_ram_to_os()
+
+    def _clean_subtitles_step(self, subtitle_path, source_language_639_2: str):
+        """CLEANUP ANTICIPATO (Whisper/Demucs) + STEP 5 di process(): pulizia e normalizzazione SRT.
+        Ritorna il percorso del sottotitolo pulito. Spostato da process() senza modifiche."""
+        if self._transcriber is not None:
+            try:
+                self._transcriber.cleanup()
+            except Exception as e:
+                logger.warning(f"Errore cleanup transcriber (post-trascrizione): {e}")
+            try:
+                del self._transcriber
+            except Exception:
+                pass
+            self._transcriber = None
+        if self._audio_processor is not None:
+            try:
+                self._audio_processor.cleanup_model()
+            except Exception as e:
+                logger.warning(f"Errore cleanup audio_processor (post-trascrizione): {e}")
+            try:
+                del self._audio_processor
+            except Exception:
+                pass
+            self._audio_processor = None
+        self._clear_vram()
+
+        # ============================================================
+        # STEP 5: Pulizia e Normalizzazione SRT
+        # ============================================================
+        if subtitle_path is None:
+             raise Exception("Nessun sottotitolo o trascrizione disponibile.")
+                 
+        self._ev('phase', name='clean')
+        self._log("\n5. Pulizia e normalizzazione sottotitoli...")
+        cleaned_srt_path = self.file_handler.get_temp_path(
+            self.video_path, 
+            f"temp_{source_language_639_2}_cleaned.srt"
+        )
+            
+        SubtitleCleaner.clean_file(subtitle_path, cleaned_srt_path)
+        subtitle_path = cleaned_srt_path
+        self._log("âœ… Pulizia e fix overlap completati.")
+        return subtitle_path
+
+    def _transcribe_step(self, subtitle_path, source_language_639_2: str, temp_dir):
+        """STEP 2-4.5 di process(): estrazione audio, trascrizione, allineamento, diarizzazione. Ritorna
+        (subtitle_path, source_language_639_2), oppure None se annullato. Spostato senza modifiche."""
+        if subtitle_path is None:
+
+            # STEP 2: Estrazione audio
+            self._ev('phase', name='extract')
+            self._log("\n2. Estrazione traccia audio...")
+            audio_selector = AudioTrackSelector(str(self.video_path))
+            self._track_selector = audio_selector
+            audio_stream = audio_selector.select_best_track()
+                
+            if audio_stream:
+                audio_path = self.file_handler.get_temp_path(
+                    self.video_path, 
+                    "extracted_audio.wav"
+                )
+                    
+                if audio_selector.extract_audio_track(audio_path, audio_stream['index']):
+                    # Usa get_selected_language() per ottenere lingua traccia
+                    source_language_639_2 = audio_selector.get_selected_language()
+                    self._ev('audio_lang', lang=source_language_639_2)
+                    self._log(f"âœ… Audio estratto. Lingua: {source_language_639_2}")
+
+                    if self._cancelled:
+                        self._log("⏹ Elaborazione annullata")
+                        return None
+
+                    # ================================================
+                    # STEP 2.5: Pre-carica WhisperModel PRIMA di Demucs
+                    #
+                    # ctranslate2 ≥4.7 usa lazy CUDA init: il suo backend
+                    # CUDA si inizializza al primo WhisperModel().
+                    # Se PyTorch ha già usato CUDA pesantemente (Demucs),
+                    # ctranslate2 trova il contesto in uno stato che non
+                    # gestisce → std::abort() silenzioso.
+                    #
+                    # Caricando Whisper QUI (contesto CUDA vergine), Demucs
+                    # viene poi eseguito con ctranslate2 già inizializzato,
+                    # senza conflitti. VRAM: ~1.5GB Whisper + ~5GB Demucs
+                    # peak = ~6.5GB su 12GB → sicuro.
+                    #
+                    # Multi-engine: whisper viene pre-caricato SEMPRE
+                    # (fallback caldo + ordine CUDA garantito); se il
+                    # routing sceglie Canary/Qwen3, la facade lo scarica
+                    # prima di caricare l'engine nuovo.
+                    # ================================================
+                    self._ev('phase', name='extract')
+                    self._log("\n2.5. Pre-caricamento Whisper (ordine CUDA / ripiego)...")
+                    _planned_lang = self.LANG_MAP_639_2_TO_639_1.get(source_language_639_2)
+                    if _planned_lang == 'und':
+                        _planned_lang = None
+                    if self._transcriber is None:
+                        # language_hint: carica subito il Whisper specializzato
+                        # della lingua (whisper_model_by_language), niente reload
+                        self._transcriber = Transcriber(log_callback=self._log_callback,
+                                                        language_hint=_planned_lang)
+
+                    # ── Pianificazione engine (sistema multi-engine) ──
+                    # Decide QUI (prima di Demucs) l'engine per la lingua
+                    # della traccia: determina anche la strategia di
+                    # chunking — la modalità batched (file unico) è
+                    # gestibile solo da faster-whisper (Qwen3 max 1200s,
+                    # Canary max ~40s per input).
+                    from core.engine_router import EngineRouter
+                    _planned_engine, _plan_reason = EngineRouter.plan(_planned_lang, self.config)
+                    _ENGINE_LABELS = {
+                        'canary': 'Canary-Qwen-2.5B',
+                        'qwen3': 'Qwen3-ASR',
+                        'faster-whisper': 'Faster-Whisper',
+                    }
+                    _engine_label = _ENGINE_LABELS.get(_planned_engine, _planned_engine)
+                    self._log(f"🧭 Engine pianificato: {_engine_label} ({_plan_reason})")
+                    # Riga letta dalla GUI (tessera "Modello" della Diagnostica).
+                    try:
+                        from utils.engine_labels import model_display
+                        self._log(f"🧩 Modello trascrizione: "
+                                  f"{model_display(_planned_engine, self.config, _planned_lang)}")
+                    except Exception as _e:
+                        logger.debug(f"Etichetta modello trascrizione non disponibile: {_e}")
+
+                    # STEP 3: Processing audio (separazione vocale + chunking)
+                    try:
+                        from faster_whisper import BatchedInferencePipeline
+                        _use_batched = (_planned_engine == 'faster-whisper')
+                    except ImportError:
+                        _use_batched = False
+
+                    step3_label = "Demucs + BatchedInferencePipeline" if _use_batched else "Demucs + Chunking"
+                    self._ev('phase', name='demucs')
+                    self._log(f"\n3. Processing audio ({step3_label})...")
+                    if self._audio_processor is None:
+                        self._audio_processor = AudioProcessor()
+                        self._audio_processor.set_log_callback(self._log_callback)
+
+                    chunk_list = self._audio_processor.process_for_transcription(
+                        audio_path=audio_path,
+                        output_dir=temp_dir,
+                        use_batched_pipeline=_use_batched,
+                        engine=_planned_engine
+                    )
+
+                    if self._cancelled:
+                        self._log("⏹ Elaborazione annullata")
+                        return None
+
+                    if chunk_list:
+                        self._log(f"âœ… Audio processato: {len(chunk_list)} chunks creati")
+
+                        if self._cancelled:
+                            self._log("⏹ Elaborazione annullata")
+                            return None
+
+                        # ================================================
+                        # Unload anticipato (solo engine ≠ whisper):
+                        # Demucs e whisper pre-caricato non servono più —
+                        # scaricarli QUI fa partire il load di Qwen3/
+                        # Canary con VRAM massima (niente spillover WDDM).
+                        # Con len==1 la facade forza whisper → non si
+                        # scarica (evita unload/reload inutile).
+                        # Whisper resta ricaricabile per il fallback.
+                        # ================================================
+                        if _planned_engine != 'faster-whisper' and len(chunk_list) > 1:
+                            self._log("🧹 Unload anticipato Demucs + Whisper (engine pianificato: "
+                                      f"{_engine_label})...")
+                            if self._audio_processor:
+                                self._audio_processor.cleanup_model()
+                            if self._transcriber:
+                                self._transcriber.unload_engines()
+                            release_ram_to_os()
+
+                        # STEP 4: Trascrizione (engine dal router; su
+                        # errore degli engine nuovi → fallback automatico
+                        # su Faster-Whisper dentro la facade)
+                        self._ev('phase', name='asr', engine=str(_engine_label))
+                        self._log(f"\n4. Trascrizione audio ({_engine_label})...")
+                        if self._transcriber is None:
+                            # Fallback: non dovrebbe mai entrare qui dopo il pre-load 2.5
+                            self._transcriber = Transcriber(log_callback=self._log_callback,
+                                                            language_hint=_planned_lang)
+                            
+
+                        # Inietta fatigue counter per OOM prevention
+                        if self._files_processed_in_batch > 0:
+                            self._transcriber.set_files_processed(self._files_processed_in_batch)
+
+                        subtitle_path = self.file_handler.get_temp_path(
+                            self.video_path, 
+                            "transcribed.srt"
+                        )
+                            
+                        # Whisper vuole ISO 639-1 (2 lettere, es. 'sr').
+                        # source_language_639_2 viene dal MKV in ISO 639-2 (3 lettere, es. 'srp').
+                        # Convertiamo prima; 'und' diventa None (auto-detect Whisper).
+                        _whisper_lang = self.LANG_MAP_639_2_TO_639_1.get(source_language_639_2)
+                        if _whisper_lang == 'und':
+                            _whisper_lang = None
+
+                        success, detected_lang_639_1 = self._transcriber.transcribe_chunks(
+                            audio_chunks=chunk_list,
+                            output_path=str(subtitle_path),
+                            whisper_language=_whisper_lang
+                        )
+                            
+                        # Validazione risultato
+                        if success and detected_lang_639_1 and subtitle_path.exists():
+                            # Converti da ISO 639-1 (2 lettere) a ISO 639-2 (3 lettere)
+                            source_language_639_2 = self._convert_639_1_to_639_2(detected_lang_639_1)
+                            self._log(f"âœ… Trascrizione completata. Lingua rilevata: {source_language_639_2}")
+                        else:
+                            raise Exception("Trascrizione fallita o file SRT non creato.")
+
+                        if self._cancelled:
+                            self._log("⏹ Elaborazione annullata")
+                            return None
+
+                        # ================================================
+                        # STEP 4.2: Forced Alignment (opzionale)
+                        # Whisper ancora in VRAM — Wav2Vec2 caricato
+                        # affianco (~5GB totali, dentro i 12GB).
+                        # Aggiorna _last_segments con timestamp precisi
+                        # che verranno poi usati dalla diarization.
+                        # ================================================
+                        enable_forced_alignment = self.config.get('enable_forced_alignment', False)
+                        if enable_forced_alignment and len(chunk_list) == 1:
+                            vocals_path_align = str(chunk_list[0][0])
+                            from core.aligner import ForcedAligner
+                            from core.transcriber import save_srt_file
+                            aligner = ForcedAligner(self._log)
+                            try:
+                                device_align = "cuda" if torch.cuda.is_available() else "cpu"
+                                loaded = aligner.load(detected_lang_639_1, device_align)
+                                if loaded:
+                                    self._log("🔠 Forced alignment in corso...")
+                                    aligned_segs = aligner.align(
+                                        list(self._transcriber._last_segments),
+                                        vocals_path_align,
+                                    )
+                                    self._transcriber._last_segments = aligned_segs
+                                    save_srt_file(aligned_segs, subtitle_path)
+                                    self._log("✅ Timestamp riallineati con precisione fonema")
+                            except Exception as e:
+                                self._log(f"⚠️ Forced alignment fallito: {e} — timestamp Whisper mantenuti")
+                            finally:
+                                aligner.unload()
+
+                        # ================================================
+                        # STEP 4.5: Speaker Diarization
+                        #
+                        # Si attiva con 'enable_diarization' (storica) O
+                        # con 'dialogue_style_enabled' (stile dialoghi
+                        # professionale, default ON). Funziona con TUTTI
+                        # gli engine: in modalità batched il vocals è il
+                        # chunk unico; in modalità chunk classici si usa
+                        # il file vocals COMPLETO che Demucs lascia su
+                        # disco (extracted_audio_vocals.wav), con
+                        # fallback sull'audio estratto.
+                        # ================================================
+                        enable_diarization = (
+                            self.config.get('enable_diarization', False)
+                            or self.config.get('dialogue_style_enabled', True)
+                        )
+                        # Copia dei segmenti per la formattazione di ripiego
+                        # (il transcriber viene liberato prima della diarization)
+                        _segments_snapshot = list(
+                            getattr(self._transcriber, '_last_segments', None) or [])
+                        if enable_diarization:
+                            if self.config.is_huggingface_token_set():
+                                segments_for_diarization = list(self._transcriber._last_segments)
+                                # A/B diarization (v. piano_fix_pipeline_trascrizione
+                                # punto A): 'original' bypassa Demucs anche in modalità
+                                # batched — valutato PRIMA del ramo su len(chunk_list),
+                                # altrimenti il caso a chunk singolo lo ignorerebbe.
+                                _diar_src = self.config.get('diarization_audio_source', 'vocals')
+                                if _diar_src == 'original':
+                                    vocals_path = str(audio_path)
+                                    self._log("  🎭 Diarization su audio ORIGINALE (A/B: bypass Demucs)")
+                                elif len(chunk_list) == 1:
+                                    vocals_path = str(chunk_list[0][0])
+                                else:
+                                    _vocals_candidate = audio_path.parent / f"{audio_path.stem}_vocals.wav"
+                                    vocals_path = str(
+                                        _vocals_candidate if _vocals_candidate.exists()
+                                        else audio_path)
+
+                                # Cleanup modelli (libera VRAM per pyannote)
+                                if self._transcriber:
+                                    self._transcriber.cleanup()
+                                    self._transcriber = None
+                                if self._audio_processor:
+                                    self._audio_processor.cleanup_model()
+                                    self._audio_processor = None
+                                if torch.cuda.is_available():
+                                    torch.cuda.synchronize()
+                                    gc.collect()
+                                    torch.cuda.empty_cache()
+                                release_ram_to_os()
+
+                                from core.diarizer import Diarizer
+                                from core.subtitle_formatter import SubtitleFormatter
+                                self._log("🎭 Speaker diarization in corso...")
+                                diarizer = Diarizer(self.config.get_huggingface_token(), self._log)
+                                try:
+                                    diarizer.load()
+                                    num_spk = self.config.get('diarization_num_speakers', 0)
+                                    diarization_result = diarizer.diarize(
+                                        vocals_path, num_speakers=num_spk,
+                                        audio_source_label=_diar_src)
+                                    # Salva i turni per il riuso nello STEP 6.5
+                                    # (Gender Corrector v2: risparmia ~1-2 min/film)
+                                    try:
+                                        _diar_json = self.file_handler.get_temp_path(
+                                            self.video_path, "diarization_turns.json")
+                                        _diar_json.write_text(
+                                            json.dumps(diarization_result),
+                                            encoding='utf-8')
+                                    except Exception as e:
+                                        logger.warning(f"Salvataggio diarization per riuso fallito: {e}")
+                                    annotated = diarizer.assign_speakers(segments_for_diarization, diarization_result)
+                                    formatter = SubtitleFormatter(
+                                        log_callback=self._log,
+                                        readability=bool(self.config.get(
+                                            'subtitle_readability_enabled', True)))
+                                    if formatter.save(annotated, subtitle_path):
+                                        self._log("✅ Speaker labels + formattazione professionale applicati")
+                                    else:
+                                        self._log("⚠️ Formattazione con speaker non riuscita — provo senza speaker")
+                                        self._format_srt_fallback(_segments_snapshot, subtitle_path)
+                                except Exception as e:
+                                    self._log(f"⚠️ Diarization fallita: {e} — SRT senza speaker labels")
+                                    self._format_srt_fallback(_segments_snapshot, subtitle_path)
+                                finally:
+                                    diarizer.unload()
+                            else:
+                                self._log("⚠️ Diarization abilitata ma token HuggingFace non configurato.")
+                                self._format_srt_fallback(_segments_snapshot, subtitle_path)
+                        else:
+                            self._format_srt_fallback(_segments_snapshot, subtitle_path)
+
+                    else:
+                        raise Exception("Processing audio fallito - nessun chunk creato.")
+                else:
+                    raise Exception("Estrazione traccia audio fallita.")
+            else:
+                raise Exception("Nessuna traccia audio trovata nel video.")
+        return subtitle_path, source_language_639_2
+
     # Codec testo che ffmpeg puo' togliere/sostituire in un MKV senza perdere informazione.
     _TEXT_SUB_CODECS = {'subrip', 'srt', 'ass', 'ssa', 'mov_text', 'webvtt', 'text'}
     # Bitmap sostituibili solo quando l'OCR ha provato che il testo non e' italiano (v. ocr_auto).
