@@ -3,18 +3,18 @@ Subtitle Cleaner - Pulisce sottotitoli da formattazioni + Fix Overlapping CONSER
 File: core/subtitle_cleaner.py
 
 VERSIONE CONSERVATIVA + PUNTEGGIATURA PRESERVATA:
-âœ… NON modifica MAI i tempi di inizio
-âœ… Modifica SOLO i tempi di fine quando c'Ã¨ overlap  
-âœ… Preserva completamente la sincronia originale
-âœ… Algoritmo multi-pass per garantire risoluzione completa
-âœ… Intervento minimo possibile sui timing
+✅ NON modifica MAI i tempi di inizio
+✅ Modifica SOLO i tempi di fine quando c'è overlap  
+✅ Preserva completamente la sincronia originale
+✅ Algoritmo multi-pass per garantire risoluzione completa
+✅ Intervento minimo possibile sui timing
 
 PULIZIA TESTO RAFFINATA v2.0:
-âœ… Preserva TUTTA la punteggiatura standard (. , ! ? ; : - ... etc)
-âœ… Gestisce correttamente virgolette, apostrofi, parentesi
-âœ… Normalizza caratteri Unicode (apostrofi tipografici, trattini lunghi, etc)
-âœ… Sistema spazi in modo intelligente (rimuove prima, mantiene dopo punteggiatura)
-âœ… Rimuove solo tag markup e descrizioni audio
+✅ Preserva TUTTA la punteggiatura standard (. , ! ? ; : - ... etc)
+✅ Gestisce correttamente virgolette, apostrofi, parentesi
+✅ Normalizza caratteri Unicode (apostrofi tipografici, trattini lunghi, etc)
+✅ Sistema spazi in modo intelligente (rimuove prima, mantiene dopo punteggiatura)
+✅ Rimuove solo tag markup e descrizioni audio
 âœ… Massima leggibilitÃ  del testo finale
 """
 import re
@@ -171,7 +171,7 @@ class SubtitleCleaner:
     
     def clean(self) -> 'SubtitleCleaner':
         """Pulisce sottotitoli da formattazioni non standard"""
-        logger.info("ðŸ§¹ Pulizia sottotitoli...")
+        logger.info("🧹 Pulizia sottotitoli...")
         
         cleaned_subtitles = []
         
@@ -187,7 +187,7 @@ class SubtitleCleaner:
         removed = len(self.subtitles) - len(cleaned_subtitles)
         self.subtitles = cleaned_subtitles
         
-        logger.info(f"  âœ… Pulizia testo completata: {len(self.subtitles)} sottotitoli (rimossi {removed})")
+        logger.info(f"  ✅ Pulizia testo completata: {len(self.subtitles)} sottotitoli (rimossi {removed})")
         return self
     
     def _clean_text(self, text: str) -> str:
@@ -216,7 +216,7 @@ class SubtitleCleaner:
         # ============================================================
         
         # Rimuovi descrizioni sonore tra parentesi/quadre
-        # Pattern piÃ¹ completo con maggiori varianti
+        # Pattern più completo con maggiori varianti
         sound_patterns = [
             r'\[(?:MUSIC|SOUND|AUDIO|APPLAUSE|LAUGHTER|SIGHS?|GROANS?|SCREAMS?|DOOR|PHONE|BELL|KNOCK|FOOTSTEPS|WIND|RAIN|THUNDER|EXPLOSION|GUNSHOT|SIRENS?)[^\]]*\]',
             r'\((?:MUSIC|SOUND|AUDIO|APPLAUSE|LAUGHTER|SIGHS?|GROANS?|SCREAMS?|DOOR|PHONE|BELL|KNOCK|FOOTSTEPS|WIND|RAIN|THUNDER|EXPLOSION|GUNSHOT|SIRENS?)[^\)]*\)',
@@ -341,10 +341,10 @@ class SubtitleCleaner:
         - Intervento minimo possibile
         """
         if len(self.subtitles) < 2:
-            logger.info("  â„¹ï¸ Nessun overlap da controllare (< 2 sottotitoli)")
+            logger.info("  ℹ️ Nessun overlap da controllare (< 2 sottotitoli)")
             return self
         
-        logger.info("ðŸ”§ Fix overlapping temporale (modalitÃ  conservativa)...")
+        logger.info("🔧 Fix overlapping temporale (modalità conservativa)...")
         
         # Reset statistiche
         self.overlap_stats = {
@@ -360,7 +360,7 @@ class SubtitleCleaner:
         self.overlap_stats['initial_overlaps'] = self._count_overlaps()
         
         if self.overlap_stats['initial_overlaps'] == 0:
-            logger.info("  âœ… Nessun overlap rilevato - Timing perfetto!")
+            logger.info("  ✅ Nessun overlap rilevato - Timing perfetto!")
             return self
         
         # Algoritmo multi-pass CONSERVATIVO
@@ -385,12 +385,12 @@ class SubtitleCleaner:
             
             if fixes_in_this_pass == 0:
                 # Nessun fix applicato, non possiamo fare di meglio
-                logger.warning(f"  âš ï¸ Non riesco a risolvere {current_overlaps} overlap rimanenti senza modificare i tempi di inizio")
+                logger.warning(f"  ⚠️ Non riesco a risolvere {current_overlaps} overlap rimanenti senza modificare i tempi di inizio")
                 break
             
             if current_overlaps == previous_overlaps and iteration > 3:
                 # Situazione stagnante
-                logger.warning(f"  âš ï¸ Situazione stagnante dopo {iteration} iterazioni")
+                logger.warning(f"  ⚠️ Situazione stagnante dopo {iteration} iterazioni")
                 break
             
             previous_overlaps = current_overlaps
@@ -424,11 +424,11 @@ class SubtitleCleaner:
             curr = self.subtitles[i]
             next_sub = self.subtitles[i + 1]
             
-            # Calcola overlap (positivo = c'Ã¨ sovrapposizione)
+            # Calcola overlap (positivo = c'è sovrapposizione)
             overlap = curr.end_seconds - next_sub.start_seconds
             
             if overlap > self.MIN_GAP_SECONDS:
-                # C'Ã¨ overlap significativo, dobbiamo fixare
+                # C'è overlap significativo, dobbiamo fixare
                 
                 # Calcola il nuovo end time (appena prima del prossimo start)
                 new_end = next_sub.start_seconds - self.MIN_GAP_SECONDS
@@ -468,7 +468,7 @@ class SubtitleCleaner:
                         logger.debug(f"    Fix sottotitolo {i+1} (durata min): ridotto end di {time_reduced:.3f}s")
                     else:
                         # Non possiamo mantenere durata minima senza creare overlap
-                        # Accettiamo una durata piÃ¹ corta come male minore
+                        # Accettiamo una durata più corta come male minore
                         new_end = next_sub.start_seconds - self.MIN_GAP_SECONDS
                         time_reduced = curr.end_seconds - new_end
                         curr.update_end_time(new_end)
@@ -482,7 +482,7 @@ class SubtitleCleaner:
                 else:
                     # Caso estremo: il sottotitolo inizia dopo o contemporaneamente al successivo
                     # Non possiamo fare nulla senza modificare start time
-                    logger.warning(f"    âš ï¸ Sottotitolo {i+1}: overlap troppo grave per fix conservativo")
+                    logger.warning(f"    ⚠️ Sottotitolo {i+1}: overlap troppo grave per fix conservativo")
         
         return fixes_applied
     
@@ -553,7 +553,7 @@ class SubtitleCleaner:
         for i, subtitle in enumerate(self.subtitles, 1):
             subtitle.index = i
         
-        logger.info(f"  âœ… Rinumerazione completata: {len(self.subtitles)} sottotitoli")
+        logger.info(f"  ✅ Rinumerazione completata: {len(self.subtitles)} sottotitoli")
         return self
     
     def save(self, output_path: Path = None) -> bool:
@@ -572,11 +572,11 @@ class SubtitleCleaner:
             with open(output_path, 'w', encoding='utf-8-sig') as f:
                 f.write(srt_content)
             
-            logger.info(f"ðŸ’¾ Salvato: {output_path.name}")
+            logger.info(f"💾 Salvato: {output_path.name}")
             return True
             
         except Exception as e:
-            logger.error(f"âŒ Errore salvataggio: {e}")
+            logger.error(f"❌ Errore salvataggio: {e}")
             return False
     
     def _generate_srt(self) -> str:
@@ -595,23 +595,23 @@ class SubtitleCleaner:
         """Log riepilogo statistiche overlap fix"""
         stats = self.overlap_stats
         
-        logger.info(f"  ðŸ“Š Riepilogo Fix Overlapping (Conservativo):")
-        logger.info(f"    â€¢ Overlap iniziali: {stats['initial_overlaps']}")
-        logger.info(f"    â€¢ Overlap finali: {stats['final_overlaps']}")
+        logger.info(f"  📊 Riepilogo Fix Overlapping (Conservativo):")
+        logger.info(f"    • Overlap iniziali: {stats['initial_overlaps']}")
+        logger.info(f"    • Overlap finali: {stats['final_overlaps']}")
         
         if stats['initial_overlaps'] > 0:
             reduction_pct = ((stats['initial_overlaps'] - stats['final_overlaps']) / stats['initial_overlaps']) * 100
-            logger.info(f"    â€¢ Riduzione: {reduction_pct:.1f}%")
+            logger.info(f"    • Riduzione: {reduction_pct:.1f}%")
         
-        logger.info(f"    â€¢ Iterazioni: {stats['iterations_needed']}")
-        logger.info(f"    â€¢ Fix totali applicati: {stats['total_fixes']}")
-        logger.info(f"    â€¢ Sottotitoli modificati: {len(stats['subtitles_modified'])}")
-        logger.info(f"    â€¢ Tempo totale ridotto: {stats['time_reduced_total']:.2f}s")
+        logger.info(f"    • Iterazioni: {stats['iterations_needed']}")
+        logger.info(f"    • Fix totali applicati: {stats['total_fixes']}")
+        logger.info(f"    • Sottotitoli modificati: {len(stats['subtitles_modified'])}")
+        logger.info(f"    • Tempo totale ridotto: {stats['time_reduced_total']:.2f}s")
         
         if stats['final_overlaps'] == 0:
-            logger.info(f"  âœ… Tutti gli overlapping risolti!")
+            logger.info(f"  ✅ Tutti gli overlapping risolti!")
         else:
-            logger.info(f"  âš ï¸ {stats['final_overlaps']} overlap non risolvibili senza modificare i tempi di inizio")
+            logger.info(f"  ⚠️ {stats['final_overlaps']} overlap non risolvibili senza modificare i tempi di inizio")
             logger.info(f"     (preservata sincronia audio a costo di overlap minori)")
     
     @staticmethod
@@ -652,7 +652,7 @@ class SubtitleCleaner:
             return ' '.join(text_lines).lower()
             
         except Exception as e:
-            logger.error(f"âŒ Errore estrazione testo puro: {e}")
+            logger.error(f"❌ Errore estrazione testo puro: {e}")
             return ""
     
     @staticmethod

@@ -3,6 +3,23 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.10 — 2026-10-16 — Mojibake nel sorgente, `output` negli episodi OCR, OCR multi-traccia in sidecar
+
+- **Mojibake nel sorgente** (231 righe in 8 file: `core/pipeline.py`, `core/subtitle_cleaner.py`, `core/translator.py`,
+  `gui/workers.py`, `utils/config.py`, `utils/profile_dialog.py`, `utils/subtitle_uploader_interface.py`, `utils/tmdb_client.py`)
+  e nel blocco autotest di `core/pipeline.py`: emoji e accenti nei log/effetti (queue_runner, ❌/⚠ colorati in GUI) ora corretti.
+  Restano 2 righe di `subtitle_cleaner.py` (18 e 533) con un byte perso, non convertibili.
+- **`output` negli episodi OCR**: `last_output_path` non veniva impostato nel ramo OCR, quindi `queue_status.json` riportava
+  `output: null`; ora punta al `.it.srt`.
+- **OCR multi-traccia in pipeline = sempre sidecar** (decisione 09/10): con piu' tracce PGS/VobSub italiane `_writeback_mux_multi`
+  incorporava gli SRT nell'MKV togliendo i bitmap e senza `.it.srt`. Ora, con `ocr_writeback=sidecar`, scrive UN sidecar dalla
+  traccia completa (non forced) italiana con piu' testo e lascia l'MKV intatto. Modalita' `mux` (default GUI/Scanner) invariata.
+  Il bugcheck ha trovato che la scelta ignorava la lingua riconosciuta (rischio di `.en.srt` e job "completato" senza italiano):
+  ora si preferiscono le tracce riconosciute `it`.
+- **Verifica**: banco su clip reali 13/13 OK (nuovi `c8`–`c11` multi-traccia PGS/VobSub, controllo `output` su c4/c6); picco
+  memoria 37,8 GB di commit, minima RAM libera 9,1 GB; bugcheck Opus: difetto medio corretto, resto pulito.
+- **Noto, non corretto**: "Muxa nel video" (`_remux_with_sidecar`) fallisce su MKV con flussi mjpeg (copertine/allegati).
+
 ## 1.30.9 — 2026-10-15 — `process()` spezzato: anche STEP 0/1/1b (solo spostamento di codice)
 
 - Selezione dei sottotitoli embedded e OCR dei bitmap spostati in `_select_subtitles_step`, che restituisce

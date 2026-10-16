@@ -6,17 +6,17 @@ File: core/pipeline.py
 VERSIONE: v3.9 - HYBRID (Meglio di v3.7 + v3.8)
 
 CORREZIONI v3.9:
-âœ… FIX CRITICO #1: Corretta chiamata transcribe_chunks() con:
+✅ FIX CRITICO #1: Corretta chiamata transcribe_chunks() con:
    - Gestione tupla (success, detected_lang)
    - Parametro whisper_language come keyword argument
    - Validazione successo trascrizione
-âœ… FIX CRITICO #2: Parametri translate_file() corretti (src_lang, tgt_lang)
-âœ… FEATURE: Upload OpenSubtitles robusto da v3.8 (REST/XML-RPC)
-âœ… FEATURE: Gestione metadati completa da v3.8
-âœ… FEATURE: AudioTrackSelector con get_selected_language()
-âœ… OPTIMIZATION: Cleanup e logging migliorati
+✅ FIX CRITICO #2: Parametri translate_file() corretti (src_lang, tgt_lang)
+✅ FEATURE: Upload OpenSubtitles robusto da v3.8 (REST/XML-RPC)
+✅ FEATURE: Gestione metadati completa da v3.8
+✅ FEATURE: AudioTrackSelector con get_selected_language()
+✅ OPTIMIZATION: Cleanup e logging migliorati
 
-âœ… FIX TRANSLATOR SELECTION: La scelta del traduttore viene passata esplicitamente alla factory get_translator()
+✅ FIX TRANSLATOR SELECTION: La scelta del traduttore viene passata esplicitamente alla factory get_translator()
                              per evitare fallback involontari sul default (NLLB).
 
 HARDWARE TARGET:
@@ -25,15 +25,15 @@ HARDWARE TARGET:
 - CPU: Intel 12700KF
 - GPU: RTX 3060 12GB VRAM
 
-FUNZIONALITÃ€ COMPLETE:
-âœ… Estrazione sottotitoli embedded con prioritÃ  lingua
-âœ… Trascrizione audio Faster-Whisper con profili ottimizzati
-âœ… Separazione vocale Demucs con pipeline intelligente
-âœ… Traduzione NLLB-200 con batch size adattivo
-âœ… Upload OpenSubtitles (REST e XML-RPC)
-âœ… Integrazione TMDB per metadata IMDb
-âœ… Gestione memoria GPU ottimizzata
-âœ… Output ISO 639-1 (2 lettere)
+FUNZIONALITÀ COMPLETE:
+✅ Estrazione sottotitoli embedded con priorità lingua
+✅ Trascrizione audio Faster-Whisper con profili ottimizzati
+✅ Separazione vocale Demucs con pipeline intelligente
+✅ Traduzione NLLB-200 con batch size adattivo
+✅ Upload OpenSubtitles (REST e XML-RPC)
+✅ Integrazione TMDB per metadata IMDb
+✅ Gestione memoria GPU ottimizzata
+✅ Output ISO 639-1 (2 lettere)
 """
 import gc
 import json
@@ -356,7 +356,7 @@ class ProcessingPipeline:
             # STEP 0: Inizializzazione e Check
             # ============================================================
             self._log(f"\n{'='*80}")
-            self._log(f"ðŸŽ¬ Inizio elaborazione: {self.video_name}")
+            self._log(f"🎬 Inizio elaborazione: {self.video_name}")
             self._log(f"   Lingua Target: {target_language.upper()}")
             self._log(f"{'='*80}")
 
@@ -761,8 +761,8 @@ class ProcessingPipeline:
         if source_language_639_1 != target_language_639_1:
 
             self._ev('phase', name='translate')
-            self._log(f"\n6. Traduzione ({source_language_639_1} â†’ {target_language_639_1})...")
-            # âœ… FIX TRANSLATOR SELECTION: Usa il metodo corretto per leggere il modello dalla config
+            self._log(f"\n6. Traduzione ({source_language_639_1} → {target_language_639_1})...")
+            # ✅ FIX TRANSLATOR SELECTION: Usa il metodo corretto per leggere il modello dalla config
             # Leggi il modello di traduzione selezionato dall'utente
             selected_model = self.config.get_translation_model()
 
@@ -843,9 +843,9 @@ class ProcessingPipeline:
                 subtitle_path = translated_srt_path
                 final_language_639_1 = target_language_639_1
                 translation_performed = True
-                self._log("âœ… Traduzione completata con successo.")
+                self._log("✅ Traduzione completata con successo.")
             else:
-                self._log("âŒ Traduzione fallita. Uso i sottotitoli originali.")
+                self._log("❌ Traduzione fallita. Uso i sottotitoli originali.")
                 final_language_639_1 = source_language_639_1
                 translation_failed = True
         else:
@@ -908,7 +908,7 @@ class ProcessingPipeline:
             
         SubtitleCleaner.clean_file(subtitle_path, cleaned_srt_path)
         subtitle_path = cleaned_srt_path
-        self._log("âœ… Pulizia e fix overlap completati.")
+        self._log("✅ Pulizia e fix overlap completati.")
         return subtitle_path
 
     def _transcribe_step(self, subtitle_path, source_language_639_2: str, temp_dir):
@@ -933,7 +933,7 @@ class ProcessingPipeline:
                     # Usa get_selected_language() per ottenere lingua traccia
                     source_language_639_2 = audio_selector.get_selected_language()
                     self._ev('audio_lang', lang=source_language_639_2)
-                    self._log(f"âœ… Audio estratto. Lingua: {source_language_639_2}")
+                    self._log(f"✅ Audio estratto. Lingua: {source_language_639_2}")
 
                     if self._cancelled:
                         self._log("⏹ Elaborazione annullata")
@@ -1018,7 +1018,7 @@ class ProcessingPipeline:
                         return None
 
                     if chunk_list:
-                        self._log(f"âœ… Audio processato: {len(chunk_list)} chunks creati")
+                        self._log(f"✅ Audio processato: {len(chunk_list)} chunks creati")
 
                         if self._cancelled:
                             self._log("⏹ Elaborazione annullata")
@@ -1079,7 +1079,7 @@ class ProcessingPipeline:
                         if success and detected_lang_639_1 and subtitle_path.exists():
                             # Converti da ISO 639-1 (2 lettere) a ISO 639-2 (3 lettere)
                             source_language_639_2 = self._convert_639_1_to_639_2(detected_lang_639_1)
-                            self._log(f"âœ… Trascrizione completata. Lingua rilevata: {source_language_639_2}")
+                            self._log(f"✅ Trascrizione completata. Lingua rilevata: {source_language_639_2}")
                         else:
                             raise Exception("Trascrizione fallita o file SRT non creato.")
 
@@ -1305,6 +1305,7 @@ class ProcessingPipeline:
                         self._ev('phase', name='final')
                         self._log("✅ OCR bitmap completato.")
                         if self._ocr_upload_srt is not None:
+                            self.last_output_path = self._ocr_upload_srt   # output del job (queue_status, GUI)
                             self._upload_opensubtitles(self._ocr_upload_srt, 'it', imdb_id)
                             # Bitmap dichiarato italiano ma con testo straniero: la traccia errata viene
                             # sostituita dal sidecar (se l'interruttore e' acceso); in quel caso, riuscita
@@ -2064,7 +2065,7 @@ if __name__ == '__main__':
         python -m core.pipeline
     
     OPPURE dalla root del progetto:
-        python -c "from core.pipeline import ProcessingPipeline; print('âœ… Import OK')"
+        python -c "from core.pipeline import ProcessingPipeline; print('✅ Import OK')"
     """
     
     import sys
@@ -2087,10 +2088,10 @@ if __name__ == '__main__':
         from core.transcriber import Transcriber
         from core.audio_processor import AudioProcessor
         from core.audio_track_selector import AudioTrackSelector
-        print("âœ… Tutti gli import OK")
+        print("✅ Tutti gli import OK")
     except ImportError as e:
-        print(f"âŒ Import fallito: {e}")
-        print("\nðŸ’¡ SUGGERIMENTO: Esegui con 'python -m core.pipeline' invece di 'python core/pipeline.py'")
+        print(f"❌ Import fallito: {e}")
+        print("\n💡 SUGGERIMENTO: Esegui con 'python -m core.pipeline' invece di 'python core/pipeline.py'")
         exit(1)
     
     # Test 2: Verifica firma metodi critici
@@ -2102,22 +2103,22 @@ if __name__ == '__main__':
     sig = inspect.signature(translator.translate_file)
     params = list(sig.parameters.keys())
     print(f"   translate_file: {params}")
-    assert 'src_lang' in params and 'tgt_lang' in params, "âŒ Parametri errati!"
-    print("âœ… translate_file OK (src_lang, tgt_lang)")
+    assert 'src_lang' in params and 'tgt_lang' in params, "❌ Parametri errati!"
+    print("✅ translate_file OK (src_lang, tgt_lang)")
     
     # Test transcribe_chunks
     transcriber = Transcriber()
     sig = inspect.signature(transcriber.transcribe_chunks)
     params = list(sig.parameters.keys())
     print(f"   transcribe_chunks: {params}")
-    assert 'whisper_language' in params, "âŒ Parametro whisper_language mancante!"
-    print("âœ… transcribe_chunks OK (whisper_language keyword)")
+    assert 'whisper_language' in params, "❌ Parametro whisper_language mancante!"
+    print("✅ transcribe_chunks OK (whisper_language keyword)")
     
     # Test AudioTrackSelector
     print("\nTest 3: Verifica AudioTrackSelector...")
-    assert hasattr(AudioTrackSelector, 'select_best_track'), "âŒ select_best_track mancante!"
-    assert hasattr(AudioTrackSelector, 'get_selected_language'), "âŒ get_selected_language mancante!"
-    print("âœ… AudioTrackSelector OK")
+    assert hasattr(AudioTrackSelector, 'select_best_track'), "❌ select_best_track mancante!"
+    assert hasattr(AudioTrackSelector, 'get_selected_language'), "❌ get_selected_language mancante!"
+    print("✅ AudioTrackSelector OK")
     
     # Test 4: Verifica mappa lingue
     print("\nTest 4: Verifica mappa lingue ISO 639...")
@@ -2125,24 +2126,24 @@ if __name__ == '__main__':
     test_langs = [('ita', 'it'), ('eng', 'en'), ('fra', 'fr'), ('deu', 'de')]
     for lang_2, expected_1 in test_langs:
         actual = lang_map.get(lang_2)
-        assert actual == expected_1, f"âŒ {lang_2} â†’ {actual} (expected {expected_1})"
-    print("âœ… Mappa lingue ISO 639 OK")
+        assert actual == expected_1, f"❌ {lang_2} → {actual} (expected {expected_1})"
+    print("✅ Mappa lingue ISO 639 OK")
     
     print("\n" + "="*80)
-    print("âœ… TUTTI I TEST SUPERATI - Pipeline v3.9 pronta per produzione")
+    print("✅ TUTTI I TEST SUPERATI - Pipeline v3.9 pronta per produzione")
     print("="*80 + "\n")
     
-    print("ðŸ“ CHECKLIST DEPLOYMENT:")
-    print("  [âœ”] Fix parametri translate_file() (src_lang, tgt_lang)")
-    print("  [âœ”] Fix chiamata transcribe_chunks() con tupla e keyword")
-    print("  [âœ”] Upload OpenSubtitles robusto (REST/XML-RPC)")
-    print("  [âœ”] Gestione metadati completa")
-    print("  [âœ”] AudioTrackSelector con get_selected_language()")
-    print("  [âœ”] Cleanup memoria GPU ottimizzato")
-    print("  [âœ”] Logging dettagliato per debug")
-    print("  [âœ”] Gestione errori completa")
-    print("\nðŸš€ Ready for deployment!")
-    print("\nðŸ’¡ COMANDI DISPONIBILI:")
-    print("   - Test import:  python -c \"from core.pipeline import ProcessingPipeline; print('âœ… OK')\"")
+    print("📝 CHECKLIST DEPLOYMENT:")
+    print("  [✔] Fix parametri translate_file() (src_lang, tgt_lang)")
+    print("  [✔] Fix chiamata transcribe_chunks() con tupla e keyword")
+    print("  [✔] Upload OpenSubtitles robusto (REST/XML-RPC)")
+    print("  [✔] Gestione metadati completa")
+    print("  [✔] AudioTrackSelector con get_selected_language()")
+    print("  [✔] Cleanup memoria GPU ottimizzato")
+    print("  [✔] Logging dettagliato per debug")
+    print("  [✔] Gestione errori completa")
+    print("\n🚀 Ready for deployment!")
+    print("\n💡 COMANDI DISPONIBILI:")
+    print("   - Test import:  python -c \"from core.pipeline import ProcessingPipeline; print('✅ OK')\"")
     print("   - Test suite:   python -m core.pipeline")
     print("   - Avvio GUI:    python main.py")

@@ -3,7 +3,7 @@ Subtitle Uploader Interface - Design Pattern Adapter per Future-Proofing
 File: utils/subtitle_uploader_interface.py
 
 CORREZIONE v2.1:
-âœ… FIX CRITICO: Rimosse le firme non necessarie da authenticate, check_exists, logout 
+✅ FIX CRITICO: Rimosse le firme non necessarie da authenticate, check_exists, logout 
    per soddisfare il contratto di astrazione (ABC) basato sull'implementazione di XML-RPC.
 """
 from abc import ABC, abstractmethod
@@ -77,7 +77,7 @@ class SubtitleUploaderInterface(ABC):
     """
     
     @abstractmethod
-    def authenticate(self) -> bool: # âœ… FIX: Rimosse username e password
+    def authenticate(self) -> bool: # ✅ FIX: Rimosse username e password
         """
         Autentica utente con il servizio (usa le credenziali passate al costruttore).
         
@@ -106,12 +106,12 @@ class SubtitleUploaderInterface(ABC):
         metadata: SubtitleMetadata
     ) -> Tuple[bool, str]:
         """
-        Controlla se sottotitolo esiste giÃ  nel database
+        Controlla se sottotitolo esiste già nel database
         """
         pass
     
     @abstractmethod
-    def logout(self) -> None: # âœ… FIX: Rimosse firme non necessarie
+    def logout(self) -> None: # ✅ FIX: Rimosse firme non necessarie
         """
         Chiude sessione e rilascia risorse
         """

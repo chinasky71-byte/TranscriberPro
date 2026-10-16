@@ -378,6 +378,17 @@ class VobSubOcr:
         Mux single-pass: rimuove tutte le tracce VOBSUB OCR-ate e aggiunge gli SRT.
         results: [(stream_dict, srt_text, lang2), ...]
         """
+        # Modalita' sidecar (sempre nella pipeline): l'MKV non si tocca e le tracce bitmap restano. Con piu' tracce
+        # si scrive UN sidecar: la traccia completa (non forced) con piu' testo.
+        if self._cfg(CFG_WRITEBACK, DEFAULT_WRITEBACK) == WRITEBACK_SIDECAR:
+            full = [r for r in results if not r[0].get("forced")]
+            pool = [r for r in full if r[2] == "it"] or full or results
+            sub, srt, lang = max(pool, key=lambda r: len(r[1]))
+            self._bitmap_stream_abs_idx = sub["index"]
+            self._log(f"ℹ️ {len(results)} tracce VOBSUB italiane: sidecar dalla traccia {sub['index']} "
+                      "(la piu' completa); le altre restano nel video.")
+            return self.writeback(srt, lang)
+
         if self.video_path.suffix.lower() != ".mkv":
             logger.warning(f"Write-back mux multi salta {self.video_path.name}: non è MKV")
             return False
