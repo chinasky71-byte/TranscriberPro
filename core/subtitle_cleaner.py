@@ -344,6 +344,7 @@ class SubtitleCleaner:
             logger.info("  ℹ️ Nessun overlap da controllare (< 2 sottotitoli)")
             return self
         
+        self._sort_by_start()   # il fix assume blocchi in ordine di tempo
         logger.info("🔧 Fix overlapping temporale (modalità conservativa)...")
         
         # Reset statistiche
@@ -540,6 +541,16 @@ class SubtitleCleaner:
             self.subtitles = result
         return dropped
 
+    def _sort_by_start(self) -> int:
+        """Ordina i sottotitoli per tempo di inizio (stabile: a parita' resta l'ordine di arrivo).
+        Su un file gia' in ordine non cambia nulla. Ritorna quanti blocchi fuori ordine c'erano."""
+        out_of_order = sum(1 for a, b in zip(self.subtitles, self.subtitles[1:])
+                           if b.start_seconds < a.start_seconds - 0.001)
+        if out_of_order:
+            self.subtitles.sort(key=lambda s: s.start_seconds)
+            logger.info(f"  🔀 {out_of_order} sottotitoli fuori ordine temporale: riordinati per tempo di inizio")
+        return out_of_order
+
     def _count_overlaps(self) -> int:
         """Conta il numero totale di overlapping"""
         count = 0
@@ -550,6 +561,7 @@ class SubtitleCleaner:
     
     def renumber(self) -> 'SubtitleCleaner':
         """Rinumera sottotitoli sequenzialmente"""
+        self._sort_by_start()
         for i, subtitle in enumerate(self.subtitles, 1):
             subtitle.index = i
         

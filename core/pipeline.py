@@ -1557,7 +1557,9 @@ class ProcessingPipeline:
                         t = Path(p).read_text(encoding='utf-8-sig', errors='replace').replace('\r\n', '\n')
                         return [_re.sub(r'\s+', ' ', b.split('\n', 2)[-1]).strip()
                                 for b in _re.split(r'\n\s*\n', t.strip()) if b.strip()]
-                    ok = e_rc == 0 and chk.exists() and _n(chk) == _n(sidecar)
+                    # come INSIEME di battute: il contenitore tiene i sottotitoli in ordine di tempo, un sidecar con
+                    # blocchi fuori ordine tornerebbe con l'ordine cambiato pur essendo identico
+                    ok = e_rc == 0 and chk.exists() and sorted(_n(chk)) == sorted(_n(sidecar))
                 except Exception as exc:
                     logger.warning(f"Verifica del file con il sottotitolo non riuscita: {exc}")
                     ok = False
