@@ -6,24 +6,24 @@ File: gui/workers.py
 VERSIONE: v3.5 - FIX CRITICO SINCRONIZZAZIONE CODA
 
 CORREZIONI v3.5:
-âœ… FIX CRITICO: Worker rimuove file dalla coda PRIMA di continuare il loop
-âœ… Elimina race condition tra worker e UI
-âœ… Garantisce elaborazione sequenziale corretta
-âœ… Mutex condiviso tra worker e UI
+✅ FIX CRITICO: Worker rimuove file dalla coda PRIMA di continuare il loop
+✅ Elimina race condition tra worker e UI
+✅ Garantisce elaborazione sequenziale corretta
+✅ Mutex condiviso tra worker e UI
 
-NOVITÃ€ RISPETTO A v3.4:
-âœ… Worker rimuove file completato dalla coda in modo sincrono
-âœ… Segnale file_completed serve solo per aggiornare UI
-âœ… Nessuna dipendenza dall'UI per gestione coda
-âœ… Elaborazione robusta e prevedibile
+NOVITÀ RISPETTO A v3.4:
+✅ Worker rimuove file completato dalla coda in modo sincrono
+✅ Segnale file_completed serve solo per aggiornare UI
+✅ Nessuna dipendenza dall'UI per gestione coda
+✅ Elaborazione robusta e prevedibile
 
-FUNZIONALITÃ€ MANTENUTE:
-âœ… Coda condivisa thread-safe con MainWindow
-âœ… Supporto aggiunta file DURANTE elaborazione
-âœ… Gestione errori robusta
-âœ… Cleanup corretto dopo ogni file
-âœ… Segnale per file completato
-âœ… Cancellazione pulita
+FUNZIONALITÀ MANTENUTE:
+✅ Coda condivisa thread-safe con MainWindow
+✅ Supporto aggiunta file DURANTE elaborazione
+✅ Gestione errori robusta
+✅ Cleanup corretto dopo ogni file
+✅ Segnale per file completato
+✅ Cancellazione pulita
 """
 
 from PyQt6.QtCore import QThread, pyqtSignal, QMutex, QMutexLocker
@@ -212,8 +212,8 @@ class ProcessingWorker(QThread):
         # ========================================
         # v3.5: Coda CONDIVISA con mutex condiviso
         # ========================================
-        self.processing_queue = processing_queue  # âœ… Riferimento condiviso
-        self.queue_mutex = queue_mutex  # âœ… Mutex condiviso con UI
+        self.processing_queue = processing_queue  # ✅ Riferimento condiviso
+        self.queue_mutex = queue_mutex  # ✅ Mutex condiviso con UI
         
         self.is_cancelled = False
         self._current_proc = None     # subprocess pipeline_cli in corso (isolamento)
@@ -235,9 +235,9 @@ class ProcessingWorker(QThread):
     
     def get_and_remove_next_file(self) -> Optional[str]:
         """
-        âœ… v3.5: Ottiene E RIMUOVE primo file dalla coda in modo atomico thread-safe
+        ✅ v3.5: Ottiene E RIMUOVE primo file dalla coda in modo atomico thread-safe
         
-        IMPORTANTE: Questa operazione Ã¨ atomica - prende E rimuove in un'unica operazione
+        IMPORTANTE: Questa operazione è atomica - prende E rimuove in un'unica operazione
         protetta dal mutex, eliminando race conditions.
         
         Returns:
@@ -245,7 +245,7 @@ class ProcessingWorker(QThread):
         """
         with QMutexLocker(self.queue_mutex):
             if len(self.processing_queue) > 0:
-                # âœ… ATOMICO: Prendi E rimuovi in una sola operazione
+                # ✅ ATOMICO: Prendi E rimuovi in una sola operazione
                 file_path = self.processing_queue[0]
                 self.processing_queue.pop(0)
                 return file_path
@@ -258,7 +258,7 @@ class ProcessingWorker(QThread):
         CARATTERISTICHE v3.5:
         - Prende E rimuove atomicamente il primo elemento dalla coda
         - Elimina race condition con UI
-        - Continua finchè coda non Ã¨ vuota
+        - Continua finchè coda non è vuota
         - Thread-safe con QMutex condiviso
         """
         # Salva il totale iniziale per statistiche
@@ -269,7 +269,7 @@ class ProcessingWorker(QThread):
         # LOOP DINAMICO v3.5: Prende e rimuove atomicamente
         # ========================================
         while not self.is_cancelled:
-            # âœ… OPERAZIONE ATOMICA: Prendi E rimuovi file dalla coda
+            # ✅ OPERAZIONE ATOMICA: Prendi E rimuovi file dalla coda
             video_path = self.get_and_remove_next_file()
             
             # Se non ci sono più file, termina
@@ -294,7 +294,7 @@ class ProcessingWorker(QThread):
             
             if success:
                 self.completed_files += 1
-                # Emetti segnale per aggiornare UI (file giÃ  rimosso dalla coda)
+                # Emetti segnale per aggiornare UI (file già rimosso dalla coda)
                 self.file_completed.emit(video_path)
             else:
                 self.failed_files += 1

@@ -805,7 +805,7 @@ class Config:
     
     def is_huggingface_token_set(self) -> bool:
         """
-        Verifica se il token HuggingFace Ã¨ configurato
+        Verifica se il token HuggingFace è configurato
         """
         token = self.get_huggingface_token()
         return bool(token and token.strip())

@@ -16,32 +16,32 @@ NUOVO v6.0:
 
 VERSIONE: v5.4 - FIX ALLUCINAZIONI E RIPETIZIONI DEL RAMO LLM
 (Riscrittura completa della generazione LLM con parametri anti-ripetizione
-e controlli di qualitÃ  per eliminare allucinazioni e ripetizioni infinite)
+e controlli di qualità per eliminare allucinazioni e ripetizioni infinite)
 
 CORREZIONI v5.4:
-âœ… FIX CRITICO: Parametri anti-ripetizione
+✅ FIX CRITICO: Parametri anti-ripetizione
    - repetition_penalty=1.2 per penalizzare ripetizioni
    - no_repeat_ngram_size=3 per impedire ripetizioni di trigrammi
-   - TEMPERATURE ridotto a 0.3 per output piÃ¹ deterministico
-   - MAX_NEW_TOKENS ridotto a 150 (piÃ¹ appropriato per sottotitoli)
-âœ… FIX CRITICO: Controlli di qualitÃ  output
+   - TEMPERATURE ridotto a 0.3 per output più deterministico
+   - MAX_NEW_TOKENS ridotto a 150 (più appropriato per sottotitoli)
+✅ FIX CRITICO: Controlli di qualità output
    - Rilevamento ripetizioni eccessive (pattern ripetuto >3 volte)
    - Controllo lunghezza anomala (>3x originale)
    - Fallback su testo originale per output problematici
-âœ… MIGLIORAMENTO: Prompt semplificato e piÃ¹ diretto
-âœ… MIGLIORAMENTO: early_stopping=True per fermare alla generazione EOS
-âœ… MIGLIORAMENTO: Batch size ridotto a 8 per maggiore stabilitÃ 
+✅ MIGLIORAMENTO: Prompt semplificato e più diretto
+✅ MIGLIORAMENTO: early_stopping=True per fermare alla generazione EOS
+✅ MIGLIORAMENTO: Batch size ridotto a 8 per maggiore stabilità
 
 CORREZIONI v5.3:
-âœ… FIX CRITICO: Corretta estrazione traduzione in _run_translation()
+✅ FIX CRITICO: Corretta estrazione traduzione in _run_translation()
    - Estrae solo i token generati dal modello (outputs[:, input_length:])
    - Elimina il metodo fragile output.replace(prompt, '')
 
-FUNZIONALITÃ€ v5.2:
-âœ… Impedita l'invio di stringhe vuote/solo contenuti mascherati
-âœ… Controllo esplicito allucinazione ("# non lo so #") con fallback
-âœ… Logica di copia dell'originale gestita robustamente
-âœ… Caricamento token HuggingFace per i modelli gated
+FUNZIONALITÀ v5.2:
+✅ Impedita l'invio di stringhe vuote/solo contenuti mascherati
+✅ Controllo esplicito allucinazione ("# non lo so #") con fallback
+✅ Logica di copia dell'originale gestita robustamente
+✅ Caricamento token HuggingFace per i modelli gated
 """
 import logging
 import torch
@@ -50,7 +50,7 @@ import time
 from pathlib import Path
 from typing import Optional, List, Tuple, Callable, Dict, Any
 from abc import ABC, abstractmethod
-# NOTE: ÃƒË† necessario installare bitsandbytes e accelerate per la quantizzazione
+# NOTE: È necessario installare bitsandbytes e accelerate per la quantizzazione
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, AutoModelForCausalLM, BitsAndBytesConfig, AutoConfig
 from threading import Lock
 from huggingface_hub import snapshot_download
@@ -83,7 +83,7 @@ try:
     from utils.config import get_config
 except ImportError:
     # Fallback nel caso in cui il file venga eseguito da solo
-    logger.warning("Impossibile importare 'utils.config'. Il caricamento di modelli gated fallirÃƒÂ .")
+    logger.warning("Impossibile importare 'utils.config'. Il caricamento di modelli gated fallirà.")
     get_config = None
 # --- FINE MODIFICA ---
 
@@ -355,7 +355,7 @@ class BaseTranslator(ABC):
         masked_text = re.sub(r'\*\s.*?\s\*', masking_replacer, masked_text,
                              flags=re.DOTALL)
         
-        # 2. Verifica se il testo rimanente, una volta ripulito dagli spazi, ÃƒÂ¨ vuoto.
+        # 2. Verifica se il testo rimanente, una volta ripulito dagli spazi, è vuoto.
         text_without_placeholders = masked_text
         for placeholder in placeholders:
             text_without_placeholders = text_without_placeholders.replace(placeholder, ' ')
@@ -1089,7 +1089,7 @@ def _load_nllb_model(model_name: str = "facebook/nllb-200-3.3B"):
 
                 logger.info(f"-> Modello NLLB caricato su {_device}")
             except Exception as e:
-                logger.critical(f"Ã¢ÂÅ’ Errore caricamento NLLB-200: {e}")
+                logger.critical(f"❌ Errore caricamento NLLB-200: {e}")
                 _nllb_model = None
                 _nllb_tokenizer = None
                 raise
@@ -1358,7 +1358,7 @@ class NLLBTranslator(BaseTranslator):
         'und': 'eng_Latn',
     }
 
-    # Parametri ottimizzati per qualitÃƒÂ  / performance
+    # Parametri ottimizzati per qualità / performance
     NO_REPEAT_NGRAM_SIZE = 3
     MAX_LENGTH_SENTENCE = 256
 
@@ -1954,7 +1954,7 @@ class NLLBTranslator(BaseTranslator):
             return True
             
         except Exception as e:
-            error_msg = f" Ã¢ÂÅ’ Errore traduzione file {output_path.name}: {e}"
+            error_msg = f" ❌ Errore traduzione file {output_path.name}: {e}"
             self.log(error_msg)
             logger.error(error_msg, exc_info=True)
             return False
@@ -1975,7 +1975,7 @@ class NLLBTranslator(BaseTranslator):
             self.log("  ✅ Modello NLLB scaricato dalla VRAM")
         except Exception as e:
             logger.error(f"Errore durante cleanup NLLB: {e}")
-            logger.error(f" Ã¢ÂÅ’ Errore durante cleanup GPU: {e}")
+            logger.error(f" ❌ Errore durante cleanup GPU: {e}")
 
 
 # ============================================================================

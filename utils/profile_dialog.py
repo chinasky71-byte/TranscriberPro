@@ -5,12 +5,12 @@ File: gui/profile_dialog.py
 VERSIONE: v3.1 - Finestra Ridimensionabile Compatta
 
 MODIFICHE v3.1:
-âœ… Altezza iniziale ridotta (600 â†’ 480)
-âœ… Finestra completamente ridimensionabile
-âœ… Contenuto scrollabile automatico
-âœ… Widget profili compattati (padding ridotto 40%)
-âœ… Layout piÃ¹ efficiente con informazioni raggruppate
-âœ… Spaziature ottimizzate per risoluzioni basse
+✅ Altezza iniziale ridotta (600 → 480)
+✅ Finestra completamente ridimensionabile
+✅ Contenuto scrollabile automatico
+✅ Widget profili compattati (padding ridotto 40%)
+✅ Layout più efficiente con informazioni raggruppate
+✅ Spaziature ottimizzate per risoluzioni basse
 """
 
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QRadioButton,
@@ -31,7 +31,7 @@ class ProfileSelectionDialog(QDialog):
     - Finestra ridimensionabile liberamente
     - Contenuto scrollabile automatico
     - Layout compatto ottimizzato
-    - Altezza iniziale ridotta per compatibilitÃ  schermi
+    - Altezza iniziale ridotta per compatibilità schermi
     """
     
     def __init__(self, parent=None):
@@ -39,17 +39,17 @@ class ProfileSelectionDialog(QDialog):
         self.config = get_config()
         self.selected_profile = self.config.get_transcription_profile()
         
-        self.setWindowTitle("âš™ï¸ Profili Trascrizione")
+        self.setWindowTitle("⚙️ Profili Trascrizione")
         self.setModal(True)
         
-        # âœ… OTTIMIZZATO: Dimensioni iniziali piÃ¹ compatte
+        # ✅ OTTIMIZZATO: Dimensioni iniziali più compatte
         self.setMinimumWidth(650)
-        self.setMinimumHeight(480)  # 600 â†’ 480
+        self.setMinimumHeight(480)  # 600 → 480
         
-        # âœ… NUOVO: Dimensione iniziale ragionevole
+        # ✅ NUOVO: Dimensione iniziale ragionevole
         self.resize(700, 550)
         
-        # âœ… NUOVO: Abilita ridimensionamento completo
+        # ✅ NUOVO: Abilita ridimensionamento completo
         self.setSizeGripEnabled(True)
         
         self.init_ui()
@@ -59,8 +59,8 @@ class ProfileSelectionDialog(QDialog):
         """Inizializza interfaccia con scroll area"""
         # Layout principale dialog
         main_layout = QVBoxLayout()
-        main_layout.setSpacing(12)  # 15 â†’ 12
-        main_layout.setContentsMargins(15, 15, 15, 15)  # 20 â†’ 15
+        main_layout.setSpacing(12)  # 15 → 12
+        main_layout.setContentsMargins(15, 15, 15, 15)  # 20 → 15
         
         # Header
         header = self.create_header()
@@ -72,7 +72,7 @@ class ProfileSelectionDialog(QDialog):
         separator.setObjectName("separator")
         main_layout.addWidget(separator)
         
-        # âœ… OTTIMIZZATO: Descrizione piÃ¹ concisa
+        # ✅ OTTIMIZZATO: Descrizione più concisa
         desc_label = QLabel(
             "Seleziona il profilo ottimale per il tuo caso d'uso."
         )
@@ -81,7 +81,7 @@ class ProfileSelectionDialog(QDialog):
         main_layout.addWidget(desc_label)
         
         # ========================================
-        # âœ… NUOVO: Scroll Area per contenuto profili
+        # ✅ NUOVO: Scroll Area per contenuto profili
         # ========================================
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
@@ -93,7 +93,7 @@ class ProfileSelectionDialog(QDialog):
         # Container interno per profili
         scroll_content = QWidget()
         scroll_layout = QVBoxLayout(scroll_content)
-        scroll_layout.setSpacing(8)  # 10 â†’ 8 (piÃ¹ compatto)
+        scroll_layout.setSpacing(8)  # 10 → 8 (più compatto)
         scroll_layout.setContentsMargins(0, 0, 5, 0)  # Margine minimo a destra per scrollbar
         
         # Button group per radio buttons
@@ -108,7 +108,7 @@ class ProfileSelectionDialog(QDialog):
         scroll_layout.addStretch()
         
         scroll_area.setWidget(scroll_content)
-        main_layout.addWidget(scroll_area, stretch=1)  # âœ… Stretch per prendere spazio disponibile
+        main_layout.addWidget(scroll_area, stretch=1)  # ✅ Stretch per prendere spazio disponibile
         
         # Separator bottom
         separator2 = QFrame()
@@ -123,14 +123,14 @@ class ProfileSelectionDialog(QDialog):
         buttons_layout.setSpacing(10)
         buttons_layout.addStretch()
         
-        cancel_btn = QPushButton("âŒ Annulla")
+        cancel_btn = QPushButton("❌ Annulla")
         cancel_btn.setObjectName("cancelButton")
-        cancel_btn.setMinimumWidth(110)  # 120 â†’ 110
+        cancel_btn.setMinimumWidth(110)  # 120 → 110
         cancel_btn.setFixedHeight(36)  # Altezza fissa
         cancel_btn.clicked.connect(self.reject)
         buttons_layout.addWidget(cancel_btn)
         
-        ok_btn = QPushButton("âœ… Conferma")
+        ok_btn = QPushButton("✅ Conferma")
         ok_btn.setObjectName("okButton")
         ok_btn.setMinimumWidth(110)
         ok_btn.setFixedHeight(36)
@@ -143,11 +143,11 @@ class ProfileSelectionDialog(QDialog):
     
     def create_header(self):
         """Crea header dialog compatto"""
-        header = QLabel("âš™ï¸ Profili di Trascrizione")
+        header = QLabel("⚙️ Profili di Trascrizione")
         header.setObjectName("dialogHeader")
         
         font = QFont()
-        font.setPointSize(14)  # 16 â†’ 14 (piÃ¹ compatto)
+        font.setPointSize(14)  # 16 → 14 (più compatto)
         font.setBold(True)
         header.setFont(font)
         
@@ -168,16 +168,16 @@ class ProfileSelectionDialog(QDialog):
         frame.setObjectName("profileFrame")
         
         layout = QHBoxLayout()
-        # âœ… OTTIMIZZATO: Margins ridotti (15,12 â†’ 10,8)
+        # ✅ OTTIMIZZATO: Margins ridotti (15,12 → 10,8)
         layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(12)  # 15 â†’ 12
+        layout.setSpacing(12)  # 15 → 12
         
         # Radio button
         radio = QRadioButton()
         radio.setObjectName("profileRadio")
         radio.setProperty("profile", profile.value)
         
-        # Seleziona se Ã¨ il profilo corrente
+        # Seleziona se è il profilo corrente
         if profile.value == self.selected_profile:
             radio.setChecked(True)
         
@@ -191,10 +191,10 @@ class ProfileSelectionDialog(QDialog):
         layout.addWidget(radio, 0)  # No stretch
         
         # ========================================
-        # âœ… OTTIMIZZATO: Info profilo COMPATTE
+        # ✅ OTTIMIZZATO: Info profilo COMPATTE
         # ========================================
         info_layout = QVBoxLayout()
-        info_layout.setSpacing(4)  # 5 â†’ 4
+        info_layout.setSpacing(4)  # 5 → 4
         
         # Get config
         config = ProfileConfig.get_profile_config(profile)
@@ -209,7 +209,7 @@ class ProfileSelectionDialog(QDialog):
         
         # Badge raccomandato per BALANCED
         if profile == TranscriptionProfile.BALANCED:
-            badge = QLabel("â­ RACCOMANDATO")
+            badge = QLabel("⭐ RACCOMANDATO")
             badge.setObjectName("recommendedBadge")
             name_layout.addWidget(badge)
         
@@ -228,17 +228,17 @@ class ProfileSelectionDialog(QDialog):
         
         # Parametri tecnici compatti
         params_text = (
-            f"âš™ï¸ W:{config['num_workers']} | "
-            f"ðŸŽ¯ B:{config['beam_size']} | "
-            f"âš¡ {self._format_speed(config['speed_factor'])} | "
-            f"âœ¨ {config['quality_percent']:.0f}%"
+            f"⚙️ W:{config['num_workers']} | "
+            f"🎯 B:{config['beam_size']} | "
+            f"⚡ {self._format_speed(config['speed_factor'])} | "
+            f"✨ {config['quality_percent']:.0f}%"
         )
         params_label = QLabel(params_text)
         params_label.setObjectName("profileParams")
         params_layout.addWidget(params_label)
         
         # Tempo stimato (stesso rigo)
-        time_label = QLabel(f"â±ï¸ ~{config['time_1h_audio_min']}min/h")
+        time_label = QLabel(f"⏱️ ~{config['time_1h_audio_min']}min/h")
         time_label.setObjectName("profileTime")
         params_layout.addWidget(time_label)
         
@@ -247,7 +247,7 @@ class ProfileSelectionDialog(QDialog):
         
         # --- Warning se presente (compatto) ---
         if 'warning' in config:
-            warning_label = QLabel(f"âš ï¸ {config['warning']}")
+            warning_label = QLabel(f"⚠️ {config['warning']}")
             warning_label.setObjectName("profileWarning")
             warning_label.setWordWrap(True)
             info_layout.addWidget(warning_label)
@@ -297,7 +297,7 @@ class ProfileSelectionDialog(QDialog):
                 background-color: #1e1e1e;
             }
             
-            /* Header - âœ… COMPATTO */
+            /* Header - ✅ COMPATTO */
             QLabel#dialogHeader {
                 color: #ffffff;
                 padding: 10px;
@@ -305,7 +305,7 @@ class ProfileSelectionDialog(QDialog):
                 border-radius: 6px;
             }
             
-            /* Description Label - âœ… COMPATTO */
+            /* Description Label - ✅ COMPATTO */
             QLabel#descLabel {
                 color: #d0d0d0;
                 font-size: 9pt;
@@ -318,7 +318,7 @@ class ProfileSelectionDialog(QDialog):
                 border: none;
             }
             
-            /* Profile Frame - âœ… OTTIMIZZATO */
+            /* Profile Frame - ✅ OTTIMIZZATO */
             QFrame#profileFrame {
                 background-color: rgba(32, 32, 32, 200);
                 border: 2px solid rgba(255, 255, 255, 0.1);
@@ -354,33 +354,33 @@ class ProfileSelectionDialog(QDialog):
                 border: 2px solid rgba(0, 150, 255, 255);
             }
             
-            /* Profile Name - âœ… COMPATTO */
+            /* Profile Name - ✅ COMPATTO */
             QLabel#profileName {
                 color: #ffffff;
                 font-size: 11pt;
             }
             
-            /* Profile Description - âœ… COMPATTO */
+            /* Profile Description - ✅ COMPATTO */
             QLabel#profileDesc {
                 color: #b0b0b0;
                 font-size: 8.5pt;
             }
             
-            /* Profile Params - âœ… COMPATTO */
+            /* Profile Params - ✅ COMPATTO */
             QLabel#profileParams {
                 color: #88ccff;
                 font-size: 8pt;
                 font-family: 'Consolas', monospace;
             }
             
-            /* Profile Time - âœ… COMPATTO */
+            /* Profile Time - ✅ COMPATTO */
             QLabel#profileTime {
                 color: #88ff88;
                 font-size: 8pt;
                 font-family: 'Consolas', monospace;
             }
             
-            /* Recommended Badge - âœ… COMPATTO */
+            /* Recommended Badge - ✅ COMPATTO */
             QLabel#recommendedBadge {
                 color: #ffcc00;
                 font-size: 7.5pt;
@@ -391,7 +391,7 @@ class ProfileSelectionDialog(QDialog):
                 padding: 2px 6px;
             }
             
-            /* Profile Warning - âœ… COMPATTO */
+            /* Profile Warning - ✅ COMPATTO */
             QLabel#profileWarning {
                 color: #ffaa44;
                 font-size: 8pt;
@@ -405,7 +405,7 @@ class ProfileSelectionDialog(QDialog):
                 max-height: 1px;
             }
             
-            /* Buttons - âœ… OTTIMIZZATI */
+            /* Buttons - ✅ OTTIMIZZATI */
             QPushButton#okButton {
                 background-color: rgba(50, 180, 50, 180);
                 color: white;
@@ -442,7 +442,7 @@ class ProfileSelectionDialog(QDialog):
                 background-color: rgba(70, 70, 70, 255);
             }
             
-            /* Scrollbar - âœ… STILE MODERNO */
+            /* Scrollbar - ✅ STILE MODERNO */
             QScrollBar:vertical {
                 background-color: rgba(30, 30, 30, 100);
                 width: 10px;

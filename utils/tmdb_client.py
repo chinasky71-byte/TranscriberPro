@@ -38,19 +38,19 @@ logger = logging.getLogger(__name__)
 try:
     from imdb import Cinemagoer
     CINEMAGOER_AVAILABLE = True
-    logger.debug("âœ… Cinemagoer disponibile (Fallback 1)")
+    logger.debug("✅ Cinemagoer disponibile (Fallback 1)")
 except ImportError:
     CINEMAGOER_AVAILABLE = False
-    logger.warning("âš ï¸ Cinemagoer non disponibile")
+    logger.warning("⚠️ Cinemagoer non disponibile")
 
 # OMDb Client - Fallback 2  
 try:
     from utils.imdb_client import get_imdb_client
     OMDB_AVAILABLE = True
-    logger.debug("âœ… OMDb Client disponibile (Fallback 2)")
+    logger.debug("✅ OMDb Client disponibile (Fallback 2)")
 except ImportError:
     OMDB_AVAILABLE = False
-    logger.warning("âš ï¸ OMDb Client non disponibile")
+    logger.warning("⚠️ OMDb Client non disponibile")
 
 
 class TMDBClient:
@@ -68,7 +68,7 @@ class TMDBClient:
         self.cache_dir = Path.home() / '.transcriberpro' / 'posters'
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         
-        logger.info(f"TMDB Client inizializzato (API key: {'âœ…' if self.api_key else 'âŒ'})")
+        logger.info(f"TMDB Client inizializzato (API key: {'✅' if self.api_key else '❌'})")
         
         # Mostra fallback disponibili
         fallback_status = []
@@ -78,9 +78,9 @@ class TMDBClient:
             fallback_status.append("OMDb")
         
         if fallback_status:
-            logger.info(f"âœ… Fallback IMDb disponibili: {', '.join(fallback_status)}")
+            logger.info(f"✅ Fallback IMDb disponibili: {', '.join(fallback_status)}")
         else:
-            logger.warning("âš ï¸ Nessun fallback IMDb disponibile")
+            logger.warning("⚠️ Nessun fallback IMDb disponibile")
     
     def _load_api_key(self) -> str:
         """Carica API key dal file o usa fallback"""
@@ -96,12 +96,12 @@ class TMDBClient:
                     with open(api_file, 'r', encoding='utf-8') as f:
                         api_key = f.read().strip()
                         if api_key and len(api_key) > 10:
-                            logger.info(f"âœ… TMDB API key caricata da: {api_file}")
+                            logger.info(f"✅ TMDB API key caricata da: {api_file}")
                             return api_key
                 except Exception as e:
                     logger.error(f"Errore lettura {api_file}: {e}")
         
-        logger.warning(f"âš ï¸ File tmdb_api.txt non trovato, uso fallback key")
+        logger.warning(f"⚠️ File tmdb_api.txt non trovato, uso fallback key")
         return self.FALLBACK_API_KEY
     
     def _get_imdb_id(self, media_type: str, tmdb_id: int, media_info: Optional[Dict] = None) -> Optional[str]:
@@ -114,53 +114,53 @@ class TMDBClient:
         imdb_id = self._get_imdb_id_from_tmdb(media_type, tmdb_id)
         
         if imdb_id:
-            logger.info(f"âœ… IMDb ID trovato via TMDB External IDs: {imdb_id}")
+            logger.info(f"✅ IMDb ID trovato via TMDB External IDs: {imdb_id}")
             return imdb_id
         
-        logger.warning("âš ï¸ IMDb ID non trovato su TMDB, attivo fallback...")
+        logger.warning("⚠️ IMDb ID non trovato su TMDB, attivo fallback...")
         
-        # Ottieni info media se non giÃ  disponibili (necessarie per fallback)
+        # Ottieni info media se non già disponibili (necessarie per fallback)
         if not media_info:
             media_info = self._get_tmdb_media_info(media_type, tmdb_id)
             
             if not media_info:
-                logger.error("âŒ Impossibile recuperare info da TMDB per fallback")
+                logger.error("❌ Impossibile recuperare info da TMDB per fallback")
                 return None
         
         # ========================================
         # FALLBACK 2: Cinemagoer (Ricerca Python IMDb)
         # ========================================
         if CINEMAGOER_AVAILABLE:
-            logger.info("ðŸ”„ Fallback 1: Tentativo ricerca Cinemagoer...")
+            logger.info("🔄 Fallback 1: Tentativo ricerca Cinemagoer...")
             imdb_id = self._search_imdb_cinemagoer(media_type, media_info)
             
             if imdb_id:
-                logger.info(f"âœ… IMDb ID trovato via Cinemagoer: {imdb_id}")
+                logger.info(f"✅ IMDb ID trovato via Cinemagoer: {imdb_id}")
                 return imdb_id
             
-            logger.warning("âš ï¸ Cinemagoer non ha trovato risultati")
+            logger.warning("⚠️ Cinemagoer non ha trovato risultati")
         else:
-            logger.debug("â„¹ï¸ Cinemagoer non disponibile, skip fallback 1")
+            logger.debug("ℹ️ Cinemagoer non disponibile, skip fallback 1")
         
         # ========================================
         # FALLBACK 3: OMDb API (Ricerca API IMDb Ufficiale)
         # ========================================
         if OMDB_AVAILABLE:
-            logger.info("ðŸ”„ Fallback 2: Tentativo ricerca OMDb API...")
+            logger.info("🔄 Fallback 2: Tentativo ricerca OMDb API...")
             imdb_id = self._search_imdb_omdb(media_type, media_info)
             
             if imdb_id:
-                logger.info(f"âœ… IMDb ID trovato via OMDb API: {imdb_id}")
+                logger.info(f"✅ IMDb ID trovato via OMDb API: {imdb_id}")
                 return imdb_id
             
-            logger.warning("âš ï¸ OMDb API non ha trovato risultati")
+            logger.warning("⚠️ OMDb API non ha trovato risultati")
         else:
-            logger.debug("â„¹ï¸ OMDb Client non disponibile, skip fallback 2")
+            logger.debug("ℹ️ OMDb Client non disponibile, skip fallback 2")
         
         # ========================================
         # TUTTI I FALLBACK FALLITI
         # ========================================
-        logger.error("âŒ IMDb ID NON TROVATO dopo tutti i fallback")
+        logger.error("❌ IMDb ID NON TROVATO dopo tutti i fallback")
         logger.error(f"   TMDB ID: {tmdb_id}")
         logger.error(f"   Titolo: {media_info.get('title', 'N/A')}")
         logger.error(f"   Anno: {media_info.get('year', 'N/A')}")
@@ -173,7 +173,7 @@ class TMDBClient:
         Recupera IMDb ID da TMDB external_ids (metodo primario)
         """
         try:
-            logger.debug(f"ðŸ” Recupero IMDb ID da TMDB external_ids (ID: {tmdb_id})")
+            logger.debug(f"🔍 Recupero IMDb ID da TMDB external_ids (ID: {tmdb_id})")
             
             response = requests.get(
                 f"{self.base_url}/{media_type}/{tmdb_id}/external_ids",
@@ -191,11 +191,11 @@ class TMDBClient:
                     logger.debug(f"   IMDb ID non presente negli external_ids TMDB")
                     return None
             else:
-                logger.warning(f"âš ï¸ TMDB external_ids API error: HTTP {response.status_code}")
+                logger.warning(f"⚠️ TMDB external_ids API error: HTTP {response.status_code}")
                 return None
                 
         except Exception as e:
-            logger.error(f"âŒ Errore recupero IMDb ID da TMDB: {e}")
+            logger.error(f"❌ Errore recupero IMDb ID da TMDB: {e}")
             return None
 
     def _get_episode_imdb_id(self, tmdb_id: int, season: int, episode: int) -> Optional[str]:
@@ -250,7 +250,7 @@ class TMDBClient:
             return None
             
         except Exception as e:
-            logger.error(f"âŒ Errore recupero info TMDB: {e}")
+            logger.error(f"❌ Errore recupero info TMDB: {e}")
             return None
     
     def _search_imdb_cinemagoer(self, media_type: str, media_info: Dict) -> Optional[str]:
@@ -283,7 +283,7 @@ class TMDBClient:
             return None
             
         except Exception as e:
-            logger.error(f"âŒ Errore ricerca Cinemagoer: {e}")
+            logger.error(f"❌ Errore ricerca Cinemagoer: {e}")
             return None
     
     def _search_imdb_omdb(self, media_type: str, media_info: Dict) -> Optional[str]:
@@ -297,7 +297,7 @@ class TMDBClient:
             year = media_info.get('year')
             
             if not title:
-                logger.error("âŒ Titolo mancante per ricerca OMDb")
+                logger.error("❌ Titolo mancante per ricerca OMDb")
                 return None
             
             if year and isinstance(year, str):
@@ -314,7 +314,7 @@ class TMDBClient:
             return imdb_id
             
         except Exception as e:
-            logger.error(f"âŒ Errore ricerca OMDb: {e}")
+            logger.error(f"❌ Errore ricerca OMDb: {e}")
             return None
     
     def _find_best_imdb_match(self, results: List, media_info: Dict, media_type: str) -> Optional[any]:
@@ -375,7 +375,7 @@ class TMDBClient:
     def parse_filename(self, filename: str, allow_absolute: bool = True) -> Dict[str, any]:
         """
         Estrae informazioni dal nome file
-        âœ… FIX CRITICO: Pulizia piÃ¹ aggressiva e mirata del titolo TV show
+        ✅ FIX CRITICO: Pulizia più aggressiva e mirata del titolo TV show
         """
         name = Path(filename).stem
         logger.debug(f"Parsing filename: {name}")
@@ -415,7 +415,7 @@ class TMDBClient:
                 season = int(match.group(1))
                 episode = int(match.group(2))
                 
-                logger.debug(f"âœ… TV Show: {title} ({year if year else 'no year'}) S{season:02d}E{episode:02d}")
+                logger.debug(f"✅ TV Show: {title} ({year if year else 'no year'}) S{season:02d}E{episode:02d}")
                 
                 return {
                     'type': 'tv',
@@ -459,7 +459,7 @@ class TMDBClient:
 
         title = self._clean_title(title)
         
-        logger.debug(f"âœ… Movie: {title} ({year if year else 'no year'})")
+        logger.debug(f"✅ Movie: {title} ({year if year else 'no year'})")
         
         return {
             'type': 'movie',
@@ -647,7 +647,7 @@ class TMDBClient:
     def search_movie(self, title: str, year: Optional[int] = None) -> Optional[Dict]:
         """Cerca film su TMDB con triplo fallback IMDb ID"""
         if not self.api_key:
-            logger.error("âŒ API key non disponibile")
+            logger.error("❌ API key non disponibile")
             return None
 
         if not title or not title.strip():
@@ -656,7 +656,7 @@ class TMDBClient:
 
         search_variants = self._generate_search_variants(title)
         
-        logger.info(f"ðŸ” Ricerca film: '{title}'" + (f" ({year})" if year else ""))
+        logger.info(f"🔍 Ricerca film: '{title}'" + (f" ({year})" if year else ""))
         if len(search_variants) > 1:
             logger.debug(f"   Varianti: {search_variants[1:]}")
         
@@ -678,7 +678,7 @@ class TMDBClient:
                 )
                 
                 if response.status_code == 401:
-                    logger.error("âŒ API key non valida!")
+                    logger.error("❌ API key non valida!")
                     return None
                 
                 response.raise_for_status()
@@ -688,7 +688,7 @@ class TMDBClient:
                     result = data['results'][0]
                     tmdb_id = result['id']
                     
-                    logger.info(f"âœ… Trovato TMDB: {result.get('title', 'N/A')} ({result.get('release_date', 'N/A')[:4]})")
+                    logger.info(f"✅ Trovato TMDB: {result.get('title', 'N/A')} ({result.get('release_date', 'N/A')[:4]})")
                     
                     media_info = {
                         'title': result.get('title', title),
@@ -699,9 +699,9 @@ class TMDBClient:
                     imdb_id = self._get_imdb_id('movie', tmdb_id, media_info)
                     
                     if imdb_id:
-                        logger.info(f"âœ… IMDb ID finale: {imdb_id}")
+                        logger.info(f"✅ IMDb ID finale: {imdb_id}")
                     else:
-                        logger.warning(f"âš ï¸ IMDb ID NON trovato dopo tutti i fallback")
+                        logger.warning(f"⚠️ IMDb ID NON trovato dopo tutti i fallback")
                     
                     return {
                         'id': tmdb_id,
@@ -717,13 +717,13 @@ class TMDBClient:
                     logger.debug(f"   Nessun risultato per: '{variant}'")
                     
             except requests.exceptions.Timeout:
-                logger.error("âŒ Timeout TMDB")
+                logger.error("❌ Timeout TMDB")
             except requests.exceptions.RequestException as e:
-                logger.error(f"âŒ Errore TMDB: {e}")
+                logger.error(f"❌ Errore TMDB: {e}")
             except Exception as e:
-                logger.error(f"âŒ Errore inatteso: {e}")
+                logger.error(f"❌ Errore inatteso: {e}")
         
-        logger.warning(f"âš ï¸ Nessun risultato per: {title}")
+        logger.warning(f"⚠️ Nessun risultato per: {title}")
         return None
     
     def search_tv(self, title: str, season: int = None, episode: int = None, year: int = None,
@@ -752,7 +752,7 @@ class TMDBClient:
         `full_title_only`: solo il titolo intero, senza le varianti "larghe" (senza articoli, prima del
         trattino...), che senza il filtro anno darebbero risultati sbagliati."""
         if not self.api_key:
-            logger.error("âŒ API key non disponibile")
+            logger.error("❌ API key non disponibile")
             return None, True
 
         if not title or not title.strip():
@@ -762,7 +762,7 @@ class TMDBClient:
         search_variants = [title] if full_title_only else self._generate_search_variants(title)
         errored = False
         
-        logger.info(f"ðŸ” Ricerca serie TV: '{title}'" + (f" ({year})" if year else ""))
+        logger.info(f"🔍 Ricerca serie TV: '{title}'" + (f" ({year})" if year else ""))
         if len(search_variants) > 1:
             logger.debug(f"   Varianti: {search_variants[1:]}")
         
@@ -784,7 +784,7 @@ class TMDBClient:
                 )
                 
                 if response.status_code == 401:
-                    logger.error("âŒ API key non valida!")
+                    logger.error("❌ API key non valida!")
                     return None, True
                 
                 response.raise_for_status()
@@ -810,7 +810,7 @@ class TMDBClient:
                         logger.info(f"   Numero assoluto {absolute} -> S{season:02d}E{episode:02d}")
                     tmdb_id = result['id']
                     
-                    logger.info(f"âœ… Trovato TMDB: {result.get('name', 'N/A')} ({result.get('first_air_date', 'N/A')[:4]})")
+                    logger.info(f"✅ Trovato TMDB: {result.get('name', 'N/A')} ({result.get('first_air_date', 'N/A')[:4]})")
                     
                     media_info = {
                         'title': result.get('name', title),
@@ -830,16 +830,16 @@ class TMDBClient:
                             imdb_id = episode_imdb_id
                     
                     if imdb_id:
-                        logger.info(f"âœ… IMDb ID finale: {imdb_id}")
+                        logger.info(f"✅ IMDb ID finale: {imdb_id}")
                     else:
-                        logger.warning(f"âš ï¸ IMDb ID NON trovato dopo tutti i fallback")
+                        logger.warning(f"⚠️ IMDb ID NON trovato dopo tutti i fallback")
                     
                     # --- MODIFICA v3.3: FALLBACK LINGUA EPISODIO ---
                     series_overview = result.get('overview', '')
                     episode_overview = None
                     
                     if season is not None and episode is not None:
-                        logger.debug(f"ðŸ” Recupero sinossi episodio S{season}E{episode} (it-IT)...")
+                        logger.debug(f"🔍 Recupero sinossi episodio S{season}E{episode} (it-IT)...")
                         try:
                             # 1. Tenta di ottenere la sinossi in ITALIANO
                             ep_params_it = {
@@ -855,7 +855,7 @@ class TMDBClient:
                             if ep_response_it.status_code == 200:
                                 episode_overview = ep_response_it.json().get('overview')
 
-                            # 2. Se la sinossi italiana Ã¨ vuota o l'API fallisce, TENTA IN INGLESE
+                            # 2. Se la sinossi italiana è vuota o l'API fallisce, TENTA IN INGLESE
                             if not episode_overview:
                                 if ep_response_it.status_code != 200:
                                     logger.debug(f"Episodio non trovato in it-IT (HTTP {ep_response_it.status_code}), tento en-US...")
@@ -877,13 +877,13 @@ class TMDBClient:
 
                             # 3. Valutazione finale
                             if episode_overview:
-                                logger.info(f"âœ… Sinossi episodio trovata!")
+                                logger.info(f"✅ Sinossi episodio trovata!")
                             else:
-                                # Questo log ora significa che non c'Ã¨ nÃ© in IT nÃ© in EN
+                                # Questo log ora significa che non c'è né in IT né in EN
                                 logger.debug("Sinossi episodio non trovata (it-IT e en-US), uso sinossi serie")
 
                         except Exception as e:
-                            logger.error(f"âŒ Errore recupero episodio: {e}. Uso sinossi serie.")
+                            logger.error(f"❌ Errore recupero episodio: {e}. Uso sinossi serie.")
                     # --- FINE MODIFICA ---
                     
                     tv_info = {
@@ -905,15 +905,15 @@ class TMDBClient:
                     
             except requests.exceptions.Timeout:
                 errored = True
-                logger.error("âŒ Timeout TMDB")
+                logger.error("❌ Timeout TMDB")
             except requests.exceptions.RequestException as e:
                 errored = True
-                logger.error(f"âŒ Errore TMDB: {e}")
+                logger.error(f"❌ Errore TMDB: {e}")
             except Exception as e:
                 errored = True
-                logger.error(f"âŒ Errore inatteso: {e}")
+                logger.error(f"❌ Errore inatteso: {e}")
         
-        logger.warning(f"âš ï¸ Nessun risultato per: {title}")
+        logger.warning(f"⚠️ Nessun risultato per: {title}")
         return None, errored
 
     def get_cast_info(self, tmdb_id: int, media_type: str,
@@ -960,14 +960,14 @@ class TMDBClient:
         """Scarica poster da TMDB"""
         try:
             poster_url = f"{self.image_base_url}{poster_path}"
-            logger.info(f"ðŸ“¥ Download poster: {poster_url}")
+            logger.info(f"📥 Download poster: {poster_url}")
             
             safe_title = re.sub(r'[^\w\s-]', '', media_title).strip().replace(' ', '_')
             cache_filename = f"{safe_title}_{poster_path.split('/')[-1]}"
             cache_path = self.cache_dir / cache_filename
             
             if cache_path.exists():
-                logger.info(f"âœ… Poster in cache: {cache_path.name}")
+                logger.info(f"✅ Poster in cache: {cache_path.name}")
                 return cache_path
             
             response = requests.get(poster_url, timeout=15)
@@ -976,17 +976,17 @@ class TMDBClient:
             img = Image.open(BytesIO(response.content))
             img.save(cache_path, 'JPEG', quality=90)
             
-            logger.info(f"âœ… Poster salvato: {cache_path.name}")
+            logger.info(f"✅ Poster salvato: {cache_path.name}")
             return cache_path
             
         except Exception as e:
-            logger.error(f"âŒ Errore download poster: {e}")
+            logger.error(f"❌ Errore download poster: {e}")
             return None
     
     def get_media_info(self, filename: str) -> Optional[Dict]:
         """Ottieni info complete con triplo fallback IMDb ID"""
         logger.info(f"\n{'='*60}")
-        logger.info(f"ðŸŽ¬ Elaborazione: {Path(filename).name}")
+        logger.info(f"🎬 Elaborazione: {Path(filename).name}")
         logger.info(f"{'='*60}")
         
         parsed = self.parse_filename(filename)
@@ -1010,7 +1010,7 @@ class TMDBClient:
                     info = self.search_movie(movie['title'], movie.get('year'))
         
         if not info:
-            logger.error("âŒ Nessuna informazione trovata su TMDB")
+            logger.error("❌ Nessuna informazione trovata su TMDB")
             return None
         
         if info.get('poster_path'):
