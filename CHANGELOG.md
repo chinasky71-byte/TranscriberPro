@@ -3,6 +3,20 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.11 — 2026-10-16 — "Muxa nel video" anche su MKV con copertine mjpeg
+
+- **Mux/sostituzione traccia con ripiego su mkvmerge** (`_remux_with_sidecar`): `ffmpeg -map 0` falliva sugli MKV con flussi
+  mjpeg (copertine/allegati, "bits 51 is invalid"); ora, se ffmpeg non produce il file, si ripiega su `mkvmerge`
+  (copia allegati e capitoli). Le verifiche restano quelle di prima e una in piu' (dal bugcheck): le tracce sottotitoli
+  rimaste devono essere esattamente le altre, stesso ordine, codec e lingua, cosi' una traccia tolta al posto di un'altra
+  (ID mkvmerge non allineato all'indice ffprobe) non passa. Il log d'errore indica quale strumento e' fallito e riporta
+  anche stdout (mkvmerge scrive li' gli errori).
+- **Mojibake residuo** di `subtitle_cleaner.py` (righe 18 e 533) corretto.
+- **Banco** (fuori repo): nuovi casi `c12_mjpeg_mux`, `c13_eta_canary`/`c13_eta_whisper` (clip da 50 min: l'ETA compare dopo 20 s,
+  prima le clip erano troppo brevi; confermato con Canary e Whisper), `c14_ocr_fail_audio` (OCR bitmap fallito con ripiego
+  sull'audio); il banco non dipende piu' dall'impostazione "Muxa nel video" del config utente.
+- **Verifica**: banco su clip reali, tutti i casi OK; bugcheck Opus senza difetti bloccanti (2 punti bassi corretti).
+
 ## 1.30.10 — 2026-10-16 — Mojibake nel sorgente, `output` negli episodi OCR, OCR multi-traccia in sidecar
 
 - **Mojibake nel sorgente** (231 righe in 8 file: `core/pipeline.py`, `core/subtitle_cleaner.py`, `core/translator.py`,

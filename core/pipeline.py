@@ -1497,11 +1497,32 @@ class ProcessingPipeline:
                     f'-metadata:s:s:{new_rel}', f'title={title}',
                     f'-disposition:s:{new_rel}', 'default' if is_default else '0',
                     '-f', 'matroska', str(temp)]
+            tool = 'ffmpeg'
             rc, _out, err = self._run_cancellable(cmd, 3600)
             if self._cancelled:
                 return False
+            if (rc != 0 or not temp.exists() or temp.stat().st_size < 1024) and shutil.which('mkvmerge'):
+                # `ffmpeg -map 0` non regge alcuni MKV (es. flussi mjpeg di copertine/allegati): ripiego su mkvmerge,
+                # che copia tutto com'e'. Le verifiche qui sotto valgono identiche.
+                logger.warning(f"Mux sottotitolo: ffmpeg fallito (rc={rc}), ripiego su mkvmerge: {(err or '')[-200:]}")
+                tool = 'mkvmerge'
+                try:
+                    if temp.exists():
+                        temp.unlink()
+                except Exception:
+                    pass
+                mk = ['mkvmerge', '-o', str(temp)]
+                if remove_idx is not None:
+                    mk += ['--subtitle-tracks', f'!{remove_idx}']
+                mk += [str(video), '--sub-charset', '0:UTF-8', '--language', f'0:{lang3}', '--track-name', f'0:{title}',
+                       '--default-track-flag', f"0:{1 if is_default else 0}", str(sidecar)]
+                rc, _out, err = self._run_cancellable(mk, 3600)
+                if self._cancelled:
+                    return False
+                if rc == 1:      # mkvmerge: 1 = solo avvisi, il file e' prodotto
+                    rc = 0
             if rc != 0 or not temp.exists() or temp.stat().st_size < 1024:
-                logger.error(f"Mux sottotitolo: ffmpeg fallito (rc={rc}): {(err or '')[-300:]}")
+                logger.error(f"Mux sottotitolo: {tool} fallito (rc={rc}): {((err or '') + (_out or ''))[-300:]}")
                 self._log("⚠️ Mux del sottotitolo non riuscito: il file video e' rimasto invariato.")
                 return False
 
@@ -1514,6 +1535,13 @@ class ProcessingPipeline:
                 ok = (len(streams1) == len(streams0) + (1 if remove_idx is None else 0)
                       and len(subs1) == n_after and abs(dur1 - dur0) < 1.0
                       and subs1[-1].get('tags', {}).get('language') == lang3)
+                if ok:
+                    # le tracce rimaste devono essere esattamente le altre (stesso ordine, codec e lingua): intercetta
+                    # una traccia tolta al posto di un'altra (ID mkvmerge non allineato all'indice ffprobe)
+                    def _sig(x):
+                        return (x.get('codec_name'), (x.get('tags') or {}).get('language'))
+                    expected = [_sig(x) for x in subs0 if x.get('index') != remove_idx]
+                    ok = [_sig(x) for x in subs1[:-1]] == expected
             if ok:
                 # fuori dalla cartella del video: un residuo non deve sembrare un sottotitolo esterno
                 chk = Path(tempfile.gettempdir()) / f"tp_mux_chk_{os.getpid()}.srt"
