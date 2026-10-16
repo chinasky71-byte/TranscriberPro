@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.30.10-orange)
+![Version](https://img.shields.io/badge/Version-1.30.11-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -315,6 +315,7 @@ This project is licensed under the MIT License.
 ### v1.24.0 - v1.30.2
 Six weeks of work on translation/transcription quality for non-English sources, condensed here; full detail,
 measurement methodology and decision rules for every claim below are in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.11** — "Mux into video" now works on MKVs with mjpeg cover/attachment streams (mkvmerge fallback when ffmpeg fails, plus a check that only the intended subtitle track was replaced); leftover mojibake fixed; bench extended (mjpeg mux, ETA with Canary/Whisper, OCR failure falling back to audio). Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.30.10** — Source mojibake fixed (log/effects emoji and accents), `output` reported for OCR episodes, multi-track bitmap OCR in pipeline now writes one sidecar and leaves the MKV untouched. Bench 13/13. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.30.9** — Internal refactor completed: subtitle selection/OCR (STEP 0/1/1b) moved out of `process()`, behaviour unchanged (9/9 bench cases). Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.30.8** — Internal refactor: `process()` split into private step methods, behaviour unchanged (9/9 bench cases, identical traces). Details in [CHANGELOG.md](CHANGELOG.md).
@@ -1088,7 +1089,7 @@ Lista aggiornata a ogni commit + push di una nuova versione.
 - Avanzamento del file per fasi pesate (v1.30.4) ed eventi strutturati (v1.30.7): barra in GUI validata dall'utente (15/10/2026) per la versione a testo; gli eventi sono validati su 9 clip reali, non ancora in uso su una coda lunga in GUI
 - Opzione job "Muxa nel video": validata su clip reali (aggiunta, copia embedded non duplicata, OCR, trascrizione) e dall'utente in GUI (16/10/2026): funziona
 - Sostituzione della traccia segnata per errore come italiana: validata su clip reali (testo e bitmap PGS, e guardia contro il file riscritto); VobSub condivide la stessa logica ma non ha una clip di prova; OCR multi-traccia (completa + forced) validato su clip reali PGS e VobSub (v1.30.10)
-- Selezione sottotitoli embedded per contenuto: validata su clip reali (tag errato, lingua non dichiarata, flag forced anomalo, italiano corretto); non ancora su una coda lunga reale e il caso OCR fallito con ripiego sull'audio non ha una clip
+- Selezione sottotitoli embedded per contenuto: validata su clip reali (tag errato, lingua non dichiarata, flag forced anomalo, italiano corretto); non ancora su una coda lunga reale; il caso OCR fallito con ripiego sull'audio è coperto dal banco (v1.30.11)
 - Validati dall'utente il 15/10/2026: finestra con riordino della coda, Glossario per-show GUI semi-automatico, split per frasi (nessun difetto); resta non misurato l'effetto dello split sulla qualità di traduzione
 - Installer per PC nuovi (`install.bat`/`.ps1`): non ancora verificati avvio GUI, pipeline diarization, caricamento modelli, e opzione `-WithModels` su una macchina pulita
 

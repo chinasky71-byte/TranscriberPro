@@ -15,7 +15,7 @@ PULIZIA TESTO RAFFINATA v2.0:
 ✅ Normalizza caratteri Unicode (apostrofi tipografici, trattini lunghi, etc)
 ✅ Sistema spazi in modo intelligente (rimuove prima, mantiene dopo punteggiatura)
 ✅ Rimuove solo tag markup e descrizioni audio
-âœ… Massima leggibilitÃ  del testo finale
+✅ Massima leggibilità del testo finale
 """
 import re
 import logging
@@ -530,7 +530,7 @@ class SubtitleCleaner:
             )
             if unfixable and self._is_duplicate_text(prev.text, sub.text):
                 logger.warning(
-                    f"    âš ï¸ Sottotitolo {sub.index} scartato: duplicato con "
+                    f"    ⚠️ Sottotitolo {sub.index} scartato: duplicato con "
                     f"overlap irrisolvibile sul precedente (start {sub.start_time})")
                 dropped += 1
                 continue
