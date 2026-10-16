@@ -3,6 +3,20 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.12 — 2026-10-16 — Sottotitoli con blocchi fuori ordine temporale
+
+- **Causa**: 14 dei 654 `.it.srt` nostri nelle librerie (Petra, Hadestown, Be Kind Rewind...) hanno blocchi con tempo di
+  inizio non crescente (qualche blocco per file). Il contenitore MKV li tiene ordinati per tempo, quindi la verifica del
+  mux ("Muxa nel video", confronto blocco per blocco) li rifiutava: il video restava senza traccia.
+- **Cleaner**: `SubtitleCleaner` ordina i blocchi per tempo di inizio (ordinamento stabile, solo se ci sono blocchi fuori
+  ordine; log "N sottotitoli fuori ordine temporale: riordinati") prima di `fix_overlaps` e di `renumber`. Su 60 sidecar
+  gia' ordinati l'output e' identico byte per byte; sui 14 disordinati l'output e' ordinato.
+- **Verifica del mux**: confronta le battute come insieme (il contenuto resta verificato, l'ordine no).
+- **Limite noto**: un duplicato fuori ordine che prima veniva scartato (non accorciabile) ora puo' restare come battuta
+  ripetuta; sui 14 file reali: 138 -> 140 coppie consecutive uguali. Non si aggiunge una regola ad hoc.
+- **Verifica**: A/B vecchio/nuovo cleaner su 74 sidecar reali, prova di mux con sidecar disordinato; bugcheck Opus: 1 difetto
+  medio-basso (il limite sopra, accettato). Origine del disordine nei dati dell'ASR: da verificare con il banco.
+
 ## 1.30.11 — 2026-10-16 — "Muxa nel video" anche su MKV con copertine mjpeg
 
 - **Mux/sostituzione traccia con ripiego su mkvmerge** (`_remux_with_sidecar`): `ffmpeg -map 0` falliva sugli MKV con flussi
