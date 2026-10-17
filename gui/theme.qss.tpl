@@ -454,13 +454,13 @@ QCheckBox::indicator:checked:disabled {
 /* Checkbox "modern": stesso stile della default ma piu' compatta */
 QCheckBox#modernCheckbox {
     color: {{fg_0}};
-    spacing: 8px;
-    font-size: 10pt;
+    spacing: 6px;
+    font-size: 9pt;
     background: transparent;
 }
 QCheckBox#modernCheckbox::indicator {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
     border-radius: 5px;
     border: 1.5px solid {{fg_3}};
     background-color: {{bg_2}};
@@ -525,7 +525,8 @@ QSpinBox:disabled, QDoubleSpinBox:disabled {
     border-color: {{bg_2}};
 }
 QSpinBox, QDoubleSpinBox {
-    padding-right: 24px;
+    padding: 4px 24px 4px 10px;
+    min-height: 22px;
 }
 QSpinBox::up-button, QDoubleSpinBox::up-button,
 QSpinBox::down-button, QDoubleSpinBox::down-button {
