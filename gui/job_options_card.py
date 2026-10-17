@@ -12,7 +12,7 @@ Introdotto in Fase 3 del GUI revamp per ridurre densita' del pannello sinistro.
 """
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QCheckBox, QComboBox, QLabel, QSizePolicy,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QCheckBox, QComboBox, QLabel, QSizePolicy,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
@@ -70,7 +70,7 @@ class JobOptionsCard(CollapsibleCard):
         body.setMinimumWidth(0)  # non vincola la larghezza minima del pannello sinistro
         layout = QVBoxLayout(body)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(4)
         opts = self.options.load()
 
         # --- Target language ------------------------------------------
@@ -108,29 +108,36 @@ class JobOptionsCard(CollapsibleCard):
         self.mux_checkbox.setChecked(opts.mux_into_video)
         self.mux_checkbox.stateChanged.connect(self._on_mux_changed)
 
-        # Upload OpenSubtitles e Muxa nel video sulla STESSA riga. Politica orizzontale Ignored: il testo
-        # delle caselle non impone una larghezza minima al pannello (il ridimensionamento delle colonne
-        # resta libero); le caselle si dividono la riga in proporzione alla lunghezza del testo.
-        os_mux_row = QHBoxLayout()
-        os_mux_row.setSpacing(12)
-        for cb in (self.opensubtitles_checkbox, self.mux_checkbox):
-            cb.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-            os_mux_row.addWidget(cb, max(1, len(cb.text())))
-        layout.addLayout(os_mux_row)
+        # Le 4 caselle sono disposte in una griglia 2x2 (vedi sotto); politica orizzontale Ignored:
+        # il testo non impone una larghezza minima al pannello.
 
         # --- Gender correction ----------------------------------------
         self.gender_correction_checkbox = QCheckBox(tr('gender_correction_checkbox'))
         self.gender_correction_checkbox.setObjectName("modernCheckbox")
         self.gender_correction_checkbox.setChecked(opts.gender_correction)
         self.gender_correction_checkbox.stateChanged.connect(self._on_gender_changed)
-        layout.addWidget(self.gender_correction_checkbox)
 
         # --- Shutdown after processing --------------------------------
         self.shutdown_checkbox = QCheckBox(tr('shutdown_checkbox'))
         self.shutdown_checkbox.setObjectName("modernCheckbox")
         self.shutdown_checkbox.setChecked(opts.shutdown_after)
         self.shutdown_checkbox.stateChanged.connect(self._on_shutdown_changed)
-        layout.addWidget(self.shutdown_checkbox)
+        self.gender_correction_checkbox.setToolTip(tr('gender_correction_tip'))
+        self.shutdown_checkbox.setToolTip(tr('shutdown_tip'))
+
+        # Genere avanzato e Spegni sulla stessa riga (come Upload/Muxa)
+        # Griglia 2x2 a colonne di pari larghezza: le caselle di ogni colonna restano allineate.
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(4)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        for r, row in enumerate(((self.opensubtitles_checkbox, self.mux_checkbox),
+                                 (self.gender_correction_checkbox, self.shutdown_checkbox))):
+            for c, cb in enumerate(row):
+                cb.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+                grid.addWidget(cb, r, c)
+        layout.addLayout(grid)
 
         return body
 

@@ -32,8 +32,10 @@ class Translations:
             'upload_opensubtitles':     'Upload OpenSubtitles',
             'mux_into_video_checkbox':  'Mux subtitle into video',
             'mux_into_video_tip':       ('Adds the created subtitle to the MKV as a new track '
-                                         '(the .srt file stays next to the video). MKV only.'),
+                                                     '(the .srt file stays next to the video). MKV only.'),
             'shutdown_checkbox':        'Shutdown when done',
+            'gender_correction_tip':    'Advanced correction of grammatical gender in the translation',
+            'shutdown_tip':             'Shut down the computer when the queue is finished',
             'translation_model_tip':    'Translation model',
             'batch_settings_tip':       'Adaptive Batch Size — memory settings',
             'select_video_files':       'Select video files',
@@ -306,7 +308,7 @@ class Translations:
             'abs_autodetect':           'Auto-detect',
 
             # ── gender correction ─────────────────────────────────────────
-            'gender_correction_checkbox': 'Advanced gender correction',
+            'gender_correction_checkbox': 'Advanced gender fix',
 
             # ── force audio transcription ─────────────────────────────────
             'force_audio_title':        'Force audio transcription',
@@ -475,8 +477,10 @@ class Translations:
             'upload_opensubtitles':     'Upload OpenSubtitles',
             'mux_into_video_checkbox':  'Muxa nel video',
             'mux_into_video_tip':       ('Aggiunge il sottotitolo creato al file MKV come nuova traccia '
-                                         '(il file .srt resta accanto al video). Solo MKV.'),
-            'shutdown_checkbox':        'Spegni al completamento',
+                                                     '(il file .srt resta accanto al video). Solo MKV.'),
+            'shutdown_checkbox':        'Spegni al termine',
+            'gender_correction_tip':    'Correzione avanzata del genere grammaticale nella traduzione',
+            'shutdown_tip':             'Spegni il computer al termine della coda',
             'translation_model_tip':    'Modello di traduzione',
             'batch_settings_tip':       'Adaptive Batch Size — impostazioni memoria',
             'select_video_files':       'Seleziona file video',
@@ -749,7 +753,7 @@ class Translations:
             'abs_autodetect':           'Auto-detect',
 
             # ── gender correction ─────────────────────────────────────────
-            'gender_correction_checkbox': 'Correzione genere avanzata',
+            'gender_correction_checkbox': 'Genere avanzato',
 
             # ── force audio transcription ─────────────────────────────────
             'force_audio_title':        'Forza trascrizione da audio',

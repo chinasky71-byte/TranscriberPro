@@ -248,8 +248,8 @@ class LibraryScannerWidget(QFrame):
     def _build_body(self) -> QWidget:
         body = QWidget()
         layout = QVBoxLayout(body)
-        layout.setContentsMargins(8, 4, 8, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(8, 2, 8, 6)
+        layout.setSpacing(4)
 
         # Barra di ricerca
         self.search_bar = QLineEdit()
@@ -280,20 +280,13 @@ class LibraryScannerWidget(QFrame):
         self.days_spinbox.setRange(0, 9999)
         self.days_spinbox.setValue(0)
         self.days_spinbox.setSpecialValueText(tr('all_days'))
-        self.days_spinbox.setFixedWidth(85)
+        self.days_spinbox.setFixedWidth(80)
         self.days_spinbox.valueChanged.connect(self._on_days_filter_changed)
         filter_layout.addWidget(self.days_spinbox)
 
-        filter_layout.addStretch()
-        layout.addLayout(filter_layout)
-
-        # Filtro formato bitmap su riga propria (così la riga non allarga il
-        # pannello sinistro impedendo allo splitter di restringerlo).
-        format_layout = QHBoxLayout()
-        format_layout.setSpacing(6)
         format_label = QLabel(tr('format_filter'))
         format_label.setObjectName("scannerFilterLabel")
-        format_layout.addWidget(format_label)
+        filter_layout.addWidget(format_label)
 
         self.format_combo = QComboBox()
         self.format_combo.setObjectName("scannerFilter")
@@ -304,10 +297,17 @@ class LibraryScannerWidget(QFrame):
         self.format_combo.addItem("ASS/SSA", "assssa")
         self.format_combo.addItem("No SRT", "nosrt")
         self.format_combo.currentIndexChanged.connect(self._on_format_filter_changed)
-        format_layout.addWidget(self.format_combo)
+        filter_layout.addWidget(self.format_combo)
 
-        format_layout.addStretch()
-        layout.addLayout(format_layout)
+        # Tutto su una riga: le tendine si stringono (niente minimo imposto dal
+        # testo) cosi' la riga non allarga il pannello e lo splitter lo puo' restringere.
+        for combo in (self.type_combo, self.format_combo):
+            combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(3)
+            combo.setMinimumWidth(0)
+            combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            filter_layout.setStretchFactor(combo, 1)
+        layout.addLayout(filter_layout)
 
         # Tabella video
         self.video_table = QTableWidget()
@@ -320,9 +320,8 @@ class LibraryScannerWidget(QFrame):
         self.video_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.video_table.verticalHeader().setVisible(False)
         self.video_table.setShowGrid(False)
-        self.video_table.setMaximumHeight(250)
         self.video_table.setMinimumHeight(0)
-        self.video_table.verticalHeader().setDefaultSectionSize(26)
+        self.video_table.verticalHeader().setDefaultSectionSize(22)
 
         header = self.video_table.horizontalHeader()
         header.setMinimumSectionSize(20)
@@ -341,7 +340,7 @@ class LibraryScannerWidget(QFrame):
         self.video_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.video_table.setMinimumWidth(0)  # non vincola la larghezza minima del pannello
 
-        layout.addWidget(self.video_table)
+        layout.addWidget(self.video_table, 1)  # stretch dentro il corpo della card (l'altezza della card resta quella naturale)
 
         # Bottone Importa Tutti
         buttons_layout = QHBoxLayout()

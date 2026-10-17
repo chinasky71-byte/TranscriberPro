@@ -3,6 +3,14 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.32.1 — 2026-10-17 — Interfaccia: spazio verticale e numeri tagliati
+
+- **Spinbox**: le cifre non vengono piu' tagliate (padding verticale 4 px, altezza minima 22 px).
+- **Library Scanner**: filtri Tipo/Giorni/Formato su un'unica riga (le tendine si stringono senza allargare il pannello),
+  barra di ricerca, filtri, bottoni e righe della tabella piu' compatti, tolto il limite di 250 px all'altezza della tabella.
+- **Opzioni job**: caselle piu' piccole (9 pt, indicatore 14 px) in una griglia 2x2 allineata; testi accorciati
+  ("Genere avanzato", "Spegni al termine") con tooltip tradotti (it/en).
+
 ## 1.32.0 — 2026-10-17 — Interfaccia: abbellimento (contrasto, icone, barra di avanzamento, dialoghi)
 
 - **Contrasto e bordi**: testo secondario e disabilitato a livello WCAG AA (nuovo token `fg_disabled`; `fg_4` 4,67:1 su `bg_2`),

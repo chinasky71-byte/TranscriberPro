@@ -48,7 +48,7 @@ QLabel#scannerBadge {
 
 QLabel#scannerFilterLabel {
     color: {{fg_2}};
-    font-size: 9pt;
+    font-size: 8pt;
 }
 
 QLineEdit#scannerSearch {
@@ -56,8 +56,9 @@ QLineEdit#scannerSearch {
     border: 1px solid {{line}};
     border-radius: {{rad_ctl}};
     color: {{fg_0}};
-    padding: 6px 10px;
-    font-size: 9pt;
+    padding: 3px 8px;
+    font-size: 8pt;
+    min-height: 16px;
 }
 QLineEdit#scannerSearch:focus {
     border: 1px solid {{accent}};
@@ -68,9 +69,15 @@ QComboBox#scannerFilter {
     border: 1px solid {{line}};
     border-radius: {{rad_ctl}};
     color: {{fg_0}};
-    padding: 4px 8px;
-    font-size: 9pt;
-    min-width: 80px;
+    padding: 2px 6px;
+    font-size: 8pt;
+    min-width: 0px;
+    min-height: 16px;
+}
+QSpinBox#scannerDaysFilter {
+    padding: 2px 20px 2px 6px;
+    font-size: 8pt;
+    min-height: 16px;
 }
 QComboBox#scannerFilter::drop-down {
     border: none;
@@ -119,9 +126,10 @@ QPushButton#scannerImportAllBtn {
     border: 1px solid {{accent_a45}};
     border-radius: {{rad_ctl}};
     color: {{accent}};
-    padding: 7px 12px;
+    padding: 4px 10px;
     font-size: 8pt;
     font-weight: bold;
+    min-height: 16px;
 }
 QPushButton#scannerImportAllBtn:hover {
     background-color: {{accent_a30}};
