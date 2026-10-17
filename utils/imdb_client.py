@@ -290,6 +290,48 @@ class IMDbClient:
             logger.error(f"❌ Errore ricerca OMDb: {e}")
             return None
     
+    def get_series_episodes(self, series_imdb_id: str) -> Dict[str, list]:
+        """Tutti gli episodi che OMDb conosce per una serie, SENZA fidarsi della numerazione stagioni
+        (per gli anime IMDb accorpa serie diverse e la numerazione non coincide con TMDB):
+        {titolo normalizzato (minuscolo, solo lettere e cifre): [imdb ID episodio, ...]}.
+        Vuoto se la chiave manca, la serie non e' risolvibile o QUALUNQUE richiesta fallisce (un elenco parziale
+        farebbe sembrare univoco un titolo che ha un doppione nella parte mancante). Un elenco completo e'
+        salvato nella cache su disco (ogni file gira in un processo a parte: senza, ogni file ripagherebbe
+        1+stagioni richieste della quota OMDb da 1000/giorno) e rinnovato dopo 14 giorni."""
+        import re as _re
+        ck = f"eps:{series_imdb_id}"
+        hit = self.cache.get(ck) if isinstance(self.cache, dict) else None
+        if isinstance(hit, dict) and time.time() - float(hit.get('t', 0)) < 14 * 86400 and isinstance(hit.get('eps'), dict):
+            return hit['eps']
+        out: Dict[str, list] = {}
+        if not self.api_key or self.api_key == "placeholder":
+            return out
+        try:
+            self._rate_limit()
+            head = requests.get('https://www.omdbapi.com/',
+                                params={'apikey': self.api_key, 'i': series_imdb_id}, timeout=10).json()
+            ts = str(head.get('totalSeasons') or '')
+            total = int(ts) if ts.isdigit() else 0
+            if head.get('Response') != 'True' or total < 1 or total > 30:
+                return {}
+            for season in range(1, total + 1):
+                self._rate_limit()
+                data = requests.get('https://www.omdbapi.com/',
+                                    params={'apikey': self.api_key, 'i': series_imdb_id, 'Season': season},
+                                    timeout=10).json()
+                if data.get('Response') != 'True':
+                    return {}      # quota esaurita o stagione non leggibile: niente elenco parziale
+                for ep in data.get('Episodes') or []:
+                    key = _re.sub(r'[^0-9a-z]+', '', (ep.get('Title') or '').lower())
+                    if key and str(ep.get('imdbID', '')).startswith('tt'):
+                        out.setdefault(key, []).append(ep['imdbID'])
+            self.cache[ck] = {'t': time.time(), 'eps': out}
+            self._save_cache()
+        except Exception as e:
+            logger.debug(f"OMDb episodi di {series_imdb_id} non disponibili: {e}")
+            return {}
+        return out
+
     def get_stats(self) -> Dict:
         """Ottieni statistiche utilizzo"""
         return self.stats.copy()
