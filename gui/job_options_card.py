@@ -19,6 +19,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from utils.config import get_config
 from utils.translations import tr
 from gui.collapsible_card import CollapsibleCard
+from gui.services.job_options_service import JobOptionsService
 
 
 # Lingue sottotitoli supportate (riprese da main_window per compatibilita').
@@ -48,12 +49,13 @@ class JobOptionsCard(CollapsibleCard):
     def __init__(self, parent=None):
         super().__init__(title=tr('job_options_title'), parent=parent)
         self.config = get_config()
+        self.options = JobOptionsService(self.config)
 
         body = self._build_options_body()
         self.setBody(body)
 
         # Stato iniziale (chiuso/aperto da config)
-        opened = bool(self.config.get('ui_job_card_open', False))
+        opened = self.options.card_open()
         self.setExpanded(opened, animated=False)
         self.toggled.connect(self._on_toggled)
 
@@ -69,6 +71,7 @@ class JobOptionsCard(CollapsibleCard):
         layout = QVBoxLayout(body)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
+        opts = self.options.load()
 
         # --- Target language ------------------------------------------
         lang_row = QHBoxLayout()
@@ -77,7 +80,7 @@ class JobOptionsCard(CollapsibleCard):
 
         self.target_lang_combo = QComboBox()
         self.target_lang_combo.setMinimumWidth(0)  # "Cinese Semplificato" altrimenti fissa la larghezza
-        current_lang = self.config.get_target_language()
+        current_lang = opts.target_language
         for display_name, code in SUBTITLE_LANGUAGES:
             self.target_lang_combo.addItem(display_name, code)
         idx = next(
@@ -95,18 +98,14 @@ class JobOptionsCard(CollapsibleCard):
         # --- Upload OpenSubtitles -------------------------------------
         self.opensubtitles_checkbox = QCheckBox(tr('upload_opensubtitles'))
         self.opensubtitles_checkbox.setObjectName("modernCheckbox")
-        self.opensubtitles_checkbox.setChecked(
-            self.config.get('opensubtitles_upload_enabled', True)
-        )
+        self.opensubtitles_checkbox.setChecked(opts.opensubtitles_upload)
         self.opensubtitles_checkbox.stateChanged.connect(self._on_os_changed)
 
         # --- Muxa il sottotitolo creato nel video ---------------------
         self.mux_checkbox = QCheckBox(tr('mux_into_video_checkbox'))
         self.mux_checkbox.setObjectName("modernCheckbox")
         self.mux_checkbox.setToolTip(tr('mux_into_video_tip'))
-        self.mux_checkbox.setChecked(
-            self.config.get('mux_subtitle_into_video', False)
-        )
+        self.mux_checkbox.setChecked(opts.mux_into_video)
         self.mux_checkbox.stateChanged.connect(self._on_mux_changed)
 
         # Upload OpenSubtitles e Muxa nel video sulla STESSA riga. Politica orizzontale Ignored: il testo
@@ -122,18 +121,14 @@ class JobOptionsCard(CollapsibleCard):
         # --- Gender correction ----------------------------------------
         self.gender_correction_checkbox = QCheckBox(tr('gender_correction_checkbox'))
         self.gender_correction_checkbox.setObjectName("modernCheckbox")
-        self.gender_correction_checkbox.setChecked(
-            self.config.get('gender_correction_enabled', False)
-        )
+        self.gender_correction_checkbox.setChecked(opts.gender_correction)
         self.gender_correction_checkbox.stateChanged.connect(self._on_gender_changed)
         layout.addWidget(self.gender_correction_checkbox)
 
         # --- Shutdown after processing --------------------------------
         self.shutdown_checkbox = QCheckBox(tr('shutdown_checkbox'))
         self.shutdown_checkbox.setObjectName("modernCheckbox")
-        self.shutdown_checkbox.setChecked(
-            self.config.get('shutdown_after_processing', False)
-        )
+        self.shutdown_checkbox.setChecked(opts.shutdown_after)
         self.shutdown_checkbox.stateChanged.connect(self._on_shutdown_changed)
         layout.addWidget(self.shutdown_checkbox)
 
@@ -145,59 +140,35 @@ class JobOptionsCard(CollapsibleCard):
 
     def _on_lang_changed(self, index: int):
         code = self.target_lang_combo.itemData(index)
-        if code:
-            self.config.set_target_language(code)
+        self.options.set_target_language(code)
         self._refresh_summary()
 
     def _on_os_changed(self, state):
-        self.config.set(
-            'opensubtitles_upload_enabled',
-            state == Qt.CheckState.Checked.value,
-        )
+        self.options.set_opensubtitles_upload(state == Qt.CheckState.Checked.value)
         self._refresh_summary()
 
     def _on_mux_changed(self, state):
-        self.config.set(
-            'mux_subtitle_into_video',
-            state == Qt.CheckState.Checked.value,
-        )
+        self.options.set_mux_into_video(state == Qt.CheckState.Checked.value)
         self._refresh_summary()
 
     def _on_gender_changed(self, state):
-        self.config.set(
-            'gender_correction_enabled',
-            state == Qt.CheckState.Checked.value,
-        )
+        self.options.set_gender_correction(state == Qt.CheckState.Checked.value)
         self._refresh_summary()
 
     def _on_shutdown_changed(self, state):
-        self.config.set(
-            'shutdown_after_processing',
-            state == Qt.CheckState.Checked.value,
-        )
+        self.options.set_shutdown_after(state == Qt.CheckState.Checked.value)
         self._refresh_summary()
 
     def _on_toggled(self, opened: bool):
-        try:
-            self.config.set('ui_job_card_open', opened)
-        except Exception:
-            pass
+        self.options.set_card_open(opened)
 
     def _refresh_summary(self):
-        parts = []
-
-        code = self.target_lang_combo.currentData() or ""
-        parts.append(code.upper() if code else "—")
-
-        if self.opensubtitles_checkbox.isChecked():
-            parts.append("↗ OS")
-        if self.mux_checkbox.isChecked():
-            parts.append("⧉ mux")
-        if self.gender_correction_checkbox.isChecked():
-            parts.append("⚧")
-        if self.shutdown_checkbox.isChecked():
-            parts.append("⏻")
-
-        text = " · ".join(parts)
+        text = JobOptionsService.summary_text(
+            self.target_lang_combo.currentData(),
+            self.opensubtitles_checkbox.isChecked(),
+            self.mux_checkbox.isChecked(),
+            self.gender_correction_checkbox.isChecked(),
+            self.shutdown_checkbox.isChecked(),
+        )
         self.setSummary(text)
         self.summary_changed.emit(text)
