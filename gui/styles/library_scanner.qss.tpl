@@ -1,7 +1,6 @@
 QFrame#libraryScannerFrame {
-    background-color: rgba(32, 32, 32, 180);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
+    background-color: {{bg_2}};
+    border: none;
     margin-top: 5px;
 }
 
@@ -10,30 +9,35 @@ QFrame#scannerHeader {
     border: none;
 }
 QFrame#scannerHeader:hover {
-    background-color: rgba(255, 255, 255, 0.03);
+    background-color: {{white_a03}};
 }
 
 QToolButton#scannerToggle {
     background: transparent;
     border: none;
-    color: {{legacy_grey_888}};
+    color: {{fg_3}};
     font-size: 10pt;
 }
 QToolButton#scannerRefreshBtn {
     background: transparent;
-    border: none;
+    border: 1px solid {{line}};
+    border-radius: {{rad_chip}};
     font-size: 10pt;
+}
+QToolButton#scannerRefreshBtn:hover {
+    background-color: {{bg_3}};
+    border-color: {{line_strong}};
 }
 
 QLabel#scannerTitle {
-    color: {{white}};
+    color: {{fg_0}};
     font-size: 10pt;
     font-weight: bold;
 }
 
 QLabel#scannerBadge {
-    background-color: {{legacy_pink}};
-    color: white;
+    background-color: {{danger}};
+    color: {{white}};
     border-radius: 9px;
     padding: 1px 7px;
     font-size: 8pt;
@@ -43,65 +47,66 @@ QLabel#scannerBadge {
 }
 
 QLabel#scannerFilterLabel {
-    color: {{legacy_grey_aaa}};
+    color: {{fg_2}};
     font-size: 9pt;
 }
 
 QLineEdit#scannerSearch {
-    background-color: rgba(0, 0, 0, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
-    color: {{white}};
-    padding: 5px 8px;
+    background-color: {{bg_0}};
+    border: 1px solid {{line}};
+    border-radius: {{rad_ctl}};
+    color: {{fg_0}};
+    padding: 6px 10px;
     font-size: 9pt;
 }
 QLineEdit#scannerSearch:focus {
-    border: 1px solid rgba(33, 150, 243, 0.5);
+    border: 1px solid {{accent}};
 }
 
 QComboBox#scannerFilter {
-    background-color: rgba(0, 0, 0, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
-    color: {{white}};
+    background-color: {{bg_0}};
+    border: 1px solid {{line}};
+    border-radius: {{rad_ctl}};
+    color: {{fg_0}};
     padding: 4px 8px;
     font-size: 9pt;
     min-width: 80px;
 }
 QComboBox#scannerFilter::drop-down {
     border: none;
-    width: 20px;
+    width: 22px;
 }
 QComboBox#scannerFilter QAbstractItemView {
-    background-color: {{legacy_bg_2a}};
-    color: {{white}};
-    selection-background-color: rgba(33, 150, 243, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background-color: {{bg_1}};
+    color: {{fg_0}};
+    selection-background-color: {{accent_a18}};
+    border: 1px solid {{line}};
 }
 
 QTableWidget#scannerTable {
-    background-color: rgba(0, 0, 0, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
-    color: {{white}};
+    background-color: {{bg_0}};
+    border: 1px solid {{line}};
+    border-radius: {{rad_ctl}};
+    color: {{fg_0}};
     font-size: 8pt;
-    gridline-color: rgba(255, 255, 255, 0.03);
+    gridline-color: {{white_a03}};
 }
 QTableWidget#scannerTable::item {
     padding: 2px 4px;
 }
 QTableWidget#scannerTable::item:selected {
-    background-color: rgba(33, 150, 243, 0.15);
+    background-color: {{accent_a15}};
 }
 QHeaderView {
-    background-color: {{legacy_black}};
+    background-color: {{bg_2}};
 }
 QHeaderView::section {
-    background-color: {{legacy_black}};
-    color: {{white}};
+    background-color: {{bg_2}};
+    color: {{fg_1}};
     border: none;
-    border-right: 1px solid rgba(255, 255, 255, 0.1);
-    padding: 4px 6px;
+    border-right: 1px solid {{line}};
+    border-bottom: 1px solid {{line}};
+    padding: 5px 6px;
     font-size: 8pt;
     font-weight: bold;
 }
@@ -110,41 +115,45 @@ QHeaderView::section:last {
 }
 
 QPushButton#scannerImportAllBtn {
-    background-color: rgba(33, 150, 243, 200);
-    border: none;
-    border-radius: 6px;
-    color: white;
+    background-color: {{accent_a15}};
+    border: 1px solid {{accent_a45}};
+    border-radius: {{rad_ctl}};
+    color: {{accent}};
     padding: 7px 12px;
     font-size: 8pt;
     font-weight: bold;
 }
 QPushButton#scannerImportAllBtn:hover {
-    background-color: rgba(33, 150, 243, 255);
+    background-color: {{accent_a30}};
+    border-color: {{accent}};
 }
 QPushButton#scannerImportAllBtn:disabled {
-    background-color: rgba(60, 60, 60, 150);
-    color: rgba(255, 255, 255, 80);
+    background-color: {{bg_1}};
+    border-color: {{bg_2}};
+    color: {{fg_disabled}};
 }
 
 QPushButton[class="scannerAddBtn"] {
-    background-color: rgba(76, 175, 80, 180);
-    border: none;
-    border-radius: 4px;
-    color: white;
+    background-color: {{success_a15}};
+    border: 1px solid {{success_a35}};
+    border-radius: {{rad_chip}};
+    color: {{success}};
     font-size: 9pt;
     font-weight: bold;
     padding: 0px;
+    min-height: 0px;
 }
 QPushButton[class="scannerAddBtn"]:hover {
-    background-color: rgba(76, 175, 80, 255);
+    background-color: {{success_a35}};
 }
 QPushButton[class="scannerAddBtn"]:disabled {
     background-color: transparent;
-    color: {{legacy_mat_green}};
+    border-color: transparent;
+    color: {{success}};
 }
 
 QLabel#scannerStats {
-    color: {{legacy_grey_888}};
+    color: {{fg_3}};
     font-size: 8pt;
     padding: 2px;
 }

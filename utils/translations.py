@@ -21,19 +21,19 @@ class Translations:
 
             # ── main_window ───────────────────────────────────────────────
             'window_title':             'Transcriber Pro - AI Video Transcription',
-            'add_files':                '📄 Add Files',
-            'add_folder':               '📂 Add Folder',
-            'clear_queue':              '🗑️ Clear',
-            'start':                    '▶️ Start',
-            'stop':                     '⏸️ Stop',
+            'add_files':                'Add Files',
+            'add_folder':               'Add Folder',
+            'clear_queue':              'Clear',
+            'start':                    'Start',
+            'stop':                     'Stop',
             'processing_queue':         'Processing Queue',
             'processing_log':           'Processing Log',
-            'compact_log':              '📋 Compact Log',
-            'upload_opensubtitles':     '📤 Upload OpenSubtitles',
-            'mux_into_video_checkbox':  '🎞️ Mux subtitle into video',
+            'compact_log':              'Compact Log',
+            'upload_opensubtitles':     'Upload OpenSubtitles',
+            'mux_into_video_checkbox':  'Mux subtitle into video',
             'mux_into_video_tip':       ('Adds the created subtitle to the MKV as a new track '
                                          '(the .srt file stays next to the video). MKV only.'),
-            'shutdown_checkbox':        '💤 Shutdown when done',
+            'shutdown_checkbox':        'Shutdown when done',
             'translation_model_tip':    'Translation model',
             'batch_settings_tip':       'Adaptive Batch Size — memory settings',
             'select_video_files':       'Select video files',
@@ -57,7 +57,7 @@ class Translations:
             'opensubtitles_settings':   'OpenSubtitles — Credentials & Settings',
             'batch_settings_title':     'Adaptive Batch Size — Settings',
             'close':                    'Close',
-            'language_label':           '🌐 Language:',
+            'language_label':           'Language:',
             'language_auto':            'Auto',
             'language_restart_title':   'Language',
             'language_restart_msg':     'Restart the application to apply the new language.',
@@ -76,7 +76,7 @@ class Translations:
             'translation_model_changed':'🌐 Translation model changed: {model}',
 
             # ── library_scanner_widget ────────────────────────────────────
-            'library_scanner_title':    '📡 Library Scanner',
+            'library_scanner_title':    'Library Scanner',
             'refresh':                  'Refresh',
             'search_placeholder':       'Search...',
             'type_filter':              'Type:',
@@ -111,7 +111,7 @@ class Translations:
 
             # ── profile_dialog ────────────────────────────────────────────
             'profiles_title':           'Transcription Profiles',
-            'profiles_header':          '⚙️ Faster-Whisper Profiles',
+            'profiles_header':          'Faster-Whisper Profiles',
             'profiles_desc':            'Apply to Faster-Whisper: also the French/German Whisper and the fallback of the other engines. Qwen3-ASR only uses their batch size (speed and VRAM, not quality); Canary-Qwen is not affected.',
             'engine_group':             'Transcription engine',
             'engine_label':             'Engine:',
@@ -124,9 +124,9 @@ class Translations:
             'dialogue_style_group':     'Professional dialogue style',
             'dialogue_style_label':     'Speaker-change dashes (Netflix style)',
             'dialogue_style_tip':       'Runs speaker diarization on every transcription and formats subtitles professionally: when two speakers share the same subtitle, each line starts with "- ". Requires a HuggingFace token. Adds a few minutes per file.',
-            'cancel':                   '❌ Cancel',
-            'confirm':                  '✅ Confirm',
-            'recommended':              '⭐ RECOMMENDED',
+            'cancel':                   'Cancel',
+            'confirm':                  'Confirm',
+            'recommended':              'RECOMMENDED',
             'profile_fast_name':        'Maximum Speed',
             'profile_fast_desc':        'Maximum speed for daily use and quick drafts',
             'profile_balanced_name':    'Balanced',
@@ -156,7 +156,7 @@ class Translations:
             'download_llm_model':       'Download translation model',
             'save_api_key':             'Save API Key',
             'save':                     'Save',
-            'diarization_title':        '🎭 Speaker Diarization',
+            'diarization_title':        'Speaker Diarization',
             'diarization_desc':         (
                 'Identifies who is speaking in each subtitle. '
                 'Adds a dash ( - ) at each speaker change, cinema dialogue style.'
@@ -206,7 +206,7 @@ class Translations:
             'tmd_error_title':          '⚠️ CRITICAL ERROR',
 
             # ── widgets (ResourceMonitor) ─────────────────────────────────
-            'monitor_title':            '💻 Resource Monitor',
+            'monitor_title':            'Resource Monitor',
             'cpu_label':                '🔄 CPU:',
             'ram_label':                '🧠 RAM:',
             'gpu_label':                '🎮 GPU:',
@@ -214,14 +214,14 @@ class Translations:
             'network_label':            '🌐 Network',
 
             # ── opensubtitles_settings_widget ─────────────────────────────
-            'os_upload_group':          '📤 OpenSubtitles Upload',
-            'os_credentials_group_org': '🔑 .org Credentials (XML-RPC — used for upload)',
-            'os_credentials_group_com': '🔑 .com Credentials (REST + "OpenSubtitles AI" translator)',
+            'os_upload_group':          'OpenSubtitles Upload',
+            'os_credentials_group_org': '.org Credentials (XML-RPC — used for upload)',
+            'os_credentials_group_com': '.com Credentials (REST + "OpenSubtitles AI" translator)',
             'os_username_ph':           'OpenSubtitles Username',
             'os_password_ph':           'Password',
             'os_apikey_ph':             'REST API Key (from opensubtitles.com/consumers)',
-            'os_save_creds':            '💾 Save Credentials',
-            'os_settings_group':        '⚙️ Settings',
+            'os_save_creds':            'Save Credentials',
+            'os_settings_group':        'Settings',
             'os_api_method':            'API Method:',
             'os_api_method_tip':        (
                 'opensubtitles.org and opensubtitles.com are SEPARATE accounts '
@@ -247,9 +247,9 @@ class Translations:
                 'make sure you entered your .org credentials here, not the '
                 '.com ones used for REST.'
             ),
-            'os_test_conn':             '🔍 Test Connection',
+            'os_test_conn':             'Test Connection',
             'os_test_conn_tip':         'Verify authentication with OpenSubtitles',
-            'os_configure':             '⚙️ Configure Credentials',
+            'os_configure':             'Configure Credentials',
             'os_configure_tip':         'Open documentation to configure credentials',
             'os_configured':            '✅ System configured and ready for upload',
             'os_account':               '👤 Account: {username}',
@@ -329,7 +329,7 @@ class Translations:
             'worker_stats_total':       'Total: {n}',
 
             # ── sync_dialog / sync_worker ─────────────────────────────────
-            'sync_dialog_title':        '🔄 Synchronize SRT',
+            'sync_dialog_title':        'Synchronize SRT',
             'sync_files_group':         'Input Files',
             'sync_video_label':         'Video:',
             'sync_video_ph':            'Select video file...',
@@ -337,7 +337,7 @@ class Translations:
             'sync_srt_ph':              'Select .srt file to synchronize...',
             'sync_browse_video':        'Select video',
             'sync_browse_srt':          'Select SRT file',
-            'sync_start':               '▶ Start Synchronization',
+            'sync_start':               'Start Synchronization',
             'sync_cancelling':          '⏹ Cancelling...',
             'sync_missing_video':       'Please select a video file.',
             'sync_missing_srt':         'Please select an SRT file.',
@@ -354,7 +354,7 @@ class Translations:
             'sync_batch_subdirs': 'Include subfolders',
             'sync_batch_pair': 'Match files',
             'sync_batch_browse_dir': 'Select folder',
-            'sync_batch_start': '▶ Start queue',
+            'sync_batch_start': 'Start queue',
             'sync_batch_col_video': 'Video',
             'sync_batch_col_srt': 'SRT',
             'sync_batch_col_out': 'Output',
@@ -424,7 +424,7 @@ class Translations:
             'ocr_state_ok':             'ok',
 
             # ── glossary_dialog ──────────────────────────────────────────
-            'tools_menu':                '🛠️ Tools',
+            'tools_menu':                'Tools',
             'tools_glossary':            'Per-show glossary...',
             'glossary_dialog_title':     'Per-show glossary',
             'glossary_blocked_processing': 'Transcription/translation queue is running: the glossary tool uses the same GPU and cannot be used at the same time. Try again once the queue finishes.',
@@ -438,7 +438,7 @@ class Translations:
             'glossary_tmdb_not_resolved': 'TMDB id not resolved yet.',
             'glossary_tmdb_resolving':   'Searching TMDB...',
             'glossary_tmdb_not_found':   'No TMDB match found.',
-            'glossary_run':              '▶️ Run analysis',
+            'glossary_run':              'Run analysis',
             'glossary_cancel':           'Cancel',
             'glossary_status_running':   'Running...',
             'glossary_status_done':      '{n} candidates found — review below.',
@@ -453,7 +453,7 @@ class Translations:
             'glossary_occurrences':      'occurrences',
             'glossary_align_channel':    'alignment',
             'glossary_qwen_channel':     'Qwen',
-            'glossary_save':             '💾 Save approved terms',
+            'glossary_save':             'Save approved terms',
             'glossary_no_terms_approved': 'No term is checked for approval.',
             'glossary_save_error':       'Save failed: {error}',
             'glossary_save_success':     '{n} term(s) saved to {path}',
@@ -464,19 +464,19 @@ class Translations:
 
             # ── main_window ───────────────────────────────────────────────
             'window_title':             'Transcriber Pro - Trascrizione Video AI',
-            'add_files':                '📄 Aggiungi File',
-            'add_folder':               '📂 Aggiungi Cartella',
-            'clear_queue':              '🗑️ Pulisci',
-            'start':                    '▶️ Avvia',
-            'stop':                     '⏸️ Ferma',
+            'add_files':                'Aggiungi File',
+            'add_folder':               'Aggiungi Cartella',
+            'clear_queue':              'Pulisci',
+            'start':                    'Avvia',
+            'stop':                     'Ferma',
             'processing_queue':         'Coda di elaborazione',
             'processing_log':           'Log di elaborazione',
-            'compact_log':              '📋 Log Sintetico',
-            'upload_opensubtitles':     '📤 Upload OpenSubtitles',
-            'mux_into_video_checkbox':  '🎞️ Muxa nel video',
+            'compact_log':              'Log Sintetico',
+            'upload_opensubtitles':     'Upload OpenSubtitles',
+            'mux_into_video_checkbox':  'Muxa nel video',
             'mux_into_video_tip':       ('Aggiunge il sottotitolo creato al file MKV come nuova traccia '
                                          '(il file .srt resta accanto al video). Solo MKV.'),
-            'shutdown_checkbox':        '💤 Spegni al completamento',
+            'shutdown_checkbox':        'Spegni al completamento',
             'translation_model_tip':    'Modello di traduzione',
             'batch_settings_tip':       'Adaptive Batch Size — impostazioni memoria',
             'select_video_files':       'Seleziona file video',
@@ -500,7 +500,7 @@ class Translations:
             'opensubtitles_settings':   'OpenSubtitles — Credenziali e Impostazioni',
             'batch_settings_title':     'Adaptive Batch Size — Impostazioni',
             'close':                    'Chiudi',
-            'language_label':           '🌐 Lingua:',
+            'language_label':           'Lingua:',
             'language_auto':            'Auto',
             'language_restart_title':   'Lingua',
             'language_restart_msg':     'Riavvia l\'applicazione per applicare la nuova lingua.',
@@ -519,7 +519,7 @@ class Translations:
             'translation_model_changed':'🌐 Modello traduzione cambiato: {model}',
 
             # ── library_scanner_widget ────────────────────────────────────
-            'library_scanner_title':    '📡 Library Scanner',
+            'library_scanner_title':    'Library Scanner',
             'refresh':                  'Aggiorna',
             'search_placeholder':       'Cerca...',
             'type_filter':              'Tipo:',
@@ -554,7 +554,7 @@ class Translations:
 
             # ── profile_dialog ────────────────────────────────────────────
             'profiles_title':           'Profili Trascrizione',
-            'profiles_header':          '⚙️ Profili Faster-Whisper',
+            'profiles_header':          'Profili Faster-Whisper',
             'profiles_desc':            'Valgono per Faster-Whisper: anche il Whisper di francese/tedesco e il ripiego degli altri motori. Qwen3-ASR ne usa solo il batch (velocità e VRAM, non qualità); Canary-Qwen non ne è influenzato.',
             'engine_group':             'Motore di trascrizione',
             'engine_label':             'Motore:',
@@ -567,9 +567,9 @@ class Translations:
             'dialogue_style_group':     'Stile dialoghi professionale',
             'dialogue_style_label':     'Trattini cambio parlante (stile Netflix)',
             'dialogue_style_tip':       'Esegue la diarization dei parlanti su ogni trascrizione e formatta i sottotitoli in modo professionale: quando due parlanti condividono lo stesso sottotitolo, ogni battuta inizia con "- ". Richiede il token HuggingFace. Aggiunge qualche minuto per file.',
-            'cancel':                   '❌ Annulla',
-            'confirm':                  '✅ Conferma',
-            'recommended':              '⭐ RACCOMANDATO',
+            'cancel':                   'Annulla',
+            'confirm':                  'Conferma',
+            'recommended':              'RACCOMANDATO',
             'profile_fast_name':        'Velocità Massima',
             'profile_fast_desc':        'Massima velocità per uso quotidiano e draft rapidi',
             'profile_balanced_name':    'Bilanciato',
@@ -599,7 +599,7 @@ class Translations:
             'download_llm_model':       'Scarica il modello di traduzione',
             'save_api_key':             'Salva API Key',
             'save':                     'Salva',
-            'diarization_title':        '🎭 Speaker Diarization',
+            'diarization_title':        'Speaker Diarization',
             'diarization_desc':         (
                 'Identifica chi parla in ogni sottotitolo. '
                 'Aggiunge un trattino ( - ) al cambio di parlante, stile dialogo cinema.'
@@ -649,7 +649,7 @@ class Translations:
             'tmd_error_title':          '⚠️ ERRORE CRITICO',
 
             # ── widgets (ResourceMonitor) ─────────────────────────────────
-            'monitor_title':            '💻 Monitor Risorse',
+            'monitor_title':            'Monitor Risorse',
             'cpu_label':                '🔄 CPU:',
             'ram_label':                '🧠 RAM:',
             'gpu_label':                '🎮 GPU:',
@@ -657,14 +657,14 @@ class Translations:
             'network_label':            '🌐 Rete',
 
             # ── opensubtitles_settings_widget ─────────────────────────────
-            'os_upload_group':          '📤 OpenSubtitles Upload',
-            'os_credentials_group_org': '🔑 Credenziali .org (XML-RPC — usate per l\'upload)',
-            'os_credentials_group_com': '🔑 Credenziali .com (REST + traduttore "OpenSubtitles AI")',
+            'os_upload_group':          'OpenSubtitles Upload',
+            'os_credentials_group_org': 'Credenziali .org (XML-RPC — usate per l\'upload)',
+            'os_credentials_group_com': 'Credenziali .com (REST + traduttore "OpenSubtitles AI")',
             'os_username_ph':           'Username OpenSubtitles',
             'os_password_ph':           'Password',
             'os_apikey_ph':             'REST API Key (da opensubtitles.com/consumers)',
-            'os_save_creds':            '💾 Salva Credenziali',
-            'os_settings_group':        '⚙️ Impostazioni',
+            'os_save_creds':            'Salva Credenziali',
+            'os_settings_group':        'Impostazioni',
             'os_api_method':            'Metodo API:',
             'os_api_method_tip':        (
                 'opensubtitles.org e opensubtitles.com sono account SEPARATI '
@@ -690,9 +690,9 @@ class Translations:
                 'verifica di aver inserito qui le credenziali .org, non '
                 'quelle .com usate per REST.'
             ),
-            'os_test_conn':             '🔍 Test Connessione',
+            'os_test_conn':             'Test Connessione',
             'os_test_conn_tip':         'Verifica autenticazione con OpenSubtitles',
-            'os_configure':             '⚙️ Configura Credenziali',
+            'os_configure':             'Configura Credenziali',
             'os_configure_tip':         'Apri documentazione per configurare credenziali',
             'os_configured':            '✅ Sistema configurato e pronto per l\'upload',
             'os_account':               '👤 Account: {username}',
@@ -772,7 +772,7 @@ class Translations:
             'worker_stats_total':       'Totale: {n}',
 
             # ── sync_dialog / sync_worker ─────────────────────────────────
-            'sync_dialog_title':        '🔄 Sincronizza SRT',
+            'sync_dialog_title':        'Sincronizza SRT',
             'sync_files_group':         'File di Input',
             'sync_video_label':         'Video:',
             'sync_video_ph':            'Seleziona file video...',
@@ -780,7 +780,7 @@ class Translations:
             'sync_srt_ph':              'Seleziona file .srt da sincronizzare...',
             'sync_browse_video':        'Seleziona video',
             'sync_browse_srt':          'Seleziona file SRT',
-            'sync_start':               '▶ Avvia Sincronizzazione',
+            'sync_start':               'Avvia Sincronizzazione',
             'sync_cancelling':          '⏹ Annullamento in corso...',
             'sync_missing_video':       'Seleziona un file video.',
             'sync_missing_srt':         'Seleziona un file SRT.',
@@ -797,7 +797,7 @@ class Translations:
             'sync_batch_subdirs': 'Includi sottocartelle',
             'sync_batch_pair': 'Abbina i file',
             'sync_batch_browse_dir': 'Seleziona cartella',
-            'sync_batch_start': '▶ Avvia coda',
+            'sync_batch_start': 'Avvia coda',
             'sync_batch_col_video': 'Video',
             'sync_batch_col_srt': 'SRT',
             'sync_batch_col_out': 'Output',
@@ -867,7 +867,7 @@ class Translations:
             'ocr_state_ok':             'ok',
 
             # ── glossary_dialog ──────────────────────────────────────────
-            'tools_menu':                '🛠️ Strumenti',
+            'tools_menu':                'Strumenti',
             'tools_glossary':            'Glossario per show...',
             'glossary_dialog_title':     'Glossario per show',
             'glossary_blocked_processing': 'La coda di trascrizione/traduzione è in corso: lo strumento glossario usa la stessa GPU e non può essere usato in contemporanea. Riprova a fine coda.',
@@ -881,7 +881,7 @@ class Translations:
             'glossary_tmdb_not_resolved': 'TMDB id non ancora risolto.',
             'glossary_tmdb_resolving':   'Ricerca su TMDB...',
             'glossary_tmdb_not_found':   'Nessun risultato trovato su TMDB.',
-            'glossary_run':              '▶️ Avvia analisi',
+            'glossary_run':              'Avvia analisi',
             'glossary_cancel':           'Annulla',
             'glossary_status_running':   'In corso...',
             'glossary_status_done':      '{n} candidati trovati — rivedili qui sotto.',
@@ -896,7 +896,7 @@ class Translations:
             'glossary_occurrences':      'occorrenze',
             'glossary_align_channel':    'allineamento',
             'glossary_qwen_channel':     'Qwen',
-            'glossary_save':             '💾 Salva termini approvati',
+            'glossary_save':             'Salva termini approvati',
             'glossary_no_terms_approved': 'Nessun termine spuntato per l\'approvazione.',
             'glossary_save_error':       'Salvataggio fallito: {error}',
             'glossary_save_success':     '{n} termine/i salvato/i in {path}',

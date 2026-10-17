@@ -3,6 +3,29 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.32.0 — 2026-10-17 — Interfaccia: abbellimento (contrasto, icone, barra di avanzamento, dialoghi)
+
+- **Contrasto e bordi**: testo secondario e disabilitato a livello WCAG AA (nuovo token `fg_disabled`; `fg_4` 4,67:1 su `bg_2`),
+  bordi piu' morbidi, stati hover/focus/pressed con anello accent, raggi coerenti (card 12, controlli 8, chip 6).
+- **Emoji doppie tolte** da 30 stringhe di bottoni, titoli e label (it/en): restano le icone SVG; i log e le pillole di stato
+  non cambiano.
+- **Barra del titolo**: pillola di stato a 26 px centrata; l'icona di Strumenti e' una chiave inglese (l'ingranaggio resta
+  Impostazioni).
+- **Barra di avanzamento** a capsula da 12 px con la percentuale in una label separata a destra (prima toccava il bordo).
+- **Controlli**: frecce di combo/spinbox, spunte e radio ora SVG (`assets/icons/*.svg`, percorso risolto a runtime);
+  groupbox con titolo dentro la card; tolti i riquadri scuri dentro card, campi, righe e tabelle.
+- **Dialoghi** allineati alla palette (via il blu `rgba(0,120,212)` e i fondi navy): Sync, Profilo, OCR, OpenSubtitles, Scanner.
+  Numeri delle statistiche in JetBrains Mono.
+- **Difetti preesistenti corretti**: pulsante "Mostra" della API key tagliato, bottoni dello storico tagliati, campi
+  sovrapposti nella pagina OpenSubtitles a 840x620 (ora scorre in una `QScrollArea` senza fermata di Tab).
+- **Dal bugcheck Opus**: il pulsante "+" dello scanner non mostra piu' icona e "✓" insieme dopo l'import; `fg_4` portato sopra AA.
+- **`gui/theme.qss`** non e' piu' nel repo: e' un file generato che contiene il percorso assoluto delle icone di questa
+  macchina; l'app usa `build_qss()` dal template (`python -m gui.theme --write` lo rigenera in locale).
+- **Verifica**: 216 test (golden del log rigenerati: la differenza e' solo il colore del testo secondario, verificata dal
+  bugcheck), 101 screenshot offscreen, smoke senza avvisi; montaggi prima/dopo approvati dall'utente.
+- **Note minori note**: contrasto del bianco su rosso/arancione dei badge dello scanner (3,3-4,3:1) e `min-height` globale dei
+  pulsanti da rivedere in una fase successiva.
+
 ## 1.31.1 — 2026-10-17 — Interfaccia: logica separata dalla vista (`gui/services/`)
 
 - **Servizi** (`gui/services/`, senza import di QtWidgets): `QueueService` (coda, stato dei job, avvio/arresto, statistiche,

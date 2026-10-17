@@ -1,75 +1,40 @@
-QGroupBox {
-    font-weight: bold;
-    border: 2px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    margin-top: 10px;
-    padding-top: 10px;
-    color: {{white}};
-}
-
-QGroupBox::title {
-    subcontrol-origin: margin;
-    left: 10px;
-    padding: 0 5px;
-}
-
+/* Pagina OpenSubtitles: eredita il tema globale (QGroupBox, QLineEdit, QCheckBox, QPushButton).
+ * Restano solo le etichette di stato. */
 QLabel#statusLabel {
-    color: {{white}};
+    color: {{fg_0}};
     font-size: 10pt;
     padding: 5px;
 }
 
 QLabel#credentialsLabel {
-    color: {{legacy_grey_ccc}};
+    color: {{fg_2}};
     font-size: 9pt;
     font-style: italic;
     padding: 5px;
 }
 
 QCheckBox {
-    color: {{white}};
     font-size: 9pt;
-    spacing: 8px;
     padding: 5px;
 }
 
-QCheckBox::indicator {
-    width: 18px;
-    height: 18px;
-    border-radius: 3px;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    background-color: rgba(45, 45, 45, 200);
+/* pagina densa (4 gruppi in 840x620): spaziature compatte per non schiacciare i campi */
+QGroupBox {
+    padding: 26px 12px 8px 12px;
 }
-
-QCheckBox::indicator:checked {
-    background-color: rgba(0, 120, 212, 200);
-    border-color: rgba(0, 120, 212, 255);
+QGroupBox::title {
+    top: 7px;
 }
-
-QCheckBox::indicator:disabled {
-    background-color: rgba(60, 60, 60, 100);
-    border-color: rgba(255, 255, 255, 0.1);
+QLineEdit {
+    padding: 4px 8px;
+    min-height: 20px;
 }
-
 QPushButton {
-    background-color: rgba(0, 120, 212, 180);
-    color: white;
-    border: none;
-    border-radius: 6px;
-    padding: 8px 12px;
-    font-size: 9pt;
-    font-weight: bold;
+    padding: 6px 12px;
 }
-
-QPushButton:hover {
-    background-color: rgba(0, 120, 212, 230);
+QLabel#statusLabel, QLabel#credentialsLabel {
+    padding: 2px;
 }
-
-QPushButton:pressed {
-    background-color: rgba(0, 100, 180, 200);
-}
-
-QPushButton:disabled {
-    background-color: rgba(60, 60, 60, 150);
-    color: rgba(255, 255, 255, 100);
+QCheckBox {
+    padding: 2px;
 }

@@ -16,6 +16,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
 
+from gui.theme import set_flat
+
 
 class HistoryWidget(QWidget):
     HISTORY_FILE = Path.home() / '.transcriberpro' / 'history.json'
@@ -177,7 +179,7 @@ class HistoryWidget(QWidget):
         self._table.setSortingEnabled(True)
 
     def _make_actions(self, entry: dict) -> QWidget:
-        container = QWidget()
+        container = set_flat(QWidget())
         lay = QHBoxLayout(container)
         lay.setContentsMargins(6, 3, 6, 3)
         lay.setSpacing(5)

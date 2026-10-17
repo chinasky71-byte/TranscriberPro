@@ -45,6 +45,13 @@ def build_qss() -> str:
         return render(f.read().decode('utf-8'))
 
 
+def set_flat(widget):
+    """Contenitore "trasparente": prende lo sfondo della card/riga che lo ospita invece del fondo finestra.
+    Attiva la regola QWidget[flat="true"] di theme.qss.tpl. Ritorna il widget (comodo inline)."""
+    widget.setProperty('flat', True)
+    return widget
+
+
 def set_role(widget, role: str, tone: str | None = None) -> None:
     """Imposta role (e opzionalmente tone) come proprieta' dinamiche e ri-applica lo stile.
 

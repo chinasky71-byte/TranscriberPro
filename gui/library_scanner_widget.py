@@ -11,8 +11,8 @@ from PyQt6.QtWidgets import (
     QHeaderView, QAbstractItemView, QSpinBox,
     QMessageBox, QSizePolicy
 )
-from PyQt6.QtCore import Qt, QTimer, QMutexLocker, QThread, pyqtSignal
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt, QTimer, QMutexLocker, QThread, pyqtSignal, QSize
+from PyQt6.QtGui import QColor, QIcon
 from pathlib import Path
 import logging
 import re
@@ -21,6 +21,8 @@ from gui.design_tokens import T
 from gui.styles import load_qss
 from gui.library_scanner_worker import LibraryScannerWorker
 from gui.widgets import ElideLabel
+from gui.icons import svg_icon
+from gui.theme import set_flat
 from utils.config import get_config
 from utils.translations import tr
 
@@ -233,7 +235,8 @@ class LibraryScannerWidget(QFrame):
         layout.addWidget(self.status_dot)
 
         self.refresh_btn = QToolButton()
-        self.refresh_btn.setText("🔄")
+        self.refresh_btn.setIcon(svg_icon('sync', 14, T.fg_2))   # icona SVG al posto dell'emoji
+        self.refresh_btn.setIconSize(QSize(14, 14))
         self.refresh_btn.setObjectName("scannerRefreshBtn")
         self.refresh_btn.setFixedSize(24, 24)
         self.refresh_btn.setToolTip(tr('refresh'))
@@ -354,7 +357,9 @@ class LibraryScannerWidget(QFrame):
         self.import_all_btn.setMinimumWidth(0)
         buttons_layout.addWidget(self.import_all_btn)
 
-        self.superpower_btn = QPushButton("⚡ Superpower")
+        self.superpower_btn = QPushButton("Superpower")
+        self.superpower_btn.setIcon(svg_icon('sparkle', 14, T.accent))
+        self.superpower_btn.setIconSize(QSize(14, 14))
         self.superpower_btn.setObjectName("scannerImportAllBtn")
         self.superpower_btn.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.superpower_btn.setMinimumWidth(0)
@@ -532,7 +537,7 @@ class LibraryScannerWidget(QFrame):
             elif has_ass:
                 badge_widget = self._create_ass_badge(video)
             else:
-                badge_widget = QWidget()
+                badge_widget = set_flat(QWidget())
             self.video_table.setCellWidget(row, 3, badge_widget)
 
             # Colonna 4: Bottone import singolo
@@ -607,7 +612,7 @@ class LibraryScannerWidget(QFrame):
         Badge cliccabile per file con solo sottotitoli bitmap italiani.
         Etichetta in base al formato (PGS/VOB/MIX); clic = conversione OCR.
         """
-        container = QWidget()
+        container = set_flat(QWidget())
         lay = QHBoxLayout(container)
         lay.setContentsMargins(2, 2, 2, 2)
         lay.setSpacing(0)
@@ -639,7 +644,7 @@ class LibraryScannerWidget(QFrame):
 
     def _create_ass_badge(self, video: dict) -> QWidget:
         """Badge cliccabile per file con sottotitoli ASS/SSA embedded convertibili in SRT."""
-        container = QWidget()
+        container = set_flat(QWidget())
         lay = QHBoxLayout(container)
         lay.setContentsMargins(2, 2, 2, 2)
         lay.setSpacing(0)
@@ -864,6 +869,7 @@ class LibraryScannerWidget(QFrame):
             if item and item.data(Qt.ItemDataRole.UserRole) == windows_path:
                 btn = self.video_table.cellWidget(row, 4)
                 if btn:
+                    btn.setIcon(QIcon())
                     btn.setText("✓")
                     btn.setEnabled(False)
                 return
@@ -1035,8 +1041,11 @@ class LibraryScannerWidget(QFrame):
         self._start_bitmap_ocr(windows_path, kind, force_auto)
 
     def _create_row_button(self, row: int, already_queued: bool) -> QPushButton:
-        btn = QPushButton("✓" if already_queued else "➕")
+        btn = QPushButton("✓" if already_queued else "")
         btn.setProperty("class", "scannerAddBtn")
+        if not already_queued:
+            btn.setIcon(svg_icon('plus', 14, T.success))
+            btn.setIconSize(QSize(14, 14))
         btn.setFixedSize(20, 20)
         btn.setEnabled(not already_queued)
         if not already_queued:
@@ -1080,6 +1089,7 @@ class LibraryScannerWidget(QFrame):
         if added > 0:
             btn = self.video_table.cellWidget(row, 4)
             if btn:
+                btn.setIcon(QIcon())
                 btn.setText("✓")
                 btn.setEnabled(False)
                 btn.setToolTip(tr('already_queued'))
@@ -1124,6 +1134,7 @@ class LibraryScannerWidget(QFrame):
                     if wp in queued_paths:
                         btn = self.video_table.cellWidget(row, 4)
                         if btn and btn.isEnabled():
+                            btn.setIcon(QIcon())
                             btn.setText("✓")
                             btn.setEnabled(False)
                             btn.setToolTip(tr('already_queued'))

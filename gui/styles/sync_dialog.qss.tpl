@@ -1,59 +1,26 @@
-QDialog {
-    background-color: {{legacy_bg_dialog}};
-    color: {{white}};
-}
-QGroupBox {
-    font-weight: bold;
-    border: 2px solid rgba(255,255,255,0.1);
-    border-radius: 8px;
-    margin-top: 10px;
-    padding-top: 10px;
-    color: {{white}};
-}
-QGroupBox::title {
-    subcontrol-origin: margin;
-    left: 10px;
-    padding: 0 5px;
-}
+/* Sync dialog: eredita il tema globale (QDialog, QGroupBox, QLineEdit, QPushButton, QTableView...).
+ * Qui restano solo le differenze: testo secondario, log e barra di avanzamento. */
 QLabel {
-    color: {{legacy_grey_ccc}};
-}
-QLineEdit {
-    background-color: rgba(45,45,60,200);
-    color: {{white}};
-    border: 1px solid rgba(255,255,255,0.15);
-    border-radius: 4px;
-    padding: 4px 8px;
+    color: {{fg_1}};
 }
 QTextEdit {
-    background-color: rgba(15,15,25,220);
-    color: {{legacy_grey_d0}};
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 4px;
+    background-color: {{bg_0}};
+    color: {{fg_1}};
+    border: 1px solid {{line}};
+    border-radius: {{rad_ctl}};
 }
 QProgressBar {
-    border: 1px solid rgba(255,255,255,0.15);
-    border-radius: 4px;
-    background-color: rgba(30,30,50,200);
-    color: {{white}};
+    border: 1px solid {{line}};
+    border-radius: 10px;
+    background-color: {{bg_3}};
+    color: {{fg_0}};
     text-align: center;
-    height: 20px;
+    min-height: 20px;
+    max-height: 20px;
+    font-weight: 600;
 }
 QProgressBar::chunk {
-    background-color: rgba(0,120,212,200);
-    border-radius: 3px;
-}
-QPushButton {
-    background-color: rgba(0,120,212,180);
-    color: white;
-    border: none;
-    border-radius: 6px;
-    padding: 8px 14px;
-    font-weight: bold;
-}
-QPushButton:hover  { background-color: rgba(0,120,212,230); }
-QPushButton:pressed { background-color: rgba(0,100,180,200); }
-QPushButton:disabled {
-    background-color: rgba(60,60,60,150);
-    color: rgba(255,255,255,100);
+    background-color: {{accent_a45}};
+    border: 1px solid {{accent}};
+    border-radius: 8px;
 }
