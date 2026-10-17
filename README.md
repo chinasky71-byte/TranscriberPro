@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.32.1-orange)
+![Version](https://img.shields.io/badge/Version-1.32.2-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -315,6 +315,7 @@ This project is licensed under the MIT License.
 ### v1.24.0 - v1.30.2
 Six weeks of work on translation/transcription quality for non-English sources, condensed here; full detail,
 measurement methodology and decision rules for every claim below are in [CHANGELOG.md](CHANGELOG.md).
+- **v1.32.2** — UI: slimmer card headers; with the Library Scanner open, the queue and the scanner table share the free vertical space. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.32.1** — UI: spinbox digits no longer clipped, compact Library Scanner (filters on one row, taller list), smaller job-option checkboxes in an aligned 2x2 grid. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.32.0** — UI polish: AA contrast, duplicate emoji removed next to icons, capsule progress bar with separate percentage label, SVG control icons, dialogs aligned to the palette, three pre-existing layout bugs fixed. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.31.1** — UI logic separated from the view (`gui/services/`: queue, metadata, job options, settings, log filter); fixes a crash when pressing Start with the glossary or sync running. 216 tests + visual bench. Details in [CHANGELOG.md](CHANGELOG.md).

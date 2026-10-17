@@ -1,7 +1,7 @@
 QFrame#libraryScannerFrame {
     background-color: {{bg_2}};
     border: none;
-    margin-top: 5px;
+    margin-top: 2px;
 }
 
 QFrame#scannerHeader {

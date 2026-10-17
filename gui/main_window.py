@@ -374,7 +374,7 @@ class MainWindow(QMainWindow):
         # e nasconderla evita jitter da apparizione/scomparsa nel layout.
         self.file_list.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        layout.addWidget(self.file_list)
+        layout.addWidget(self.file_list, 2)  # quota dello spazio libero: coda 2 : scanner 3 (scanner aperto)
         
         buttons_layout = QHBoxLayout()
         self.add_files_btn = QPushButton(tr('add_files'))
@@ -426,6 +426,12 @@ class MainWindow(QMainWindow):
             lambda v: self.settings_service.set_scanner_card_open(v)
         )
         layout.addWidget(self.library_scanner_card)
+        # Aperta, la card dello scanner si prende una quota dello spazio libero (la tabella cresce);
+        # chiusa, torna a stretch 0 e tutto lo spazio va alla coda.
+        def _scanner_stretch(open_: bool, _l=layout, _c=self.library_scanner_card):
+            _l.setStretchFactor(_c, 3 if open_ else 0)
+        _scanner_stretch(scanner_open)
+        self.library_scanner_card.toggled.connect(_scanner_stretch)
 
         control_layout = QHBoxLayout()
         self.start_btn = QPushButton(tr('start'))
