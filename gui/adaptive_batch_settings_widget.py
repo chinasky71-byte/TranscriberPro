@@ -13,6 +13,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 import logging
 
+from gui.design_tokens import T
 from utils.config import get_config
 from utils.translations import tr
 
@@ -22,6 +23,9 @@ logger = logging.getLogger(__name__)
 # in gui/theme.qss. Il simbolo resta come stringa vuota per compatibilita' con i
 # call-site che fanno setStyleSheet(DIALOG_STYLE).
 DIALOG_STYLE = ""
+
+# Grigio #666 della nota: non ha token (annotato come legacy_grey_666 mancante in design_tokens).
+_GREY_666 = '#666'
 
 
 class AdaptiveBatchSettingsWidget(QWidget):
@@ -60,7 +64,7 @@ class AdaptiveBatchSettingsWidget(QWidget):
 
         self.status_label = QLabel()
         self.status_label.setWordWrap(True)
-        self.status_label.setStyleSheet("color: #888888; font-size: 9pt;")
+        self.status_label.setStyleSheet(f"color: {T.legacy_grey_888}; font-size: 9pt;")
         enable_layout.addWidget(self.status_label)
 
         enable_group.setLayout(enable_layout)
@@ -120,7 +124,7 @@ class AdaptiveBatchSettingsWidget(QWidget):
         # ── Note ───────────────────────────────────────────────────────
         note = QLabel(tr('abs_note'))
         note.setWordWrap(True)
-        note.setStyleSheet("color: #666; font-size: 8pt; padding: 4px 0;")
+        note.setStyleSheet(f"color: {_GREY_666}; font-size: 8pt; padding: 4px 0;")
         layout.addWidget(note)
 
         # ── Bottoni ────────────────────────────────────────────────────

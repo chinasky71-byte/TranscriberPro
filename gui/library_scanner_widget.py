@@ -17,12 +17,34 @@ from pathlib import Path
 import logging
 import re
 
+from gui.design_tokens import T
+from gui.styles import load_qss
 from gui.library_scanner_worker import LibraryScannerWorker
 from gui.widgets import ElideLabel
 from utils.config import get_config
 from utils.translations import tr
 
 logger = logging.getLogger(__name__)
+
+
+def _dot_qss(color: str) -> str:
+    """QSS del pallino di stato 10x10 (colore calcolato a runtime)."""
+    return (
+        f"background-color: {color}; border-radius: 5px;"
+        "min-width: 10px; max-width: 10px;"
+        "min-height: 10px; max-height: 10px;"
+    )
+
+
+def _badge_btn_qss(bg: str, hover: str | None = None) -> str:
+    """QSS dei piccoli badge-pulsante colorati (PGS/VOB/ASS)."""
+    qss = (
+        f"QPushButton {{ background-color: {bg}; color: {T.white}; border: none;"
+        " border-radius: 3px; font-size: 7pt; font-weight: bold; padding: 1px 4px; }"
+    )
+    if hover:
+        qss += f"QPushButton:hover {{ background-color: {hover}; }}"
+    return qss
 
 # ── Italian audio detection ───────────────────────────────────────────────────
 # (?<![a-zA-Z]) / (?![a-zA-Z]) gestisce separatori come punto, trattino,
@@ -207,11 +229,7 @@ class LibraryScannerWidget(QFrame):
         self.status_dot = QLabel()
         self.status_dot.setFixedSize(10, 10)
         self.status_dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_dot.setStyleSheet(
-            "background-color: #888888; border-radius: 5px;"
-            "min-width: 10px; max-width: 10px;"
-            "min-height: 10px; max-height: 10px;"
-        )
+        self.status_dot.setStyleSheet(_dot_qss(T.legacy_grey_888))
         layout.addWidget(self.status_dot)
 
         self.refresh_btn = QToolButton()
@@ -372,158 +390,7 @@ class LibraryScannerWidget(QFrame):
     # ========================================================================
 
     def _apply_styles(self):
-        self.setStyleSheet("""
-            QFrame#libraryScannerFrame {
-                background-color: rgba(32, 32, 32, 180);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 8px;
-                margin-top: 5px;
-            }
-
-            QFrame#scannerHeader {
-                background-color: transparent;
-                border: none;
-            }
-            QFrame#scannerHeader:hover {
-                background-color: rgba(255, 255, 255, 0.03);
-            }
-
-            QToolButton#scannerToggle {
-                background: transparent;
-                border: none;
-                color: #888888;
-                font-size: 10pt;
-            }
-            QToolButton#scannerRefreshBtn {
-                background: transparent;
-                border: none;
-                font-size: 10pt;
-            }
-
-            QLabel#scannerTitle {
-                color: #ffffff;
-                font-size: 10pt;
-                font-weight: bold;
-            }
-
-            QLabel#scannerBadge {
-                background-color: #e94560;
-                color: white;
-                border-radius: 9px;
-                padding: 1px 7px;
-                font-size: 8pt;
-                font-weight: bold;
-                min-width: 18px;
-                max-height: 18px;
-            }
-
-            QLabel#scannerFilterLabel {
-                color: #aaaaaa;
-                font-size: 9pt;
-            }
-
-            QLineEdit#scannerSearch {
-                background-color: rgba(0, 0, 0, 0.3);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 6px;
-                color: #ffffff;
-                padding: 5px 8px;
-                font-size: 9pt;
-            }
-            QLineEdit#scannerSearch:focus {
-                border: 1px solid rgba(33, 150, 243, 0.5);
-            }
-
-            QComboBox#scannerFilter {
-                background-color: rgba(0, 0, 0, 0.3);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 6px;
-                color: #ffffff;
-                padding: 4px 8px;
-                font-size: 9pt;
-                min-width: 80px;
-            }
-            QComboBox#scannerFilter::drop-down {
-                border: none;
-                width: 20px;
-            }
-            QComboBox#scannerFilter QAbstractItemView {
-                background-color: #2a2a2a;
-                color: #ffffff;
-                selection-background-color: rgba(33, 150, 243, 0.3);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-            }
-
-            QTableWidget#scannerTable {
-                background-color: rgba(0, 0, 0, 0.3);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 6px;
-                color: #ffffff;
-                font-size: 8pt;
-                gridline-color: rgba(255, 255, 255, 0.03);
-            }
-            QTableWidget#scannerTable::item {
-                padding: 2px 4px;
-            }
-            QTableWidget#scannerTable::item:selected {
-                background-color: rgba(33, 150, 243, 0.15);
-            }
-            QHeaderView {
-                background-color: #000000;
-            }
-            QHeaderView::section {
-                background-color: #000000;
-                color: #ffffff;
-                border: none;
-                border-right: 1px solid rgba(255, 255, 255, 0.1);
-                padding: 4px 6px;
-                font-size: 8pt;
-                font-weight: bold;
-            }
-            QHeaderView::section:last {
-                border-right: none;
-            }
-
-            QPushButton#scannerImportAllBtn {
-                background-color: rgba(33, 150, 243, 200);
-                border: none;
-                border-radius: 6px;
-                color: white;
-                padding: 7px 12px;
-                font-size: 8pt;
-                font-weight: bold;
-            }
-            QPushButton#scannerImportAllBtn:hover {
-                background-color: rgba(33, 150, 243, 255);
-            }
-            QPushButton#scannerImportAllBtn:disabled {
-                background-color: rgba(60, 60, 60, 150);
-                color: rgba(255, 255, 255, 80);
-            }
-
-            QPushButton[class="scannerAddBtn"] {
-                background-color: rgba(76, 175, 80, 180);
-                border: none;
-                border-radius: 4px;
-                color: white;
-                font-size: 9pt;
-                font-weight: bold;
-                padding: 0px;
-            }
-            QPushButton[class="scannerAddBtn"]:hover {
-                background-color: rgba(76, 175, 80, 255);
-            }
-            QPushButton[class="scannerAddBtn"]:disabled {
-                background-color: transparent;
-                color: #4CAF50;
-            }
-
-            QLabel#scannerStats {
-                color: #888888;
-                font-size: 8pt;
-                padding: 2px;
-            }
-        """)
+        self.setStyleSheet(load_qss('library_scanner'))
 
     # ========================================================================
     # ESPANDI / COMPRIMI
@@ -590,12 +457,8 @@ class LibraryScannerWidget(QFrame):
         self.stats_label.setText(tr('error_status').format(message=message))
 
     def _update_status_dot(self, connected: bool):
-        color = "#4CAF50" if connected else "#f44336"
-        self.status_dot.setStyleSheet(
-            f"background-color: {color}; border-radius: 5px;"
-            f"min-width: 10px; max-width: 10px;"
-            f"min-height: 10px; max-height: 10px;"
-        )
+        color = T.legacy_mat_green if connected else T.legacy_mat_red
+        self.status_dot.setStyleSheet(_dot_qss(color))
         self.status_changed.emit("Attivo" if connected else "Inattivo")
 
     # ========================================================================
@@ -637,7 +500,7 @@ class LibraryScannerWidget(QFrame):
 
             # Rileva lingua audio dal filename e colora di conseguenza
             if _detect_italian(filename) == 'ita':
-                name_item.setForeground(QColor("#82aaff"))
+                name_item.setForeground(QColor(T.legacy_blue_link))
                 name_item.setToolTip(f"🇮🇹 Audio ITA · {windows_path}")
             else:
                 name_item.setToolTip(windows_path)
@@ -656,9 +519,9 @@ class LibraryScannerWidget(QFrame):
             days_item = _NumericTableWidgetItem(str(days))
             days_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             if days > 30:
-                days_item.setForeground(QColor("#e94560"))
+                days_item.setForeground(QColor(T.legacy_pink))
             elif days > 14:
-                days_item.setForeground(QColor("#FFC107"))
+                days_item.setForeground(QColor(T.legacy_mat_amber))
             self.video_table.setItem(row, 2, days_item)
 
             # Colonna 3: badge formato subtitle problematico
@@ -755,18 +618,7 @@ class LibraryScannerWidget(QFrame):
 
         btn = QPushButton(label)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setStyleSheet(
-            "QPushButton {"
-            "background-color: #E65100;"
-            "color: #ffffff;"
-            "border: none;"
-            "border-radius: 3px;"
-            "font-size: 7pt;"
-            "font-weight: bold;"
-            "padding: 1px 4px;"
-            "}"
-            "QPushButton:hover { background-color: #FB8C00; }"
-        )
+        btn.setStyleSheet(_badge_btn_qss(T.legacy_orange_deep, T.legacy_orange_hover))
         btn.setToolTip(
             "Sottotitoli immagine (PGS/VOBSUB).\n"
             "Clicca per convertirli in SRT testuale tramite OCR\n"
@@ -798,18 +650,11 @@ class LibraryScannerWidget(QFrame):
         btn = QPushButton("ASS")
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         if conversion_status == 'done':
-            btn.setStyleSheet(
-                "QPushButton { background-color: #2e7d32; color: #ffffff; border: none;"
-                " border-radius: 3px; font-size: 7pt; font-weight: bold; padding: 1px 4px; }"
-            )
+            btn.setStyleSheet(_badge_btn_qss(T.legacy_mat_green_deep))
             btn.setToolTip("ASS/SSA già convertito in SRT.")
             btn.setEnabled(False)
         else:
-            btn.setStyleSheet(
-                "QPushButton { background-color: #6A0DAD; color: #ffffff; border: none;"
-                " border-radius: 3px; font-size: 7pt; font-weight: bold; padding: 1px 4px; }"
-                "QPushButton:hover { background-color: #8B2FC9; }"
-            )
+            btn.setStyleSheet(_badge_btn_qss(T.legacy_violet, T.legacy_violet_hover))
             btn.setToolTip(
                 "Sottotitoli ASS/SSA embedded.\n"
                 "Clicca per convertirli in SRT via FFmpeg sul server Library Scanner."

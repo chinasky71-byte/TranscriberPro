@@ -11,6 +11,7 @@ import time
 
 from utils.translations import tr
 from gui.icons import svg_icon
+from gui.design_tokens import T
 
 try:
     import pynvml
@@ -103,9 +104,9 @@ class ResourceMonitor(QWidget):
 
         # Riga 1: CPU | RAM
         cpu_card, self.cpu_value_label, self.cpu_bar = self._make_metric_card(
-            "CPU", "cpuBar", "#3cc1e0", 'cpu')
+            "CPU", "cpuBar", T.accent, 'cpu')
         ram_card, self.ram_value_label, self.ram_bar = self._make_metric_card(
-            "RAM", "ramBar", "#3fcf8e", 'chip')
+            "RAM", "ramBar", T.success, 'chip')
         row0 = QHBoxLayout()
         row0.setSpacing(8)
         row0.addWidget(cpu_card)
@@ -115,9 +116,9 @@ class ResourceMonitor(QWidget):
         # Riga 2: GPU | VRAM (solo se disponibile)
         if self.gpu_initialized:
             gpu_card, self.gpu_value_label, self.gpu_bar = self._make_metric_card(
-                "GPU", "gpuBar", "#a855f7", 'gpu')
+                "GPU", "gpuBar", T.purple, 'gpu')
             vram_card, self.vram_value_label, self.vram_bar = self._make_metric_card(
-                "VRAM", "vramBar", "#f5b450", 'hardDrive')
+                "VRAM", "vramBar", T.warn, 'hardDrive')
             row1 = QHBoxLayout()
             row1.setSpacing(8)
             row1.addWidget(gpu_card)
@@ -125,8 +126,8 @@ class ResourceMonitor(QWidget):
             layout.addLayout(row1)
 
         # Riga rete: Download | Upload
-        dl_card, self.download_label = self._make_net_card('arrowDown', "#3cc1e0", "Download")
-        ul_card, self.upload_label   = self._make_net_card('arrowUp',   "#f5b450", "Upload")
+        dl_card, self.download_label = self._make_net_card('arrowDown', T.accent, "Download")
+        ul_card, self.upload_label   = self._make_net_card('arrowUp',   T.warn, "Upload")
         row_net = QHBoxLayout()
         row_net.setSpacing(8)
         row_net.addWidget(dl_card)
@@ -184,7 +185,7 @@ class ResourceMonitor(QWidget):
         bar.setTextVisible(False)
         bar.setFixedHeight(4)
         bar.setStyleSheet(
-            "QProgressBar { background: #353841; border: none; border-radius: 2px; }"
+            f"QProgressBar {{ background: {T.bg_3}; border: none; border-radius: 2px; }}"
             f"QProgressBar::chunk {{ background: {color}; border-radius: 2px; }}"
         )
         lay.addWidget(bar)
@@ -214,6 +215,11 @@ class ResourceMonitor(QWidget):
         lay.addWidget(val_lbl)
 
         return card, val_lbl
+
+    @staticmethod
+    def _set_speed_color(label, color):
+        """Colore del valore di velocita' (il tema fissa l'objectName: serve override locale)."""
+        label.setStyleSheet(f"color: {color};")
 
     def _tick_uptime(self):
         self._uptime_seconds += 1
@@ -298,23 +304,23 @@ class ResourceMonitor(QWidget):
                     # Format e aggiorna labels
                     if download_speed_kbs >= 1024:
                         self.download_label.setText(f"{download_speed_kbs / 1024:.2f} MB/s")
-                        self.download_label.setStyleSheet("color: #3fcf8e;")
+                        self._set_speed_color(self.download_label, T.success)
                     elif download_speed_kbs > 0.1:
                         self.download_label.setText(f"{download_speed_kbs:.1f} KB/s")
-                        self.download_label.setStyleSheet("color: #3fcf8e;")
+                        self._set_speed_color(self.download_label, T.success)
                     else:
                         self.download_label.setText("0.0 KB/s")
-                        self.download_label.setStyleSheet("color: #6b7280;")
+                        self._set_speed_color(self.download_label, T.fg_4)
 
                     if upload_speed_kbs >= 1024:
                         self.upload_label.setText(f"{upload_speed_kbs / 1024:.2f} MB/s")
-                        self.upload_label.setStyleSheet("color: #f5b450;")
+                        self._set_speed_color(self.upload_label, T.warn)
                     elif upload_speed_kbs > 0.1:
                         self.upload_label.setText(f"{upload_speed_kbs:.1f} KB/s")
-                        self.upload_label.setStyleSheet("color: #f5b450;")
+                        self._set_speed_color(self.upload_label, T.warn)
                     else:
                         self.upload_label.setText("0.0 KB/s")
-                        self.upload_label.setStyleSheet("color: #6b7280;")
+                        self._set_speed_color(self.upload_label, T.fg_4)
             
             # Aggiorna valori per prossimo ciclo
             self.last_net_io = current_net_io

@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal
 import logging
 
+from gui.styles import load_qss
 from utils.config import get_config
 from utils.translations import tr
 
@@ -162,45 +163,7 @@ class OcrSettingsWidget(QWidget):
 
     def apply_styles(self):
         """Applica stili al widget"""
-        self.setStyleSheet("""
-            QGroupBox {
-                font-weight: bold;
-                border: 2px solid rgba(255, 255, 255, 0.1);
-                border-radius: 8px;
-                margin-top: 10px;
-                padding-top: 10px;
-                color: #ffffff;
-            }
-
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-            }
-
-            QLabel#commentLabel {
-                color: #cccccc;
-                font-size: 9pt;
-                font-style: italic;
-                font-weight: normal;
-                padding: 0 0 6px 22px;
-            }
-
-            QRadioButton {
-                color: #ffffff;
-                font-size: 9pt;
-                spacing: 8px;
-                padding: 3px;
-            }
-
-            QLineEdit, QSpinBox, QComboBox {
-                background-color: rgba(45, 45, 45, 200);
-                color: #ffffff;
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                border-radius: 4px;
-                padding: 4px 6px;
-            }
-        """)
+        self.setStyleSheet(load_qss('ocr_settings'))
 
     def update_status(self):
         """Carica nei controlli i valori correnti dalla configurazione."""

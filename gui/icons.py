@@ -5,6 +5,8 @@ from __future__ import annotations
 from PyQt6.QtCore import QByteArray, Qt
 from PyQt6.QtGui import QIcon, QPixmap, QPainter
 
+from gui.design_tokens import T
+
 try:
     from PyQt6.QtSvg import QSvgRenderer
     _SVG_AVAILABLE = True
@@ -56,7 +58,7 @@ _SVG_CONTENT: dict[str, str] = {
 _icon_cache: dict[tuple, QIcon] = {}
 
 
-def svg_icon(name: str, size: int = 16, color: str = '#9095a0') -> QIcon:
+def svg_icon(name: str, size: int = 16, color: str = T.fg_2) -> QIcon:
     """Renderizza un'icona SVG come QIcon.
 
     Args:

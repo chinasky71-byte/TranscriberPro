@@ -1069,3 +1069,120 @@ QLabel#diagLabel {
     font-size: 10px;
     background: transparent;
 }
+
+/* ============================================================
+ * Ruoli (v1.31)
+ * Regole a proprieta' dinamica: si attivano SOLO sui widget che hanno
+ * `role` (e `tone`) impostati, es. gui.theme.set_role(label, 'muted').
+ * Nessun widget storico ha queste proprieta': non alterano nulla.
+ * ============================================================ */
+
+/* -- Colore del testo (QLabel) -- */
+QLabel[role="primary"] { color: #f5f6f8; }
+QLabel[role="text"] { color: #d1d5db; }
+QLabel[role="muted"] { color: #9095a0; }
+QLabel[role="subtle"] { color: #6a6f7a; }
+QLabel[role="dim"] { color: #6b7280; }
+QLabel[role="accent"] { color: #3cc1e0; }
+QLabel[role="success"] { color: #3fcf8e; }
+QLabel[role="danger"] { color: #ef5a5a; }
+QLabel[role="warn"] { color: #f5b450; }
+QLabel[role="purple"] { color: #a855f7; }
+
+/* Tono: colore del testo senza cambiare ruolo tipografico (set_role(w, 'h2', tone='success')) */
+QLabel[tone="accent"] { color: #3cc1e0; }
+QLabel[tone="success"] { color: #3fcf8e; }
+QLabel[tone="danger"] { color: #ef5a5a; }
+QLabel[tone="warn"] { color: #f5b450; }
+QLabel[tone="purple"] { color: #a855f7; }
+QLabel[tone="muted"] { color: #9095a0; }
+
+/* -- Tipografia (QLabel) -- */
+QLabel[role="h1"]          { font-size: 20px; font-weight: bold; }
+QLabel[role="h2"]          { font-size: 16px; font-weight: bold; }
+QLabel[role="lead"]        { font-size: 13px; }
+QLabel[role="body"]        { font-size: 12px; margin-top: 8px; }
+QLabel[role="body_tight"]  { font-size: 12px; margin-top: 4px; }
+QLabel[role="caption"]     { font-size: 11px; }
+QLabel[role="caption_top"] { font-size: 11px; margin-top: 4px; }
+QLabel[role="caption_gap"] { font-size: 11px; margin: 5px 0; }
+QLabel[role="status"]      { font-size: 11px; font-weight: bold; }
+QLabel[role="hint"]        { font-size: 8pt; padding: 4px 0; }
+
+/* -- Card / tile / pill (QFrame; forme di collapsibleCard, metricCard, statusPill) -- */
+QFrame[role="card"] {
+    background-color: #2c2e36;
+    border: 1px solid #3a3d47;
+    border-radius: 10px;
+}
+QFrame[role="tile"] {
+    background-color: #25272d;
+    border: 1px solid #3a3d47;
+    border-radius: 8px;
+}
+QFrame[role="pill"] {
+    background-color: #25272d;
+    border: 1px solid #3a3d47;
+    border-radius: 999px;
+}
+
+/* -- Sezione: card con bordo colorato (forma di _section_qss in translation_model_dialog) -- */
+QFrame[role="section"] {
+    background-color: #2c2e36;
+    border: 1px solid #3a3d47;
+    border-radius: 8px;
+    padding: 15px;
+}
+QFrame[role="section"][tone="accent"]  { border-color: #3cc1e0; }
+QFrame[role="section"][tone="success"] { border-color: #3fcf8e; }
+QFrame[role="section"][tone="warn"]    { border-color: #f5b450; }
+QFrame[role="section"][tone="purple"]  { border-color: #9b6bc7; }
+QFrame[role="section"][tone="danger"]  { border-color: #ef8a5a; }
+
+/* -- Badge (QLabel; forma di overlayLangPill / overlayStatusPill) -- */
+QLabel[role="badge"] {
+    background-color: #2c2e36;
+    color: #d1d5db;
+    border: 1px solid #3a3d47;
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 10px;
+}
+QLabel[role="badge"][tone="accent"] {
+    background-color: rgba(60, 193, 224, 0.15);
+    color: #3cc1e0;
+    border: 1px solid rgba(60, 193, 224, 0.35);
+    font-weight: 600;
+}
+QLabel[role="badge"][tone="success"] {
+    background-color: rgba(63, 207, 142, 0.15);
+    color: #3fcf8e;
+    border: 1px solid rgba(63, 207, 142, 0.35);
+    font-weight: 600;
+}
+QLabel[role="badge"][tone="danger"] {
+    background-color: rgba(239, 90, 90, 0.15);
+    color: #ef5a5a;
+    border: 1px solid rgba(239, 90, 90, 0.35);
+    font-weight: 600;
+}
+QLabel[role="badge"][tone="warn"] {
+    background-color: rgba(245, 180, 80, 0.15);
+    color: #f5b450;
+    border: 1px solid rgba(245, 180, 80, 0.35);
+    font-weight: 600;
+}
+QLabel[role="badge"][tone="purple"] {
+    background-color: rgba(168, 85, 247, 0.15);
+    color: #a855f7;
+    border: 1px solid rgba(168, 85, 247, 0.35);
+    font-weight: 600;
+}
+
+/* -- Pallino di stato (QFrame 8x8 come statusDot) -- */
+QFrame[role="dot"] { background: #6b7280; border-radius: 4px; }
+QFrame[role="dot"][tone="accent"] { background: #3cc1e0; }
+QFrame[role="dot"][tone="success"] { background: #3fcf8e; }
+QFrame[role="dot"][tone="danger"] { background: #ef5a5a; }
+QFrame[role="dot"][tone="warn"] { background: #f5b450; }
+QFrame[role="dot"][tone="purple"] { background: #a855f7; }

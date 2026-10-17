@@ -3,6 +3,20 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.31.0 — 2026-10-17 — Interfaccia: token di design e stili centralizzati (nessun cambio visivo)
+
+- **Token di design** (`gui/design_tokens.py`, `T`): palette, alpha, sezioni, font, raggi e spaziature in un solo posto.
+- **Tema generato** (`gui/theme.qss.tpl` + `gui/theme.py::build_qss`; `python -m gui.theme --check|--write`): `theme.qss` e'
+  ora un file generato dal template; main.py applica `build_qss()` (con ripiego su `theme.qss`). Nuova sezione "Ruoli (v1.31)"
+  con regole a proprieta' dinamica (`set_role(widget, 'muted'|'h2'|...)`).
+- **Componenti** (`gui/components.py`): `RoundedLabel` (prima duplicata), `section_qss`, piu' `Card`, `Badge`, `StatusPill`,
+  `Section` pronti per le prossime schermate. QSS dei dialoghi grandi in `gui/styles/*.qss.tpl`.
+- **Pulizia**: dai file `gui/*.py` tolti ~145 colori `#rrggbb` letterali e ~45 `setStyleSheet` sparsi (52 -> 6 solo in
+  `translation_model_dialog.py`); restano pochi stili con colori calcolati a runtime.
+- **Verifica**: banco visivo `ui_bench/` (fuori dal repo, 100 screenshot offscreen riproducibili byte per byte): 100/100
+  identici al riferimento prima del refactoring, 0 avvisi Qt di stile; bugcheck Opus: pulito (3 note minori sistemate).
+- **Prossimo passo**: separare la logica dalla vista in `main_window.py` (servizi `gui/services/`).
+
 ## 1.30.13 — 2026-10-17 — Upload OpenSubtitles degli anime: ID dell'episodio per titolo
 
 - **Causa** (verificata sulla pagina OpenSubtitles di Last Exile): per gli anime TMDB non ha l'IMDb ID dell'episodio, quindi
