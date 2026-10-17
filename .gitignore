@@ -146,3 +146,6 @@ diar_eval/work/
 sync_test/
 sync_probe_*.py
 sync_batch_gpu_test.py
+
+# Piano Docker con credenziali del server: solo in locale
+docker_headless/
