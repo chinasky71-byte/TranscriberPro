@@ -14,13 +14,10 @@ from PyQt6.QtWidgets import QStyledItemDelegate, QStyle
 from PyQt6.QtCore import Qt, QSize, QRect
 from PyQt6.QtGui import QColor, QBrush, QFont, QPainter
 
+from gui.design_tokens import T
 
-STATUS_COLORS = {
-    'queued':     '#6b7280',
-    'processing': '#3cc1e0',
-    'completed':  '#3fcf8e',
-    'failed':     '#ef5a5a',
-}
+
+STATUS_COLORS = dict(T.STATUS_COLORS)
 
 STATUS_LABELS = {
     'queued':     'in coda',
@@ -46,11 +43,11 @@ class FileRowDelegate(QStyledItemDelegate):
         # Background
         is_selected = bool(option.state & QStyle.StateFlag.State_Selected)
         if is_selected:
-            painter.fillRect(r, QColor('#353841'))
+            painter.fillRect(r, QColor(T.bg_3))
         elif bool(option.state & QStyle.StateFlag.State_MouseOver):
-            painter.fillRect(r, QColor('#2c2e36'))
+            painter.fillRect(r, QColor(T.bg_2))
         else:
-            painter.fillRect(r, QColor('#25272d'))
+            painter.fillRect(r, QColor(T.bg_1))
 
         data = index.data(Qt.ItemDataRole.UserRole) or {}
         status   = data.get('status', 'queued')
@@ -63,7 +60,7 @@ class FileRowDelegate(QStyledItemDelegate):
         # --- Status dot (8×8, margine sinistro 12) -----------------------
         dot_x = x + 12
         dot_y = y + (h - 8) // 2
-        dot_color = QColor(STATUS_COLORS.get(status, '#6b7280'))
+        dot_color = QColor(STATUS_COLORS.get(status, T.fg_4))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(dot_color))
         painter.drawEllipse(dot_x, dot_y, 8, 8)
@@ -77,7 +74,7 @@ class FileRowDelegate(QStyledItemDelegate):
         name_font.setPointSize(9)
         name_font.setBold(True)
         painter.setFont(name_font)
-        painter.setPen(QColor('#e8eaf0' if not is_selected else '#ffffff'))
+        painter.setPen(QColor(T.fg_row if not is_selected else T.white))
         name_rect = QRect(text_x, y + 5, text_w, 16)
         filename_elided = painter.fontMetrics().elidedText(
             filename, Qt.TextElideMode.ElideMiddle, text_w
@@ -98,7 +95,7 @@ class FileRowDelegate(QStyledItemDelegate):
         meta_font.setFamilies(['JetBrains Mono', 'Consolas', 'Courier New'])
         meta_font.setPointSize(7)
         painter.setFont(meta_font)
-        painter.setPen(QColor('#6b7280'))
+        painter.setPen(QColor(T.fg_4))
         meta_rect = QRect(text_x, y + 23, text_w, 14)
         painter.drawText(meta_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                          meta)
@@ -109,10 +106,10 @@ class FileRowDelegate(QStyledItemDelegate):
             bar_w = max(1, int(w * progress / 100))
             # traccia vuota
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(QColor('#3a3d47')))
+            painter.setBrush(QBrush(QColor(T.line)))
             painter.drawRect(x, bar_y, w, 4)
             # barra riempita
-            painter.setBrush(QBrush(QColor('#3cc1e0')))
+            painter.setBrush(QBrush(QColor(T.accent)))
             painter.drawRect(x, bar_y, bar_w, 4)
 
         painter.restore()

@@ -27,24 +27,42 @@ logger = setup_logger('gui.translation_model_dialog')
 # in subprocess via core.env_check_cli (EnvCliWorker).
 
 
-# Stylesheet container coerenti col tema dark globale (theme.qss).
-# Cambia solo il colore del bordo per distinguere visivamente le sezioni.
-def _section_qss(border_color: str) -> str:
-    return f"""
-        QFrame {{
-            border: 1px solid {border_color};
-            border-radius: 8px;
-            padding: 15px;
-            background-color: #2c2e36;
-        }}
-    """
+from gui.design_tokens import T
+from gui.components import section_qss
+from gui.theme import set_role
 
-_SECTION_QSS_NEUTRAL = _section_qss("#3a3d47")
-_SECTION_QSS_GREEN = _section_qss("#3fcf8e")
-_SECTION_QSS_BLUE = _section_qss("#3cc1e0")
-_SECTION_QSS_ORANGE = _section_qss("#f5b450")
-_SECTION_QSS_PURPLE = _section_qss("#9b6bc7")
-_SECTION_QSS_RED_ORANGE = _section_qss("#ef8a5a")
+# Colore del titolo di sezione -> tono del tema (h2 + tone). I colori senza
+# tono (viola e rosso-arancio) restano a stile locale con i token.
+_TITLE_TONES = {T.success: 'success', T.accent: 'accent', T.warn: 'warn'}
+
+
+def _section_container(border_color: str) -> QFrame:
+    """Contenitore di sezione col bordo colorato (QSS identico allo storico)."""
+    container = QFrame()
+    container.setFrameShape(QFrame.Shape.Box)
+    container.setStyleSheet(section_qss(border_color))
+    return container
+
+
+def _section_title(text: str, color=None) -> QLabel:
+    """Titolo di sezione 16px bold, eventualmente colorato."""
+    label = QLabel(text)
+    tone = _TITLE_TONES.get(color)
+    if color is None or tone:
+        set_role(label, 'h2', tone)
+    else:
+        label.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {color};")
+    return label
+
+
+def _status_style(label: QLabel, color: str, bold: bool = False, size=None) -> None:
+    """Stile di un'etichetta di stato (colore calcolato a runtime)."""
+    css = f"color: {color};"
+    if bold:
+        css += " font-weight: bold;"
+    if size:
+        css += f" font-size: {size}px;"
+    label.setStyleSheet(css)
 
 
 class EnvCliWorker(QThread):
@@ -150,7 +168,8 @@ class TranslationModelDialog(QDialog):
             "Verificare installazione del modulo."
         )
         error_label.setWordWrap(True)
-        error_label.setStyleSheet("color: #d32f2f; font-size: 14px; padding: 20px;")
+        error_label.setStyleSheet(
+            f"color: {T.legacy_red_deep}; font-size: 14px; padding: 20px;")
         
         main_layout.addWidget(error_label)
         
@@ -307,10 +326,10 @@ class TranslationModelDialog(QDialog):
         header_layout.setContentsMargins(0, 0, 0, 15)
 
         title = QLabel(tr('tmd_header'))
-        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #3cc1e0;")
+        set_role(title, 'h1', 'accent')
 
         subtitle = QLabel(tr('tmd_subtitle'))
-        subtitle.setStyleSheet("font-size: 13px;")
+        set_role(subtitle, 'lead')
         
         header_layout.addWidget(title)
         header_layout.addWidget(subtitle)
@@ -322,14 +341,11 @@ class TranslationModelDialog(QDialog):
         radio = QRadioButton()
         radio.setObjectName("nllb")
 
-        container = QFrame()
-        container.setFrameShape(QFrame.Shape.Box)
-        container.setStyleSheet(_SECTION_QSS_NEUTRAL)
+        container = _section_container(T.section_neutral)
 
         layout = QVBoxLayout(container)
 
-        title_label = QLabel("NLLB-200")
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+        title_label = _section_title("NLLB-200")
         layout.addWidget(title_label)
 
         features = (
@@ -340,7 +356,7 @@ class TranslationModelDialog(QDialog):
             "❌ Qualità media"
         )
         features_label = QLabel(features)
-        features_label.setStyleSheet("font-size: 12px; margin-top: 8px;")
+        set_role(features_label, 'body')
         layout.addWidget(features_label)
         
         main_layout = QHBoxLayout()
@@ -357,14 +373,11 @@ class TranslationModelDialog(QDialog):
         radio = QRadioButton()
         radio.setObjectName("nllb_finetuned")
 
-        container = QFrame()
-        container.setFrameShape(QFrame.Shape.Box)
-        container.setStyleSheet(_SECTION_QSS_GREEN)
+        container = _section_container(T.section_green)
 
         layout = QVBoxLayout(container)
 
-        title_label = QLabel("NLLB-200 Fine-Tuned (Plex)")
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #3fcf8e;")
+        title_label = _section_title("NLLB-200 Fine-Tuned (Plex)", T.success)
         layout.addWidget(title_label)
 
         features = (
@@ -375,7 +388,7 @@ class TranslationModelDialog(QDialog):
             "⚠️ Solo EN→IT (dataset di training)"
         )
         features_label = QLabel(features)
-        features_label.setStyleSheet("font-size: 12px; margin-top: 8px;")
+        set_role(features_label, 'body')
         layout.addWidget(features_label)
 
         # Path selector
@@ -479,10 +492,10 @@ class TranslationModelDialog(QDialog):
         """Aggiorna indicatore stato modello fine-tuned"""
         if self.config.is_nllb_finetuned_configured():
             self.nllb_ft_status_label.setText(tr('tmd_configured'))
-            self.nllb_ft_status_label.setStyleSheet("color: green; font-weight: bold;")
+            _status_style(self.nllb_ft_status_label, T.css_green, bold=True)
         else:
             self.nllb_ft_status_label.setText(tr('tmd_not_configured'))
-            self.nllb_ft_status_label.setStyleSheet("color: orange;")
+            _status_style(self.nllb_ft_status_label, T.css_orange)
 
     def browse_llm_model_path(self):
         """Apre dialog per selezionare la cartella dei pesi del modello LLM"""
@@ -529,14 +542,11 @@ class TranslationModelDialog(QDialog):
         radio = QRadioButton()
         radio.setObjectName("llm")
 
-        container = QFrame()
-        container.setFrameShape(QFrame.Shape.Box)
-        container.setStyleSheet(_SECTION_QSS_NEUTRAL)
+        container = _section_container(T.section_neutral)
 
         layout = QVBoxLayout(container)
 
-        title_label = QLabel("TranslateGemma_finetuned")
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+        title_label = _section_title("TranslateGemma_finetuned")
         layout.addWidget(title_label)
 
         features = (
@@ -547,7 +557,7 @@ class TranslationModelDialog(QDialog):
             "⚠️ Più lento di NLLB"
         )
         features_label = QLabel(features)
-        features_label.setStyleSheet("font-size: 12px; margin-top: 8px;")
+        set_role(features_label, 'body')
         layout.addWidget(features_label)
 
         # Cartella del modello (override locale dei pesi base)
@@ -623,14 +633,11 @@ class TranslationModelDialog(QDialog):
         radio = QRadioButton()
         radio.setObjectName("claude")
         
-        container = QFrame()
-        container.setFrameShape(QFrame.Shape.Box)
-        container.setStyleSheet(_SECTION_QSS_BLUE)
+        container = _section_container(T.section_blue)
 
         layout = QVBoxLayout(container)
 
-        title_label = QLabel("Claude API (Sonnet 4)")
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #3cc1e0;")
+        title_label = _section_title("Claude API (Sonnet 4)", T.accent)
         layout.addWidget(title_label)
 
         features = (
@@ -642,7 +649,7 @@ class TranslationModelDialog(QDialog):
             "💰 Richiede crediti API separati (≠ piano Pro)"
         )
         features_label = QLabel(features)
-        features_label.setStyleSheet("font-size: 12px; margin-top: 8px;")
+        set_role(features_label, 'body')
         layout.addWidget(features_label)
 
         # API Key group
@@ -659,7 +666,7 @@ class TranslationModelDialog(QDialog):
 
         # Info label
         info_label = QLabel(tr('api_key_info_claude'))
-        info_label.setStyleSheet("font-size: 11px; margin: 5px 0;")
+        set_role(info_label, 'caption_gap')
         info_label.setWordWrap(True)
 
         save_api_btn = QPushButton(tr('save_api_key'))
@@ -691,14 +698,11 @@ class TranslationModelDialog(QDialog):
         radio = QRadioButton()
         radio.setObjectName("opensubtitles")
 
-        container = QFrame()
-        container.setFrameShape(QFrame.Shape.Box)
-        container.setStyleSheet(_SECTION_QSS_ORANGE)
+        container = _section_container(T.section_orange)
 
         layout = QVBoxLayout(container)
 
-        title_label = QLabel("OpenSubtitles AI")
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #f5b450;")
+        title_label = _section_title("OpenSubtitles AI", T.warn)
         layout.addWidget(title_label)
 
         features = (
@@ -709,7 +713,7 @@ class TranslationModelDialog(QDialog):
             "⚠️ Quota limitata per account non-VIP"
         )
         features_label = QLabel(features)
-        features_label.setStyleSheet("font-size: 12px; margin-top: 8px;")
+        set_role(features_label, 'body')
         layout.addWidget(features_label)
 
         # Status credenziali
@@ -718,7 +722,7 @@ class TranslationModelDialog(QDialog):
         layout.addWidget(self.os_status_label)
 
         info_label = QLabel(tr('os_creds_info'))
-        info_label.setStyleSheet("font-size: 11px; margin-top: 4px;")
+        set_role(info_label, 'caption_top')
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
 
@@ -738,24 +742,21 @@ class TranslationModelDialog(QDialog):
         # selezionata per l'upload dei sottotitoli (che può essere xmlrpc).
         if self.config.is_opensubtitles_rest_configured():
             self.os_status_label.setText(tr('tmd_creds_configured'))
-            self.os_status_label.setStyleSheet("color: green; font-weight: bold;")
+            _status_style(self.os_status_label, T.css_green, bold=True)
         else:
             self.os_status_label.setText(tr('tmd_creds_not_configured'))
-            self.os_status_label.setStyleSheet("color: orange;")
+            _status_style(self.os_status_label, T.css_orange)
 
     def create_model_section_openai(self):
         """Crea sezione OpenAI GPT"""
         radio = QRadioButton()
         radio.setObjectName("openai")
 
-        container = QFrame()
-        container.setFrameShape(QFrame.Shape.Box)
-        container.setStyleSheet(_SECTION_QSS_GREEN)
+        container = _section_container(T.section_green)
 
         layout = QVBoxLayout(container)
 
-        title_label = QLabel("OpenAI GPT")
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #3fcf8e;")
+        title_label = _section_title("OpenAI GPT", T.success)
         layout.addWidget(title_label)
 
         features = (
@@ -766,7 +767,7 @@ class TranslationModelDialog(QDialog):
             "💰 Pagamento per token (platform.openai.com)"
         )
         features_label = QLabel(features)
-        features_label.setStyleSheet("font-size: 12px; margin-top: 8px;")
+        set_role(features_label, 'body')
         layout.addWidget(features_label)
 
         # API Key group
@@ -797,7 +798,7 @@ class TranslationModelDialog(QDialog):
         model_row.addStretch()
 
         info_label = QLabel(tr('api_key_info_openai'))
-        info_label.setStyleSheet("font-size: 11px; margin: 5px 0;")
+        set_role(info_label, 'caption_gap')
         info_label.setWordWrap(True)
 
         save_api_btn = QPushButton(tr('save'))
@@ -840,10 +841,10 @@ class TranslationModelDialog(QDialog):
         """Aggiorna indicatore stato OpenAI"""
         if self.config.is_openai_api_key_set():
             self.oai_status_label.setText(tr('tmd_creds_configured'))
-            self.oai_status_label.setStyleSheet("color: green; font-weight: bold;")
+            _status_style(self.oai_status_label, T.css_green, bold=True)
         else:
             self.oai_status_label.setText(tr('tmd_not_configured'))
-            self.oai_status_label.setStyleSheet("color: orange;")
+            _status_style(self.oai_status_label, T.css_orange)
 
     def save_hf_token(self):
         """Salva token HuggingFace"""
@@ -884,10 +885,10 @@ class TranslationModelDialog(QDialog):
         """Aggiorna indicatore stato Claude"""
         if self.config.is_claude_api_key_set():
             self.claude_status_label.setText(tr('tmd_creds_configured'))
-            self.claude_status_label.setStyleSheet("color: green; font-weight: bold;")
+            _status_style(self.claude_status_label, T.css_green, bold=True)
         else:
             self.claude_status_label.setText(tr('tmd_not_configured'))
-            self.claude_status_label.setStyleSheet("color: orange;")
+            _status_style(self.claude_status_label, T.css_orange)
     
     def start_llm_download(self):
         """Avvia lo scaricamento del modello LLM in uso."""
@@ -1033,18 +1034,15 @@ class TranslationModelDialog(QDialog):
     
     def create_diarization_section(self) -> QWidget:
         """Crea sezione Speaker Diarization"""
-        container = QFrame()
-        container.setFrameShape(QFrame.Shape.Box)
-        container.setStyleSheet(_SECTION_QSS_PURPLE)
+        container = _section_container(T.section_purple)
 
         layout = QVBoxLayout(container)
 
-        title_label = QLabel(tr('diarization_title'))
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #b78ee0;")
+        title_label = _section_title(tr('diarization_title'), T.purple_title)
         layout.addWidget(title_label)
 
         desc_label = QLabel(tr('diarization_desc'))
-        desc_label.setStyleSheet("font-size: 12px; margin-top: 4px;")
+        set_role(desc_label, 'body_tight')
         desc_label.setWordWrap(True)
         layout.addWidget(desc_label)
 
@@ -1081,7 +1079,7 @@ class TranslationModelDialog(QDialog):
             "Poi accetta i termini su:\n"
             f"{_diar_urls}"
         )
-        token_info.setStyleSheet("font-size: 11px;")
+        set_role(token_info, 'caption')
         token_layout.addWidget(token_info)
 
         # Stato token
@@ -1099,7 +1097,7 @@ class TranslationModelDialog(QDialog):
 
         self.diarization_test_label = QLabel("")
         self.diarization_test_label.setWordWrap(True)
-        self.diarization_test_label.setStyleSheet("font-size: 11px;")
+        set_role(self.diarization_test_label, 'caption')
         layout.addWidget(self.diarization_test_label)
 
         # --- Forced Alignment ---
@@ -1158,17 +1156,17 @@ class TranslationModelDialog(QDialog):
     def _update_diarization_token_status(self):
         if self.config.is_huggingface_token_set():
             self.diarization_token_status.setText(tr('tmd_creds_configured'))
-            self.diarization_token_status.setStyleSheet("color: green; font-weight: bold; font-size: 11px;")
+            _status_style(self.diarization_token_status, T.css_green, bold=True, size=11)
         else:
             self.diarization_token_status.setText(tr('tmd_not_configured'))
-            self.diarization_token_status.setStyleSheet("color: orange; font-size: 11px;")
+            _status_style(self.diarization_token_status, T.css_orange, size=11)
 
     def test_pyannote_download(self):
         """Testa il download della pipeline pyannote con il token configurato"""
         token = self.config.get_huggingface_token()
         if not token:
             self.diarization_test_label.setText("❌ Token non configurato. Salvalo prima.")
-            self.diarization_test_label.setStyleSheet("color: red; font-size: 11px;")
+            _status_style(self.diarization_test_label, T.css_red, size=11)
             return
 
         # Il test gira in SUBPROCESS (core.env_check_cli): prima importava
@@ -1180,7 +1178,7 @@ class TranslationModelDialog(QDialog):
 
         self.diarization_test_label.setText(
             "⏳ Test avviato in background (prima volta: download ~1 GB)...")
-        self.diarization_test_label.setStyleSheet("color: #555; font-size: 11px;")
+        _status_style(self.diarization_test_label, T.css_grey_555, size=11)
 
         self._diar_test_lines = []
         self._diar_test_worker = EnvCliWorker('diarization-test')
@@ -1202,22 +1200,18 @@ class TranslationModelDialog(QDialog):
         tail = "\n".join(final_lines[-4:]) if final_lines \
             else "❌ Nessun output dal test."
         self.diarization_test_label.setText(tail)
-        color = "green" if exit_code == 0 else "red"
-        self.diarization_test_label.setStyleSheet(
-            f"color: {color}; font-size: 11px;")
+        color = T.css_green if exit_code == 0 else T.css_red
+        _status_style(self.diarization_test_label, color, size=11)
 
     # ── Gender Correction ─────────────────────────────────────────────────
 
     def create_gender_correction_section(self) -> QWidget:
         """Crea sezione Gender Correction (EXPERIMENTAL)."""
-        container = QFrame()
-        container.setFrameShape(QFrame.Shape.Box)
-        container.setStyleSheet(_SECTION_QSS_RED_ORANGE)
+        container = _section_container(T.section_red_orange)
 
         layout = QVBoxLayout(container)
 
-        title_label = QLabel("Correzione Genere (v2 — audio-driven)")
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #ef8a5a;")
+        title_label = _section_title("Correzione Genere (v2 — audio-driven)", T.section_red_orange)
         layout.addWidget(title_label)
 
         desc_label = QLabel(
@@ -1227,7 +1221,7 @@ class TranslationModelDialog(QDialog):
             "deterministico validato. Nessun LLM, nessuna VRAM aggiuntiva.\n"
             "Eseguito in un processo separato dopo la traduzione."
         )
-        desc_label.setStyleSheet("font-size: 12px; margin-top: 4px;")
+        set_role(desc_label, 'body_tight')
         desc_label.setWordWrap(True)
         layout.addWidget(desc_label)
 
@@ -1263,7 +1257,7 @@ class TranslationModelDialog(QDialog):
             "doppi e riscritture non plausibili restano intatte."
         )
         info_label.setStyleSheet(
-            "color: #f5b450; font-size: 11px; font-style: italic; margin-top: 4px;"
+            f"color: {T.warn}; font-size: 11px; font-style: italic; margin-top: 4px;"
         )
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
@@ -1281,8 +1275,7 @@ class TranslationModelDialog(QDialog):
         hf_ok = bool(self.config.get('huggingface_token', ''))
         if nlp_ok and hf_ok:
             self.gender_env_status.setText("Prerequisiti OK (venv NLP + token HuggingFace)")
-            self.gender_env_status.setStyleSheet(
-                "color: green; font-weight: bold; font-size: 11px;")
+            _status_style(self.gender_env_status, T.css_green, bold=True, size=11)
         else:
             missing = []
             if not nlp_ok:
@@ -1290,7 +1283,7 @@ class TranslationModelDialog(QDialog):
             if not hf_ok:
                 missing.append("token HuggingFace mancante")
             self.gender_env_status.setText(" — ".join(missing))
-            self.gender_env_status.setStyleSheet("color: red; font-size: 11px;")
+            _status_style(self.gender_env_status, T.css_red, size=11)
 
     def _on_gender_correction_toggled(self, checked: bool):
         """Salva stato checkbox gender correction."""
@@ -1300,14 +1293,11 @@ class TranslationModelDialog(QDialog):
 
     def create_force_transcription_section(self) -> QWidget:
         """Crea sezione 'Forza trascrizione da audio'."""
-        container = QFrame()
-        container.setFrameShape(QFrame.Shape.Box)
-        container.setStyleSheet(_SECTION_QSS_BLUE)
+        container = _section_container(T.section_blue)
 
         layout = QVBoxLayout(container)
 
-        title_label = QLabel(tr('force_audio_title'))
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #3cc1e0;")
+        title_label = _section_title(tr('force_audio_title'), T.accent)
         layout.addWidget(title_label)
 
         self.force_audio_checkbox = QCheckBox(tr('force_audio_checkbox'))
@@ -1318,7 +1308,7 @@ class TranslationModelDialog(QDialog):
         layout.addWidget(self.force_audio_checkbox)
 
         info_label = QLabel(tr('force_audio_info'))
-        info_label.setStyleSheet("font-size: 11px; margin-top: 4px;")
+        set_role(info_label, 'caption_top')
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
 

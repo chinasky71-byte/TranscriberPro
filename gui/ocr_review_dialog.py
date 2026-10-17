@@ -8,7 +8,7 @@ bitmap. Nessuna correzione automatica: l'utente è l'unica fonte di verità.
 
 Contratto dati: core/pgs_types.py (OcrEvent, events_to_srt). NON inventare lo schema.
 
-Possiede SOLO questo file. Stringhe UI solo via tr(). Stile dark slate, accent #3cc1e0.
+Possiede SOLO questo file. Stringhe UI solo via tr(). Stile dark slate, accent ciano (T.accent).
 """
 from __future__ import annotations
 
@@ -24,12 +24,14 @@ from PyQt6.QtGui import QTextCursor
 from PyQt6.QtGui import QPixmap, QImage, QFont
 
 from core.pgs_types import OcrEvent, events_to_srt
+from gui.design_tokens import T
 from gui.icons import svg_icon
+from gui.styles import load_qss
 from utils.translations import tr
 
 logger = logging.getLogger(__name__)
 
-ACCENT = "#3cc1e0"
+ACCENT = T.accent
 
 # Soglia colore badge confidenza (puramente visiva; il flag autorevole è is_flagged).
 _CONF_OK = 85.0
@@ -192,11 +194,11 @@ class OcrReviewDialog(QDialog):
         self.prev_btn.clicked.connect(self._go_prev)
         cmd_row.addWidget(self.prev_btn)
 
-        self.next_btn = QPushButton(svg_icon('chevRight', 16, '#cccccc'), tr('ocr_next'))
+        self.next_btn = QPushButton(svg_icon('chevRight', 16, T.legacy_grey_ccc), tr('ocr_next'))
         self.next_btn.clicked.connect(self._go_next)
         cmd_row.addWidget(self.next_btn)
 
-        self.verify_btn = QPushButton(svg_icon('check', 16, '#1e1e2e'), tr('ocr_verified'))
+        self.verify_btn = QPushButton(svg_icon('check', 16, T.legacy_bg_dialog), tr('ocr_verified'))
         self.verify_btn.setObjectName("ocrVerifyBtn")
         self.verify_btn.setToolTip(tr('ocr_verified_tip'))
         self.verify_btn.clicked.connect(self._mark_verified)
@@ -221,71 +223,7 @@ class OcrReviewDialog(QDialog):
         root.addLayout(footer)
 
     def _apply_styles(self):
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: #1e1e2e;
-                color: #ffffff;
-            }}
-            QLabel {{ color: #cccccc; }}
-            QLabel#ocrHeader {{
-                color: #ffffff;
-                font-weight: bold;
-                padding: 6px 8px;
-                background-color: rgba(60,193,224,0.10);
-                border-left: 3px solid {ACCENT};
-                border-radius: 4px;
-            }}
-            QLabel#ocrEventInfo {{ color: {ACCENT}; font-weight: bold; }}
-            QLabel#ocrCounter {{ color: #9095a0; font-size: 11px; }}
-            QLabel#ocrImage {{
-                background-color: #0f0f19;
-                border: 1px solid rgba(255,255,255,0.12);
-                border-radius: 6px;
-                color: #6a6f7a;
-            }}
-            QCheckBox {{ color: #cccccc; }}
-            QListWidget {{
-                background-color: rgba(15,15,25,220);
-                color: #d0d0d0;
-                border: 1px solid rgba(255,255,255,0.10);
-                border-radius: 6px;
-                outline: none;
-            }}
-            QListWidget::item {{ padding: 6px 8px; border-radius: 4px; }}
-            QListWidget::item:selected {{
-                background-color: rgba(60,193,224,0.25);
-                color: #ffffff;
-            }}
-            QPlainTextEdit {{
-                background-color: rgba(15,15,25,230);
-                color: #ffffff;
-                border: 1px solid rgba(255,255,255,0.15);
-                border-radius: 6px;
-                padding: 6px 8px;
-                selection-background-color: {ACCENT};
-            }}
-            QPushButton {{
-                background-color: rgba(45,45,60,220);
-                color: #ffffff;
-                border: 1px solid rgba(255,255,255,0.12);
-                border-radius: 6px;
-                padding: 8px 14px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{ background-color: rgba(60,60,80,230); }}
-            QPushButton:disabled {{
-                background-color: rgba(60,60,60,120);
-                color: rgba(255,255,255,90);
-            }}
-            QPushButton#ocrVerifyBtn, QPushButton#ocrDoneBtn {{
-                background-color: {ACCENT};
-                color: #10222a;
-                border: none;
-            }}
-            QPushButton#ocrVerifyBtn:hover, QPushButton#ocrDoneBtn:hover {{
-                background-color: #54cfe9;
-            }}
-        """)
+        self.setStyleSheet(load_qss('ocr_review'))
 
     # ── Lista ────────────────────────────────────────────────────────────────
 

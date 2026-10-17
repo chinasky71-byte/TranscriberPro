@@ -25,6 +25,8 @@ from PyQt6.QtGui import QKeySequence, QShortcut
 from utils.config import get_config
 from utils.translations import tr
 from gui.icons import svg_icon
+from gui.design_tokens import T
+from gui.theme import set_role
 
 
 # Identificatori stabili delle tab (usati per initial_tab e per la
@@ -173,7 +175,7 @@ class SettingsDialog(QDialog):
             self.stack.addWidget(QWidget())  # placeholder vuoto
 
             item = QListWidgetItem(labels[tab_id])
-            item.setIcon(svg_icon(_TAB_ICON.get(tab_id, 'settings'), 16, '#9095a0'))
+            item.setIcon(svg_icon(_TAB_ICON.get(tab_id, 'settings'), 16, T.fg_2))
             item.setData(Qt.ItemDataRole.UserRole, tab_id)
             item.setSizeHint(QSize(0, 36))
             self.sidebar.addItem(item)
@@ -213,7 +215,7 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         label = QLabel(f"[{tab_id}]\n\n{message}")
         label.setWordWrap(True)
-        label.setStyleSheet("color: #ef5a5a;")
+        set_role(label, 'danger')
         label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout.addWidget(label, alignment=Qt.AlignmentFlag.AlignTop)
         return page
@@ -244,7 +246,7 @@ class SettingsDialog(QDialog):
                 lay = QVBoxLayout(placeholder)
                 lbl = QLabel(tr('loading_preview'))
                 lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                lbl.setStyleSheet("color: #9095a0;")
+                set_role(lbl, 'muted')
                 lay.addWidget(lbl)
             self.stack.setCurrentIndex(row)
             QTimer.singleShot(0, lambda r=row, t=tab_id: self._deferred_build(r, t))

@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from gui.design_tokens import T
 from utils.config import get_config
 from utils.translations import tr
 
@@ -80,7 +81,7 @@ class GeneralSettingsWidget(QWidget):
 
         note = QLabel(tr('language_restart_msg'))
         note.setWordWrap(True)
-        note.setStyleSheet("color: #888888; font-size: 8pt; padding: 4px 0;")
+        note.setStyleSheet(f"color: {T.legacy_grey_888}; font-size: 8pt; padding: 4px 0;")
         layout.addWidget(note)
 
         # ── Library Scanner ───────────────────────────────────────────
@@ -167,15 +168,18 @@ class GeneralSettingsWidget(QWidget):
         self.ls_key_edit.setEchoMode(mode)
         self._show_key_btn.setText("Nascondi" if checked else "Mostra")
 
+    def _set_ping_color(self, color: str):
+        self._ping_status.setStyleSheet(f"color: {color};")
+
     def _test_connection(self):
         url = self.ls_url_edit.text().strip()
         key = self.ls_key_edit.text().strip()
         if not url:
-            self._ping_status.setStyleSheet("color: #e07070;")
+            self._set_ping_color(T.legacy_red_soft)
             self._ping_status.setText("Inserisci un URL valido.")
             return
         self._ping_btn.setEnabled(False)
-        self._ping_status.setStyleSheet("color: #888888;")
+        self._set_ping_color(T.legacy_grey_888)
         self._ping_status.setText("Test in corso…")
         self._ping_worker = _PingWorker(url, key, self)
         self._ping_worker.result.connect(self._on_ping_result)
@@ -184,8 +188,8 @@ class GeneralSettingsWidget(QWidget):
     def _on_ping_result(self, ok: bool, msg: str):
         self._ping_btn.setEnabled(True)
         if ok:
-            self._ping_status.setStyleSheet("color: #3cc1e0;")
+            self._set_ping_color(T.accent)
             self._ping_status.setText(f"✓ {msg}")
         else:
-            self._ping_status.setStyleSheet("color: #e07070;")
+            self._set_ping_color(T.legacy_red_soft)
             self._ping_status.setText(f"✗ {msg}")

@@ -49,7 +49,7 @@ from utils.translations import init_language, tr
 
 
 # ── Versione applicazione — unica fonte di verità ─────────────────────────────
-APP_VERSION = "1.30.13"
+APP_VERSION = "1.31.0"
 
 PROJECT_ROOT      = Path(__file__).resolve().parent
 ASSETS_FONTS_DIR  = PROJECT_ROOT / 'assets' / 'fonts'
@@ -74,16 +74,26 @@ def _load_application_fonts(logger):
 
 
 def _apply_global_stylesheet(app, logger):
-    """Carica e applica il QSS globale (gui/theme.qss)."""
-    if not THEME_QSS_PATH.exists():
-        logger.warning(f"theme.qss non trovato: {THEME_QSS_PATH}")
-        return
+    """Applica il QSS globale: build_qss() (gui/theme.qss.tpl + design tokens);
+    se il template manca o il rendering fallisce, ripiega sul file generato gui/theme.qss."""
+    qss, origin = None, THEME_QSS_PATH.name
     try:
-        qss = THEME_QSS_PATH.read_text(encoding='utf-8')
-        app.setStyleSheet(qss)
-        logger.info(f"Tema applicato: {THEME_QSS_PATH.name} ({len(qss)} char)")
+        from gui.theme import build_qss, TEMPLATE_PATH
+        if TEMPLATE_PATH.exists():
+            qss, origin = build_qss(), TEMPLATE_PATH.name
     except Exception as e:
-        logger.error(f"Errore caricamento theme.qss: {e}")
+        logger.warning(f"build_qss() non disponibile ({e}); ripiego su theme.qss")
+    if qss is None:
+        if not THEME_QSS_PATH.exists():
+            logger.warning(f"theme.qss non trovato: {THEME_QSS_PATH}")
+            return
+        try:
+            qss = THEME_QSS_PATH.read_text(encoding='utf-8')
+        except Exception as e:
+            logger.error(f"Errore caricamento theme.qss: {e}")
+            return
+    app.setStyleSheet(qss)
+    logger.info(f"Tema applicato: {origin} ({len(qss)} char)")
 
 
 def _verify_model_paths(config, logger):

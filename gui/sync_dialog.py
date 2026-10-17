@@ -17,6 +17,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QTextCursor
 
 from gui.progress_log import append_log_line
+from gui.styles import load_qss
 from gui.sync_worker import SyncWorker
 from gui.sync_batch_worker import SyncBatchWorker
 from core import sync_pairing as SP
@@ -122,67 +123,7 @@ class SyncDialog(QDialog):
         root.addLayout(btn_row)
 
     def _apply_styles(self):
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #1e1e2e;
-                color: #ffffff;
-            }
-            QGroupBox {
-                font-weight: bold;
-                border: 2px solid rgba(255,255,255,0.1);
-                border-radius: 8px;
-                margin-top: 10px;
-                padding-top: 10px;
-                color: #ffffff;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-            }
-            QLabel {
-                color: #cccccc;
-            }
-            QLineEdit {
-                background-color: rgba(45,45,60,200);
-                color: #ffffff;
-                border: 1px solid rgba(255,255,255,0.15);
-                border-radius: 4px;
-                padding: 4px 8px;
-            }
-            QTextEdit {
-                background-color: rgba(15,15,25,220);
-                color: #d0d0d0;
-                border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 4px;
-            }
-            QProgressBar {
-                border: 1px solid rgba(255,255,255,0.15);
-                border-radius: 4px;
-                background-color: rgba(30,30,50,200);
-                color: #ffffff;
-                text-align: center;
-                height: 20px;
-            }
-            QProgressBar::chunk {
-                background-color: rgba(0,120,212,200);
-                border-radius: 3px;
-            }
-            QPushButton {
-                background-color: rgba(0,120,212,180);
-                color: white;
-                border: none;
-                border-radius: 6px;
-                padding: 8px 14px;
-                font-weight: bold;
-            }
-            QPushButton:hover  { background-color: rgba(0,120,212,230); }
-            QPushButton:pressed { background-color: rgba(0,100,180,200); }
-            QPushButton:disabled {
-                background-color: rgba(60,60,60,150);
-                color: rgba(255,255,255,100);
-            }
-        """)
+        self.setStyleSheet(load_qss('sync_dialog'))
 
     # ── Browse handlers ───────────────────────────────────────────────────────
 

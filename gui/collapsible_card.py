@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, pyqtSignal, QSize
 from gui.icons import svg_icon
+from gui.design_tokens import T
 
 
 class CollapsibleCard(QFrame):
@@ -68,7 +69,7 @@ class CollapsibleCard(QFrame):
         self._chevron = QToolButton()
         self._chevron.setObjectName("collapsibleChevron")
         self._chevron.setText('')
-        self._chevron.setIcon(svg_icon('chevDown', 16, '#6a6f7a'))
+        self._chevron.setIcon(svg_icon('chevDown', 16, T.fg_3))
         self._chevron.setIconSize(QSize(16, 16))
         self._chevron.setFixedSize(20, 20)
         self._chevron.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -134,7 +135,7 @@ class CollapsibleCard(QFrame):
         if expanded == self._expanded:
             return
         self._expanded = expanded
-        self._chevron.setIcon(svg_icon('chevDown' if expanded else 'chevRight', 16, '#6a6f7a'))
+        self._chevron.setIcon(svg_icon('chevDown' if expanded else 'chevRight', 16, T.fg_3))
 
         if not animated:
             self._body_container.setMaximumHeight(

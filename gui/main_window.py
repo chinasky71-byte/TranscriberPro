@@ -24,6 +24,9 @@ from datetime import datetime
 
 from gui.widgets import ResourceMonitorWidget, ElideLabel
 from gui.icons import svg_icon
+from gui.design_tokens import T
+from gui.theme import set_role
+from gui.components import RoundedLabel
 from gui.workers import (ProcessingWorker, PosterLoaderWorker,
                          FileSizeWorker, FolderScanWorker)
 from gui.profile_dialog import ProfileSelectionDialog
@@ -68,78 +71,6 @@ SUBTITLE_LANGUAGES = [
     ("Turco",                "tur"),
 ]
 
-
-class RoundedLabel(QLabel):
-    """
-    QLabel con paintEvent custom: il background arrotondato viene disegnato
-    solo nell'area occupata dall'immagine, lasciando il resto trasparente.
-    In modalità testo (nessun pixmap) riempie tutto il widget.
-    """
-
-    _BG    = (32, 32, 32, 180)
-    _BORD  = (255, 255, 255, 26)
-    _RADIU = 12
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._orig_pixmap = None
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        # Stile solo per la modalità testo (text/color ereditati dal tema)
-        self.setStyleSheet(
-            "QLabel { color: #888888; font-size: 10pt; background: transparent; }"
-        )
-
-    def minimumSizeHint(self):
-        return QSize(80, 80)
-
-    def setPixmap(self, px):
-        self._orig_pixmap = px
-        self.update()
-
-    def paintEvent(self, event):
-        from PyQt6.QtGui import QPainter, QColor, QPainterPath, QPen
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        if self._orig_pixmap and not self._orig_pixmap.isNull():
-            scaled = self._orig_pixmap.scaled(
-                self.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            ix = (self.width()  - scaled.width())  // 2
-            iy = (self.height() - scaled.height()) // 2
-            iw, ih = scaled.width(), scaled.height()
-
-            path = QPainterPath()
-            path.addRoundedRect(ix, iy, iw, ih, self._RADIU, self._RADIU)
-            p.fillPath(path, QColor(*self._BG))
-            p.setClipPath(path)
-            p.drawPixmap(ix, iy, scaled)
-            p.setClipping(False)
-            p.setPen(QPen(QColor(*self._BORD), 2))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawRoundedRect(ix + 1, iy + 1, iw - 2, ih - 2, self._RADIU - 1, self._RADIU - 1)
-        else:
-            # Modalità testo: background su tutto il widget
-            r = self._RADIU
-            path = QPainterPath()
-            path.addRoundedRect(1, 1, self.width() - 2, self.height() - 2, r, r)
-            p.fillPath(path, QColor(*self._BG))
-            p.setPen(QPen(QColor(*self._BORD), 2))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawRoundedRect(1, 1, self.width() - 2, self.height() - 2, r, r)
-            p.end()
-            super().paintEvent(event)  # disegna il testo sopra
-            return
-
-        p.end()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.update()
 
 class MainWindow(QMainWindow):
     processing_done = pyqtSignal()   # emesso quando il ProcessingWorker termina
@@ -297,7 +228,7 @@ class MainWindow(QMainWindow):
         status_lay.setSpacing(6)
 
         self._status_dot = QFrame()
-        self._status_dot.setObjectName("statusDot")
+        set_role(self._status_dot, 'dot', 'success')
         self._status_dot.setFixedSize(8, 8)
 
         self._status_dot_effect = QGraphicsOpacityEffect(self._status_dot)
@@ -349,7 +280,7 @@ class MainWindow(QMainWindow):
         self.tools_btn = QToolButton()
         self.tools_btn.setObjectName("titleBarToolsBtn")
         self.tools_btn.setText('')
-        self.tools_btn.setIcon(svg_icon('settings', 18, '#9095a0'))
+        self.tools_btn.setIcon(svg_icon('settings', 18, T.fg_2))
         self.tools_btn.setIconSize(QSize(18, 18))
         self.tools_btn.setFixedSize(32, 32)
         self.tools_btn.setToolTip(tr('tools_menu'))
@@ -368,7 +299,7 @@ class MainWindow(QMainWindow):
         self.sync_btn = QToolButton()
         self.sync_btn.setObjectName("titleBarSyncBtn")
         self.sync_btn.setText('')
-        self.sync_btn.setIcon(svg_icon('sync', 18, '#9095a0'))
+        self.sync_btn.setIcon(svg_icon('sync', 18, T.fg_2))
         self.sync_btn.setIconSize(QSize(18, 18))
         self.sync_btn.setFixedSize(32, 32)
         self.sync_btn.setToolTip(tr('sync_dialog_title'))
@@ -380,7 +311,7 @@ class MainWindow(QMainWindow):
         self.settings_btn = QToolButton()
         self.settings_btn.setObjectName("titleBarSettingsBtn")
         self.settings_btn.setText('')
-        self.settings_btn.setIcon(svg_icon('settings', 18, '#9095a0'))
+        self.settings_btn.setIcon(svg_icon('settings', 18, T.fg_2))
         self.settings_btn.setIconSize(QSize(18, 18))
         self.settings_btn.setFixedSize(32, 32)
         self.settings_btn.setToolTip(tr('settings_dialog_title'))
@@ -463,19 +394,19 @@ class MainWindow(QMainWindow):
         buttons_layout = QHBoxLayout()
         self.add_files_btn = QPushButton(tr('add_files'))
         self.add_files_btn.setObjectName("primaryButton")
-        self.add_files_btn.setIcon(svg_icon('plus', 14, '#9095a0'))
+        self.add_files_btn.setIcon(svg_icon('plus', 14, T.fg_2))
         self.add_files_btn.setIconSize(QSize(14, 14))
         self.add_files_btn.clicked.connect(self.add_files)
 
         self.add_folder_btn = QPushButton(tr('add_folder'))
         self.add_folder_btn.setObjectName("primaryButton")
-        self.add_folder_btn.setIcon(svg_icon('folder', 14, '#9095a0'))
+        self.add_folder_btn.setIcon(svg_icon('folder', 14, T.fg_2))
         self.add_folder_btn.setIconSize(QSize(14, 14))
         self.add_folder_btn.clicked.connect(self.add_folder)
 
         self.clear_btn = QPushButton(tr('clear_queue'))
         self.clear_btn.setObjectName("primaryButton")
-        self.clear_btn.setIcon(svg_icon('trash', 14, '#9095a0'))
+        self.clear_btn.setIcon(svg_icon('trash', 14, T.fg_2))
         self.clear_btn.setIconSize(QSize(14, 14))
         self.clear_btn.clicked.connect(self.clear_queue)
         
@@ -514,13 +445,13 @@ class MainWindow(QMainWindow):
         control_layout = QHBoxLayout()
         self.start_btn = QPushButton(tr('start'))
         self.start_btn.setObjectName("startButton")
-        self.start_btn.setIcon(svg_icon('play', 15, '#1f2126'))
+        self.start_btn.setIcon(svg_icon('play', 15, T.bg_0))
         self.start_btn.setIconSize(QSize(15, 15))
         self.start_btn.clicked.connect(self.start_processing)
 
         self.stop_btn = QPushButton(tr('stop'))
         self.stop_btn.setObjectName("stopButton")
-        self.stop_btn.setIcon(svg_icon('stop', 15, '#f5f6f8'))
+        self.stop_btn.setIcon(svg_icon('stop', 15, T.fg_0))
         self.stop_btn.setIconSize(QSize(15, 15))
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self.stop_processing)
@@ -744,7 +675,7 @@ class MainWindow(QMainWindow):
         lbl_row.setContentsMargins(0, 0, 0, 0)
         if icon:
             ico = QLabel()
-            ico.setPixmap(svg_icon(icon, 12, '#6a6f7a').pixmap(12, 12))
+            ico.setPixmap(svg_icon(icon, 12, T.fg_3).pixmap(12, 12))
             ico.setFixedSize(12, 12)
             lbl_row.addWidget(ico)
         lbl = QLabel(label)
@@ -791,13 +722,7 @@ class MainWindow(QMainWindow):
         r"Modello trascrizione:",
     ]))
 
-    _LOG_COLORS = {
-        'success': '#3fcf8e',
-        'danger':  '#ef5a5a',
-        'warn':    '#f5b450',
-        'info':    '#3cc1e0',
-        'muted':   '#9095a0',
-    }
+    _LOG_COLORS = T.LOG_COLORS
 
     def _log_color_html(self, text: str) -> str:
         if any(k in text for k in ('✅', '🎉')):
@@ -1374,8 +1299,8 @@ class MainWindow(QMainWindow):
     def _create_tab_bar(self) -> QTabBar:
         bar = QTabBar()
         bar.setObjectName("mainTabBar")
-        bar.addTab(svg_icon('list', 15, '#9095a0'), "Coda di processamento")
-        bar.addTab(svg_icon('history', 15, '#9095a0'), "Cronologia")
+        bar.addTab(svg_icon('list', 15, T.fg_2), "Coda di processamento")
+        bar.addTab(svg_icon('history', 15, T.fg_2), "Cronologia")
         bar.setExpanding(False)
         return bar
 
@@ -1400,18 +1325,14 @@ class MainWindow(QMainWindow):
         self.main_tab_bar.setTabText(0, label)
 
     def _set_status_processing(self):
-        self._status_dot.setStyleSheet(
-            "QFrame#statusDot { background: #3cc1e0; border-radius: 4px; }"
-        )
+        set_role(self._status_dot, 'dot', 'accent')
         self._status_label.setText("In elaborazione")
         self._status_dot_anim_group.start()
 
     def _set_status_idle(self):
         self._status_dot_anim_group.stop()
         self._status_dot_effect.setOpacity(1.0)
-        self._status_dot.setStyleSheet(
-            "QFrame#statusDot { background: #3fcf8e; border-radius: 4px; }"
-        )
+        set_role(self._status_dot, 'dot', 'success')
         self._status_label.setText("Pronto")
 
     # ------------------------------------------------------------------
