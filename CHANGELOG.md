@@ -3,6 +3,21 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.31.1 — 2026-10-17 — Interfaccia: logica separata dalla vista (`gui/services/`)
+
+- **Servizi** (`gui/services/`, senza import di QtWidgets): `QueueService` (coda, stato dei job, avvio/arresto, statistiche,
+  spegnimento, scansione cartelle e dimensioni), `MetadataService` (locandine e titoli), `JobOptionsService`, `SettingsService`,
+  `LogFilter` (decisioni sul log), `formatting`, `job_model` (`JobRecord`). `main_window.py` passa da 1570 a 1489 righe ed e'
+  solo vista; restano alias di compatibilita' per scanner, glossario e sync.
+- **Invariante della coda** (v3.5): lista e `QMutex` creati una sola volta e condivisi con `ProcessingWorker`; riordino sul posto.
+- **Bug corretto**: premendo Avvia con glossario o sincronizzazione attivi veniva sollevato `UnboundLocalError` (import locale di
+  `QMessageBox` in `start_processing`); ora compare l'avviso corretto.
+- **Pulizia**: tolti `_on_transcription_model_line` (codice morto), alias inutilizzati e import non usati.
+- **Verifica** (banco fuori dal repo, `ui_bench/`): 216 test (worker con runner finto, coda, Stop con albero di processi, spegnimento,
+  filtro del log su 3.264 righe reali, impostazioni, metadati); 100 screenshot identici al riferimento; pipeline reale senza GPU
+  (clip con italiano embedded) completata dalla `MainWindow` con il nuovo servizio; bugcheck Opus: pulito (note minori sistemate).
+- **Non incluso**: compatibilita' Linux del `core/` (resta da fare).
+
 ## 1.31.0 — 2026-10-17 — Interfaccia: token di design e stili centralizzati (nessun cambio visivo)
 
 - **Token di design** (`gui/design_tokens.py`, `T`): palette, alpha, sezioni, font, raggi e spaziature in un solo posto.

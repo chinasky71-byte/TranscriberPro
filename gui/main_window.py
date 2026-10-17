@@ -6,18 +6,15 @@ Fix: Emoji Log + Colori UI + Selezione Poster Automatica
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QListWidget, QTextEdit, QProgressBar,
-                             QFileDialog, QMessageBox, QCheckBox, QLabel,
+                             QFileDialog, QMessageBox, QCheckBox, QLabel, QListWidgetItem,
                              QFrame, QToolButton, QSizePolicy, QLayout, QDialog,
                              QComboBox, QSplitter, QMenu, QTabBar, QStackedWidget,
                              QGraphicsOpacityEffect)
-from PyQt6.QtCore import (Qt, QTimer, QSize, QMutex, QMutexLocker,
+from PyQt6.QtCore import (Qt, QTimer, QSize,
                           QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup,
                           pyqtSignal)
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPixmap, QTextCursor, QAction
-import os
-import subprocess
 import re
-import time
 import html as _html
 from pathlib import Path
 from datetime import datetime
@@ -27,8 +24,6 @@ from gui.icons import svg_icon
 from gui.design_tokens import T
 from gui.theme import set_role
 from gui.components import RoundedLabel
-from gui.workers import (ProcessingWorker, PosterLoaderWorker,
-                         FileSizeWorker, FolderScanWorker)
 from gui.profile_dialog import ProfileSelectionDialog
 from gui.translation_model_dialog import TranslationModelDialog
 from gui.library_scanner_widget import LibraryScannerWidget
@@ -40,6 +35,11 @@ from gui.settings_dialog import (
     TAB_GENERAL, TAB_TRANSCRIPTION, TAB_TRANSLATION, TAB_BATCH, TAB_OPENSUBTITLES,
 )
 from gui.collapsible_card import CollapsibleCard
+from gui.services.log_filter import LogFilter, fix_mojibake as _fix_mojibake
+from gui.services.job_model import JobRecord, is_reorderable
+from gui.services.metadata_service import MetadataService
+from gui.services.queue_service import QueueService, StartVerdict, VIDEO_EXTENSIONS
+from gui.services.settings_service import SettingsService
 from gui.job_options_card import JobOptionsCard
 from gui.file_row_delegate import FileRowDelegate
 from gui.reorderable_list import ReorderableFileList
@@ -78,30 +78,26 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.config = get_config()
-        self.processing_queue = []
-        self.queue_mutex = QMutex()
-        self.is_processing = False
-        self._glossary_worker_active = False
-        self._sync_worker_active = False
-        self.worker = None
+        self.settings_service = SettingsService(self.config)
+        # coda, worker, contatori: logica in QueueService (alias in fondo alla classe).
+        # Creato PRIMA di init_ui(): il LibraryScannerWidget usa gia' processing_queue/queue_mutex.
+        self.queue_service = QueueService(parent=self)
+        self.queue_service.jobs_provider = self._job_dicts
+        self._connect_queue_service()
         self.file_handler = FileHandler()
-        self.tmdb_client = get_tmdb_client()
+        # locandina + titolo sotto la locandina: logica in MetadataService (alias in fondo alla classe)
+        self.metadata = MetadataService(get_tmdb_client(), parent=self)
+        self.metadata.poster_loading.connect(self._on_poster_loading)
+        self.metadata.poster_loaded.connect(self._on_poster_loaded)
+        self.metadata.poster_failed.connect(self._on_poster_failed)
         self.poster_loading = False
-        self.last_loaded_file = None
-        self.poster_worker = None
-        self._io_workers = []          # FileSizeWorker/FolderScanWorker attivi
-        self._folder_scan_worker = None
         self.compact_log_enabled = False
+        self._log_filter = LogFilter()
         self.resource_monitor = ResourceMonitorWidget()
 
-        # Stato per log stats / diagnostic panel
-        self._proc_start_time: float = 0.0
-        self._completed_count: int = 0
-        self._error_count: int = 0
+        # Timer del tempo trascorso (i contatori e l'ora di avvio sono in QueueService)
         self._proc_elapsed_timer = None
 
-        self._overlay_title_cache = {}
-        self._overlay_title_provisional = {}   # chiave -> (etichetta provvisoria, istante): rivalutata ogni pochi secondi
         self.init_ui()
         self.apply_modern_theme()
         self._fix_info_strip_height()
@@ -146,10 +142,8 @@ class MainWindow(QMainWindow):
         self.main_splitter.addWidget(right_panel)
 
         # Ripristina dimensioni salvate, altrimenti default 2:3:3
-        saved_sizes = self.config.get('ui_splitter_sizes', None)
-        if isinstance(saved_sizes, list) and len(saved_sizes) == 3 and all(
-            isinstance(x, int) and x > 0 for x in saved_sizes
-        ):
+        saved_sizes = self.settings_service.main_splitter_sizes()
+        if saved_sizes is not None:
             self.main_splitter.setSizes(saved_sizes)
         else:
             total = max(self.width(), 1400)
@@ -325,37 +319,27 @@ class MainWindow(QMainWindow):
 
     def open_settings_dialog(self, initial_tab: str | None = None):
         """Apre il SettingsDialog unificato sulla tab indicata (default: ultima usata)."""
-        prev_engine = self.config.get_transcription_engine_mode()
-        prev_model = self.config.get_translation_model()
+        before = self.settings_service.snapshot()
 
         dialog = SettingsDialog(self, initial_tab=initial_tab)
         dialog.exec()
 
         # Aggiorna indicatori — incondizionale per evitare race condition embed
-        self._diag_traduttore._val.setText(self.config.get_translation_model())
+        after = self.settings_service.reload_from_config()
+        self._diag_traduttore._val.setText(after.translation_model)
         self._refresh_engine_tiles()
 
         # Sync checkbox upload OS (può essere cambiato dal settings dialog)
         self.opensubtitles_checkbox.blockSignals(True)
-        self.opensubtitles_checkbox.setChecked(
-            self.config.get('opensubtitles_upload_enabled', True)
-        )
+        self.opensubtitles_checkbox.setChecked(after.upload_enabled)
         self.opensubtitles_checkbox.blockSignals(False)
 
-        if self.config.get_transcription_engine_mode() != prev_engine:
-            self.log_message(
-                f"⚙️ Motore di trascrizione: {self._engine_mode_label()}"
-            )
-
-        new_model = self.config.get_translation_model()
-        if new_model != prev_model:
-            self.log_message(tr('translation_model_changed').format(model=new_model))
+        for line in self.settings_service.diff_messages(before, after):
+            self.log_message(line)
 
     def _on_splitter_moved(self, *_args):
         try:
-            sizes = self.main_splitter.sizes()
-            if all(s > 0 for s in sizes):
-                self.config.set('ui_splitter_sizes', list(sizes))
+            self.settings_service.save_main_splitter_sizes(self.main_splitter.sizes())
         except Exception:
             pass
     
@@ -435,10 +419,10 @@ class MainWindow(QMainWindow):
         # Propaga stato connessione come summary del card
         self.library_scanner_card.setSummary("Inattivo")
         self.library_scanner.status_changed.connect(self.library_scanner_card.setSummary)
-        scanner_open = bool(self.config.get('ui_scanner_card_open', False))
+        scanner_open = self.settings_service.scanner_card_open()
         self.library_scanner_card.setExpanded(scanner_open, animated=False)
         self.library_scanner_card.toggled.connect(
-            lambda v: self.config.set('ui_scanner_card_open', v)
+            lambda v: self.settings_service.set_scanner_card_open(v)
         )
         layout.addWidget(self.library_scanner_card)
 
@@ -550,13 +534,13 @@ class MainWindow(QMainWindow):
         center_splitter.addWidget(poster_stage)
         center_splitter.addWidget(self.resource_monitor)
 
-        saved = self.config.get('ui_center_split', None)
-        if isinstance(saved, list) and len(saved) == 2:
+        saved = self.settings_service.center_split_sizes()
+        if saved is not None:
             center_splitter.setSizes(saved)
         else:
             center_splitter.setSizes([450, 200])
         center_splitter.splitterMoved.connect(
-            lambda: self.config.set('ui_center_split', center_splitter.sizes())
+            lambda: self.settings_service.save_center_split_sizes(center_splitter.sizes())
         )
 
         layout.addWidget(center_splitter, stretch=1)
@@ -637,13 +621,7 @@ class MainWindow(QMainWindow):
 
     def _engine_mode_label(self) -> str:
         """Etichetta breve della modalità engine di trascrizione corrente."""
-        labels = {
-            'auto': 'Auto',
-            'canary': 'Canary',
-            'qwen3': 'Qwen3-ASR',
-            'faster-whisper': 'Faster-Whisper',
-        }
-        return labels.get(self.config.get_transcription_engine_mode(), 'Auto')
+        return self.settings_service.engine_mode_label()
 
     def _make_log_stat(self, value: str, label: str) -> QFrame:
         tile = QFrame()
@@ -688,39 +666,12 @@ class MainWindow(QMainWindow):
         return tile
 
     def fix_mojibake(self, text):
-        """Ripara le emoji e rimuove caratteri sporchi residui"""
-        if not text: return text
-        try:
-            # Tenta riparazione encoding
-            if any(c in text for c in ['ð', 'â', 'ï', 'œ', '™']):
-                text = text.encode('cp1252').decode('utf-8')
-        except:
-            try:
-                text = text.encode('latin-1').decode('utf-8')
-            except:
-                pass
-        # Rimuove glifi corrotti residui mantenendo le emoji buone
-        text = re.sub(r'[ðâïœ™]+', '', text)
-        return text.strip()
+        """Ripara le emoji e rimuove caratteri sporchi residui (logica in gui/services/log_filter.py)"""
+        return _fix_mojibake(text)
 
-    UPDATABLE_PATTERNS = ["Progresso:", "Demucs: [", "Traduzione: [", "Trascrizione: [", "Warm-up: [", "Correzione genere: [", "⚙️ OCR"]
-
-    # Righe che NON compaiono a schermo (rumore di fondo): restano nel file di log, perche'
-    # la pipeline le scrive anche con logger.info (v. core/pipeline.py::_log e engines/base_engine.py::log).
-    # NON mettere qui i "📦 Caricamento modello ..." (l'utente li vuole a schermo) ne' le barre.
-    _FILE_ONLY_RE = re.compile("|".join([
-        r"AdaptiveBatchManager avviato",
-        r"Parametri profilo caricati",
-        r"⚙️ Profilo: ", r"Profilo: .*Workers:", r"👷 Workers:",
-        r"VAD \(Voice Activity Detection\) disponibile", r"VAD test successful",
-        r"BatchedInferencePipeline attivo", r"BatchedInferencePipeline — file unico",
-        r"📊 VRAM", r"🧮 Safe batch", r"📊 Batch size: adaptive",
-        r"🛡️ Pipeline: ROBUST PATH", r"🛡️ Chunking robusto", r"📏 Overlap",
-        r"🔗 Merge chunks", r"📂 Caricamento audio", r"🎬 Audio: ",
-        r"\w+Engine unload completato",
-        r"Batch LLM \d+ → \d+", r"Recupero senza mascheramento",
-        r"Modello trascrizione:",
-    ]))
+    # Alias: la logica vive in gui/services/log_filter.py (progress_log.py cita ancora questi nomi).
+    UPDATABLE_PATTERNS = LogFilter.UPDATABLE_PATTERNS
+    _FILE_ONLY_RE = LogFilter.FILE_ONLY_RE
 
     _LOG_COLORS = T.LOG_COLORS
 
@@ -745,22 +696,23 @@ class MainWindow(QMainWindow):
         # Diagnostica RAM: centralizzata SOLO nel file di log del processo GUI
         # (mai a schermo), sia dai film in-process sia dai subprocess isolati che
         # la inoltrano via stdout. Punto unico per rileggere tutte le [DIAG-RAM].
-        if '[DIAG-RAM]' in message:
+        # La decisione (scartare / barra / accodare) e' in LogFilter; qui solo la scrittura.
+        decision = self._log_filter.decide(message, self.compact_log_enabled)
+        if decision.action == 'drop_ram':
             logger.info(message)
             return
-        message = self.fix_mojibake(message)
-        if 'Modello trascrizione:' in message:
-            self._on_transcription_model_line(message)
-        if '❌' not in message and '⚠' not in message and self._FILE_ONLY_RE.search(message):
+        message = decision.text
+        if decision.model_name:
+            self._diag_modello._val.setText(decision.model_name)
+        if decision.action == 'drop_noise':
             return
         timestamp = datetime.now().strftime("%H:%M:%S")
         formatted = f"[{timestamp}] {message}"
         html_text = self._log_color_html(formatted)
 
-        progress_key = next((p for p in self.UPDATABLE_PATTERNS if p in message), None)
-        if progress_key is not None:
-            self._write_progress_line(progress_key, message, html_text)
-        elif not self.compact_log_enabled or any(k in message for k in ['✅', '⚙️', '🎉', '❌', '➕', '🎬', '📥']):
+        if decision.action == 'progress':
+            self._write_progress_line(decision.progress_key, message, html_text)
+        elif decision.action == 'append':
             cursor = self.log_text.textCursor()
             cursor.movePosition(QTextCursor.MoveOperation.End)
             if cursor.position() > 0:
@@ -842,30 +794,54 @@ class MainWindow(QMainWindow):
     # File list helpers
     # ------------------------------------------------------------------
 
+    def _connect_queue_service(self):
+        """Collega i segnali del servizio alla vista (la vista scrive nella lista, il servizio non la vede)."""
+        qs = self.queue_service
+        qs.job_added.connect(self._on_job_added)
+        qs.jobs_cleared.connect(self._on_jobs_cleared)
+        qs.job_changed.connect(self._on_job_changed)
+        qs.job_size_ready.connect(self._on_size_ready)
+        qs.remaining_changed.connect(self._on_remaining_changed)
+        qs.processing_started.connect(self._on_processing_started)
+        qs.processing_finished.connect(self._on_processing_finished)
+        qs.progress_changed.connect(self.update_progress)
+        qs.log_line.connect(self.log_message)
+        qs.history_entry.connect(self._on_file_history_entry)
+        qs.file_started.connect(self.on_file_started)
+        qs.file_progress.connect(self.on_file_progress)
+        qs.file_completed.connect(self.on_file_completed)
+        qs.file_failed.connect(self.on_file_failed)
+        qs.worker_error.connect(self._on_worker_error)
+        qs.scan_started.connect(self._on_scan_started)
+        qs.scan_finished.connect(self._on_scan_finished)
+
+    def _job_dicts(self) -> list:
+        """I dict in UserRole delle righe, nell'ordine della lista (sorgente dati di QueueService)."""
+        return [self.file_list.item(i).data(Qt.ItemDataRole.UserRole) or {}
+                for i in range(self.file_list.count())]
+
+    def _item_from_record(self, rec: JobRecord) -> QListWidgetItem:
+        item = QListWidgetItem(rec.filename)
+        item.setData(Qt.ItemDataRole.UserRole, rec.to_item_data())
+        return item
+
     def _make_file_item(self, path: str, size: str = ''):
         # size arriva DOPO, da FileSizeWorker/FolderScanWorker: Path.stat()
         # qui sul thread GUI bloccava l'interfaccia (SMB/NAS in standby).
-        from PyQt6.QtWidgets import QListWidgetItem
-        item = QListWidgetItem(Path(path).name)
-        item.setData(Qt.ItemDataRole.UserRole, {
-            'path':     path,
-            'filename': Path(path).name,
-            'status':   'queued',
-            'progress': 0,
-            'size':     size,
-        })
-        return item
+        return self._item_from_record(JobRecord.new(path, size))
 
-    # --- I/O file asincrono (size, scansione cartelle) -----------------
+    def _on_job_added(self, rec: JobRecord):
+        self.file_list.addItem(self._item_from_record(rec))
 
-    def _load_sizes_async(self, paths: list):
-        if not paths:
-            return
-        worker = FileSizeWorker(paths)
-        worker.size_ready.connect(self._on_size_ready)
-        worker.finished.connect(lambda w=worker: self._untrack_io_worker(w))
-        self._io_workers.append(worker)
-        worker.start()
+    def _on_jobs_cleared(self):
+        self.file_list.clear()
+
+    @staticmethod
+    def _transition_item(item, transition):
+        """Applica una transizione di JobRecord (stato/avanzamento) al dict della riga, lasciando il resto."""
+        data = item.data(Qt.ItemDataRole.UserRole) or {}
+        transition(JobRecord.from_item_data(data)).merge_into(data)
+        item.setData(Qt.ItemDataRole.UserRole, data)
 
     def _on_size_ready(self, path: str, size: str):
         item = self._find_item_by_path(path)
@@ -876,12 +852,6 @@ class MainWindow(QMainWindow):
         item.setData(Qt.ItemDataRole.UserRole, data)
         if item is self.file_list.currentItem():
             self._update_overlay()
-
-    def _untrack_io_worker(self, worker):
-        try:
-            self._io_workers.remove(worker)
-        except ValueError:
-            pass
 
     def _find_item_by_path(self, file_path: str):
         """Restituisce il QListWidgetItem corrispondente al path, o None."""
@@ -902,33 +872,17 @@ class MainWindow(QMainWindow):
     def _can_reorder_item(item) -> bool:
         """Solo righe in attesa e destinate al worker (no OCR, no in corso/finite)."""
         data = item.data(Qt.ItemDataRole.UserRole) or {}
-        return data.get('status') == 'queued' and data.get('kind') != 'ocr'
+        return is_reorderable(data.get('status'), data.get('kind'))
 
     def _apply_queue_order(self, items, moved_item) -> bool:
         """Riscrive processing_queue secondo l'ordine delle righe. False se la
         riga trascinata è già stata presa dal worker (spostamento annullato)."""
         paths = [(it.data(Qt.ItemDataRole.UserRole) or {}).get('path') for it in items]
         moved_path = (moved_item.data(Qt.ItemDataRole.UserRole) or {}).get('path')
-        with QMutexLocker(self.queue_mutex):
-            if moved_path not in self.processing_queue:
-                return False
-            in_queue = set(self.processing_queue)
-            ordered = [p for p in paths if p in in_queue]
-            seen = set(ordered)
-            ordered += [p for p in self.processing_queue if p not in seen]
-            # in place: il worker tiene un riferimento alla stessa lista
-            self.processing_queue[:] = ordered
-        return True
+        return self.queue_service.reorder(paths, moved_path)
 
     def _update_filter_badges(self):
-        counts = {'all': 0, 'queued': 0, 'processing': 0, 'completed': 0, 'failed': 0}
-        for i in range(self.file_list.count()):
-            item = self.file_list.item(i)
-            data = item.data(Qt.ItemDataRole.UserRole) or {}
-            s = data.get('status', 'queued')
-            counts[s] = counts.get(s, 0) + 1
-        counts['all'] = sum(v for k, v in counts.items() if k != 'all')
-        self.segmented_filter.set_counts(counts)
+        self.segmented_filter.set_counts(self.queue_service.counts())
         self._update_tab_badge()
 
     def _apply_filter(self, key: str):
@@ -943,38 +897,25 @@ class MainWindow(QMainWindow):
     # Compaiono nella coda con stato/avanzamento ma NON entrano in
     # processing_queue: il pulsante "Avvia" (trascrizione audio) li ignora.
     # ------------------------------------------------------------------
-    def _make_ocr_item(self, path: str, kind_label: str):
-        from PyQt6.QtWidgets import QListWidgetItem
-        item = QListWidgetItem(Path(path).name)
-        item.setData(Qt.ItemDataRole.UserRole, {
-            'path':     path,
-            'filename': Path(path).name,
-            'status':   'queued',
-            'progress': 0,
-            'size':     f'OCR · {kind_label}',
-            'kind':     'ocr',
-        })
-        return item
-
     def add_ocr_jobs(self, items: list):
         """items: lista di (windows_path, kind_label). Aggiunge job OCR alla coda
         (solo visualizzazione; NON in processing_queue)."""
         for path, kind_label in items:
-            if self._find_item_by_path(path) is None:
-                self.file_list.addItem(self._make_ocr_item(path, kind_label))
+            self.queue_service.add_ocr_job(path, kind_label)   # -> job_added -> riga in lista
         self._update_filter_badges()
 
     def set_ocr_job_status(self, path: str, status: str, progress: int = 0):
         """Aggiorna stato/avanzamento di un job OCR nella coda."""
+        self.queue_service.set_ocr_status(path, status, progress)   # -> job_changed
+
+    def _on_job_changed(self, path: str, rec: JobRecord):
         item = self._find_item_by_path(path)
         if not item:
             return
+        status = rec.status
         data = item.data(Qt.ItemDataRole.UserRole) or {}
-        if data.get('kind') != 'ocr':
-            return
         prev_status = data.get('status')
-        data['status'] = status
-        data['progress'] = int(progress)
+        rec.merge_into(data)
         item.setData(Qt.ItemDataRole.UserRole, data)
         self.file_list.update()
         # _update_filter_badges ricalcola le label dei contatori e può causare
@@ -993,7 +934,7 @@ class MainWindow(QMainWindow):
                 # momento della chiamata setCurrentRow().
                 row = self.file_list.row(item)
                 self.file_list.setCurrentRow(row)
-                self.last_loaded_file = None  # azzera la guard per forzare il reload
+                self.metadata.reset_last_loaded()  # azzera la guard per forzare il reload
                 self.load_poster(path)
                 self._update_overlay()
         elif self.file_list.currentItem() is item:
@@ -1002,51 +943,26 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def add_files(self):
-        files, _ = QFileDialog.getOpenFileNames(self, tr('select_video_files'), self.config.get('last_input_folder', ''), "Video Files (*.mp4 *.mkv *.avi *.mov *.wmv *.flv *.webm *.m4v)")
+        files, _ = QFileDialog.getOpenFileNames(self, tr('select_video_files'), self.settings_service.last_input_folder(), "Video Files (*.mp4 *.mkv *.avi *.mov *.wmv *.flv *.webm *.m4v)")
         if files:
-            self.config.set('last_input_folder', str(Path(files[0]).parent))
-            added = []
-            with QMutexLocker(self.queue_mutex):
-                for f in files:
-                    if f not in self.processing_queue:
-                        self.processing_queue.append(f)
-                        self.file_list.addItem(self._make_file_item(f))
-                        added.append(f)
-            self.update_remaining_files_label()
+            self.settings_service.set_last_input_folder(str(Path(files[0]).parent))
+            added = self.queue_service.enqueue(files)
             self._update_filter_badges()
             self.file_list.setCurrentRow(self.file_list.count() - 1)
-            self._load_sizes_async(added)
+            self.queue_service.request_size_load(added)
 
     def add_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, tr('select_folder'), self.config.get('last_input_folder', ''))
+        folder = QFileDialog.getExistingDirectory(self, tr('select_folder'), self.settings_service.last_input_folder())
         if not folder:
             return
-        self.config.set('last_input_folder', folder)
-        if self._folder_scan_worker and self._folder_scan_worker.isRunning():
+        self.settings_service.set_last_input_folder(folder)
+        if not self.queue_service.scan_folder(folder, VIDEO_EXTENSIONS):
             self.log_message("⚠️ Scansione cartella già in corso, attendi il completamento.")
-            return
-        # Enumerazione in background: rglob su share SMB bloccava il thread
-        # GUI per l'intera scansione dell'albero.
-        exts = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v']
+
+    def _on_scan_started(self, folder: str):
         self.log_message(f"🔍 Scansione cartella in corso: {folder}")
-        worker = FolderScanWorker(folder, exts)
-        worker.file_found.connect(self._on_scan_file_found)
-        worker.scan_done.connect(self._on_scan_done)
-        worker.finished.connect(lambda w=worker: self._untrack_io_worker(w))
-        self._folder_scan_worker = worker
-        self._io_workers.append(worker)
-        worker.start()
 
-    def _on_scan_file_found(self, path: str, size: str):
-        with QMutexLocker(self.queue_mutex):
-            if path in self.processing_queue:
-                return
-            self.processing_queue.append(path)
-            self.file_list.addItem(self._make_file_item(path, size))
-        self.update_remaining_files_label()
-
-    def _on_scan_done(self, count: int):
-        self._folder_scan_worker = None
+    def _on_scan_finished(self, count: int):
         self.update_remaining_files_label()
         self._update_filter_badges()
         if self.file_list.count() > 0:
@@ -1057,31 +973,18 @@ class MainWindow(QMainWindow):
         if event.mimeData().hasUrls(): event.acceptProposedAction()
 
     def dropEvent(self, event: QDropEvent):
-        added = []
-        with QMutexLocker(self.queue_mutex):
-            for url in event.mimeData().urls():
-                f_path = url.toLocalFile()
-                if Path(f_path).is_file() and f_path not in self.processing_queue:
-                    self.processing_queue.append(f_path)
-                    self.file_list.addItem(self._make_file_item(f_path))
-                    added.append(f_path)
-        self.update_remaining_files_label()
+        added = self.queue_service.enqueue([url.toLocalFile() for url in event.mimeData().urls()],
+                                           only_files=True)
         self._update_filter_badges()
         if self.file_list.count() > 0:
             self.file_list.setCurrentRow(self.file_list.count() - 1)
-        self._load_sizes_async(added)
+        self.queue_service.request_size_load(added)
 
     def load_poster(self, video_path: str):
-        if video_path == self.last_loaded_file: return
-        if self.poster_worker and self.poster_worker.isRunning():
-            self.poster_worker.cancel()
-            self.poster_worker.wait(500)
-        self.last_loaded_file = video_path
+        self.metadata.load_poster(video_path)
+
+    def _on_poster_loading(self, _video_path: str):
         self.poster_label.setText("\n\n" + tr('loading_preview'))
-        self.poster_worker = PosterLoaderWorker(video_path, self.tmdb_client)
-        self.poster_worker.poster_loaded.connect(self._on_poster_loaded)
-        self.poster_worker.poster_failed.connect(self._on_poster_failed)
-        self.poster_worker.start()
 
     def _on_poster_loaded(self, pixmap):
         if pixmap and not pixmap.isNull():
@@ -1093,45 +996,36 @@ class MainWindow(QMainWindow):
         self.poster_label.setText("❌\n\n" + tr('no_preview'))
 
     def start_processing(self):
-        if not self.processing_queue: return
-        if getattr(self.library_scanner, '_ocr_worker', None) is not None:
-            from PyQt6.QtWidgets import QMessageBox
+        verdict = self.queue_service.can_start(
+            ocr_running=getattr(self.library_scanner, '_ocr_worker', None) is not None)
+        if verdict is StartVerdict.EMPTY:
+            return
+        if verdict is StartVerdict.OCR:
             QMessageBox.warning(self, "Avvio bloccato",
                                 "Una conversione OCR è in corso.\n"
                                 "Attendere il completamento prima di avviare la trascrizione.")
             return
-        if self._glossary_worker_active:
+        if verdict is StartVerdict.GLOSSARY:
             QMessageBox.warning(self, tr('tools_glossary'),
                                  tr('glossary_running_blocks_processing'))
             return
-        if self._sync_worker_active:
+        if verdict is StartVerdict.SYNC:
             QMessageBox.warning(self, tr('sync_dialog_title'),
                                  tr('sync_running_blocks_processing'))
             return
-        self.is_processing = True
+        self.queue_service.start()      # -> processing_started (vista) -> worker.start()
+
+    def _on_processing_started(self, total_rows: int):
         self.glossary_action.setEnabled(False)
         self.sync_btn.setEnabled(False)
-        self.worker = ProcessingWorker(self.processing_queue, self.queue_mutex)
-        self.worker.progress.connect(self.update_progress)
-        self.worker.log_message.connect(self.log_message)
-        self.worker.finished.connect(self.processing_finished)
-        self.worker.file_completed.connect(self.on_file_completed)
-        self.worker.file_failed.connect(self.on_file_failed)
-        self.worker.file_started.connect(self.on_file_started)
-        self.worker.file_progress.connect(self.on_file_progress)
-        self.worker.file_history_entry.connect(self._on_file_history_entry)
-        self.worker.queue_updated.connect(self.on_queue_updated)
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.clear_btn.setEnabled(False)
         self._set_status_processing()
         # Reset stats/diagnostic
-        self._completed_count = 0
-        self._error_count = 0
-        self._proc_start_time = time.time()
         self._stat_completati._val.setText("0")
         self._stat_in_corso._val.setText("0")
-        self._stat_in_coda._val.setText(str(self.file_list.count()))
+        self._stat_in_coda._val.setText(str(total_rows))
         self._stat_eta._val.setText("–")
         self._diag_errori._val.setText("0")
         self._diag_tempo._val.setText("00:00")
@@ -1143,8 +1037,6 @@ class MainWindow(QMainWindow):
         self._proc_elapsed_timer = QTimer(self)
         self._proc_elapsed_timer.timeout.connect(self._on_elapsed_tick)
         self._proc_elapsed_timer.start(1000)
-        self.worker.error.connect(self._on_worker_error)
-        self.worker.start()
 
     def stop_processing(self):
         reply = QMessageBox.question(
@@ -1158,55 +1050,43 @@ class MainWindow(QMainWindow):
             return
         self.stop_btn.setEnabled(False)
         self.log_message(tr('stop_requested'))
-        if self.worker:
-            # cancel() gestisce sia il subprocess isolato (kill dell'albero) sia
-            # la pipeline in-process legacy.
-            self.worker.cancel()
+        # cancel() gestisce sia il subprocess isolato (kill dell'albero) sia
+        # la pipeline in-process legacy.
+        self.queue_service.stop()
 
     def on_file_completed(self, file_path: str):
         item = self._find_item_by_path(file_path)
         if item:
-            data = item.data(Qt.ItemDataRole.UserRole) or {}
-            data['status'] = 'completed'
-            data['progress'] = 100
-            item.setData(Qt.ItemDataRole.UserRole, data)
+            self._transition_item(item, JobRecord.completed)
             self.file_list.update()
             self._apply_filter(self.segmented_filter.current_filter())
         self.update_remaining_files_label()
         self._update_filter_badges()
         self.library_scanner.notify_subtitle_created(file_path)
-        self._completed_count += 1
         self._update_overlay()
         self._update_log_stats()
 
     def on_file_failed(self, file_path: str):
         item = self._find_item_by_path(file_path)
         if item:
-            data = item.data(Qt.ItemDataRole.UserRole) or {}
-            data['status'] = 'failed'
-            data['progress'] = 0
-            item.setData(Qt.ItemDataRole.UserRole, data)
+            self._transition_item(item, JobRecord.failed)
             self.file_list.update()
             self._apply_filter(self.segmented_filter.current_filter())
         self.update_remaining_files_label()
         self._update_filter_badges()
-        self._error_count += 1
-        self._diag_errori._val.setText(str(self._error_count))
+        self._diag_errori._val.setText(str(self.queue_service.error_count))
         self._update_overlay()
         self._update_log_stats()
 
     def on_file_started(self, file_path: str):
         item = self._find_item_by_path(file_path)
         if item:
-            data = item.data(Qt.ItemDataRole.UserRole) or {}
-            data['status'] = 'processing'
-            data['progress'] = 0
-            item.setData(Qt.ItemDataRole.UserRole, data)
+            self._transition_item(item, JobRecord.started)
             self.file_list.update()
             self._apply_filter(self.segmented_filter.current_filter())
             row = self.file_list.row(item)
             self.file_list.setCurrentRow(row)
-            self.last_loaded_file = None
+            self.metadata.reset_last_loaded()
             self.load_poster(file_path)
         self._update_filter_badges()
         self._update_overlay()
@@ -1215,19 +1095,16 @@ class MainWindow(QMainWindow):
     def on_file_progress(self, file_path: str, percent: int):
         item = self._find_item_by_path(file_path)
         if item:
-            data = item.data(Qt.ItemDataRole.UserRole) or {}
-            data['progress'] = percent
-            item.setData(Qt.ItemDataRole.UserRole, data)
+            self._transition_item(item, lambda rec: rec.with_progress(percent))
             self.file_list.update()
         self._update_overlay()
         self._update_log_stats()
 
-    def on_queue_updated(self, total: int):
+    def _on_remaining_changed(self, _total: int = 0):
         self.update_remaining_files_label()
 
     def update_remaining_files_label(self):
-        with QMutexLocker(self.queue_mutex):
-            remaining = len(self.processing_queue)
+        remaining = self.queue_service.remaining()
         if self.is_processing:
             self.remaining_files_label.setText(f"📊 {tr('remaining_files')} {remaining}")
             self.remaining_files_label.setMaximumHeight(16777215)
@@ -1235,8 +1112,7 @@ class MainWindow(QMainWindow):
             self.remaining_files_label.clear()
             self.remaining_files_label.setMaximumHeight(0)
 
-    def processing_finished(self):
-        self.is_processing = False
+    def _on_processing_finished(self):
         self.glossary_action.setEnabled(True)
         self.sync_btn.setEnabled(True)
         self.processing_done.emit()   # notifica widget in attesa (es. OCR differito)
@@ -1249,12 +1125,11 @@ class MainWindow(QMainWindow):
             self._proc_elapsed_timer = None
         self._update_log_stats()
         self.log_message(tr('processing_completed'))
-        if self.shutdown_checkbox.isChecked():
-            QTimer.singleShot(5000, self.shutdown_system)
+        # anche dopo uno Stop (i restanti restano in coda): comportamento preservato
+        self.queue_service.schedule_shutdown(self.shutdown_system, self.shutdown_checkbox.isChecked())
 
     def shutdown_system(self):
-        cmd = ['shutdown', '/s', '/t', '60'] if os.name == 'nt' else ['shutdown', '-h', '+1']
-        subprocess.run(cmd)
+        self.queue_service.shutdown_system()
 
     def update_progress(self, value: int):
         self.progress_bar.setValue(value)
@@ -1275,13 +1150,13 @@ class MainWindow(QMainWindow):
         self.open_settings_dialog(initial_tab=TAB_TRANSLATION)
 
     def update_profile_indicator(self):
-        current_profile = self.config.get_transcription_profile()
+        current_profile = self.settings_service.current_profile()
         self.profile_button.setText(f"⚙️  {tr(f'profile_{current_profile}_name')}  ▾")
 
     def _on_profile_selected(self, profile_key: str):
-        self.config.set_transcription_profile(profile_key)
+        message = self.settings_service.select_profile(profile_key)
         self.update_profile_indicator()
-        self.log_message(f"⚙️ Profilo selezionato: {tr(f'profile_{profile_key}_name')}")
+        self.log_message(message)
 
     def _refresh_engine_tiles(self):
         """Tessera Engine = modalita' scelta; tessera Modello = modello a riposo
@@ -1289,12 +1164,6 @@ class MainWindow(QMainWindow):
         self._diag_engine._val.setText(self._engine_mode_label())
         if not self.is_processing:
             self._diag_modello._val.setText(idle_model_label(self.config))
-
-    def _on_transcription_model_line(self, message: str):
-        """Riga '🧩 Modello trascrizione: X' emessa da core/pipeline.py."""
-        name = message.split('Modello trascrizione:', 1)[1].strip()
-        if name:
-            self._diag_modello._val.setText(name)
 
     def _create_tab_bar(self) -> QTabBar:
         bar = QTabBar()
@@ -1316,11 +1185,8 @@ class MainWindow(QMainWindow):
         self.main_tab_bar.setTabText(1, f"Cronologia  ({n})" if n else "Cronologia")
 
     def _update_tab_badge(self):
-        active = sum(
-            1 for i in range(self.file_list.count())
-            if (self.file_list.item(i).data(Qt.ItemDataRole.UserRole) or {}).get('status')
-            in ('queued', 'processing')
-        )
+        counts = self.queue_service.counts()
+        active = counts['queued'] + counts['processing']
         label = f"Coda di processamento  ({active})" if active else "Coda di processamento"
         self.main_tab_bar.setTabText(0, label)
 
@@ -1355,51 +1221,8 @@ class MainWindow(QMainWindow):
         self._overlay_status_pill.setVisible(False)
 
     def _overlay_title_for(self, path: str, filename: str) -> str:
-        """'Nome show SxxExx' per le serie; per i film solo il titolo. Calcolato una volta per file
-        (parse_filename scrive righe di debug: non va chiamato a ogni tick di avanzamento).
-        Anime con solo il numero assoluto ("Titolo.E01"): SxxExx appena la ricerca TMDB ha risolto la
-        stagione (resolved_episode); fino ad allora "Titolo E01" e il risultato NON viene messo in cache."""
-        key = path or filename
-        cached = self._overlay_title_cache.get(key)
-        if cached is not None:
-            return cached
-        # Titolo provvisorio (stagione non ancora risolta da TMDB): si rivaluta al massimo ogni 5 s, non a ogni
-        # aggiornamento della barra (fino a ~99 per file), cosi' parse_filename non scrive debug a raffica.
-        prov = self._overlay_title_provisional.get(key)
-        now = time.monotonic()
-        if prov is not None and (now - prov[1]) < 5.0:
-            return prov[0]
-        label = Path(filename or path).stem
-        final = True
-        try:
-            parsed = self.tmdb_client.parse_filename(filename or Path(path).name)
-            title = (parsed.get('title') or '').strip()
-            if title:
-                season, episode = parsed.get('season'), parsed.get('episode')
-                absolute = parsed.get('absolute')
-                # season < 100: 'The.Corporation.720x480' non e' una stagione 720
-                if parsed.get('type') == 'tv' and season is not None and episode is not None and int(season) < 100:
-                    label = f"{title} S{int(season):02d}E{int(episode):02d}"
-                elif parsed.get('type') == 'tv' and absolute is not None:
-                    resolved = self.tmdb_client.resolved_episode(title, absolute, parsed.get('year'))
-                    if resolved:
-                        label = f"{title} S{int(resolved[0]):02d}E{int(resolved[1]):02d}"
-                    else:
-                        label = f"{title} E{int(absolute):02d}"
-                        final = False
-                else:
-                    label = title
-            elif parsed.get('type') == 'movie':
-                # titolo vuoto (es. '1917.2019.1080p'): stessa pulizia usata per la ricerca, non il nome grezzo
-                label = (self.tmdb_client._clean_title(self.tmdb_client._pre_clean_title(label)) or label)
-        except Exception:
-            pass
-        if final:
-            self._overlay_title_cache[key] = label
-            self._overlay_title_provisional.pop(key, None)
-        else:
-            self._overlay_title_provisional[key] = (label, now)
-        return label
+        """'Nome show SxxExx' per le serie, solo il titolo per i film (logica e cache in MetadataService)."""
+        return self.metadata.overlay_title_for(path, filename)
 
     def _update_overlay(self):
         item = self.file_list.currentItem()
@@ -1439,51 +1262,28 @@ class MainWindow(QMainWindow):
         self._overlay_progress.setValue(progress)
 
     def _update_log_stats(self):
-        in_prog = sum(
-            1 for i in range(self.file_list.count())
-            if (self.file_list.item(i).data(Qt.ItemDataRole.UserRole) or {}).get('status') == 'processing'
-        )
-        queued = sum(
-            1 for i in range(self.file_list.count())
-            if (self.file_list.item(i).data(Qt.ItemDataRole.UserRole) or {}).get('status') == 'queued'
-        )
-        self._stat_completati._val.setText(str(self._completed_count))
-        self._stat_in_corso._val.setText(str(in_prog))
-        self._stat_in_coda._val.setText(str(queued))
-        remaining = queued + in_prog
-        if self._completed_count > 0 and remaining > 0 and self._proc_start_time > 0:
-            elapsed = time.time() - self._proc_start_time
-            eta_s = int((elapsed / self._completed_count) * remaining)
-            h, r = divmod(eta_s, 3600)
-            m, s = divmod(r, 60)
-            self._stat_eta._val.setText(f"{h}h {m:02d}m" if h else f"{m}m {s:02d}s")
-        else:
-            self._stat_eta._val.setText("–")
+        s = self.queue_service.stats()
+        self._stat_completati._val.setText(str(s.completed))
+        self._stat_in_corso._val.setText(str(s.in_progress))
+        self._stat_in_coda._val.setText(str(s.queued))
+        self._stat_eta._val.setText(s.eta)
 
     def _on_elapsed_tick(self):
-        if self._proc_start_time > 0:
-            elapsed = int(time.time() - self._proc_start_time)
-            h, r = divmod(elapsed, 3600)
-            m, s = divmod(r, 60)
-            self._diag_tempo._val.setText(
-                f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
-            )
+        elapsed = self.queue_service.elapsed_text()
+        if elapsed is not None:
+            self._diag_tempo._val.setText(elapsed)
 
     def _on_worker_error(self, _msg: str):
-        self._error_count += 1
-        self._diag_errori._val.setText(str(self._error_count))
+        self._diag_errori._val.setText(str(self.queue_service.error_count))
 
     # ------------------------------------------------------------------
 
     def clear_queue(self):
-        if self.is_processing: return
-        with QMutexLocker(self.queue_mutex):
-            self.processing_queue.clear()
-            self.file_list.clear()
+        if not self.queue_service.clear():     # rifiutato se in elaborazione; svuota anche la lista (jobs_cleared)
+            return
         # itemSelectionChanged scatta DURANTE clear() quando l'elemento esiste ancora: striscia, contatore
         # dei rimanenti e badge dei filtri restavano quelli del file precedente.
-        self._overlay_title_cache.clear()
-        self._overlay_title_provisional.clear()
+        self.metadata.clear_title_caches()
         self._update_overlay()
         self.update_remaining_files_label()
         self._update_filter_badges()
@@ -1562,6 +1362,125 @@ class MainWindow(QMainWindow):
             if reply == QMessageBox.StandardButton.Yes: event.accept()
             else: event.ignore()
         else: event.accept()
+
+    # --- alias verso QueueService (letti/scritti da LibraryScannerWidget, glossario, sync e dai test) ---
+    # processing_queue e queue_mutex: SOLO lettura (invariante v3.5: mai riassegnarli).
+    @property
+    def processing_queue(self):
+        return self.queue_service.processing_queue
+
+    @property
+    def queue_mutex(self):
+        return self.queue_service.queue_mutex
+
+    @property
+    def is_processing(self):
+        return self.queue_service.is_processing
+
+    @is_processing.setter
+    def is_processing(self, value):
+        self.queue_service.is_processing = value
+
+    @property
+    def _glossary_worker_active(self):
+        return self.queue_service.glossary_active
+
+    @_glossary_worker_active.setter
+    def _glossary_worker_active(self, value):
+        self.queue_service.glossary_active = value
+
+    @property
+    def _sync_worker_active(self):
+        return self.queue_service.sync_active
+
+    @_sync_worker_active.setter
+    def _sync_worker_active(self, value):
+        self.queue_service.sync_active = value
+
+    @property
+    def worker(self):
+        return self.queue_service.worker
+
+    @worker.setter
+    def worker(self, value):
+        self.queue_service.worker = value
+
+    @property
+    def _completed_count(self):
+        return self.queue_service.completed_count
+
+    @_completed_count.setter
+    def _completed_count(self, value):
+        self.queue_service.completed_count = value
+
+    @property
+    def _error_count(self):
+        return self.queue_service.error_count
+
+    @_error_count.setter
+    def _error_count(self, value):
+        self.queue_service.error_count = value
+
+    @property
+    def _proc_start_time(self):
+        return self.queue_service.proc_start_time
+
+    @_proc_start_time.setter
+    def _proc_start_time(self, value):
+        self.queue_service.proc_start_time = value
+
+    @property
+    def _io_workers(self):
+        return self.queue_service.io_workers
+
+    @property
+    def _folder_scan_worker(self):
+        return self.queue_service.folder_scan_worker
+
+    @_folder_scan_worker.setter
+    def _folder_scan_worker(self, value):
+        self.queue_service.folder_scan_worker = value
+
+    # --- alias verso MetadataService (letti/scritti da altri moduli e dai test) ---
+    @property
+    def tmdb_client(self):
+        return self.metadata.tmdb_client
+
+    @tmdb_client.setter
+    def tmdb_client(self, value):
+        self.metadata.tmdb_client = value
+
+    @property
+    def last_loaded_file(self):
+        return self.metadata.last_loaded_file
+
+    @last_loaded_file.setter
+    def last_loaded_file(self, value):
+        self.metadata.last_loaded_file = value
+
+    @property
+    def poster_worker(self):
+        return self.metadata.poster_worker
+
+    @poster_worker.setter
+    def poster_worker(self, value):
+        self.metadata.poster_worker = value
+
+    @property
+    def _overlay_title_cache(self):
+        return self.metadata.overlay_title_cache
+
+    @_overlay_title_cache.setter
+    def _overlay_title_cache(self, value):
+        self.metadata.overlay_title_cache = value
+
+    @property
+    def _overlay_title_provisional(self):
+        return self.metadata.overlay_title_provisional
+
+    @_overlay_title_provisional.setter
+    def _overlay_title_provisional(self, value):
+        self.metadata.overlay_title_provisional = value
 
     def apply_modern_theme(self):
         # Neutralizzato in Fase 1 del GUI revamp.
