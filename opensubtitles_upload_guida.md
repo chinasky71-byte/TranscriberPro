@@ -343,6 +343,22 @@ if __name__ == '__main__':
 | `403 uploads_not_enabled` sulla REST API | Non è un bug vostro: l'endpoint upload della REST v1 è disabilitato di default per i consumer, serve richiedere l'abilitazione a OpenSubtitles. Usare XML-RPC nel frattempo |
 | Login riesce ma l'upload fallisce silenziosamente | Controllare che `subcontent` sia una stringa Python semplice, non avvolta in `xmlrpc.client.Binary` (doppia codifica base64) |
 
+## 10. Serie TV e anime: l'ID giusto e' quello dell'EPISODIO
+
+Con XML-RPC il `baseinfo` di `UploadSubtitles` non ha campi per stagione ed episodio (nemmeno la REST, e la REST upload e' comunque
+disabilitata di default): **la categorizzazione dipende solo da `idmovieimdb`**. Se si manda l'IMDb ID della *serie*, il
+sottotitolo finisce sulla scheda della serie, senza stagione ne' episodio, e il sito lo mostra come "uncategorized".
+
+- Serie normali: l'IMDb ID dell'episodio si ottiene da TMDB (`/tv/{id}/season/{s}/episode/{e}/external_ids`).
+- Anime: TMDB di solito NON lo ha (Last Exile: vuoto per tutti gli episodi). Ripiego usato da TranscriberPro (v1.30.13): OMDb,
+  cercando per **titolo** dell'episodio (nome TMDB en-US e titolo OMDb normalizzati, minuscolo e solo lettere/cifre, uguali e
+  univoci), NON per numero di stagione: IMDb accorpa serie diverse sotto lo stesso ID (Last Exile 2003 e *Fam* 2011) e la
+  numerazione non coincide con TMDB. Titoli generici ("Episode 11") e molto corti vanno scartati.
+- Se l'ID dell'episodio non si trova, si resta sull'ID di serie: il sottotitolo e' valido ma non categorizzato. OpenSubtitles puo'
+  non avere affatto le schede episodio di una serie (`GET /api/v1/features?query=...&type=episode`): in quel caso non c'e' nulla
+  da fare lato client; dalla pagina del sottotitolo si puo' correggere a mano ("IMDB update / Edit").
+- `GET /api/v1/features` accetta `imdb_id` e `query`+`type`; i parametri `parent_imdb_id`/`season_number` danno HTTP 400.
+
 ## Fonte
 
 Estratto da un'implementazione reale, testata con upload riuscito
