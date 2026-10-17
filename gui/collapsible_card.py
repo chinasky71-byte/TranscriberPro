@@ -57,7 +57,7 @@ class CollapsibleCard(QFrame):
         self._header.mousePressEvent = self._on_header_clicked  # type: ignore[assignment]
 
         header_layout = QHBoxLayout(self._header)
-        header_layout.setContentsMargins(12, 8, 10, 8)
+        header_layout.setContentsMargins(12, 4, 10, 4)
         header_layout.setSpacing(8)
 
         self._title_label = QLabel(title)
@@ -71,7 +71,7 @@ class CollapsibleCard(QFrame):
         self._chevron.setText('')
         self._chevron.setIcon(svg_icon('chevDown', 16, T.fg_3))
         self._chevron.setIconSize(QSize(16, 16))
-        self._chevron.setFixedSize(20, 20)
+        self._chevron.setFixedSize(18, 18)
         self._chevron.setCursor(Qt.CursorShape.PointingHandCursor)
         self._chevron.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._chevron.clicked.connect(self.toggle)
@@ -88,7 +88,7 @@ class CollapsibleCard(QFrame):
         self._body_container.setObjectName("collapsibleBody")
         self._body_container.setMinimumHeight(0)
         self._body_layout = QVBoxLayout(self._body_container)
-        self._body_layout.setContentsMargins(12, 4, 12, 12)
+        self._body_layout.setContentsMargins(12, 4, 12, 8)
         self._body_layout.setSpacing(8)
 
         outer.addWidget(self._body_container)

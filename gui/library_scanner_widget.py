@@ -206,7 +206,7 @@ class LibraryScannerWidget(QFrame):
         header.mousePressEvent = lambda e: self.toggle_expanded()
 
         layout = QHBoxLayout(header)
-        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setContentsMargins(8, 3, 8, 3)
         layout.setSpacing(6)
 
         self.toggle_btn = QToolButton()
@@ -238,7 +238,7 @@ class LibraryScannerWidget(QFrame):
         self.refresh_btn.setIcon(svg_icon('sync', 14, T.fg_2))   # icona SVG al posto dell'emoji
         self.refresh_btn.setIconSize(QSize(14, 14))
         self.refresh_btn.setObjectName("scannerRefreshBtn")
-        self.refresh_btn.setFixedSize(24, 24)
+        self.refresh_btn.setFixedSize(20, 20)
         self.refresh_btn.setToolTip(tr('refresh'))
         self.refresh_btn.clicked.connect(self.refresh_data)
         layout.addWidget(self.refresh_btn)

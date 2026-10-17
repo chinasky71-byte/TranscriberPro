@@ -272,7 +272,7 @@ QFrame#collapsibleBody > QWidget {
 }
 QLabel#collapsibleTitle {
     font-weight: 600;
-    font-size: 11pt;
+    font-size: 10pt;
     color: {{fg_0}};
 }
 QLabel#collapsibleSummary {
@@ -296,10 +296,10 @@ QToolButton#scannerRefreshBtn {
     border: 1px solid {{line}};
     border-radius: {{rad_chip}};
     padding: 0;
-    min-width: 22px;
-    max-width: 22px;
-    min-height: 22px;
-    max-height: 22px;
+    min-width: 20px;
+    max-width: 20px;
+    min-height: 20px;
+    max-height: 20px;
     font-size: 11px;
 }
 QToolButton#scannerRefreshBtn:hover {

@@ -3,6 +3,13 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.32.2 — 2026-10-17 — Interfaccia: intestazioni compatte e spazio condiviso con lo scanner
+
+- **Intestazioni delle card** (Opzioni job, Library Scanner e le altre card collassabili) piu' basse: margini 4 px, titolo 10 pt,
+  chevron 18 px, tasto refresh dello scanner 20 px (~15 px in piu' per la coda).
+- **Spazio verticale**: con il Library Scanner aperto, coda e tabella dello scanner si dividono lo spazio libero (2 : 3);
+  chiuso, tutto lo spazio resta alla coda.
+
 ## 1.32.1 — 2026-10-17 — Interfaccia: spazio verticale e numeri tagliati
 
 - **Spinbox**: le cifre non vengono piu' tagliate (padding verticale 4 px, altezza minima 22 px).
