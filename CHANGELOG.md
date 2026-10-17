@@ -3,6 +3,21 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.30.13 — 2026-10-17 — Upload OpenSubtitles degli anime: ID dell'episodio per titolo
+
+- **Causa** (verificata sulla pagina OpenSubtitles di Last Exile): per gli anime TMDB non ha l'IMDb ID dell'episodio, quindi
+  l'upload ripiegava sull'ID della serie e il sottotitolo finiva sulla serie, senza stagione ne' episodio ("uncategorized").
+  Le serie normali non erano toccate (TMDB ha l'ID episodio).
+- **Ripiego per titolo** (`tmdb_client._get_episode_imdb_id_by_title`, solo se TMDB non ha l'ID): il nome TMDB dell'episodio
+  (en-US, normalizzato) deve coincidere ESATTAMENTE e in modo UNIVOCO con un episodio OMDb della stessa serie; la numerazione
+  stagioni di IMDb si ignora (per gli anime accorpa serie diverse). Titoli generici ("Episode 11", numerici, < 4 caratteri)
+  scartati. Last Exile: 18 episodi su 26 risolti, nessun ID duplicato; gli altri restano sull'ID di serie.
+- **OMDb** (`IMDbClient.get_series_episodes`): elenco solo se completo (qualunque risposta anomala -> nessun elenco),
+  salvato nella cache su disco per 14 giorni (ogni file gira in un processo a parte; quota 1000/giorno).
+- **Verifica**: percorso reale `search_tv` (Last Exile S1E8 -> ID episodio, S1E1 resta sulla serie, Grey's invariato);
+  bugcheck Opus: 1 difetto alto (titoli generici) e 2 medi corretti, ricontrollo pulito.
+- **Non risolto**: le serie senza schede episodio su OpenSubtitles (Last Exile 2003 non ne ha) restano sulla serie.
+
 ## 1.30.12 — 2026-10-16 — Sottotitoli con blocchi fuori ordine temporale
 
 - **Causa**: 14 dei 654 `.it.srt` nostri nelle librerie (Petra, Hadestown, Be Kind Rewind...) hanno blocchi con tempo di

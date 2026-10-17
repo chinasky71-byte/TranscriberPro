@@ -220,6 +220,32 @@ class TMDBClient:
             logger.debug(f"IMDb ID episodio non recuperabile (S{season}E{episode}): {e}")
         return None
     
+    def _get_episode_imdb_id_by_title(self, series_imdb_id: Optional[str], tmdb_id: int,
+                                      season: int, episode: int) -> Optional[str]:
+        """Ripiego per gli anime, dove TMDB non ha l'IMDb ID dell'episodio: lo cerca su OMDb per TITOLO
+        (la numerazione stagioni di IMDb non coincide con TMDB). Accetta SOLO una corrispondenza esatta
+        e univoca del titolo (minuscolo, senza punteggiatura) fra il nome TMDB dell'episodio e un episodio
+        OMDb della stessa serie; altrimenti None (il chiamante resta sull'IMDb ID di serie)."""
+        if not series_imdb_id or not OMDB_AVAILABLE:
+            return None
+        try:
+            import re as _re
+            r = requests.get(f"{self.base_url}/tv/{tmdb_id}/season/{season}/episode/{episode}",
+                             params={'api_key': self.api_key, 'language': 'en-US'}, timeout=10)
+            name = r.json().get('name') if r.status_code == 200 else None
+            key = _re.sub(r'[^0-9a-z]+', '', (name or '').lower())
+            # titoli generici o numerici ("Episode 11" e "Episode #1.1" diventerebbero entrambi "episode11"): mai
+            # un riferimento affidabile all'episodio
+            if len(key) < 4 or key.isdigit() or _re.fullmatch(r'(episode|episodio|ep|folge|episodio)?\d+', key):
+                return None
+            ids = get_imdb_client().get_series_episodes(series_imdb_id).get(key, [])
+            if len(set(ids)) == 1:
+                logger.info(f"IMDb ID episodio trovato per titolo ({name!r}) su OMDb: {ids[0]}")
+                return ids[0]
+        except Exception as e:
+            logger.debug(f"IMDb ID episodio per titolo non recuperabile (S{season}E{episode}): {e}")
+        return None
+
     def _get_tmdb_media_info(self, media_type: str, tmdb_id: int) -> Optional[Dict]:
         """
         Recupera info complete media da TMDB (per ricerca IMDb)
@@ -825,6 +851,8 @@ class TMDBClient:
                     # specifico dell'episodio e lo usiamo se trovato.
                     if season is not None and episode is not None:
                         episode_imdb_id = self._get_episode_imdb_id(tmdb_id, season, episode)
+                        if not episode_imdb_id:
+                            episode_imdb_id = self._get_episode_imdb_id_by_title(imdb_id, tmdb_id, season, episode)
                         if episode_imdb_id:
                             logger.info(f"IMDb ID episodio (più preciso di quello di serie): {episode_imdb_id}")
                             imdb_id = episode_imdb_id
