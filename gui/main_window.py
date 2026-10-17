@@ -217,8 +217,9 @@ class MainWindow(QMainWindow):
         # ── CENTRO: status pill ──────────────────────────────────────────
         status_pill = QFrame()
         status_pill.setObjectName("statusPill")
+        status_pill.setFixedHeight(26)   # altezza fissa: la pill non si estende piu' a tutta la barra
         status_lay = QHBoxLayout(status_pill)
-        status_lay.setContentsMargins(10, 4, 10, 4)
+        status_lay.setContentsMargins(12, 0, 14, 0)
         status_lay.setSpacing(6)
 
         self._status_dot = QFrame()
@@ -250,7 +251,7 @@ class MainWindow(QMainWindow):
 
         status_lay.addWidget(self._status_dot)
         status_lay.addWidget(self._status_label)
-        layout.addWidget(status_pill)
+        layout.addWidget(status_pill, 0, Qt.AlignmentFlag.AlignVCenter)
 
         layout.addStretch(1)
 
@@ -274,7 +275,7 @@ class MainWindow(QMainWindow):
         self.tools_btn = QToolButton()
         self.tools_btn.setObjectName("titleBarToolsBtn")
         self.tools_btn.setText('')
-        self.tools_btn.setIcon(svg_icon('settings', 18, T.fg_2))
+        self.tools_btn.setIcon(svg_icon('wrench', 18, T.fg_2))   # chiave inglese = Strumenti (menu); ingranaggio = Impostazioni
         self.tools_btn.setIconSize(QSize(18, 18))
         self.tools_btn.setFixedSize(32, 32)
         self.tools_btn.setToolTip(tr('tools_menu'))
@@ -446,7 +447,18 @@ class MainWindow(QMainWindow):
         
         self.progress_bar = QProgressBar()
         self.progress_bar.setObjectName("modernProgress")
-        layout.addWidget(self.progress_bar)
+        # percentuale FUORI dalla barra (a destra, cifre monospaziate): mai sovrapposta al riempimento
+        self.progress_bar.setTextVisible(False)
+        self.progress_pct = QLabel("")
+        self.progress_pct.setObjectName("progressPct")
+        self.progress_pct.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.progress_bar.valueChanged.connect(
+            lambda v: self.progress_pct.setText(f"{v}%" if v >= 0 else ""))
+        progress_row = QHBoxLayout()
+        progress_row.setSpacing(10)
+        progress_row.addWidget(self.progress_bar, 1)
+        progress_row.addWidget(self.progress_pct)
+        layout.addLayout(progress_row)
         
         return panel
     

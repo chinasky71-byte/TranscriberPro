@@ -20,6 +20,8 @@ Gruppi:
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 
 def rgba(color, alpha) -> str:
     """'#rrggbb' + alpha (float 0..1 o int 0..255) -> 'rgba(r, g, b, a)'."""
@@ -44,11 +46,13 @@ class T:
     bg_4 = '#404450'      # pressed / bordi forti
     fg_0 = '#f5f6f8'      # testo primario
     fg_1 = '#d1d5db'      # testo secondario
-    fg_2 = '#9095a0'      # testo mutato
-    fg_3 = '#6a6f7a'      # testo debole / icone / disabilitato
-    fg_4 = '#6b7280'      # grigio slate (in coda, sottotitoli, uptime)
+    fg_2 = '#a3a9b4'      # testo mutato (AA >= 5.7:1 su bg_2)
+    fg_3 = '#8f95a1'      # testo debole / icone (AA >= 4.5:1 su bg_2)
+    fg_4 = '#9298a4'      # grigio slate (in coda, sottotitoli, uptime) (AA: 4.67:1 su bg_2)
+    fg_disabled = '#6a6f7a'  # SOLO controlli disabilitati (esente da AA)
     fg_row = '#e8eaf0'    # testo riga lista (file_row_delegate)
-    line = '#3a3d47'      # bordi
+    line = '#33363f'      # bordi (piu' soft)
+    line_strong = '#454955'  # bordi in evidenza / hover
 
     accent = '#3cc1e0'    # ciano brand
     accent_hover = '#54cce8'
@@ -61,6 +65,10 @@ class T:
     warn = '#f5b450'
     purple = '#a855f7'    # barra GPU
     white = '#ffffff'
+    # raggi QSS (card 12, controlli 8, chip 6)
+    rad_card = '12px'
+    rad_ctl = '8px'
+    rad_chip = '6px'
 
     # ------------------------------------------------------------------
     # Alpha pre-calcolate (stringhe QSS 'rgba(...)', stessa forma del tema)
@@ -73,7 +81,13 @@ class T:
     accent_a30 = 'rgba(60, 193, 224, 0.30)'
     accent_a35 = 'rgba(60, 193, 224, 0.35)'
     accent_a45 = 'rgba(60, 193, 224, 0.45)'
+    accent_a08 = 'rgba(60, 193, 224, 0.08)'
+    accent_a10 = 'rgba(60, 193, 224, 0.10)'
+    accent_a25 = 'rgba(60, 193, 224, 0.25)'
+    accent_a55 = 'rgba(60, 193, 224, 0.55)'
     white_a03 = 'rgba(255,255,255,0.03)'
+    white_a06 = 'rgba(255,255,255,0.06)'
+    white_a10 = 'rgba(255,255,255,0.10)'
     # nuove (solo per i ruoli "badge": tinta 15% + bordo 35% come overlayLangPill)
     success_a15 = 'rgba(63, 207, 142, 0.15)'
     success_a35 = 'rgba(63, 207, 142, 0.35)'
@@ -99,40 +113,40 @@ class T:
     # LEGACY: valori letterali dei dialoghi non ancora allineati alla palette.
     # Esistono per sostituire 1:1 i #rrggbb scritti a mano senza cambiare un pixel.
     # ------------------------------------------------------------------
-    legacy_grey_888 = '#888888'     # testo mutato "vecchio" (diverso da fg_2!)
-    legacy_grey_aaa = '#aaaaaa'
-    legacy_grey_b0 = '#b0b0b0'
-    legacy_grey_ccc = '#cccccc'
-    legacy_grey_d0 = '#d0d0d0'
+    legacy_grey_888 = fg_3   # era '#888888'
+    legacy_grey_aaa = fg_2   # era '#aaaaaa'
+    legacy_grey_b0 = fg_2   # era '#b0b0b0'
+    legacy_grey_ccc = fg_1   # era '#cccccc'
+    legacy_grey_d0 = fg_1   # era '#d0d0d0'
     legacy_black = '#000000'
-    legacy_bg_2a = '#2a2a2a'        # popup combo scanner
-    legacy_bg_1e = '#1e1e1e'        # profile_dialog
-    legacy_bg_dialog = '#1e1e2e'    # ocr_review / sync_dialog
-    legacy_bg_ocr = '#0f0f19'
-    legacy_on_accent_ocr = '#10222a'
-    legacy_accent_ocr_hover = '#54cfe9'
-    legacy_red_soft = '#e07070'     # errori testo (general_settings)
-    legacy_red_deep = '#d32f2f'
-    legacy_pink = '#e94560'         # badge/giorni scanner
-    legacy_mat_green = '#4caf50'    # Material green 500 (connesso)
-    legacy_mat_green_deep = '#2e7d32'
-    legacy_mat_red = '#f44336'      # Material red 500 (disconnesso)
-    legacy_mat_amber = '#ffc107'
-    legacy_orange_deep = '#e65100'
-    legacy_orange_hover = '#fb8c00'
-    legacy_yellow = '#ffcc00'
-    legacy_orange_soft = '#ffaa44'
-    legacy_blue_link = '#82aaff'
-    legacy_blue_soft = '#88ccff'
-    legacy_green_soft = '#88ff88'
-    legacy_violet = '#6a0dad'
-    legacy_violet_hover = '#8b2fc9'
+    legacy_bg_2a = bg_1   # era '#2a2a2a'
+    legacy_bg_1e = bg_1   # era '#1e1e1e'
+    legacy_bg_dialog = bg_1   # era '#1e1e2e'
+    legacy_bg_ocr = bg_0   # era '#0f0f19'
+    legacy_on_accent_ocr = on_accent   # era '#10222a'
+    legacy_accent_ocr_hover = accent_hover   # era '#54cfe9'
+    legacy_red_soft = danger   # era '#e07070'
+    legacy_red_deep = danger_press   # era '#d32f2f'
+    legacy_pink = danger   # era '#e94560'
+    legacy_mat_green = success   # era '#4caf50'
+    legacy_mat_green_deep = '#23865a'   # era '#2e7d32'
+    legacy_mat_red = danger   # era '#f44336'
+    legacy_mat_amber = warn   # era '#ffc107'
+    legacy_orange_deep = '#b8651b'   # era '#e65100'
+    legacy_orange_hover = '#d07a2c'   # era '#fb8c00'
+    legacy_yellow = warn   # era '#ffcc00'
+    legacy_orange_soft = warn   # era '#ffaa44'
+    legacy_blue_link = accent   # era '#82aaff'
+    legacy_blue_soft = accent   # era '#88ccff'
+    legacy_green_soft = success   # era '#88ff88'
+    legacy_violet = '#7d49c7'   # era '#6a0dad'
+    legacy_violet_hover = '#9460dd'   # era '#8b2fc9'
     # nomi colore CSS usati dallo stato di translation_model_dialog
     # (volutamente NON mappati a success/warn/danger: cambierebbe il colore)
-    css_green = 'green'
-    css_orange = 'orange'
-    css_red = 'red'
-    css_grey_555 = '#555'
+    css_green = success   # era 'green'
+    css_orange = warn   # era 'orange'
+    css_red = danger   # era 'red'
+    css_grey_555 = fg_3   # era '#555'
 
     # tuple RGBA per QColor(*...) (RoundedLabel poster)
     poster_bg = (32, 32, 32, 180)
@@ -205,6 +219,8 @@ TONES = ('accent', 'success', 'danger', 'warn', 'purple')
 def token_map() -> dict:
     """Tutti i token stringa di T come {nome: valore} (per il rendering del template)."""
     out = {}
+    # percorso assoluto (slash dritti) di assets/icons: usato da url({{ICONS}}/x.svg) nel QSS
+    out['ICONS'] = (Path(__file__).resolve().parent.parent / 'assets' / 'icons').as_posix()
     for k, v in vars(T).items():
         if k.startswith('_') or not isinstance(v, str):
             continue

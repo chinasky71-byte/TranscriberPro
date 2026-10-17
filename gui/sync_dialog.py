@@ -110,6 +110,7 @@ class SyncDialog(QDialog):
         btn_row.addStretch()
 
         self.start_btn = QPushButton(tr('sync_start'))
+        self.start_btn.setObjectName("startButton")   # primario (accent) come "Avvia" della finestra principale
         self.start_btn.setFixedWidth(200)
         self.start_btn.clicked.connect(self._start)
         btn_row.addWidget(self.start_btn)

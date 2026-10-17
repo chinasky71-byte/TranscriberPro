@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from gui.design_tokens import T
+from gui.theme import set_flat
 from utils.config import get_config
 from utils.translations import tr
 
@@ -99,13 +100,13 @@ class GeneralSettingsWidget(QWidget):
         self.ls_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.ls_key_edit.editingFinished.connect(self._on_ls_key_changed)
 
-        key_row = QWidget()
+        key_row = set_flat(QWidget())
         key_lay = QHBoxLayout(key_row)
         key_lay.setContentsMargins(0, 0, 0, 0)
         key_lay.setSpacing(6)
         key_lay.addWidget(self.ls_key_edit)
         self._show_key_btn = QPushButton("Mostra")
-        self._show_key_btn.setFixedWidth(64)
+        self._show_key_btn.setFixedWidth(80)
         self._show_key_btn.setCheckable(True)
         self._show_key_btn.toggled.connect(self._toggle_key_visibility)
         key_lay.addWidget(self._show_key_btn)
@@ -114,7 +115,7 @@ class GeneralSettingsWidget(QWidget):
         self._ping_btn = QPushButton("Testa connessione")
         self._ping_status = QLabel("")
         self._ping_status.setWordWrap(True)
-        ping_row = QWidget()
+        ping_row = set_flat(QWidget())
         ping_lay = QHBoxLayout(ping_row)
         ping_lay.setContentsMargins(0, 0, 0, 0)
         ping_lay.setSpacing(8)

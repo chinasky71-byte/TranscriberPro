@@ -149,3 +149,6 @@ sync_batch_gpu_test.py
 
 # Piano Docker con credenziali del server: solo in locale
 docker_headless/
+
+# gui/theme.qss: generato da theme.qss.tpl (contiene percorsi assoluti locali)
+gui/theme.qss

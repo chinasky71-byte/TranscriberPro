@@ -268,7 +268,17 @@ class SettingsDialog(QDialog):
         self._pages[tab_id] = widget
         was_current = (self.stack.currentIndex() == row)
         placeholder = self.stack.widget(row)
-        self.stack.insertWidget(row, widget)
+        host = widget
+        if tab_id == TAB_OPENSUBTITLES:
+            # pagina piu' alta dei 620px del dialog: scorre invece di schiacciare i campi uno sull'altro
+            from PyQt6.QtWidgets import QScrollArea
+            widget.setMinimumHeight(widget.sizeHint().height())
+            host = QScrollArea()
+            host.setFrameShape(QFrame.Shape.NoFrame)
+            host.setFocusPolicy(Qt.FocusPolicy.NoFocus)   # niente fermata di Tab sull'area di scorrimento
+            host.setWidgetResizable(True)
+            host.setWidget(widget)
+        self.stack.insertWidget(row, host)
         self.stack.removeWidget(placeholder)
         placeholder.deleteLater()
         if was_current:

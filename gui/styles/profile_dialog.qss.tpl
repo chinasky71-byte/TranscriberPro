@@ -1,44 +1,36 @@
-/* Dialog Background */
-QDialog {
-    background-color: {{legacy_bg_1e}};
-}
-
-/* Header - ✅ COMPATTO */
+/* Profili Faster-Whisper: tema globale + card dei profili in palette slate/accent. */
 QLabel#dialogHeader {
-    color: {{white}};
+    color: {{fg_0}};
     padding: 10px;
-    background-color: rgba(0, 120, 212, 30);
-    border-radius: 6px;
+    background-color: {{accent_a10}};
+    border: 1px solid {{accent_a30}};
+    border-radius: {{rad_ctl}};
 }
 
-/* Description Label - ✅ COMPATTO */
 QLabel#descLabel {
-    color: {{legacy_grey_d0}};
+    color: {{fg_1}};
     font-size: 9pt;
     padding: 6px;
 }
 
-/* Scroll Area */
 QScrollArea#profileScrollArea {
     background-color: transparent;
     border: none;
 }
 
-/* Profile Frame - ✅ OTTIMIZZATO */
 QFrame#profileFrame {
-    background-color: rgba(32, 32, 32, 200);
-    border: 2px solid rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
+    background-color: {{bg_2}};
+    border: 1px solid {{line}};
+    border-radius: {{rad_card}};
     min-height: 85px;
     max-height: 110px;
 }
 
 QFrame#profileFrame:hover {
-    background-color: rgba(40, 40, 40, 220);
-    border: 2px solid rgba(0, 120, 212, 0.4);
+    background-color: {{bg_3}};
+    border: 1px solid {{accent_a45}};
 }
 
-/* Radio Button */
 QRadioButton#profileRadio {
     spacing: 5px;
 }
@@ -46,130 +38,87 @@ QRadioButton#profileRadio {
 QRadioButton#profileRadio::indicator {
     width: 18px;
     height: 18px;
-    border-radius: 9px;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    background-color: rgba(45, 45, 45, 200);
+    border-radius: 10px;
+    border: 1.5px solid {{fg_3}};
+    background-color: {{bg_1}};
 }
 
 QRadioButton#profileRadio::indicator:hover {
-    border: 2px solid rgba(0, 120, 212, 0.6);
+    border: 1.5px solid {{accent}};
 }
 
 QRadioButton#profileRadio::indicator:checked {
-    background-color: rgba(0, 120, 212, 255);
-    border: 2px solid rgba(0, 150, 255, 255);
+    background-color: {{accent}};
+    border: 1.5px solid {{accent}};
+    image: url({{ICONS}}/dot.svg);
 }
 
-/* Profile Name - ✅ COMPATTO */
 QLabel#profileName {
-    color: {{white}};
+    color: {{fg_0}};
     font-size: 11pt;
+    font-weight: 600;
 }
 
-/* Profile Description - ✅ COMPATTO */
 QLabel#profileDesc {
-    color: {{legacy_grey_b0}};
+    color: {{fg_2}};
     font-size: 8.5pt;
 }
 
-/* Profile Params - ✅ COMPATTO */
 QLabel#profileParams {
-    color: {{legacy_blue_soft}};
+    color: {{accent}};
     font-size: 8pt;
-    font-family: 'Consolas', monospace;
+    font-family: {{FONT_MONO_BASE}};
 }
 
-/* Profile Time - ✅ COMPATTO */
 QLabel#profileTime {
-    color: {{legacy_green_soft}};
+    color: {{success}};
     font-size: 8pt;
-    font-family: 'Consolas', monospace;
+    font-family: {{FONT_MONO_BASE}};
 }
 
-/* Recommended Badge - ✅ COMPATTO */
 QLabel#recommendedBadge {
-    color: {{legacy_yellow}};
+    color: {{warn}};
     font-size: 7.5pt;
     font-weight: bold;
-    background-color: rgba(255, 200, 0, 0.15);
-    border: 1px solid rgba(255, 200, 0, 0.4);
-    border-radius: 3px;
-    padding: 2px 6px;
+    background-color: {{warn_a15}};
+    border: 1px solid {{warn_a35}};
+    border-radius: 9px;
+    padding: 2px 8px;
 }
 
-/* Profile Warning - ✅ COMPATTO */
 QLabel#profileWarning {
-    color: {{legacy_orange_soft}};
+    color: {{warn}};
     font-size: 8pt;
     font-style: italic;
 }
 
-/* Separator */
 QFrame#separator {
-    background-color: rgba(255, 255, 255, 0.15);
+    border: none;
+    background-color: {{line}};
     min-height: 1px;
     max-height: 1px;
 }
 
-/* Buttons - ✅ OTTIMIZZATI */
+/* Conferma = primario accent; Annulla = secondario (stile globale QPushButton) */
 QPushButton#okButton {
-    background-color: rgba(50, 180, 50, 180);
-    color: white;
-    border: none;
-    border-radius: 5px;
-    padding: 8px 16px;
-    font-size: 9.5pt;
-    font-weight: bold;
+    background-color: {{accent}};
+    color: {{on_accent}};
+    border: 1px solid {{accent}};
+    padding: 8px 20px;
+    font-weight: 600;
 }
 
 QPushButton#okButton:hover {
-    background-color: rgba(50, 200, 50, 230);
+    background-color: {{accent_hover}};
+    border-color: {{accent_hover}};
 }
 
 QPushButton#okButton:pressed {
-    background-color: rgba(40, 160, 40, 255);
+    background-color: {{accent_press}};
+    border-color: {{accent_press}};
 }
 
 QPushButton#cancelButton {
-    background-color: rgba(80, 80, 80, 180);
-    color: white;
-    border: none;
-    border-radius: 5px;
-    padding: 8px 16px;
-    font-size: 9.5pt;
-    font-weight: bold;
-}
-
-QPushButton#cancelButton:hover {
-    background-color: rgba(100, 100, 100, 230);
-}
-
-QPushButton#cancelButton:pressed {
-    background-color: rgba(70, 70, 70, 255);
-}
-
-/* Scrollbar - ✅ STILE MODERNO */
-QScrollBar:vertical {
-    background-color: rgba(30, 30, 30, 100);
-    width: 10px;
-    margin: 0px;
-    border-radius: 5px;
-}
-
-QScrollBar::handle:vertical {
-    background-color: rgba(100, 100, 100, 150);
-    border-radius: 5px;
-    min-height: 30px;
-}
-
-QScrollBar::handle:vertical:hover {
-    background-color: rgba(120, 120, 120, 200);
-}
-
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-    height: 0px;
-}
-
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-    background: none;
+    padding: 8px 20px;
+    font-weight: 600;
 }
