@@ -1153,9 +1153,7 @@ class MainWindow(QMainWindow):
             self._proc_elapsed_timer.stop()
             self._proc_elapsed_timer = None
         self._update_log_stats()
-        self._last_steps_snapshot = None
-        self.pipeline_steps.set_snapshot(None)
-        self._update_pipeline_card()
+        # la card dei passi RESTA con lo stato finale dell'ultimo file; il file successivo la rigenera
         self.log_message(tr('processing_completed'))
         # anche dopo uno Stop (i restanti restano in coda): comportamento preservato
         self.queue_service.schedule_shutdown(self.shutdown_system, self.shutdown_checkbox.isChecked())

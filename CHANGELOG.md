@@ -3,6 +3,11 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.33.1 — 2026-10-18 — Interfaccia: la card dei passi resta a fine elaborazione
+
+- **"Pipeline in corso"**: a fine coda la card resta visibile con lo stato finale dell'ultimo file (tutti "fatto", oppure
+  errore/interrotto) invece di sparire; quando parte il file successivo si rigenera da capo.
+
 ## 1.33.0 — 2026-10-18 — Interfaccia: anteprima dei passi con "Log Sintetico"
 
 - **"Pipeline in corso"**: con "Log Sintetico" spuntato, durante l'elaborazione compare tra le tessere e il log un elenco dei
