@@ -5,7 +5,7 @@ File: gui/library_scanner_widget.py
 """
 
 from PyQt6.QtWidgets import (
-    QFrame, QVBoxLayout, QHBoxLayout, QWidget,
+    QFrame, QVBoxLayout, QHBoxLayout, QStackedLayout, QWidget,
     QLabel, QToolButton, QLineEdit, QComboBox,
     QTableWidget, QTableWidgetItem, QPushButton,
     QHeaderView, QAbstractItemView, QSpinBox,
@@ -374,17 +374,32 @@ class LibraryScannerWidget(QFrame):
         # Avanzamento OCR (visibile solo durante la conversione)
         # ElideLabel: il testo dinamico (path file completo) NON deve mai imporre
         # un minimum width al pannello → niente ridimensionamento finestra.
+        # L'avanzamento OCR e le statistiche condividono UNA riga (pila): durante l'OCR si vede l'avanzamento,
+        # altrimenti "N senza sub / N totali". Altezza costante: la card non cambia mai di altezza.
         self.ocr_progress_label = ElideLabel("")
         self.ocr_progress_label.setObjectName("scannerStats")
         self.ocr_progress_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.ocr_progress_label.setFixedHeight(16)  # altezza fissa: non varia mai il layout
-        layout.addWidget(self.ocr_progress_label)
 
         # Statistiche — anch'essa ElideLabel per non imporre minimum width
         self.stats_label = ElideLabel(tr('waiting_connection'))
         self.stats_label.setObjectName("scannerStats")
         self.stats_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.stats_label)
+
+        status_row = QWidget()
+        status_stack = QStackedLayout(status_row)
+        status_stack.setContentsMargins(0, 0, 0, 0)
+        status_stack.addWidget(self.stats_label)
+        status_stack.addWidget(self.ocr_progress_label)
+        _ocr_set_text = self.ocr_progress_label.setText
+
+        def _ocr_text_and_swap(text, _set=_ocr_set_text, _stack=status_stack,
+                               _ocr=self.ocr_progress_label, _stats=self.stats_label):
+            _set(text)
+            _stack.setCurrentWidget(_ocr if text else _stats)
+
+        self.ocr_progress_label.setText = _ocr_text_and_swap
+        status_stack.setCurrentWidget(self.stats_label)
+        layout.addWidget(status_row)
 
         body.setMinimumHeight(0)
         return body
