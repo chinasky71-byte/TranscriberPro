@@ -324,12 +324,14 @@ class SubtitleLLMTranslator:
         pieni = pct // 10
         barra = "█" * pieni + "░" * (10 - pieni)
         coda = ""
+        eta_s = None
         if fatti:
             manca = trascorso / fatti * (totale - fatti)
+            eta_s = int(manca)
             m = int(manca // 60)
             coda = f" │ ~{m}m" if m else f" │ ~{int(manca)}s"
         from utils.events import emit as _tp_emit
-        _tp_emit('bar', phase='translate', pct=pct)
+        _tp_emit('bar', phase='translate', pct=pct, eta_s=eta_s)   # ETA del motore: la card la mostra uguale al log
         self.log(f"  🌐 Traduzione: [{barra}] {pct:3d}% ({fatti}/{totale}) "
                  f"│ batch:{self.batch_size}{coda}")
 

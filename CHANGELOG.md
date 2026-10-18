@@ -3,6 +3,12 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.33.4 — 2026-10-18 — Interfaccia: ETA della traduzione nella card dei passi
+
+- **Card "Pipeline in corso"**: il traduttore LLM porta nell'evento della barra la propria ETA (`eta_s`, la stessa del suo log),
+  e la card la mostra subito, senza le soglie del 3% / 20 s del ricalcolo dalle percentuali (che su file brevi non
+  mostrava mai nulla). Senza `eta_s` (altri motori) resta il ricalcolo.
+
 ## 1.33.3 — 2026-10-18 — Interfaccia: riga di stato dello scanner unica
 
 - **Library Scanner**: l'avanzamento OCR e "N senza sub / N totali" condividono ora UNA riga (si alternano: durante l'OCR si vede
