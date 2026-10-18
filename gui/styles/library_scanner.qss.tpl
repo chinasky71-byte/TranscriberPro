@@ -126,10 +126,10 @@ QPushButton#scannerImportAllBtn {
     border: 1px solid {{accent_a45}};
     border-radius: {{rad_ctl}};
     color: {{accent}};
-    padding: 4px 10px;
+    padding: 1px 8px;
     font-size: 8pt;
     font-weight: bold;
-    min-height: 16px;
+    min-height: 14px;
 }
 QPushButton#scannerImportAllBtn:hover {
     background-color: {{accent_a30}};
