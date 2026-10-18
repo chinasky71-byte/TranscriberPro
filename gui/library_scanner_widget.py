@@ -42,7 +42,7 @@ def _badge_btn_qss(bg: str, hover: str | None = None) -> str:
     """QSS dei piccoli badge-pulsante colorati (PGS/VOB/ASS)."""
     qss = (
         f"QPushButton {{ background-color: {bg}; color: {T.white}; border: none;"
-        " border-radius: 3px; font-size: 7pt; font-weight: bold; padding: 1px 4px; }"
+        " border-radius: 3px; font-size: 7pt; font-weight: bold; padding: 1px 2px; min-height: 0px; }"
     )
     if hover:
         qss += f"QPushButton:hover {{ background-color: {hover}; }}"

@@ -17,6 +17,9 @@ import re
 import sys
 from pathlib import Path
 
+from PyQt6.QtCore import QEvent, QObject, Qt
+from PyQt6.QtWidgets import QPushButton, QToolButton
+
 from gui.design_tokens import T, token_map
 
 _DIR = Path(__file__).resolve().parent
@@ -65,6 +68,24 @@ def set_role(widget, role: str, tone: str | None = None) -> None:
     style.unpolish(widget)
     style.polish(widget)
     widget.update()
+
+
+class ClickFocusFilter(QObject):
+    """Bottoni (QPushButton/QToolButton) raggiungibili con Tab ma che NON prendono il focus al clic:
+    cosi' l'anello di focus non resta sul bottone dopo averlo premuto."""
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Show and isinstance(obj, (QPushButton, QToolButton)):
+            if obj.focusPolicy() == Qt.FocusPolicy.StrongFocus:
+                obj.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        return False
+
+
+def install_click_focus_filter(app) -> ClickFocusFilter:
+    """Installa il filtro sull'applicazione (da chiamare una volta, dopo aver creato la QApplication)."""
+    flt = ClickFocusFilter(app)
+    app.installEventFilter(flt)
+    return flt
 
 
 def _read_disk() -> bytes:

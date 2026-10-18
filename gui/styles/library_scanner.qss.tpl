@@ -36,7 +36,7 @@ QLabel#scannerTitle {
 }
 
 QLabel#scannerBadge {
-    background-color: {{danger}};
+    background-color: {{danger_deep}};
     color: {{white}};
     border-radius: 9px;
     padding: 1px 7px;
