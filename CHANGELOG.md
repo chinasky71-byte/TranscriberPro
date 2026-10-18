@@ -3,6 +3,11 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.33.3 — 2026-10-18 — Interfaccia: riga di stato dello scanner unica
+
+- **Library Scanner**: l'avanzamento OCR e "N senza sub / N totali" condividono ora UNA riga (si alternano: durante l'OCR si vede
+  l'avanzamento). Prima la riga dell'OCR era sempre riservata, anche vuota: circa 28 px in piu' per la lista.
+
 ## 1.33.2 — 2026-10-18 — Interfaccia: pulsanti dello scanner piu' bassi
 
 - **Library Scanner**: "Importa Tutti i Filtrati" e "Superpower" piu' bassi (padding 1 px, altezza minima 14 px, circa 8 px in meno)
