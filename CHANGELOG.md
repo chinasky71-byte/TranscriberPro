@@ -3,6 +3,11 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.33.2 — 2026-10-18 — Interfaccia: pulsanti dello scanner piu' bassi
+
+- **Library Scanner**: "Importa Tutti i Filtrati" e "Superpower" piu' bassi (padding 1 px, altezza minima 14 px, circa 8 px in meno)
+  per lasciare piu' spazio alla lista.
+
 ## 1.33.1 — 2026-10-18 — Interfaccia: la card dei passi resta a fine elaborazione
 
 - **"Pipeline in corso"**: a fine coda la card resta visibile con lo stato finale dell'ultimo file (tutti "fatto", oppure
