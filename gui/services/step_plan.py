@@ -52,6 +52,13 @@ _LANG3_TO_2 = {'ita': 'it', 'eng': 'en', 'fra': 'fr', 'fre': 'fr', 'deu': 'de', 
                'nld': 'nl', 'dut': 'nl', 'pol': 'pl', 'tur': 'tr'}
 
 
+def _fmt_eta(rem) -> str:
+    """'~40s' / '~12m' (stringa vuota se non stimabile): stesso formato delle barre dei motori."""
+    if rem is None:
+        return ''
+    return f"~{max(1, int(rem))}s" if rem < 60 else f"~{int(rem / 60 + 0.5)}m"
+
+
 def _lang2(code: str) -> str:
     c = (code or '').strip().lower()
     return _LANG3_TO_2.get(c, c if len(c) == 2 else '')
@@ -217,7 +224,7 @@ class StepTracker:
         elif kind == 'skip':
             self._not_needed(*[p for p in (f.get('phases') or []) if isinstance(p, str)])
         elif kind == 'bar':
-            self._bar(str(f.get('phase') or ''), f.get('pct'))
+            self._bar(str(f.get('phase') or ''), f.get('pct'), f.get('eta_s'))
         elif kind == 'step':
             self._step(str(f.get('name') or ''), str(f.get('state') or ''), str(f.get('reason') or ''),
                        bool(f.get('ok', True)))
@@ -266,7 +273,7 @@ class StepTracker:
         keys = [k for k in OCR_STEPS if k in self._status or k == 'ocr_translate']
         self._status = {k: self._status.get(k, PENDING) for k in keys}
 
-    def _bar(self, group: str, pct) -> None:
+    def _bar(self, group: str, pct, eta_s=None) -> None:
         key = _BAR_TO_STEP.get(group)
         if key is None or pct is None:
             return
@@ -285,8 +292,11 @@ class StepTracker:
             if est is None:
                 est = self._est[key] = EtaEstimator(clock=self._clock)
             est.update(p / 100.0)
-            rem = est.remaining_seconds()
-            self._eta[key] = '' if rem is None else (f"~{max(1, int(rem))}s" if rem < 60 else f"~{int(rem / 60 + 0.5)}m")
+            if eta_s is None:                           # nessuna ETA dal motore: stima dal ritmo delle percentuali
+                rem = est.remaining_seconds()
+                self._eta[key] = _fmt_eta(rem)
+        if eta_s is not None and p < 100:               # ETA del motore (la stessa del suo log): ha la precedenza
+            self._eta[key] = _fmt_eta(float(eta_s))
 
     def _step(self, name: str, state: str, reason: str, ok: bool = True) -> None:
         if name not in ('save', 'upload', 'mux'):
