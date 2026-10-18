@@ -3,6 +3,28 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.33.0 — 2026-10-18 — Interfaccia: anteprima dei passi con "Log Sintetico"
+
+- **"Pipeline in corso"**: con "Log Sintetico" spuntato, durante l'elaborazione compare tra le tessere e il log un elenco dei
+  passi del file (Estrazione audio, Separazione voce, Trascrizione, Traduzione, Correzione di genere, Salvataggio .srt,
+  Upload OpenSubtitles, Muxa nel video se attivo). Ogni passo e' "fatto" (spunta), in corso (percentuale, ETA e barra),
+  in attesa (numero d'ordine), "disattivato" (interruttore spento) o "non necessario" (lo decide il file: sottotitoli embedded,
+  lingua gia' finale, IMDb mancante). Il contatore n/m conta i passi fatti sui non esclusi; il percorso OCR ha i suoi passi.
+  Con la casella spenta nulla cambia.
+- **Barre**: Demucs, trascrizione, traduzione, genere e lettura OCR hanno una percentuale reale; salvataggio e upload una barra
+  stimata animata; gli altri passi una barra indeterminata. Con la card aperta le righe di barra escono dal log.
+- **Eventi della pipeline** (additivi): `step save|upload|mux` (start/done/skip, con l'esito reale: un upload o un mux falliti
+  non risultano "fatto") e `bar ocr`. `FileProgress` e la barra del file non cambiano.
+- **ETA di Demucs** nella riga di log (percorso a chunk, file lunghi o con memoria GPU scarsa).
+- Nuovo `gui/services/step_plan.py` (logica pura, testata) e `gui/pipeline_steps_widget.py` (vista).
+
+## 1.32.3 — 2026-10-18 — Interfaccia: note minori del bugcheck
+
+- **Contrasto dei badge dello scanner**: sfondi piu' scuri per avere testo bianco >= 4,7:1 (nuovo token `danger_deep`).
+- **Badge del formato** (PGS/VOB/ASS/MIX): non piu' tagliati dall'altezza minima globale dei bottoni ne' dal padding.
+- **Focus**: i bottoni non prendono piu' il focus al clic, restano raggiungibili con Tab.
+- **Token**: tolti 16 token mai usati.
+
 ## 1.32.2 — 2026-10-17 — Interfaccia: intestazioni compatte e spazio condiviso con lo scanner
 
 - **Intestazioni delle card** (Opzioni job, Library Scanner e le altre card collassabili) piu' basse: margini 4 px, titolo 10 pt,

@@ -41,6 +41,7 @@ from gui.services.metadata_service import MetadataService
 from gui.services.queue_service import QueueService, StartVerdict, VIDEO_EXTENSIONS
 from gui.services.settings_service import SettingsService
 from gui.job_options_card import JobOptionsCard
+from gui.pipeline_steps_widget import PipelineStepsWidget
 from gui.file_row_delegate import FileRowDelegate
 from gui.reorderable_list import ReorderableFileList
 from utils.engine_labels import ENGINE_MODE_LABELS, idle_model_label
@@ -92,6 +93,7 @@ class MainWindow(QMainWindow):
         self.metadata.poster_failed.connect(self._on_poster_failed)
         self.poster_loading = False
         self.compact_log_enabled = False
+        self._last_steps_snapshot = None    # ultimo PipelineSnapshot del file in lavorazione (anche a casella spenta)
         self._log_filter = LogFilter()
         self.resource_monitor = ResourceMonitorWidget()
 
@@ -595,6 +597,13 @@ class MainWindow(QMainWindow):
             stats_row.addWidget(w)
         layout.addLayout(stats_row)
 
+        # Anteprima dei passi del file in lavorazione: solo con "Log Sintetico" e durante l'elaborazione
+        self.pipeline_steps = PipelineStepsWidget()
+        self.pipeline_steps.set_expanded(self.settings_service.pipeline_card_open())
+        self.pipeline_steps.toggled.connect(self.settings_service.set_pipeline_card_open)
+        self.pipeline_steps.setVisible(False)
+        layout.addWidget(self.pipeline_steps)
+
         # Log text
         self.log_text = QTextEdit()
         self.log_text.setObjectName("logText")
@@ -715,7 +724,8 @@ class MainWindow(QMainWindow):
         # (mai a schermo), sia dai film in-process sia dai subprocess isolati che
         # la inoltrano via stdout. Punto unico per rileggere tutte le [DIAG-RAM].
         # La decisione (scartare / barra / accodare) e' in LogFilter; qui solo la scrittura.
-        decision = self._log_filter.decide(message, self.compact_log_enabled)
+        decision = self._log_filter.decide(message, self.compact_log_enabled,
+                                           hide_progress=self._hide_log_bars())
         if decision.action == 'drop_ram':
             logger.info(message)
             return
@@ -827,6 +837,7 @@ class MainWindow(QMainWindow):
         qs.history_entry.connect(self._on_file_history_entry)
         qs.file_started.connect(self.on_file_started)
         qs.file_progress.connect(self.on_file_progress)
+        qs.file_steps.connect(self.on_file_steps)
         qs.file_completed.connect(self.on_file_completed)
         qs.file_failed.connect(self.on_file_failed)
         qs.worker_error.connect(self._on_worker_error)
@@ -1142,6 +1153,9 @@ class MainWindow(QMainWindow):
             self._proc_elapsed_timer.stop()
             self._proc_elapsed_timer = None
         self._update_log_stats()
+        self._last_steps_snapshot = None
+        self.pipeline_steps.set_snapshot(None)
+        self._update_pipeline_card()
         self.log_message(tr('processing_completed'))
         # anche dopo uno Stop (i restanti restano in coda): comportamento preservato
         self.queue_service.schedule_shutdown(self.shutdown_system, self.shutdown_checkbox.isChecked())
@@ -1313,6 +1327,25 @@ class MainWindow(QMainWindow):
 
     def on_compact_log_changed(self, state):
         self.compact_log_enabled = state == Qt.CheckState.Checked.value
+        self._update_pipeline_card()
+
+    def _pipeline_card_wanted(self) -> bool:
+        """La card dei passi si vede solo con Log Sintetico spuntato e un file in lavorazione."""
+        return self.compact_log_enabled and self._last_steps_snapshot is not None
+
+    def _hide_log_bars(self) -> bool:
+        """Le barre escono dal log solo se la card e' visibile E aperta (compressa, non le disegna)."""
+        return self._pipeline_card_wanted() and self.pipeline_steps.is_expanded()
+
+    def _update_pipeline_card(self):
+        self.pipeline_steps.setVisible(self._pipeline_card_wanted())
+
+    def on_file_steps(self, file_path: str, snapshot):
+        """Anteprima dei passi (gui/services/step_plan.py). Lo snapshot si tiene anche a casella spenta:
+        spuntandola a meta' file lo stato mostrato e' gia' quello vero."""
+        self._last_steps_snapshot = snapshot
+        self.pipeline_steps.set_snapshot(snapshot)
+        self._update_pipeline_card()
 
     def open_general_settings(self):
         self.open_settings_dialog(initial_tab=TAB_GENERAL)

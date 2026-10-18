@@ -43,6 +43,8 @@ COMPACT_KEEP_MARKERS = ['✅', '⚙️', '🎉', '❌', '➕', '🎬', '📥']
 
 MODEL_LINE_MARKER = 'Modello trascrizione:'
 
+_PCT_RE = re.compile(r'\d+\s*%')
+
 
 def fix_mojibake(text):
     """Ripara le emoji e rimuove caratteri sporchi residui"""
@@ -97,7 +99,9 @@ class LogFilter:
         name = message.split(MODEL_LINE_MARKER, 1)[1].strip()
         return name or None
 
-    def decide(self, message: str, compact: bool = False) -> LogDecision:
+    def decide(self, message: str, compact: bool = False, hide_progress: bool = False) -> LogDecision:
+        """`hide_progress`: la card "Pipeline in corso" e' visibile e mostra gia' le barre, quindi le righe di barra
+        (con una percentuale) non si accodano al log; le righe di stato senza % restano."""
         if '[DIAG-RAM]' in message:
             return LogDecision('drop_ram', message)
         message = fix_mojibake(message)
@@ -105,6 +109,9 @@ class LogFilter:
         if '❌' not in message and '⚠' not in message and FILE_ONLY_RE.search(message):
             return LogDecision('drop_noise', message, model_name=model_name)
         progress_key = next((p for p in UPDATABLE_PATTERNS if p in message), None)
+        if (progress_key is not None and progress_key != 'Warm-up: [' and hide_progress
+                and _PCT_RE.search(message)):
+            return LogDecision('drop_compact', message, model_name=model_name)
         if progress_key is not None:
             return LogDecision('progress', message, progress_key=progress_key, model_name=model_name)
         if not compact or any(k in message for k in COMPACT_KEEP_MARKERS):
