@@ -395,6 +395,8 @@ class AudioProcessor:
             vocal_chunks = []
             failed_chunks = 0
             chunk_start_time = time.time()
+            from utils.eta import EtaEstimator
+            _eta = EtaEstimator()      # ETA dal ritmo recente dei chunk (come trascrizione/traduzione)
 
             # Barra di progresso iniziale
             self._log(f"    📦 Demucs: [░░░░░░░░░░] 0/{num_chunks} (0%)")
@@ -446,7 +448,8 @@ class AudioProcessor:
                     bar = '█' * bars + '░' * (10 - bars)
                     from utils.events import emit as _tp_emit
                     _tp_emit('bar', phase='demucs', pct=pct)
-                    self._log(f"    📦 Demucs: [{bar}] {chunk_num}/{num_chunks} ({pct}%)")
+                    self._log(f"    📦 Demucs: [{bar}] {chunk_num}/{num_chunks} ({pct}%)"
+                              f"{_eta.update(chunk_num / num_chunks)}")
 
                     # Cleanup immediato
                     del sources, chunk_wav
@@ -476,7 +479,8 @@ class AudioProcessor:
                         bar = '█' * bars + '░' * (10 - bars)
                         from utils.events import emit as _tp_emit
                         _tp_emit('bar', phase='demucs', pct=pct)
-                        self._log(f"    📦 Demucs: [{bar}] {chunk_num}/{num_chunks} ({pct}%)")
+                        self._log(f"    📦 Demucs: [{bar}] {chunk_num}/{num_chunks} ({pct}%)"
+                                  f"{_eta.update(chunk_num / num_chunks)}")
                     else:
                         raise
 

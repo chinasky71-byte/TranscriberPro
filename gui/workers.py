@@ -197,6 +197,7 @@ class ProcessingWorker(QThread):
     file_failed = pyqtSignal(str)          # (file_path) — emesso quando pipeline ritorna False
     file_started = pyqtSignal(str)         # (file_path)
     file_progress = pyqtSignal(str, int)   # (file_path, percent 0-100)
+    file_steps = pyqtSignal(str, object)   # (file_path, PipelineSnapshot): anteprima dei passi (gui/services/step_plan.py)
     file_history_entry = pyqtSignal(dict)  # emesso dopo ogni file completato con successo
     error = pyqtSignal(str)
     queue_updated = pyqtSignal(int)
@@ -376,6 +377,20 @@ class ProcessingWorker(QThread):
         # Avanzamento del file: fasi pesate per durata reale + barra interna di fase (gui/file_progress.py).
         from gui.file_progress import FileProgress
         _file_progress = FileProgress(target_language)
+        # Anteprima dei passi (Log Sintetico): gira SEMPRE, cosi' spuntando la casella a meta' file lo stato e' gia' vero.
+        from gui.services.step_plan import StepTracker, PlanOptions
+        try:
+            _steps = StepTracker(video_path, PlanOptions.from_config(get_config(), target_language))
+            self.file_steps.emit(video_path, _steps.snapshot())
+        except Exception:
+            _steps = None
+
+        def _steps_emit(changed=True):
+            if _steps is not None and changed:
+                try:
+                    self.file_steps.emit(video_path, _steps.snapshot())
+                except Exception:
+                    pass
         files_done = self.completed_files + self.failed_files
 
         # Dir IPC separata dalla temp dir del video (che il cleanup rimuove).
@@ -428,6 +443,9 @@ class ProcessingWorker(QThread):
                 tr('worker_critical_error').format(filename=filename, error=str(e)))
             logger.error(f"Spawn pipeline_cli fallito: {e}", exc_info=True)
             shutil.rmtree(ipc_dir, ignore_errors=True)
+            if _steps is not None:
+                _steps.mark_failed()
+                _steps_emit()
             return False
 
         self._current_proc = proc
@@ -479,6 +497,11 @@ class ProcessingWorker(QThread):
                         _pct = None
                     if _pct is not None:
                         self.file_progress.emit(video_path, _pct)
+                    if _steps is not None and _ev[0]:
+                        try:
+                            _steps_emit(_steps.feed_event(_ev[0], _ev[1]))
+                        except Exception:
+                            pass
                     continue
                 self.log_message.emit(line)
                 # Le righe [DIAG-RAM] contengono "N. Step" ma NON sono boundary
@@ -502,6 +525,9 @@ class ProcessingWorker(QThread):
         _duration = time.time() - _t0
 
         if self.is_cancelled:
+            if _steps is not None:
+                _steps.mark_stopped()
+                _steps_emit()
             self.log_message.emit(tr('worker_cancelled_file').format(filename=filename))
             # Lo Stop uccide l'albero del subprocess: un remux ffmpeg in corso (sostituzione/mux di un
             # sottotitolo) lascerebbe `<video>.converting` accanto al video.
@@ -523,6 +549,10 @@ class ProcessingWorker(QThread):
         except Exception:
             pass
         shutil.rmtree(ipc_dir, ignore_errors=True)
+
+        if _steps is not None:
+            (_steps.mark_completed if success else _steps.mark_failed)()
+            _steps_emit()
 
         if success:
             self.log_message.emit(tr('worker_completed').format(filename=filename))

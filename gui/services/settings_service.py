@@ -102,6 +102,12 @@ class SettingsService:
     def set_scanner_card_open(self, opened: bool):
         self._config.set('ui_scanner_card_open', opened)
 
+    def pipeline_card_open(self) -> bool:
+        return bool(self._config.get('ui_pipeline_card_open', True))
+
+    def set_pipeline_card_open(self, opened: bool):
+        self._config.set('ui_pipeline_card_open', opened)
+
     def last_input_folder(self) -> str:
         return self._config.get('last_input_folder', '')
 

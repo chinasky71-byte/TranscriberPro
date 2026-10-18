@@ -79,6 +79,7 @@ class QueueService(QObject):
     # eventi del file corrente (inoltro dei segnali del worker; il contatore e' gia' aggiornato)
     file_started = pyqtSignal(str)
     file_progress = pyqtSignal(str, int)
+    file_steps = pyqtSignal(str, object)           # (path, PipelineSnapshot) anteprima dei passi
     file_completed = pyqtSignal(str)
     file_failed = pyqtSignal(str)
     progress_changed = pyqtSignal(int)
@@ -293,6 +294,9 @@ class QueueService(QObject):
         w.file_failed.connect(self.on_file_failed)
         w.file_started.connect(self.file_started)
         w.file_progress.connect(self.file_progress)
+        _fs = getattr(w, 'file_steps', None)           # i worker finti dei test possono non averlo
+        if _fs is not None:
+            _fs.connect(self.file_steps)
         w.file_history_entry.connect(self.history_entry)
         w.queue_updated.connect(self.remaining_changed)
         self.completed_count = 0

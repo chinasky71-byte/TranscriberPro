@@ -303,6 +303,9 @@ class ProcessingPipeline:
             # utente 09/10/2026: nessuna traccia OCR dentro i file); l'impostazione `ocr_writeback` resta
             # valida per il Library Scanner e la GUI OCR.
             self._ocr.writeback_override = WRITEBACK_SIDECAR
+            # Percentuale reale della lettura OCR (callback dei motori) per l'anteprima dei passi
+            self._ocr.progress_callback = (
+                lambda pct, _label='': None if _label == 'Estrazione' else self._ev('bar', phase='ocr', pct=pct))
             ok = bool(run_ocr_auto(self._ocr, log_callback=self._log_callback, italian=italian))
             if ok:
                 self._mislabeled_bitmap_stream = getattr(self._ocr, 'mislabeled_stream_index', None)
@@ -455,6 +458,7 @@ class ProcessingPipeline:
         # STEP 7: Salvataggio File Finale
         # ============================================================
         self._ev('phase', name='final', fraction=0.4)
+        self._ev('step', name='save', state='start')
         self._log("\n7. Salvataggio file finale...")
             
         # Crea nome file finale: [nome_video].[lang].srt
@@ -494,6 +498,7 @@ class ProcessingPipeline:
                                      self._motore_traduzione)
 
         self._log(f"✅ File salvato: {final_output_path.name}")
+        self._ev('step', name='save', state='done')
             
         # ============================================================
         # STEP 8: Upload OpenSubtitles (Opzionale) - DA v3.8
@@ -1303,6 +1308,7 @@ class ProcessingPipeline:
                         self._log(f"\n1b. Sottotitoli bitmap ({kind.upper()}) → OCR + traduzione...")
                     if self._run_bitmap_ocr(kind, italian=is_ita):
                         self._ev('phase', name='final')
+                        self._ev('step', name='save', state='done')
                         self._log("✅ OCR bitmap completato.")
                         if self._ocr_upload_srt is not None:
                             self.last_output_path = self._ocr_upload_srt   # output del job (queue_status, GUI)
@@ -1619,11 +1625,17 @@ class ProcessingPipeline:
         if not self.config.get('mux_subtitle_into_video', False):
             return False
         self._ev('phase', name='final', fraction=0.9)
+        self._ev('step', name='mux', state='start')
         self._log("\n9. Mux del sottotitolo nel video...")
-        if self._remux_with_sidecar(sidecar, lang_639_1):
-            self._log(f"✅ Sottotitolo incorporato nel video (sidecar mantenuto: {sidecar.name}).")
-            return True
-        return False
+        _mux_ok = False
+        try:
+            if self._remux_with_sidecar(sidecar, lang_639_1):
+                self._log(f"✅ Sottotitolo incorporato nel video (sidecar mantenuto: {sidecar.name}).")
+                _mux_ok = True
+                return True
+            return False
+        finally:
+            self._ev('step', name='mux', state='done', ok=_mux_ok)
 
     @staticmethod
     def _route_non_english_away_from_llm(selected_model: str, source_lang_639_1: str) -> str:
@@ -1651,6 +1663,22 @@ class ProcessingPipeline:
         language_code_639_1: str,
         imdb_id: Optional[str]
     ):
+        """Upload a OpenSubtitles (v. `_upload_opensubtitles_impl`) + eventi `step upload` per l'anteprima
+        dei passi: `start` solo se l'upload parte davvero, `done` sempre dopo uno `start`."""
+        self._upload_step_started = False
+        self._upload_ok = False
+        try:
+            self._upload_opensubtitles_impl(subtitle_path, language_code_639_1, imdb_id)
+        finally:
+            if self._upload_step_started:
+                self._ev('step', name='upload', state='done', ok=bool(self._upload_ok))
+
+    def _upload_opensubtitles_impl(
+        self,
+        subtitle_path: Path,
+        language_code_639_1: str,
+        imdb_id: Optional[str]
+    ):
         """
         Gestisce l'upload a OpenSubtitles con supporto REST e XML-RPC
 
@@ -1672,6 +1700,7 @@ class ProcessingPipeline:
         if not self.config.get('opensubtitles_upload_enabled'):
             self._log("ℹ️ Upload OpenSubtitles non attivo "
                        "(Opzioni → OpenSubtitles → \"Upload OpenSubtitles\"). Salto.")
+            self._ev('step', name='upload', state='skip', reason='disabled')
             return
 
         # ============================================================
@@ -1679,6 +1708,7 @@ class ProcessingPipeline:
         # ============================================================
         if not self.config.is_opensubtitles_configured():
             self._log("⚠️ Credenziali OpenSubtitles non configurate (Opzioni → OpenSubtitles). Salto upload.")
+            self._ev('step', name='upload', state='skip', reason='disabled')
             return
 
         # ============================================================
@@ -1686,12 +1716,16 @@ class ProcessingPipeline:
         # ============================================================
         if not imdb_id:
             self._log("⚠️ IMDb ID non disponibile. Upload OpenSubtitles saltato (obbligatorio).")
+            self._ev('step', name='upload', state='skip', reason='no_imdb')
             return
 
         if not self._video_unchanged("l'upload OpenSubtitles"):
+            self._ev('step', name='upload', state='skip', reason='video_changed')
             return
 
         self._ev('phase', name='final', fraction=0.7)
+        self._upload_step_started = True
+        self._ev('step', name='upload', state='start')
         self._log("\n8. Upload OpenSubtitles...")
 
         try:
@@ -1748,6 +1782,7 @@ class ProcessingPipeline:
                 # non anteporgli "Upload completato", sarebbe fuorviante nel
                 # caso "già presente" (non è stato caricato nulla di nuovo).
                 self._log(f"✅ OpenSubtitles: {url_or_error}")
+                self._upload_ok = True
             else:
                 self._log(f"❌ Upload fallito: {url_or_error}")
 
