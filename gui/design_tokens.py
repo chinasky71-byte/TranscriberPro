@@ -62,6 +62,7 @@ class T:
     danger = '#ef5a5a'
     danger_hover = '#f37272'
     danger_press = '#d54545'
+    danger_deep = '#c93c3c'   # sfondo badge con testo bianco (AA 5,0:1)
     warn = '#f5b450'
     purple = '#a855f7'    # barra GPU
     white = '#ffffff'
@@ -81,13 +82,10 @@ class T:
     accent_a30 = 'rgba(60, 193, 224, 0.30)'
     accent_a35 = 'rgba(60, 193, 224, 0.35)'
     accent_a45 = 'rgba(60, 193, 224, 0.45)'
-    accent_a08 = 'rgba(60, 193, 224, 0.08)'
     accent_a10 = 'rgba(60, 193, 224, 0.10)'
-    accent_a25 = 'rgba(60, 193, 224, 0.25)'
     accent_a55 = 'rgba(60, 193, 224, 0.55)'
     white_a03 = 'rgba(255,255,255,0.03)'
     white_a06 = 'rgba(255,255,255,0.06)'
-    white_a10 = 'rgba(255,255,255,0.10)'
     # nuove (solo per i ruoli "badge": tinta 15% + bordo 35% come overlayLangPill)
     success_a15 = 'rgba(63, 207, 142, 0.15)'
     success_a35 = 'rgba(63, 207, 142, 0.35)'
@@ -114,17 +112,8 @@ class T:
     # Esistono per sostituire 1:1 i #rrggbb scritti a mano senza cambiare un pixel.
     # ------------------------------------------------------------------
     legacy_grey_888 = fg_3   # era '#888888'
-    legacy_grey_aaa = fg_2   # era '#aaaaaa'
-    legacy_grey_b0 = fg_2   # era '#b0b0b0'
     legacy_grey_ccc = fg_1   # era '#cccccc'
-    legacy_grey_d0 = fg_1   # era '#d0d0d0'
-    legacy_black = '#000000'
-    legacy_bg_2a = bg_1   # era '#2a2a2a'
-    legacy_bg_1e = bg_1   # era '#1e1e1e'
     legacy_bg_dialog = bg_1   # era '#1e1e2e'
-    legacy_bg_ocr = bg_0   # era '#0f0f19'
-    legacy_on_accent_ocr = on_accent   # era '#10222a'
-    legacy_accent_ocr_hover = accent_hover   # era '#54cfe9'
     legacy_red_soft = danger   # era '#e07070'
     legacy_red_deep = danger_press   # era '#d32f2f'
     legacy_pink = danger   # era '#e94560'
@@ -132,15 +121,11 @@ class T:
     legacy_mat_green_deep = '#23865a'   # era '#2e7d32'
     legacy_mat_red = danger   # era '#f44336'
     legacy_mat_amber = warn   # era '#ffc107'
-    legacy_orange_deep = '#b8651b'   # era '#e65100'
-    legacy_orange_hover = '#d07a2c'   # era '#fb8c00'
-    legacy_yellow = warn   # era '#ffcc00'
-    legacy_orange_soft = warn   # era '#ffaa44'
+    legacy_orange_deep = '#a85817'   # era '#e65100'
+    legacy_orange_hover = '#b05d19'   # era '#fb8c00'
     legacy_blue_link = accent   # era '#82aaff'
-    legacy_blue_soft = accent   # era '#88ccff'
-    legacy_green_soft = success   # era '#88ff88'
     legacy_violet = '#7d49c7'   # era '#6a0dad'
-    legacy_violet_hover = '#9460dd'   # era '#8b2fc9'
+    legacy_violet_hover = '#8a55d4'   # era '#8b2fc9'
     # nomi colore CSS usati dallo stato di translation_model_dialog
     # (volutamente NON mappati a success/warn/danger: cambierebbe il colore)
     css_green = success   # era 'green'

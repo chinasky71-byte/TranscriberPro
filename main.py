@@ -93,6 +93,11 @@ def _apply_global_stylesheet(app, logger):
             logger.error(f"Errore caricamento theme.qss: {e}")
             return
     app.setStyleSheet(qss)
+    try:
+        from gui.theme import install_click_focus_filter
+        install_click_focus_filter(app)
+    except Exception as e:
+        logger.warning(f"Filtro focus bottoni non installato: {e}")
     logger.info(f"Tema applicato: {origin} ({len(qss)} char)")
 
 
