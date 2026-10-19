@@ -3,6 +3,16 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.0 — 2026-10-19 — ETA dei motori nella card dei passi, barra reale per Demucs
+
+- **ETA del motore negli eventi `bar`** (`eta_s`): trascrizione (Canary, Qwen3, Whisper), Demucs (percorso a chunk) e traduzione
+  NLLB / traduttori via API. La card "Pipeline in corso" la mostra subito, uguale a quella del log, senza le soglie del 3% / 20 s
+  del ricalcolo dalle percentuali. NLLB e API hanno ora anche il suffisso ETA nella riga di log.
+- **Demucs, percorso standard (file 5-60 min)**: barra reale con percentuale ed ETA (prima nessuna misura: barra indeterminata).
+  `apply_model(progress=True)` itera i segmenti con `tqdm`: durante la chiamata il suo `tqdm` e' sostituito da un iteratore che riporta
+  l'avanzamento (ripristinato sempre; con controllo di annullamento e guardia se la libreria cambia).
+- `EtaEstimator.eta_seconds()`; nuovi strumenti di prova in `ui_bench/tools` (fuori dal repo).
+
 ## 1.33.4 — 2026-10-18 — Interfaccia: ETA della traduzione nella card dei passi
 
 - **Card "Pipeline in corso"**: il traduttore LLM porta nell'evento della barra la propria ETA (`eta_s`, la stessa del suo log),

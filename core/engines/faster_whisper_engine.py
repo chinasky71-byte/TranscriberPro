@@ -457,7 +457,7 @@ class FasterWhisperEngine(TranscriptionEngine):
                             _live_pct = int(_f * 100)
                             _bar = '█' * (_live_pct // 10) + '░' * (10 - _live_pct // 10)
                             from utils.events import emit as _tp_emit
-                            _tp_emit('bar', phase='asr', pct=_live_pct)
+                            _tp_emit('bar', phase='asr', pct=_live_pct, eta_s=_live_eta.eta_seconds())
                             self.log(f"  🎙️ Trascrizione: [{_bar}] {_live_pct:3d}%{_txt}")
                 segments = _seg_list
                 # v1.30.0 (core/whisper_lang_retry.py, trovato su X Factor): SOLO con lingua forzata (mai in
@@ -628,7 +628,7 @@ class FasterWhisperEngine(TranscriptionEngine):
                         bars = int(pct / 10)
                         bar = '█' * bars + '░' * (10 - bars)
                         from utils.events import emit as _tp_emit
-                        _tp_emit('bar', phase='asr', pct=pct)
+                        _tp_emit('bar', phase='asr', pct=pct, eta_s=eta.eta_seconds())
                         self.log(f"  🎙️ Trascrizione: [{bar}] {pct:3d}% ({chunk_num}/{total_chunks}){eta_txt}")
                         last_progress_pct = pct
 

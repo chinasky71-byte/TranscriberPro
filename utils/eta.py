@@ -47,6 +47,11 @@ class EtaEstimator:
         except Exception:
             return ""
 
+    def eta_seconds(self) -> Optional[int]:
+        """Secondi rimanenti (int) o None se non stimabile: per il campo `eta_s` degli eventi `bar`."""
+        r = self.remaining_seconds()
+        return None if r is None else int(r)
+
     def remaining_seconds(self, now: Optional[float] = None, f: Optional[float] = None) -> Optional[float]:
         if not self._samples:
             return None
