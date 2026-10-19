@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.34.0-orange)
+![Version](https://img.shields.io/badge/Version-1.34.1-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -315,6 +315,7 @@ This project is licensed under the MIT License.
 ### v1.24.0 - v1.30.2
 Six weeks of work on translation/transcription quality for non-English sources, condensed here; full detail,
 measurement methodology and decision rules for every claim below are in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.1** — Gender correction ETA shown in the steps card. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.0** — Engine ETA (transcription, Demucs, NLLB/API translation) in the steps card; real progress bar for the standard Demucs path. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.33.4** — UI: the steps card shows the translation engine's own ETA (no 3% / 20 s thresholds). Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.33.3** — UI: Library Scanner OCR progress and stats share one row (about 28 px more for the list). Details in [CHANGELOG.md](CHANGELOG.md).

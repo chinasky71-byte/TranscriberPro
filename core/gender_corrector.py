@@ -562,13 +562,15 @@ class GenderCorrectionEngine:
                     bars = int(progress / 10)
                     bar = '\u2588' * bars + '\u2591' * (10 - bars)
                     elapsed = _time.time() - t0
+                    eta_s = None
                     if chunks_processed > 0 and progress < 100:
                         eta = elapsed / chunks_processed * (chunks_with_gender - chunks_processed)
-                        eta_str = f"{int(eta)}s"
+                        eta_s = int(eta)
+                        eta_str = f"{eta_s}s"
                     else:
                         eta_str = "-"
                     from utils.events import emit as _tp_emit
-                    _tp_emit('bar', phase='gender', pct=progress)
+                    _tp_emit('bar', phase='gender', pct=progress, eta_s=eta_s)   # ETA del motore (la stessa del log)
                     self._log(
                         f"   Correzione genere: [{bar}] {progress:3d}% "
                         f"({chunks_processed}/{chunks_with_gender}) "
