@@ -3,6 +3,11 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.1 — 2026-10-19 — ETA della correzione di genere nella card
+
+- **Correzione di genere**: l'evento della barra porta ora `eta_s` (la stessa ETA del suo log, media sui blocchi fatti); la card dei passi
+  la mostra subito, senza le soglie del 3% / 20 s del ricalcolo dalle percentuali.
+
 ## 1.34.0 — 2026-10-19 — ETA dei motori nella card dei passi, barra reale per Demucs
 
 - **ETA del motore negli eventi `bar`** (`eta_s`): trascrizione (Canary, Qwen3, Whisper), Demucs (percorso a chunk) e traduzione
