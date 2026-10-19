@@ -1697,6 +1697,7 @@ class NLLBTranslator(BaseTranslator):
             i = 0
             last_progress = -1
             max_retries_per_batch = 3
+            _eta_tr = None      # stimatore ETA: parte alla prima barra (dopo il warm-up)
 
             while i < total:
                 self.current_batch_size = self.batch_manager.current_batch_size
@@ -1714,8 +1715,12 @@ class NLLBTranslator(BaseTranslator):
                     bar = '█' * bars + '░' * (10 - bars)
                     bs = self.batch_manager.current_batch_size
                     from utils.events import emit as _tp_emit
-                    _tp_emit('bar', phase='translate', pct=progress)
-                    self.log(f"  🌐 Traduzione: [{bar}] {progress:3d}% ({i}/{total}) │ batch:{bs}")
+                    if _eta_tr is None:
+                        from utils.eta import EtaEstimator
+                        _eta_tr = EtaEstimator()
+                    _eta_txt = _eta_tr.update(i / total)
+                    _tp_emit('bar', phase='translate', pct=progress, eta_s=_eta_tr.eta_seconds())
+                    self.log(f"  🌐 Traduzione: [{bar}] {progress:3d}% ({i}/{total}) │ batch:{bs}{_eta_txt}")
                     last_progress = progress
 
                 retries = 0
@@ -2801,6 +2806,7 @@ OUTPUT: Return ONLY numbered translations (1., 2., 3., etc.). Nothing else. No q
             translated_subtitles = []
             i = 0
             last_progress = -1
+            _eta_tr = None
 
             while i < total:
                 batch_end = min(i + self.BATCH_SIZE, total)
@@ -2810,8 +2816,12 @@ OUTPUT: Return ONLY numbered translations (1., 2., 3., etc.). Nothing else. No q
                 progress = int((i / total) * 100)
                 if progress != last_progress:
                     from utils.events import emit as _tp_emit
-                    _tp_emit('bar', phase='translate', pct=progress)
-                    self.log(f"   Progresso: {progress}% ({i}/{total})")
+                    if _eta_tr is None:
+                        from utils.eta import EtaEstimator
+                        _eta_tr = EtaEstimator()
+                    _eta_txt = _eta_tr.update(i / total)
+                    _tp_emit('bar', phase='translate', pct=progress, eta_s=_eta_tr.eta_seconds())
+                    self.log(f"   Progresso: {progress}% ({i}/{total}){_eta_txt}")
                     last_progress = progress
 
                 try:
@@ -3089,6 +3099,7 @@ Provide translations as a numbered list matching the input format exactly. DO NO
             translated_subtitles = []
             i = 0
             last_progress = -1
+            _eta_tr = None
 
             while i < total:
                 batch_end = min(i + self.BATCH_SIZE, total)
@@ -3098,8 +3109,12 @@ Provide translations as a numbered list matching the input format exactly. DO NO
                 progress = int((i / total) * 100)
                 if progress != last_progress:
                     from utils.events import emit as _tp_emit
-                    _tp_emit('bar', phase='translate', pct=progress)
-                    self.log(f"   Progresso: {progress}% ({i}/{total})")
+                    if _eta_tr is None:
+                        from utils.eta import EtaEstimator
+                        _eta_tr = EtaEstimator()
+                    _eta_txt = _eta_tr.update(i / total)
+                    _tp_emit('bar', phase='translate', pct=progress, eta_s=_eta_tr.eta_seconds())
+                    self.log(f"   Progresso: {progress}% ({i}/{total}){_eta_txt}")
                     last_progress = progress
 
                 try:

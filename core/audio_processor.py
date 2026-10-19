@@ -27,6 +27,7 @@ import logging
 import subprocess
 import os
 import time
+import contextlib
 from typing import List, Tuple, Optional, Callable
 
 # NON logging.getLogger(__name__): il root logger non e' configurato in esecuzione normale e
@@ -346,14 +347,15 @@ class AudioProcessor:
             # Prepare audio (residente su CPU: la GPU vede solo i segmenti)
             wav = self._prepare_audio_for_demucs(wav, sr, keep_on_cpu=True)
 
-            # Separazione con split automatico
-            with torch.no_grad():
+            # Separazione con split automatico (barra reale: v. `_demucs_progress`)
+            with torch.no_grad(), self._demucs_progress():
                 sources = apply_model(
                     self.demucs_model,
                     wav.unsqueeze(0),
                     device=self.device,
                     split=True,        # ✅ Split automatico
-                    overlap=0.25       # 25% overlap per continuità
+                    overlap=0.25,      # 25% overlap per continuità
+                    progress=True      # itera i segmenti con tqdm: lo sostituiamo con la nostra barra
                 )[0]
 
             # clone(): stacca i vocals dallo storage a 4 sorgenti (~7 GB su
@@ -376,6 +378,56 @@ class AudioProcessor:
             else:
                 raise
     
+    @contextlib.contextmanager
+    def _demucs_progress(self):
+        """Barra reale (percentuale + ETA) per il percorso standard di Demucs.
+
+        `apply_model(progress=True)` itera i segmenti con `tqdm.tqdm(...)` (modulo `demucs.apply`); solo durante la
+        chiamata quel `tqdm` e' sostituito da un iteratore che riporta l'avanzamento come la barra del percorso a
+        chunk (evento `bar demucs` con `eta_s` + riga di log). Nessuna stima: ogni passo e' un segmento finito."""
+        import demucs.apply as _da
+        from utils.eta import EtaEstimator
+        from utils.events import emit as _tp_emit
+        eta = EtaEstimator()
+        last = [-1]
+        log = self._log
+
+        def _report(k, n):
+            pct = int(k * 100 / max(n, 1))
+            if pct == last[0]:
+                return
+            last[0] = pct
+            txt = eta.update(k / max(n, 1))
+            bars = pct // 10
+            _tp_emit('bar', phase='demucs', pct=pct, eta_s=eta.eta_seconds())
+            log(f"    📦 Demucs: [{'█' * bars}{'░' * (10 - bars)}] {pct:3d}%{txt}")
+
+        class _Tqdm:
+            @staticmethod
+            def tqdm(iterable, *args, **kwargs):
+                items = list(iterable)
+
+                def gen():
+                    for k, item in enumerate(items, 1):
+                        if self._cancelled:
+                            raise InterruptedError("Demucs annullato")
+                        yield item
+                        _report(k, len(items))      # eseguito quando il ciclo ha finito il segmento
+                return gen()
+
+        orig = getattr(_da, 'tqdm', None)
+        import types
+        if not isinstance(orig, types.ModuleType):
+            yield                       # demucs diverso da quello atteso (`import tqdm`): nessuna barra, nessun patch
+            return
+        _tp_emit('bar', phase='demucs', pct=0)
+        log("    📦 Demucs: [░░░░░░░░░░]   0%")
+        _da.tqdm = _Tqdm
+        try:
+            yield
+        finally:
+            _da.tqdm = orig
+
     def _separate_robust_path(self, wav: torch.Tensor, sr: int, duration: float) -> Optional[torch.Tensor]:
         """
         ROBUST PATH: Chunking manuale per file lunghi (>60 min)
@@ -447,9 +499,9 @@ class AudioProcessor:
                     pct = int((chunk_num / num_chunks) * 100)
                     bar = '█' * bars + '░' * (10 - bars)
                     from utils.events import emit as _tp_emit
-                    _tp_emit('bar', phase='demucs', pct=pct)
-                    self._log(f"    📦 Demucs: [{bar}] {chunk_num}/{num_chunks} ({pct}%)"
-                              f"{_eta.update(chunk_num / num_chunks)}")
+                    _eta_txt = _eta.update(chunk_num / num_chunks)
+                    _tp_emit('bar', phase='demucs', pct=pct, eta_s=_eta.eta_seconds())
+                    self._log(f"    📦 Demucs: [{bar}] {chunk_num}/{num_chunks} ({pct}%){_eta_txt}")
 
                     # Cleanup immediato
                     del sources, chunk_wav
@@ -478,9 +530,9 @@ class AudioProcessor:
                         pct = int((chunk_num / num_chunks) * 100)
                         bar = '█' * bars + '░' * (10 - bars)
                         from utils.events import emit as _tp_emit
-                        _tp_emit('bar', phase='demucs', pct=pct)
-                        self._log(f"    📦 Demucs: [{bar}] {chunk_num}/{num_chunks} ({pct}%)"
-                                  f"{_eta.update(chunk_num / num_chunks)}")
+                        _eta_txt = _eta.update(chunk_num / num_chunks)
+                        _tp_emit('bar', phase='demucs', pct=pct, eta_s=_eta.eta_seconds())
+                        self._log(f"    📦 Demucs: [{bar}] {chunk_num}/{num_chunks} ({pct}%){_eta_txt}")
                     else:
                         raise
 

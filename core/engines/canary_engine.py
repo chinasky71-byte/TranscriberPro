@@ -293,7 +293,7 @@ class CanaryEngine(TranscriptionEngine):
                             bars = int(pct / 10)
                             bar = '█' * bars + '░' * (10 - bars)
                             from utils.events import emit as _tp_emit
-                            _tp_emit('bar', phase='asr', pct=pct)
+                            _tp_emit('bar', phase='asr', pct=pct, eta_s=eta.eta_seconds())
                             self.log(f"  🎙️ Trascrizione: [{bar}] {pct:3d}% ({done}/{tot}){eta_txt}")
                             last_pct = pct
                     except Exception:
