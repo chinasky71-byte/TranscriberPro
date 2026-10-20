@@ -3,6 +3,18 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.13 — 2026-10-20 — Linux, fase 3: installer, percorsi del Library Scanner, notifiche (NON VERIFICATO su Linux reale)
+
+- **`install.sh` / `run.sh`** (nuovi): installer e lanciatore per Linux. Riconoscono apt, dnf, pacman o zypper e propongono (con `sudo`, solo su richiesta) i pacchetti di sistema;
+  se la distribuzione e' sconosciuta stampano l'elenco da installare a mano. Python 3.11 (provato) o 3.12 (ruote disponibili per tutti i pin, non verificato a runtime).
+  `--no-gpu` installa le ruote CPU di torch e llama-cpp-python. Mai eseguiti su una macchina Linux: provati solo con `bash -n` e con un `uname` finto.
+- **Library Scanner**: nuova impostazione `library_scanner_path_map` ("Cartelle montate", visibile solo fuori da Windows): una regola per riga `<percorso del server>=<cartella montata>`.
+  I file entrano in coda e vanno all'OCR con il percorso locale; le chiavi di riga e le chiamate all'API del server restano quelle del server. Vuota = comportamento invariato (Windows).
+- **`scripts_manutenzione/selfcheck_env.py`**: portabile (Python 3.11/3.12 su Linux, niente controlli di Visual C++ o scoop, percorso della config con `os.path.join`); su Windows stampa le stesse righe.
+- **`core/queue_runner.py`**: notifica di fine coda con `notify-send` su Linux (senza il programma non fa nulla).
+- **`requirements-canary.txt`**: `pywin32` solo su Windows. Nuovo `.gitattributes` (`*.sh`, `*.tpl`, `*.qss` con fine riga LF).
+- Verificato da questo PC: tutti i pin di `requirements.txt` hanno una ruota Linux per cp311, cp312 e cp313 (o sono Python puro/sorgente); `llama-cpp-python` 0.3.34 ha ruote Linux CPU e CUDA.
+
 ## 1.34.12 — 2026-10-20 — Installazione su PC senza GPU e programmi esterni fuori dal PATH
 
 - **Programmi esterni** (`utils/platform_compat.py::find_tool`): Tesseract, mkvextract e mkvmerge si trovano anche se winget li ha messi in `Program Files` senza aggiungerli al PATH

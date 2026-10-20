@@ -316,6 +316,7 @@ class Config:
 
         # Library Scanner Settings
         'library_scanner_url': 'http://192.168.1.12:6680',
+        'library_scanner_path_map': '',   # una regola per riga: <prefisso server>=<prefisso locale> (Linux/macOS; vuoto = invariato)
         'library_scanner_api_key': '',
         'library_scanner_enabled': True,
 
@@ -475,7 +476,7 @@ class Config:
         """Ottieni valore configurazione"""
         fallback = default if default is not None else self.DEFAULTS.get(key)
         value = self.settings.get(key, fallback)
-        if isinstance(value, str) and is_foreign_windows_path(value):
+        if isinstance(value, str) and key != 'library_scanner_path_map' and is_foreign_windows_path(value):
             return fallback  # config copiata da Windows: il percorso con lettera di unita' qui non esiste
         return value
     

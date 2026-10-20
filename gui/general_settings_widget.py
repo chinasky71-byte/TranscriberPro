@@ -6,10 +6,11 @@ Widget per le impostazioni generali dell'applicazione.
 Contiene: selezione lingua interfaccia, configurazione Library Scanner.
 """
 import logging
+import sys
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QGroupBox,
-    QFormLayout, QLabel, QLineEdit, QPushButton, QMessageBox
+    QFormLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QPlainTextEdit
 )
 from PyQt6.QtCore import QThread, pyqtSignal
 
@@ -124,6 +125,15 @@ class GeneralSettingsWidget(QWidget):
         self._ping_btn.clicked.connect(self._test_connection)
         ls_form.addRow("", ping_row)
 
+        if sys.platform != 'win32':
+            # Fuori da Windows i percorsi del server (\\\\server\\film\\...) non esistono: servono le cartelle condivise montate
+            self.ls_map_edit = QPlainTextEdit()
+            self.ls_map_edit.setPlaceholderText("\\\\192.168.1.12\\film=/mnt/film\nV:\\=/mnt/v")
+            self.ls_map_edit.setToolTip("Una regola per riga: <percorso sul server>=<cartella montata su questo computer>")
+            self.ls_map_edit.setFixedHeight(64)
+            self.ls_map_edit.textChanged.connect(self._on_ls_map_changed)
+            ls_form.addRow("Cartelle montate:", self.ls_map_edit)
+
         ls_group.setLayout(ls_form)
         layout.addWidget(ls_group)
 
@@ -142,6 +152,10 @@ class GeneralSettingsWidget(QWidget):
 
         self.ls_url_edit.setText(self.config.get('library_scanner_url', ''))
         self.ls_key_edit.setText(self.config.get('library_scanner_api_key', ''))
+        if hasattr(self, 'ls_map_edit'):
+            self.ls_map_edit.blockSignals(True)
+            self.ls_map_edit.setPlainText(self.config.get('library_scanner_path_map', ''))
+            self.ls_map_edit.blockSignals(False)
 
     def _on_lang_changed(self, index: int):
         mapping = {0: 'auto', 1: 'it', 2: 'en'}
@@ -158,6 +172,11 @@ class GeneralSettingsWidget(QWidget):
         val = self.ls_url_edit.text().strip()
         self.config.set('library_scanner_url', val)
         logger.info(f"Library Scanner URL aggiornato: {val}")
+
+    def _on_ls_map_changed(self):
+        text = self.ls_map_edit.toPlainText()
+        if text != self.config.get('library_scanner_path_map', ''):   # niente scrittura su disco se non cambia nulla
+            self.config.set('library_scanner_path_map', text)
 
     def _on_ls_key_changed(self):
         val = self.ls_key_edit.text().strip()

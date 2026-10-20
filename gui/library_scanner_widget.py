@@ -24,6 +24,7 @@ from gui.widgets import ElideLabel
 from gui.icons import svg_icon
 from gui.theme import set_flat
 from utils.config import get_config
+from utils.path_map import parse_map, to_local, to_server
 from utils.translations import tr
 
 logger = logging.getLogger(__name__)
@@ -493,6 +494,7 @@ class LibraryScannerWidget(QFrame):
         queued_paths = set()
         with QMutexLocker(self.main_window.queue_mutex):
             queued_paths = set(self.main_window.processing_queue)
+        pmap = self._path_rules()
 
         for row, video in enumerate(self.videos_data):
             windows_path = video.get('windows_path', '')
@@ -555,7 +557,7 @@ class LibraryScannerWidget(QFrame):
             self.video_table.setCellWidget(row, 3, badge_widget)
 
             # Colonna 4: Bottone import singolo
-            already_queued = windows_path in queued_paths
+            already_queued = to_local(windows_path, pmap) in queued_paths
             btn = self._create_row_button(row, already_queued)
             self.video_table.setCellWidget(row, 4, btn)
 
@@ -770,7 +772,7 @@ class LibraryScannerWidget(QFrame):
         self._ocr_add_job(windows_path, kind_label)
         self._ocr_set_status(windows_path, 'processing', 0)
 
-        self._ocr_worker = OcrWorker(windows_path, config, strategy, mode="ocr", kind=kind)
+        self._ocr_worker = OcrWorker(to_local(windows_path, self._path_rules()), config, strategy, mode="ocr", kind=kind)
         self._ocr_worker.events_ready.connect(self._on_ocr_events_ready)
         self._ocr_worker.auto_done.connect(self._on_ocr_auto_done)
         self._ocr_worker.unsupported.connect(self._on_ocr_unsupported)
@@ -833,7 +835,7 @@ class LibraryScannerWidget(QFrame):
         strategy = config.get(CFG_STRATEGY, DEFAULT_STRATEGY)
         self._log(f"Scrittura SRT: {self._ocr_name}")
         self._ocr_worker = OcrWorker(
-            self._ocr_video_path, config, strategy, mode="writeback",
+            to_local(self._ocr_video_path, self._path_rules()), config, strategy, mode="writeback",
             srt_text=srt_text, language=language, kind=getattr(self, '_ocr_kind', 'pgs'))
         self._ocr_worker.writeback_done.connect(self._on_ocr_writeback_done)
         self._ocr_worker.error.connect(self._on_ocr_error)
@@ -1139,13 +1141,14 @@ class LibraryScannerWidget(QFrame):
         queued_paths = set()
         with QMutexLocker(self.main_window.queue_mutex):
             queued_paths = set(self.main_window.processing_queue)
+        pmap = self._path_rules()
 
         for row in range(self.video_table.rowCount()):
             if not self.video_table.isRowHidden(row):
                 item = self.video_table.item(row, 0)
                 if item:
                     wp = item.data(Qt.ItemDataRole.UserRole)
-                    if wp in queued_paths:
+                    if to_local(wp, pmap) in queued_paths:
                         btn = self.video_table.cellWidget(row, 4)
                         if btn and btn.isEnabled():
                             btn.setIcon(QIcon())
@@ -1161,8 +1164,10 @@ class LibraryScannerWidget(QFrame):
             return 0
 
         added = 0
+        pmap = self._path_rules()
         with QMutexLocker(self.main_window.queue_mutex):
             for path in paths:
+                path = to_local(path, pmap)   # percorso del server -> file di questo computer (identita' con mappa vuota)
                 if path and path not in self.main_window.processing_queue:
                     self.main_window.processing_queue.append(path)
                     self.main_window.file_list.addItem(self.main_window._make_file_item(path))
@@ -1181,6 +1186,10 @@ class LibraryScannerWidget(QFrame):
     # NOTIFICA SOTTOTITOLO CREATO (chiamata da main_window)
     # ========================================================================
 
+    def _path_rules(self):
+        """Regole server->locale delle Impostazioni (lista vuota = percorsi invariati, comportamento di Windows)."""
+        return parse_map(self.config.get('library_scanner_path_map', ''))
+
     def notify_subtitle_created(self, video_path: str):
         """Chiamato da main_window al termine elaborazione di un file.
         Notifica il server che un sottotitolo è stato creato, poi aggiorna la lista."""
@@ -1193,7 +1202,7 @@ class LibraryScannerWidget(QFrame):
         # Tieni vivi i worker (più notifiche concorrenti durante un batch).
         if not hasattr(self, '_notify_workers'):
             self._notify_workers = []
-        w = _NotifyWorker(url, api_key, str(video_path))
+        w = _NotifyWorker(url, api_key, to_server(str(video_path), self._path_rules()))
         w.done.connect(self._on_notify_done)
         w.finished.connect(lambda w=w: self._notify_workers.remove(w)
                            if w in self._notify_workers else None)

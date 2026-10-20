@@ -178,8 +178,17 @@ class QueueStatus:
 
 
 def notify(title: str, message: str) -> None:
-    """Notifica di Windows (best effort). Testo passato per variabile d'ambiente: nessun apice/carattere
-    speciale viene mai interpretato da PowerShell."""
+    """Notifica di sistema (best effort). Windows: testo passato per variabile d'ambiente, nessun apice/carattere
+    speciale viene mai interpretato da PowerShell. Linux: `notify-send` se presente (senza non fa nulla). Altrove: niente."""
+    if sys.platform.startswith('linux'):
+        try:
+            exe = shutil.which('notify-send')
+            if exe:
+                subprocess.Popen([exe, '--app-name=Transcriber Pro', '--', title, message],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+        return
     if os.name != 'nt':
         return
     try:
