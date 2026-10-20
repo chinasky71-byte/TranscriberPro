@@ -282,6 +282,17 @@ function Ensure-Venv($dirName, $reqFile, $label) {
         Write-Ok 'venv gia'' presente (riuso)'
     }
     & $vpy -m pip install --upgrade pip 2>&1 | Out-Null
+    if ($NoGpu -and $dirName -eq 'venv') {
+        # Senza driver NVIDIA (nvcuda.dll) la ruota CUDA di llama-cpp-python non carica llama.dll: si usa la ruota CPU, stessa versione del pin.
+        # Installata PRIMA di requirements.txt, che la trova gia' soddisfatta e non scarica quella CUDA (~536 MB).
+        $llamaVer = $null
+        foreach ($ln in (Get-Content $req)) { if ($ln -match '^\s*llama[-_]cpp[-_]python==([0-9.]+)') { $llamaVer = $Matches[1] } }
+        if ($llamaVer) {
+            Write-Host "  llama-cpp-python $llamaVer (ruota CPU, senza GPU)"
+            & $vpy -m pip install --force-reinstall --no-deps --only-binary=:all: --index-url https://abetlen.github.io/llama-cpp-python/whl/cpu "llama_cpp_python==$llamaVer" | Out-Host
+            if ($LASTEXITCODE -ne 0) { Write-Warn 'Ruota CPU di llama-cpp-python non installata: si prosegue con quella di requirements.txt (senza driver NVIDIA non carichera'').' }
+        } else { Write-Warn 'Versione di llama_cpp_python non letta da requirements.txt (formato inatteso): ruota CPU non installata.' }
+    }
     Write-Host "  pip install -r $reqFile  (puo' richiedere diversi minuti e alcuni GB di download)"
     & $vpy -m pip install -r $req | Out-Host
     if ($LASTEXITCODE -ne 0) { Fail "pip install fallito per $reqFile (vedi lerrore sopra; rilancia dopo averlo risolto)" }
