@@ -49,7 +49,7 @@ from utils.translations import init_language, tr
 
 
 # ── Versione applicazione — unica fonte di verità ─────────────────────────────
-APP_VERSION = "1.34.6"
+APP_VERSION = "1.34.7"
 
 PROJECT_ROOT      = Path(__file__).resolve().parent
 ASSETS_FONTS_DIR  = PROJECT_ROOT / 'assets' / 'fonts'
@@ -116,9 +116,10 @@ def _verify_model_paths(config, logger):
     # Gender corrector v2: serve il venv NLP (spaCy), non più il GGUF.
     # Check inline (NO import di core.*: manterrebbe torch fuori dallo startup)
     _root = Path(__file__).resolve().parent
+    from utils.platform_compat import venv_python
     _nlp_cands = [config.get('gender_selector_python', ''),
-                  _root / 'venv_nlp' / 'Scripts' / 'python.exe',
-                  _root / 'gender_eval' / '.venv_spacy' / 'Scripts' / 'python.exe']
+                  venv_python(_root / 'venv_nlp'),
+                  venv_python(_root / 'gender_eval' / '.venv_spacy')]
     if any(p and Path(p).exists() for p in _nlp_cands):
         logger.info("  Gender corrector v2: ✓ venv NLP trovato")
     else:

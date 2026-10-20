@@ -36,6 +36,7 @@ from typing import Callable, List, Optional, Tuple
 # di raggiungere il file condiviso — stesso difetto già trovato e corretto
 # in utils/adaptive_batch_manager.py.
 from utils.logger import setup_logger
+from utils.platform_compat import venv_python
 
 logger = setup_logger(__name__)
 
@@ -75,8 +76,8 @@ def _generate_srt(cues: List[SRT_CUE]) -> str:
 def find_selector_python() -> Optional[Path]:
     """Trova il python del venv NLP (spaCy). Ordine:
     1. config 'gender_selector_python';
-    2. <project>/venv_nlp/Scripts/python.exe;
-    3. <project>/gender_eval/.venv_spacy/Scripts/python.exe."""
+    2. interprete di <project>/venv_nlp;
+    3. interprete di <project>/gender_eval/.venv_spacy."""
     try:
         from utils.config import get_config
         cfg_path = get_config().get('gender_selector_python', '')
@@ -85,8 +86,8 @@ def find_selector_python() -> Optional[Path]:
     except Exception:
         pass
     root = Path(__file__).resolve().parent.parent
-    for cand in (root / 'venv_nlp' / 'Scripts' / 'python.exe',
-                 root / 'gender_eval' / '.venv_spacy' / 'Scripts' / 'python.exe'):
+    for cand in (venv_python(root / 'venv_nlp'),
+                 venv_python(root / 'gender_eval' / '.venv_spacy')):
         if cand.exists():
             return cand
     return None

@@ -3,6 +3,16 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.7 — 2026-10-20 — Compatibilita' Linux, fase 1: i punti Windows noti passano dall'helper
+
+- **Percorsi dei venv e flag di console** (`core/engines/canary_engine.py`, `core/gender_corrector_v2.py`, `core/speaker_gender.py`,
+  `gui/glossary_worker.py`, `gui/translation_model_dialog.py`, `main.py`): usano `utils/platform_compat.py` (`venv_python()`,
+  `no_window_flags()`). Su Windows i valori sono identici a prima (`Scripts/python.exe`, `0x08000000`).
+- **Annullamento del glossario Qwen** (`gui/glossary_worker.py`): l'albero del sottoprocesso GPU si uccide con `kill_tree()` (psutil)
+  al posto di `taskkill`, quindi funziona anche fuori da Windows. Non bloccante come prima.
+- Verificato: 260 test, banco `c7_gender` e `c13_eta_canary` OK, bugcheck senza difetti. Restano da migrare solo le docstring d'uso e
+  il modulo `glossary_engine/`.
+
 ## 1.34.6 — 2026-10-20 — Compatibilita' Linux, fase 0: helper per le differenze tra sistemi operativi
 
 - **`utils/platform_compat.py`** (nuovo, non ancora usato dal codice): `venv_python()`, `no_window_flags()`, `kill_tree()`, `IS_WINDOWS`.

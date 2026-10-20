@@ -32,6 +32,7 @@ from core.engines.base_engine import TranscriptionEngine
 from utils.logger import setup_logger
 from utils.config import get_config
 from utils.eta import EtaEstimator
+from utils.platform_compat import venv_python
 from utils.cache_bootstrap import HF_CACHE, HF_HUB_CACHE_DIR
 
 logger = setup_logger()
@@ -41,7 +42,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 def find_canary_python() -> Optional[Path]:
     """Trova il python del venv Canary: config 'canary_python_path' se
-    impostata, altrimenti <project>/venv_canary/Scripts/python.exe."""
+    impostata, altrimenti l'interprete di <project>/venv_canary."""
     try:
         cfg_path = get_config().get('canary_python_path', '') or ''
     except Exception:
@@ -49,7 +50,7 @@ def find_canary_python() -> Optional[Path]:
     candidates = []
     if cfg_path:
         candidates.append(Path(cfg_path))
-    candidates.append(PROJECT_ROOT / 'venv_canary' / 'Scripts' / 'python.exe')
+    candidates.append(venv_python(PROJECT_ROOT / 'venv_canary'))
     for c in candidates:
         if c.exists():
             return c
@@ -100,7 +101,7 @@ class CanaryEngine(TranscriptionEngine):
         caricamento in-process qui)."""
         if find_canary_python() is None:
             raise RuntimeError(
-                "venv_canary non trovato (atteso in venv_canary/Scripts/python.exe "
+                "venv_canary non trovato (atteso in <progetto>/venv_canary "
                 "o config 'canary_python_path')")
 
     def unload(self):

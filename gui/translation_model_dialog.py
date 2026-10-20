@@ -1268,9 +1268,10 @@ class TranslationModelDialog(QDialog):
         """Verifica prerequisiti v2: venv NLP (spaCy) e token HuggingFace."""
         from pathlib import Path
         root = Path(__file__).resolve().parent.parent
+        from utils.platform_compat import venv_python
         cands = [self.config.get('gender_selector_python', ''),
-                 root / 'venv_nlp' / 'Scripts' / 'python.exe',
-                 root / 'gender_eval' / '.venv_spacy' / 'Scripts' / 'python.exe']
+                 venv_python(root / 'venv_nlp'),
+                 venv_python(root / 'gender_eval' / '.venv_spacy')]
         nlp_ok = any(p and Path(p).exists() for p in cands)
         hf_ok = bool(self.config.get('huggingface_token', ''))
         if nlp_ok and hf_ok:
