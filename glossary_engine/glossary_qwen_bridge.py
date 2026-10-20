@@ -29,7 +29,20 @@ from glossary_qwen_extract import ExtractResult
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MAIN_VENV_PYTHON = PROJECT_ROOT / 'venv' / 'Scripts' / 'python.exe'
+
+
+def _load_platform_compat():
+    """Questo modulo gira anche nel venv_glossary, dove `import utils` (il pacchetto) fallisce per dipendenze assenti:
+    si carica dal file il solo utils/platform_compat.py, che usa solo la libreria standard."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('tp_platform_compat', PROJECT_ROOT / 'utils' / 'platform_compat.py')
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_pc = _load_platform_compat()
+MAIN_VENV_PYTHON = _pc.venv_python(PROJECT_ROOT / 'venv')
 GPU_CLI_SCRIPT = Path(__file__).resolve().parent / 'glossary_qwen_gpu_cli.py'
 
 
@@ -75,7 +88,7 @@ def run_qwen_channel(qwen_model_path: str, term_pairs_by_term: dict,
         [str(MAIN_VENV_PYTHON), str(GPU_CLI_SCRIPT), str(request_path)],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         cwd=str(PROJECT_ROOT), text=True, encoding='utf-8', errors='replace',
-        bufsize=1, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        bufsize=1, creationflags=_pc.no_window_flags())
 
     try:
         pid_path.write_text(str(proc.pid), encoding='utf-8')

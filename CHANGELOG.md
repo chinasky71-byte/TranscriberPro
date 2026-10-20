@@ -3,6 +3,12 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.8 — 2026-10-20 — Compatibilita' Linux, fase 1b: anche il motore del glossario
+
+- **`glossary_engine/glossary_qwen_bridge.py`**: l'interprete del venv principale e il flag di console passano da `utils/platform_compat.py`
+  (caricato dal file, perche' questo modulo gira anche nel venv_glossary dove `import utils` non e' possibile). Su Windows i valori sono
+  identici a prima. Il resto di `glossary_engine/` era gia' protetto per sistema operativo.
+
 ## 1.34.7 — 2026-10-20 — Compatibilita' Linux, fase 1: i punti Windows noti passano dall'helper
 
 - **Percorsi dei venv e flag di console** (`core/engines/canary_engine.py`, `core/gender_corrector_v2.py`, `core/speaker_gender.py`,
