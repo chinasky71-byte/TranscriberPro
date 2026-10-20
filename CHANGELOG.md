@@ -3,6 +3,12 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.10 — 2026-10-20 — Installer: lingue di Tesseract automatiche
+
+- **`install.ps1`**: con `-InstallSystemDeps`, se Tesseract non ha `ita`/`eng` scarica da solo `ita.traineddata` e `eng.traineddata` (tessdata_best) nella
+  cartella tessdata che Tesseract stesso dichiara; se la cartella e' di sistema (Program Files) rilancia la sola copia con UAC. Controlla la dimensione dei file,
+  avvisa se Tesseract non e' nel PATH e toglie la voce dai prerequisiti mancanti solo a lingue presenti. Con `-CheckOnly` non fa nulla.
+
 ## 1.34.9 — 2026-10-20 — Compatibilita' Linux, fase 3a: percorsi Windows nella config
 
 - **`utils/config.py` (`Config.get`)**: fuori da Windows, un valore salvato che e' un percorso con lettera di unita' (`V:\...`, tipico di una
