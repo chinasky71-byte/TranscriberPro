@@ -112,7 +112,7 @@ class Config:
         'replace_mislabeled_italian_track': True,
         # Opzione job: incorpora nel MKV il sottotitolo creato (il sidecar resta accanto al video).
         'mux_subtitle_into_video': False,
-        'canary_python_path': '',              # vuoto = auto (<progetto>/venv_canary/Scripts/python.exe)
+        'canary_python_path': '',              # vuoto = auto (interprete di <progetto>/venv_canary)
         'canary_batch_size': 8,                # chunk per chiamata a model.generate() nel subprocess
         # faster-whisper: divide i segmenti lunghi sui confini di frase invece che a
         # 80 caratteri / 6 s (core/whisper_sentence_split.py). Blocchi a meta' frase

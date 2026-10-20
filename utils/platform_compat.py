@@ -37,10 +37,11 @@ def no_window_flags(windows: Optional[bool] = None) -> int:
     return getattr(subprocess, 'CREATE_NO_WINDOW', _CREATE_NO_WINDOW_WIN)
 
 
-def kill_tree(pid: int) -> bool:
+def kill_tree(pid: int, wait: float = 5.0) -> bool:
     """Uccide il processo e tutti i discendenti (ffmpeg, sottoprocessi GPU...) con psutil: stesso comportamento su
     ogni sistema. True se il processo principale e' stato terminato (o non esisteva piu'), False se non e' stato
-    possibile ucciderlo."""
+    possibile ucciderlo. `wait` = secondi di attesa della morte effettiva; 0 = non bloccante (dal thread della GUI),
+    nel qual caso il risultato e' solo indicativo."""
     try:
         import psutil
     except ImportError:
@@ -64,5 +65,5 @@ def kill_tree(pid: int) -> bool:
             pass
         except Exception:
             pass
-    _gone, alive = psutil.wait_procs(victims, timeout=5)
+    _gone, alive = psutil.wait_procs(victims, timeout=wait)
     return all(p.pid != pid for p in alive)

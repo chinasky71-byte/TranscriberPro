@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
+from utils.platform_compat import no_window_flags
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -35,7 +37,7 @@ MIN_SEGMENT_SEC = 1.0            # segmenti più corti sono inaffidabili
 MAX_SEGMENT_SEC = 8.0            # clip: oltre non aggiunge informazione
 DEFAULT_CONF_THRESHOLD = 0.75    # sotto → UNKNOWN
 
-_CREATE_NO_WINDOW = 0x08000000   # Windows: niente flash di console
+_CREATE_NO_WINDOW = no_window_flags()   # Windows: niente flash di console (0 altrove)
 
 
 @dataclass
