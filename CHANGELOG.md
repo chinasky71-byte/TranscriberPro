@@ -3,6 +3,11 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.3 — 2026-10-20 — Interfaccia: pulsanti Avvia e Ferma piu' bassi
+
+- **Avvia / Ferma**: padding verticale da 12 a 6 px e font da 10,5 a 10 pt (circa 12 px in meno di altezza) per lasciare piu' spazio
+  alla lista della coda e al Library Scanner.
+
 ## 1.34.2 — 2026-10-20 — Card dei passi: trascrizione e traduzione non arrivano a 100% prima del tempo
 
 - **Trascrizione** e **Traduzione** restano a 99% nella card finche' non inizia il passo successivo: dopo il 100% del motore c'e'
