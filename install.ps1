@@ -4,7 +4,8 @@
 
 .DESCRIPTION
   1. Controlla i prerequisiti (Python 3.11, driver NVIDIA, FFmpeg, Tesseract ita+eng, MKVToolNix, spazio su disco).
-  2. Facoltativo: installa con winget i programmi mancanti (chiede conferma per ciascuno).
+  2. Facoltativo: installa con winget i programmi mancanti (chiede conferma per ciascuno) e scarica da solo
+     ita.traineddata/eng.traineddata di Tesseract (tessdata_best) se mancano.
   3. Crea il venv principale e installa requirements.txt (torch +cu126 e llama-cpp-python dagli indici speciali).
   4. Facoltativo: venv secondari (-WithNlp, -WithCanary, -WithGlossary) e modelli locali (-WithModels).
   5. Alla fine esegue scripts_manutenzione\selfcheck_env.py.
@@ -192,7 +193,61 @@ if ($InstallSystemDeps -and -not $CheckOnly -and ($script:Missing.Count + $scrip
         }
     }
     Write-Warn 'Riapri il terminale e rilancia install.ps1: il PATH dei programmi appena installati non e'' visibile a questa sessione.'
-    Write-Warn 'Per Tesseract scarica anche ita.traineddata e eng.traineddata (tessdata_best) nella cartella tessdata.'
+}
+
+# ------------------------------------------------------------------ lingue Tesseract (ita+eng)
+function Get-TessLangs($exe) {
+    $l = @(); try { $l = @(& $exe --list-langs 2>$null) } catch { }
+    return $l
+}
+function Ensure-TessLangs($exe) {
+    # Scarica le lingue mancanti da tessdata_best nella cartella tessdata che Tesseract stesso dichiara. Ritorna $true se ita+eng ci sono.
+    $langs = Get-TessLangs $exe
+    $need = @('ita', 'eng') | Where-Object { $langs -notcontains $_ }
+    if ($need.Count -eq 0) { return $true }
+    $dir = $null
+    $m = [regex]::Match(($langs | Select-Object -First 1), '"([^"]+)"')
+    if ($m.Success) { $dir = $m.Groups[1].Value } else { $dir = Join-Path (Split-Path -Parent $exe) 'tessdata' }
+    if (-not (Test-Path $dir)) { Write-Warn "Cartella tessdata non trovata ($dir): scarica a mano ita/eng.traineddata da tessdata_best."; return $false }
+    if (-not (Confirm-Step "Scarico $($need -join '+') (tessdata_best, ~15 MB ciascuna) in $dir ?")) { return $false }
+    try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
+    $oldPref = $ProgressPreference; $ProgressPreference = 'SilentlyContinue'
+    try {
+        foreach ($l in $need) {
+            $tmp = Join-Path $env:TEMP "tp_$l.traineddata"
+            try {
+                Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/tesseract-ocr/tessdata_best/raw/main/$l.traineddata" -OutFile $tmp
+            } catch { Write-Warn "Download di $l.traineddata fallito: $($_.Exception.Message)"; continue }
+            if (-not (Test-Path $tmp) -or (Get-Item $tmp).Length -lt 4MB) { Write-Warn "$l.traineddata scaricato in modo incompleto: lo ignoro."; Remove-Item $tmp -ErrorAction SilentlyContinue; continue }
+            $dest = Join-Path $dir "$l.traineddata"
+            try { Copy-Item -LiteralPath $tmp -Destination $dest -Force -ErrorAction Stop }
+            catch {
+                Write-Warn "Scrittura in $dir negata (cartella di sistema): riprovo con i permessi di amministratore (UAC)."
+                $qt = $tmp -replace "'", "''"; $qd = $dest -replace "'", "''"
+                try { Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', "Copy-Item -LiteralPath '$qt' -Destination '$qd' -Force" }
+                catch { }
+                if (-not (Test-Path $dest)) { Write-Warn "Copia con amministratore non riuscita: copia a mano $tmp in $dir (come $l.traineddata)." }
+            }
+            if (Test-Path $dest) { Remove-Item $tmp -ErrorAction SilentlyContinue }
+        }
+    } finally { $ProgressPreference = $oldPref }
+    $langs = Get-TessLangs $exe
+    return (($langs -contains 'ita') -and ($langs -contains 'eng'))
+}
+if ($InstallSystemDeps -and -not $CheckOnly) {
+    $tessNow = Find-Exe 'tesseract' @('C:\Program Files\Tesseract-OCR\tesseract.exe', (Join-Path $env:USERPROFILE 'scoop\shims\tesseract.exe'))
+    if ($tessNow) {
+        Write-Head 'Lingue Tesseract'
+        if (Ensure-TessLangs $tessNow) {
+            Write-Ok 'Tesseract con ita+eng'
+            $inPath = [bool](Get-Command tesseract -ErrorAction SilentlyContinue)
+            if (-not $inPath) { Write-Warn "Tesseract ($tessNow) NON e' nel PATH: aggiungilo al PATH (o imposta 'ocr_tesseract_path' nelle Impostazioni) e riapri il terminale." }
+            for ($i = $script:Missing.Count - 1; $i -ge 0; $i--) {
+                $nm = $script:Missing[$i].Name
+                if ($nm -eq 'Tesseract ita+eng' -or ($nm -eq 'Tesseract' -and $inPath)) { $script:Missing.RemoveAt($i) }
+            }
+        }
+    }
 }
 
 # ------------------------------------------------------------------ esito preflight
