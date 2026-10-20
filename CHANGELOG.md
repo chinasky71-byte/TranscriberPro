@@ -3,6 +3,12 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.2 — 2026-10-20 — Card dei passi: trascrizione e traduzione non arrivano a 100% prima del tempo
+
+- **Trascrizione** e **Traduzione** restano a 99% nella card finche' non inizia il passo successivo: dopo il 100% del motore c'e'
+  ancora lavoro (allineamento, caricamento e lavoro del diarizzatore, punteggiatura; recupero dei blocchi da rifare senza mascheramento).
+  Il passo diventa "fatto" solo a quel punto. Solo la card (`gui/services/step_plan.py`): nessun cambio alla pipeline ne' ai testi del log.
+
 ## 1.34.1 — 2026-10-19 — ETA della correzione di genere nella card
 
 - **Correzione di genere**: l'evento della barra porta ora `eta_s` (la stessa ETA del suo log, media sui blocchi fatti); la card dei passi
