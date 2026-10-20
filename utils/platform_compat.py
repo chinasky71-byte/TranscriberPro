@@ -9,6 +9,7 @@ Il parametro `windows` serve ai test (simulare l'altro sistema senza toccare `sy
 Regola per il codice nuovo: niente `Scripts/python.exe`, `taskkill`, `0x08000000`, `windll` o `os.startfile` fuori da qui
 (lo fa rispettare ui_bench/tests/test_platform_lint.py).
 """
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -17,6 +18,17 @@ from typing import Optional, Union
 IS_WINDOWS = sys.platform == 'win32'
 
 _CREATE_NO_WINDOW_WIN = 0x08000000   # subprocess.CREATE_NO_WINDOW (esiste solo su Windows)
+
+
+_DRIVE_PATH = re.compile(r'^[A-Za-z]:[\\/]')
+
+
+def is_foreign_windows_path(value, windows: Optional[bool] = None) -> bool:
+    """True se `value` e' un percorso con lettera di unita' (`V:\\...`) e questo NON e' Windows: un percorso salvato in una
+    config copiata da Windows, inutilizzabile qui. Su Windows e' sempre False."""
+    if _is_win(windows):
+        return False
+    return isinstance(value, str) and bool(_DRIVE_PATH.match(value))
 
 
 def _is_win(windows: Optional[bool]) -> bool:

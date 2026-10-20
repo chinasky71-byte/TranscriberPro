@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from .subtitle_uploader_interface import OPENSUBTITLES_USER_AGENT
+from .platform_compat import is_foreign_windows_path
 
 logger = logging.getLogger(__name__)
 
@@ -472,7 +473,11 @@ class Config:
 
     def get(self, key: str, default=None) -> Any:
         """Ottieni valore configurazione"""
-        return self.settings.get(key, default if default is not None else self.DEFAULTS.get(key))
+        fallback = default if default is not None else self.DEFAULTS.get(key)
+        value = self.settings.get(key, fallback)
+        if isinstance(value, str) and is_foreign_windows_path(value):
+            return fallback  # config copiata da Windows: il percorso con lettera di unita' qui non esiste
+        return value
     
     def set(self, key: str, value: Any, save: bool = True):
         """Imposta valore configurazione"""
