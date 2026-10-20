@@ -41,7 +41,7 @@ def load(model_name: str = "sentence-transformers/LaBSE", device: str = "cpu"):
     except ImportError as e:
         raise ImportError(
             "simalign/sentence-transformers non installati: usa "
-            "venv_glossary\\Scripts\\python.exe, non il venv principale"
+            "l'interprete di venv_glossary, non quello del venv principale"
         ) from e
     _aligner = SentenceAligner(
         model=model_name, token_type="bpe", matching_methods="i",
