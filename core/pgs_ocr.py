@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Optional, Callable, List, Tuple
 
 from core.subtitle_extractor import SubtitleExtractor
+from utils.platform_compat import find_tool
 from core.bitmap_ocr_common import (
     preprocess_for_ocr, ocr_image_verbatim, ocr_images_parallel, pick_tesseract_lang,
     srt_track_title, refine_content_lang, available_tesseract_langs)
@@ -107,7 +108,7 @@ class PgsOcr:
                 return default
 
     def _configure_tesseract(self):
-        path = self._cfg(CFG_TESSERACT_PATH, "")
+        path = self._cfg(CFG_TESSERACT_PATH, "") or find_tool("tesseract")   # Impostazioni > PATH > cartelle standard
         if path:
             try:
                 import pytesseract

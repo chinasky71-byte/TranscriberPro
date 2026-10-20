@@ -315,7 +315,7 @@ class Config:
         'punctuation_min_density':  0.0,     # 0.0 = solo testi senza ALCUNA punteggiatura
 
         # Library Scanner Settings
-        'library_scanner_url': 'http://192.168.1.18:6680',
+        'library_scanner_url': 'http://192.168.1.12:6680',
         'library_scanner_api_key': '',
         'library_scanner_enabled': True,
 

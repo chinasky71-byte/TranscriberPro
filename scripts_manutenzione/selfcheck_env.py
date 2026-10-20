@@ -127,13 +127,16 @@ def main():
                 if cand and os.path.exists(cand):
                     path = cand
                     break
-        detail = path or f'non trovato ({hint})'
         if not path:
-            # presente in un percorso che l'app NON cerca?
-            for cand in (r'C:\Program Files\Tesseract-OCR\tesseract.exe', r'C:\Program Files\MKVToolNix\mkvextract.exe'):
-                if os.path.basename(cand).lower().startswith(exe) and os.path.exists(cand):
-                    detail = f'trovato in {cand} ma NON nel PATH: aggiungilo al PATH' + (
-                        " oppure impostalo ('ocr_tesseract_path') nelle Impostazioni" if exe == 'tesseract' else '')
+            try:    # stessa ricerca dell'app: PATH, poi cartelle standard di installazione
+                root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                if root not in sys.path:
+                    sys.path.insert(0, root)
+                from utils.platform_compat import find_tool
+                path = find_tool(exe)
+            except Exception:
+                pass
+        detail = path or f'non trovato ({hint})'
         add('esterni', exe, bool(path), detail, req)
         if exe == 'tesseract' and path:
             rc, out = run_tool([path, '--list-langs'])

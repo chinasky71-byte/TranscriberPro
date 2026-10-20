@@ -9,7 +9,9 @@ Il parametro `windows` serve ai test (simulare l'altro sistema senza toccare `sy
 Regola per il codice nuovo: niente `Scripts/python.exe`, `taskkill`, `0x08000000`, `windll` o `os.startfile` fuori da qui
 (lo fa rispettare ui_bench/tests/test_platform_lint.py).
 """
+import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -33,6 +35,35 @@ def is_foreign_windows_path(value, windows: Optional[bool] = None) -> bool:
 
 def _is_win(windows: Optional[bool]) -> bool:
     return IS_WINDOWS if windows is None else windows
+
+
+# Cartelle standard di installazione (winget/installer ufficiali) dei programmi esterni, che di solito NON entrano nel PATH.
+_WINDOWS_TOOL_DIRS = {
+    'tesseract': ('Tesseract-OCR',),
+    'mkvextract': ('MKVToolNix',),
+    'mkvmerge': ('MKVToolNix',),
+}
+
+
+def find_tool(name: str, windows: Optional[bool] = None) -> Optional[str]:
+    """Percorso di un programma esterno: prima il PATH (come sempre), poi su Windows le cartelle standard di installazione
+    (`%ProgramFiles%\\Tesseract-OCR`, `%ProgramFiles%\\MKVToolNix`, anche (x86)) e lo shim di scoop. None se non si trova.
+    Con il programma nel PATH restituisce lo stesso valore di `shutil.which`."""
+    found = shutil.which(name)
+    if found or not _is_win(windows):
+        return found
+    exe = name + '.exe'
+    bases = []
+    for var in ('ProgramFiles', 'ProgramW6432', 'ProgramFiles(x86)'):
+        v = os.environ.get(var)
+        if v and v not in bases:
+            bases.append(v)
+    cands = [Path(b) / d / exe for b in bases for d in _WINDOWS_TOOL_DIRS.get(name, ())]
+    cands.append(Path.home() / 'scoop' / 'shims' / exe)
+    for c in cands:
+        if c.is_file():
+            return str(c)
+    return None
 
 
 def venv_python(venv_dir: Union[str, Path], windows: Optional[bool] = None) -> Path:

@@ -66,6 +66,7 @@ from utils.tmdb_client import get_tmdb_client
 from utils.subtitle_uploader_interface import UploaderFactory, SubtitleMetadata
 from utils.logger import setup_logger
 from utils.resource_monitor import release_ram_to_os
+from utils.platform_compat import find_tool
 
 logger = setup_logger(__name__)
 
@@ -1507,7 +1508,7 @@ class ProcessingPipeline:
             rc, _out, err = self._run_cancellable(cmd, 3600)
             if self._cancelled:
                 return False
-            if (rc != 0 or not temp.exists() or temp.stat().st_size < 1024) and shutil.which('mkvmerge'):
+            if (rc != 0 or not temp.exists() or temp.stat().st_size < 1024) and find_tool('mkvmerge'):
                 # `ffmpeg -map 0` non regge alcuni MKV (es. flussi mjpeg di copertine/allegati): ripiego su mkvmerge,
                 # che copia tutto com'e'. Le verifiche qui sotto valgono identiche.
                 logger.warning(f"Mux sottotitolo: ffmpeg fallito (rc={rc}), ripiego su mkvmerge: {(err or '')[-200:]}")
@@ -1517,7 +1518,7 @@ class ProcessingPipeline:
                         temp.unlink()
                 except Exception:
                     pass
-                mk = ['mkvmerge', '-o', str(temp)]
+                mk = [find_tool('mkvmerge'), '-o', str(temp)]
                 if remove_idx is not None:
                     mk += ['--subtitle-tracks', f'!{remove_idx}']
                 mk += [str(video), '--sub-charset', '0:UTF-8', '--language', f'0:{lang3}', '--track-name', f'0:{title}',

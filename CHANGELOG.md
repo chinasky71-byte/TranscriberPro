@@ -3,6 +3,14 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.12 — 2026-10-20 — Installazione su PC senza GPU e programmi esterni fuori dal PATH
+
+- **Programmi esterni** (`utils/platform_compat.py::find_tool`): Tesseract, mkvextract e mkvmerge si trovano anche se winget li ha messi in `Program Files` senza aggiungerli al PATH
+  (ordine: Impostazioni, PATH, cartelle standard, shim di scoop). Con il programma nel PATH il comportamento e' identico. Usata da OCR PGS/VOBSUB, dal mux (`pipeline.py`) e da `selfcheck_env.py`.
+- **`install.ps1` con `-NoGpu`**: installa torch/torchaudio CPU (~250 MB invece di ~2,9 GB della +cu126) e li toglie dal file dei requisiti usato da pip, che altrimenti li rimpiazzerebbe.
+- **`utils/config.py`**: indirizzo predefinito del Library Scanner corretto (`192.168.1.12:6680`, era `.18`): su un PC nuovo partiva verso il server sbagliato.
+- Provato su PC pulito senza GPU (Windows 11): installazione, idempotenza (33 s), GUI e selfcheck.
+
 ## 1.34.11 — 2026-10-20 — Installer: ruota CPU di llama-cpp-python con -NoGpu
 
 - **`install.ps1`**: con `-NoGpu` il venv principale installa, PRIMA di `requirements.txt`, la ruota CPU di `llama-cpp-python` (stessa versione del pin, indice

@@ -292,6 +292,21 @@ function Ensure-Venv($dirName, $reqFile, $label) {
             & $vpy -m pip install --force-reinstall --no-deps --only-binary=:all: --index-url https://abetlen.github.io/llama-cpp-python/whl/cpu "llama_cpp_python==$llamaVer" | Out-Host
             if ($LASTEXITCODE -ne 0) { Write-Warn 'Ruota CPU di llama-cpp-python non installata: si prosegue con quella di requirements.txt (senza driver NVIDIA non carichera'').' }
         } else { Write-Warn 'Versione di llama_cpp_python non letta da requirements.txt (formato inatteso): ruota CPU non installata.' }
+        # torch/torchaudio CPU (~250 MB invece di ~2,9 GB della ruota +cu126). Si installano PRIMA e si tolgono dal file dei requisiti
+        # usato da pip, altrimenti pip le rimpiazzerebbe con le +cu126 dei pin.
+        $tv = $null; $av = $null
+        foreach ($ln in (Get-Content $req)) {
+            if ($ln -match '^\s*torch==([0-9.]+)') { $tv = $Matches[1] }
+            if ($ln -match '^\s*torchaudio==([0-9.]+)') { $av = $Matches[1] }
+        }
+        if ($tv -and $av) {
+            Write-Host "  torch $tv / torchaudio $av (ruote CPU, senza GPU)"
+            & $vpy -m pip install --only-binary=:all: --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple "torch==$tv" "torchaudio==$av" | Out-Host
+            if ($LASTEXITCODE -eq 0) {
+                $req = Join-Path $env:TEMP 'tp_requirements_nogpu.txt'
+                Get-Content (Join-Path $Root $reqFile) | Where-Object { $_ -notmatch '^\s*(torch|torchaudio)==' } | Set-Content -Path $req -Encoding ASCII
+            } else { Write-Warn 'Ruote CPU di torch non installate: si prosegue con quelle di requirements.txt (+cu126, ~2,9 GB).' }
+        } else { Write-Warn 'Versioni di torch/torchaudio non lette da requirements.txt (formato inatteso): ruote CPU non installate.' }
     }
     Write-Host "  pip install -r $reqFile  (puo' richiedere diversi minuti e alcuni GB di download)"
     & $vpy -m pip install -r $req | Out-Host
