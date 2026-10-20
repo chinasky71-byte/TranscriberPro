@@ -146,9 +146,9 @@ QPushButton#startButton {
     color: {{on_accent}};
     border: 1px solid {{accent}};
     border-radius: {{rad_ctl}};
-    padding: 12px 20px;
+    padding: 6px 16px;
     font-weight: 600;
-    font-size: 10.5pt;
+    font-size: 10pt;
 }
 QPushButton#startButton:hover {
     background-color: {{accent_hover}};
@@ -169,9 +169,9 @@ QPushButton#stopButton {
     color: {{white}};
     border: 1px solid {{danger}};
     border-radius: {{rad_ctl}};
-    padding: 12px 20px;
+    padding: 6px 16px;
     font-weight: 600;
-    font-size: 10.5pt;
+    font-size: 10pt;
 }
 QPushButton#stopButton:hover {
     background-color: {{danger_hover}};
