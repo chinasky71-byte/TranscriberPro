@@ -3,6 +3,13 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.11 — 2026-10-20 — Installer: ruota CPU di llama-cpp-python con -NoGpu
+
+- **`install.ps1`**: con `-NoGpu` il venv principale installa, PRIMA di `requirements.txt`, la ruota CPU di `llama-cpp-python` (stessa versione del pin, indice
+  `whl/cpu`, `--force-reinstall --no-deps`). Trovata nella prova su PC pulito senza GPU: la ruota CUDA non carica `llama.dll` senza `nvcuda.dll` (driver NVIDIA),
+  quindi correzione del genere, glossario e Qwen GGUF non partivano. La ruota CPU pesa ~7 MB invece di 536 MB. Se la versione non si legge dal pin o l'indice non risponde,
+  avvisa e prosegue. Limite noto: un venv creato con `-NoGpu` e poi rilanciato senza resta con la ruota CPU (si ripristina reinstallando `llama_cpp_python` dall'indice cu124).
+
 ## 1.34.10 — 2026-10-20 — Installer: lingue di Tesseract automatiche
 
 - **`install.ps1`**: con `-InstallSystemDeps`, se Tesseract non ha `ita`/`eng` scarica da solo `ita.traineddata` e `eng.traineddata` (tessdata_best) nella
