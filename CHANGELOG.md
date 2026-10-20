@@ -3,6 +3,12 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.6 — 2026-10-20 — Compatibilita' Linux, fase 0: helper per le differenze tra sistemi operativi
+
+- **`utils/platform_compat.py`** (nuovo, non ancora usato dal codice): `venv_python()`, `no_window_flags()`, `kill_tree()`, `IS_WINDOWS`.
+  Su Windows restituiscono esattamente i valori che il codice oggi cabla (`Scripts/python.exe`, `0x08000000`); su Linux gli
+  equivalenti POSIX. Nessun cambio di comportamento. Le fasi successive sposteranno i punti Windows-dipendenti noti sull'helper.
+
 ## 1.34.5 — 2026-10-20 — Log Sintetico acceso all'apertura
 
 - **Log Sintetico** e' ora acceso di default all'apertura dell'app (e quindi la card "Pipeline in corso" e' attiva). Si puo' spegnere per
