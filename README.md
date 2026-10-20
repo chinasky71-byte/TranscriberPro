@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.34.5-orange)
+![Version](https://img.shields.io/badge/Version-1.34.6-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -315,6 +315,7 @@ This project is licensed under the MIT License.
 ### v1.24.0 - v1.30.2
 Six weeks of work on translation/transcription quality for non-English sources, condensed here; full detail,
 measurement methodology and decision rules for every claim below are in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.6** — Linux compatibility, phase 0: new `utils/platform_compat.py` helper (no behaviour change on Windows). Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.5** — Compact Log is on by default at startup. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.4** — Steps card: no stale ETA when an engine reports 100%. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.3** — UI: slimmer Start / Stop buttons (more room for the queue and the Library Scanner). Details in [CHANGELOG.md](CHANGELOG.md).
