@@ -44,6 +44,10 @@ LABEL_KEYS = {
 # Barra stimata (secondi di costante di tempo): passi brevi di cui non esiste una misura reale
 EST_TAU = {'save': 1.5, 'upload': 8.0}
 
+# Passi che dopo il 100% del motore hanno ancora lavoro (trascrizione: allineamento, diarizzazione, punteggiatura;
+# traduzione: recupero dei blocchi da rifare): la card li tiene a 99% finche' non inizia il passo successivo.
+HOLD_AT_99 = ('asr', 'translate', 'ocr_translate')
+
 # Evento `bar` (gruppo) -> passo che lo riceve (nel percorso OCR la traduzione e' `ocr_translate`)
 _BAR_TO_STEP = {'demucs': 'demucs', 'asr': 'asr', 'translate': 'translate', 'gender': 'gender', 'ocr': 'ocr_read'}
 
@@ -286,6 +290,8 @@ class StepTracker:
         if self._status[key] in (PENDING, NOT_NEEDED):
             self._enter(key)                         # barra senza fase annunciata: il passo e' di fatto in corso
         p = min(max(int(pct), 0), 100)
+        if key in HOLD_AT_99 and p >= 100:
+            p = 99
         if p > self._pct.get(key, -1):
             self._pct[key] = p
             est = self._est.get(key)
@@ -295,7 +301,7 @@ class StepTracker:
             if eta_s is None:                           # nessuna ETA dal motore: stima dal ritmo delle percentuali
                 rem = est.remaining_seconds()
                 self._eta[key] = _fmt_eta(rem)
-        if eta_s is not None and p < 100:               # ETA del motore (la stessa del suo log): ha la precedenza
+        if eta_s is not None and p < 99:                # ETA del motore (la stessa del suo log): ha la precedenza
             self._eta[key] = _fmt_eta(float(eta_s))
 
     def _step(self, name: str, state: str, reason: str, ok: bool = True) -> None:
