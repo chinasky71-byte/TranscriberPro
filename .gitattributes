@@ -1,0 +1,4 @@
+# Fine riga: i file letti da script POSIX o dal tema restano LF anche su Windows.
+*.sh text eol=lf
+*.tpl text eol=lf
+*.qss text eol=lf

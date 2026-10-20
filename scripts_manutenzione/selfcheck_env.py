@@ -63,8 +63,13 @@ def main():
     want_json = '--json' in sys.argv
     check_gpu = '--no-gpu' not in sys.argv
 
-    add('sistema', 'Python', sys.version_info[:2] == (3, 11), platform.python_version() + ' (serve 3.11)')
-    add('sistema', 'Windows', os.name == 'nt', platform.platform(), True)
+    is_win = os.name == 'nt'
+    if is_win:
+        add('sistema', 'Python', sys.version_info[:2] == (3, 11), platform.python_version() + ' (serve 3.11)')
+        add('sistema', 'Windows', True, platform.platform(), True)
+    else:   # Linux/macOS: 3.11 provato dall'autore; 3.12 ha tutte le ruote ma non e' verificato a runtime
+        add('sistema', 'Python', sys.version_info[:2] in ((3, 11), (3, 12)), platform.python_version() + ' (serve 3.11, o 3.12 non verificato)')
+        add('sistema', platform.system(), True, platform.platform(), True)
 
     # ordine dell'app (main.py): onnxruntime prima di PyQt6
     ort = try_import('onnxruntime')
@@ -109,18 +114,18 @@ def main():
     # binari esterni: si controlla quello che l'APP vede davvero (PATH, percorso nelle Impostazioni, shim di scoop)
     cfg = {}
     try:
-        with open(os.path.expanduser(r'~\.transcriberpro\config.json'), encoding='utf-8') as f:
+        with open(os.path.join(os.path.expanduser('~'), '.transcriberpro', 'config.json'), encoding='utf-8') as f:
             cfg = json.load(f)
     except Exception:
         pass
-    scoop = os.path.expanduser(r'~\scoop\shims')
+    scoop = os.path.expanduser(r'~\scoop\shims') if is_win else ''
     for exe, req, hint, extra in (
-            ('ffmpeg', True, 'winget install Gyan.FFmpeg', []),
+            ('ffmpeg', True, 'winget install Gyan.FFmpeg' if is_win else 'installa ffmpeg dal gestore pacchetti', []),
             ('ffprobe', True, 'incluso in FFmpeg', []),
-            ('tesseract', True, 'winget install UB-Mannheim.TesseractOCR',
-             [cfg.get('ocr_tesseract_path') or '', os.path.join(scoop, 'tesseract.exe')]),
-            ('mkvextract', False, 'winget install MoritzBunkus.MKVToolNix (solo per i VOBSUB)',
-             [os.path.join(scoop, 'mkvextract.exe')])):
+            ('tesseract', True, 'winget install UB-Mannheim.TesseractOCR' if is_win else 'installa tesseract-ocr dal gestore pacchetti',
+             [cfg.get('ocr_tesseract_path') or '', os.path.join(scoop, 'tesseract.exe') if scoop else '']),
+            ('mkvextract', False, ('winget install MoritzBunkus.MKVToolNix' if is_win else 'installa mkvtoolnix dal gestore pacchetti') + ' (solo per i VOBSUB)',
+             [os.path.join(scoop, 'mkvextract.exe') if scoop else ''])):
         path = shutil.which(exe)
         if not path:
             for cand in extra:
@@ -143,8 +148,9 @@ def main():
             langs = set(out.split()) if rc == 0 else set()
             add('esterni', 'tesseract ita+eng', {'ita', 'eng'} <= langs,
                 'ok' if {'ita', 'eng'} <= langs else 'mancano ita.traineddata / eng.traineddata (tessdata_best)', True)
-    add('esterni', 'Visual C++ Redistributable', os.path.exists(os.path.join(os.environ.get('WINDIR', r'C:\Windows'), 'System32', 'msvcp140.dll')),
-        'MSVCP140.dll (winget install Microsoft.VCRedist.2015+.x64)', True)
+    if is_win:
+        add('esterni', 'Visual C++ Redistributable', os.path.exists(os.path.join(os.environ.get('WINDIR', r'C:\Windows'), 'System32', 'msvcp140.dll')),
+            'MSVCP140.dll (winget install Microsoft.VCRedist.2015+.x64)', True)
 
     # stampa
     if want_json:
