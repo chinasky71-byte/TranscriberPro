@@ -603,6 +603,8 @@ class MainWindow(QMainWindow):
         self.pipeline_steps.toggled.connect(self.settings_service.set_pipeline_card_open)
         self.pipeline_steps.setVisible(False)
         layout.addWidget(self.pipeline_steps)
+        # Log Sintetico acceso all'apertura (si puo' spegnere per la sessione; non e' persistito)
+        self.compact_log_checkbox.setChecked(True)
 
         # Log text
         self.log_text = QTextEdit()
