@@ -303,6 +303,8 @@ class StepTracker:
                 self._eta[key] = _fmt_eta(rem)
         if eta_s is not None and p < 99:                # ETA del motore (la stessa del suo log): ha la precedenza
             self._eta[key] = _fmt_eta(float(eta_s))
+        if int(pct) >= 100:                             # il motore ha finito: nessuna ETA (non lasciare l'ultima, ormai vecchia)
+            self._eta[key] = ''
 
     def _step(self, name: str, state: str, reason: str, ok: bool = True) -> None:
         if name not in ('save', 'upload', 'mux'):
