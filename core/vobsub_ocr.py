@@ -15,13 +15,13 @@ Pipeline validata dallo spike 2026-06-03 (vedi memory/project_pgs_ocr_module.md)
 """
 import os
 import sys
-import shutil
 import logging
 import subprocess
 from pathlib import Path
 from typing import Optional, Callable, List, Tuple
 
 from core.subtitle_extractor import SubtitleExtractor
+from utils.platform_compat import find_tool
 from core.bitmap_ocr_common import (
     preprocess_for_ocr, ocr_image_verbatim, ocr_images_parallel, pick_tesseract_lang,
     srt_track_title, refine_content_lang, available_tesseract_langs)
@@ -52,11 +52,7 @@ class BitmapNotSupported(Exception):
 
 
 def _find_mkvextract() -> Optional[str]:
-    exe = shutil.which("mkvextract")
-    if exe:
-        return exe
-    candidate = Path.home() / "scoop" / "shims" / "mkvextract.exe"
-    return str(candidate) if candidate.exists() else None
+    return find_tool("mkvextract")
 
 
 class VobSubOcr:
@@ -114,7 +110,7 @@ class VobSubOcr:
                 return default
 
     def _configure_tesseract(self):
-        path = self._cfg(CFG_TESSERACT_PATH, "")
+        path = self._cfg(CFG_TESSERACT_PATH, "") or find_tool("tesseract")   # Impostazioni > PATH > cartelle standard
         if path:
             try:
                 import pytesseract
