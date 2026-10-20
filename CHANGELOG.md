@@ -3,6 +3,11 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.5 — 2026-10-20 — Log Sintetico acceso all'apertura
+
+- **Log Sintetico** e' ora acceso di default all'apertura dell'app (e quindi la card "Pipeline in corso" e' attiva). Si puo' spegnere per
+  la sessione dalla casella; la scelta non e' persistita.
+
 ## 1.34.4 — 2026-10-20 — Card dei passi: niente ETA stantia a fine passo
 
 - Quando il motore chiude la barra (100%) l'ETA del passo viene azzerata: prima restava l'ultima ricevuta (es. "~15s" accanto a 100%).
