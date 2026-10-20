@@ -3,6 +3,10 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.4 — 2026-10-20 — Card dei passi: niente ETA stantia a fine passo
+
+- Quando il motore chiude la barra (100%) l'ETA del passo viene azzerata: prima restava l'ultima ricevuta (es. "~15s" accanto a 100%).
+
 ## 1.34.3 — 2026-10-20 — Interfaccia: pulsanti Avvia e Ferma piu' bassi
 
 - **Avvia / Ferma**: padding verticale da 12 a 6 px e font da 10,5 a 10 pt (circa 12 px in meno di altezza) per lasciare piu' spazio
