@@ -6,19 +6,23 @@
 #   ./install.sh                crea il venv e installa requirements.txt (chiede conferma per sudo)
 #   ./install.sh --system-deps  propone anche l'installazione dei pacchetti di sistema con sudo
 #   opzioni: --no-gpu (ruote CPU di torch e llama-cpp-python, ~250 MB invece di ~3 GB) --yes (nessuna domanda)
+#            --with-models  scarica da Hugging Face il Qwen2.5 (glossario/serbatoio) e il NLLB fine-tuned (molti GB)
+#            --qwen-size=auto|7b|14b  (auto = 14B con GPU da 12 GB o piu', 7B con GPU piu' piccola o --no-gpu)
 #
 # Non copia ne' scrive mai credenziali. Non va lanciato come root (il venv deve essere dell'utente).
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CHECK=0; SYSDEPS=0; NOGPU=0; YES=0
+CHECK=0; SYSDEPS=0; NOGPU=0; YES=0; WITHMODELS=0; QWENSIZE=auto
 for a in "$@"; do
   case "$a" in
     --check) CHECK=1 ;;
     --system-deps) SYSDEPS=1 ;;
     --no-gpu) NOGPU=1 ;;
     --yes) YES=1 ;;
-    -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
+    --with-models) WITHMODELS=1 ;;
+    --qwen-size=*) QWENSIZE="${a#--qwen-size=}" ;;
+    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
     *) echo "Opzione sconosciuta: $a"; exit 2 ;;
   esac
 done
@@ -138,6 +142,40 @@ fi
 echo "  pip install -r requirements.txt  (puo' richiedere diversi minuti e alcuni GB di download)"
 "$VPY" -m pip install -r "$REQ" || { bad "pip install fallito (vedi l'errore sopra; rilancia dopo averlo risolto)"; exit 1; }
 ok "ambiente principale pronto"
+
+if [ "$WITHMODELS" = "1" ]; then
+  echo; echo "== Modelli locali (Hugging Face)"
+  case "$QWENSIZE" in auto|7b|14b) ;; *) bad "--qwen-size deve essere auto, 7b o 14b"; exit 2 ;; esac
+  QS="$QWENSIZE"
+  if [ "$QS" = "auto" ]; then
+    VR=0
+    if [ "$NOGPU" = "0" ] && have nvidia-smi; then VR="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | sort -n | tail -1)"; fi
+    case "$VR" in ''|*[!0-9]*) VR=0 ;; esac
+    if [ "$VR" -ge 12000 ]; then QS=14b; else QS=7b; fi
+  fi
+  if [ "$QS" = "7b" ]; then echo "  Qwen2.5-7B-Instruct Q4_K_M (2 file, ~4,7 GB: ripiego per GPU sotto i 12 GB) -> models/"
+  else echo "  Qwen2.5-14B-Instruct Q4_K_M (3 file, ~9 GB) -> models/"; fi
+  echo "  NLLB-200 3.3B fine-tuned EN->IT (Chinasky71/nllb-200-3.3b-it-subtitles, molti GB) -> NLLB_Tranined/"
+  if ask "Scarico questi modelli?"; then
+    "$VPY" - "$ROOT" "$QS" <<'PYEOF' || warn "Download modelli non completato: rilancia ./install.sh --with-models (riprende da dove si e' fermato)."
+import sys
+from huggingface_hub import hf_hub_download, snapshot_download
+root, size = sys.argv[1], sys.argv[2]
+if size == '7b':
+    repo, name, n = 'Qwen/Qwen2.5-7B-Instruct-GGUF', 'qwen2.5-7b-instruct-q4_k_m-0000%d-of-00002.gguf', 2
+else:
+    repo, name, n = 'Qwen/Qwen2.5-14B-Instruct-GGUF', 'qwen2.5-14b-instruct-q4_k_m-0000%d-of-00003.gguf', 3
+for i in range(1, n + 1):
+    f = name % i
+    print('scarico', f, flush=True)
+    hf_hub_download(repo, f, local_dir=root + '/models')
+print('scarico NLLB fine-tuned', flush=True)
+snapshot_download('Chinasky71/nllb-200-3.3b-it-subtitles', local_dir=root + '/NLLB_Tranined')
+print('modelli scaricati')
+PYEOF
+  fi
+  warn "TranslateGemma fine-tuned (models/translategemma-...): non e' su un hub, va copiato a mano. Il Qwen in models/ lo sceglie l'app da sola in base alla VRAM."
+fi
 
 echo; echo "== Controllo finale"
 SC=("$VPY" "$ROOT/scripts_manutenzione/selfcheck_env.py"); [ "$NOGPU" = "1" ] && SC+=("--no-gpu")

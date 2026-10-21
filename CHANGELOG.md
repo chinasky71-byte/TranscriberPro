@@ -3,6 +3,10 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.16 — 2026-10-21 — Linux: download dei modelli in `install.sh` (NON VERIFICATO su Linux reale)
+
+- **`install.sh`**: nuove opzioni `--with-models` e `--qwen-size=auto|7b|14b`, equivalenti a `-WithModels` / `-QwenSize` di `install.ps1`: scarica il Qwen2.5 (14B con GPU da 12 GB o piu', 7B con GPU piu' piccola o `--no-gpu`) e il NLLB fine-tuned da Hugging Face. Provato solo con `bash -n` e con `uname` finto.
+
 ## 1.34.15 — 2026-10-21 — Qwen 7B come ripiego automatico per le GPU piccole
 
 - **Scelta del modello** (`utils/llm_model_select.py`, `Config.resolve_llm_model`): quando il percorso del Qwen (glossario per-show e serbatoio L3) non e' impostato,
