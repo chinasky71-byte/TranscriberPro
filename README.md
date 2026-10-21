@@ -1125,5 +1125,5 @@ Lista aggiornata a ogni commit + push di una nuova versione.
 **Priorità decise, non ancora avviate**
 - Confronto Qwen2.5-7B-Q4 vs 14B nei tre punti della pipeline che usano lo stesso modello GGUF
 
-**Bloccato su verifica umana**
-- Ascolto X Factor (chunk "MISTO" / lingua "?") prima di allargare le lingue accettate dal retry di lingua forzata oltre l'inglese
+**Idee da seguire in futuro**
+- Allargare le lingue accettate dal retry di lingua forzata oltre l'inglese (oggi solo `['en']`): richiede prima l'ascolto dei chunk "MISTO" / lingua "?" di X Factor, per verificare che il testo recuperato non sia inventato
