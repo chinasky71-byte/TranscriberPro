@@ -3,6 +3,13 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.14 — 2026-10-21 — Licenze e contenuti di terze parti
+
+- **`utils/tmdb_client.py`**: tolta la chiave TMDB che era scritta nel codice (pubblica nel repo). La chiave si legge da `tmdb_api.txt` o dalla variabile `TMDB_API_KEY`;
+  senza chiave le funzioni TMDB (locandine, ricerche) restano disattivate e il log lo dice. Chi aveva `tmdb_api.txt` non nota differenze.
+- **`LICENSE`** (MIT, codice originale) e **`NOTICE.md`** (componenti di terze parti con le loro licenze: tokenizer NLLB CC-BY-NC, vobsub MIT, pgsreader senza licenza upstream, font OFL).
+- Rimossi dal repo i file di prova di `core/vendor/pgsreader/tests/` (un fotogramma PGS di un film e un foglio di calcolo): non erano usati dall'app.
+
 ## 1.34.13 — 2026-10-20 — Linux, fase 3: installer, percorsi del Library Scanner, notifiche (NON VERIFICATO su Linux reale)
 
 - **`install.sh` / `run.sh`** (nuovi): installer e lanciatore per Linux. Riconoscono apt, dnf, pacman o zypper e propongono (con `sudo`, solo su richiesta) i pacchetti di sistema;

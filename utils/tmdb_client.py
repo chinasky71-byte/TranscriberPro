@@ -56,7 +56,6 @@ except ImportError:
 class TMDBClient:
     """Client TMDB con triplo fallback per IMDb ID"""
     
-    FALLBACK_API_KEY = "d7a0c191f50c48602f75b8a8eba4b3fc"
     
     def __init__(self, api_key: str = None):
         self.api_key = api_key or self._load_api_key()
@@ -83,7 +82,11 @@ class TMDBClient:
             logger.warning("⚠️ Nessun fallback IMDb disponibile")
     
     def _load_api_key(self) -> str:
-        """Carica API key dal file o usa fallback"""
+        """Carica la chiave TMDB personale: variabile d'ambiente TMDB_API_KEY o file tmdb_api.txt. Nessuna chiave inclusa nel codice."""
+        import os
+        env_key = (os.environ.get('TMDB_API_KEY') or '').strip()
+        if len(env_key) > 10:
+            return env_key
         possible_paths = [
             Path(__file__).parent.parent / 'tmdb_api.txt',
             Path.home() / '.transcriberpro' / 'tmdb_api.txt',
@@ -101,8 +104,9 @@ class TMDBClient:
                 except Exception as e:
                     logger.error(f"Errore lettura {api_file}: {e}")
         
-        logger.warning(f"⚠️ File tmdb_api.txt non trovato, uso fallback key")
-        return self.FALLBACK_API_KEY
+        logger.warning("⚠️ Chiave TMDB non trovata (tmdb_api.txt o variabile TMDB_API_KEY): locandine e ricerche TMDB disattivate")
+        return ''
+
     
     def _get_imdb_id(self, media_type: str, tmdb_id: int, media_info: Optional[Dict] = None) -> Optional[str]:
         """
