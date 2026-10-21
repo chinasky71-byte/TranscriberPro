@@ -1118,9 +1118,9 @@ Lista aggiornata a ogni commit + push di una nuova versione.
 - Opzione job "Muxa nel video": validata su clip reali (aggiunta, copia embedded non duplicata, OCR, trascrizione) e dall'utente in GUI (16/10/2026): funziona
 - Sostituzione della traccia segnata per errore come italiana: validata su clip reali (testo e bitmap PGS, e guardia contro il file riscritto); VobSub condivide la stessa logica ma non ha una clip di prova; OCR multi-traccia (completa + forced) validato su clip reali PGS e VobSub (v1.30.10)
 - Selezione sottotitoli embedded per contenuto: validata su clip reali (tag errato, lingua non dichiarata, flag forced anomalo, italiano corretto); non ancora su una coda lunga reale; il caso OCR fallito con ripiego sull'audio è coperto dal banco (v1.30.11)
-- Validati dall'utente il 15/10/2026: finestra con riordino della coda, Glossario per-show GUI semi-automatico, split per frasi (nessun difetto); resta non misurato l'effetto dello split sulla qualità di traduzione
+- Validati dall'utente il 15/10/2026: finestra con riordino della coda, Glossario per-show GUI semi-automatico, split per frasi (nessun difetto; 21/10/2026: provato su diverse trascrizioni e traduzioni, funziona bene)
 - Sidecar con blocchi fuori ordine temporale (v1.30.12): ordinati dal cleaner e validati dal banco (18 casi su clip reali, incl. un tratto di Petra con inversioni reali); origine individuata: erano i chunk audio sovrapposti corretti in v1.16.0 (8/9/2026), tutti i 14 file disordinati sono precedenti e nessuno dei 43 prodotti in ottobre ne ha; un duplicato fuori ordine nei vecchi file puo' ora restare come battuta ripetuta
-- Installer per PC nuovi (`install.bat`/`.ps1`): non ancora verificati avvio GUI, pipeline diarization, caricamento modelli, e opzione `-WithModels` su una macchina pulita
+- Installer per PC nuovi (`install.bat`/`.ps1`): verificato il 20/10/2026 su un PC pulito senza GPU (installazione, idempotenza, avvio GUI, selfcheck); non ancora verificati diarization, caricamento modelli, `-WithModels` e l'installazione con GPU NVIDIA. `install.sh` (Linux) mai eseguito su una macchina Linux
 
 **Priorità decise, non ancora avviate**
 - Confronto Qwen2.5-7B-Q4 vs 14B nei tre punti della pipeline che usano lo stesso modello GGUF
