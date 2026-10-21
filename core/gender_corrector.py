@@ -304,8 +304,9 @@ _GENDER_LABEL = {"M": "MASCHIO", "F": "FEMMINA"}
 class LocalLLMCorrector:
     """Gestisce il modello GGUF locale per la correzione di genere."""
 
-    def __init__(self, model_path: str, log_callback: Callable = None):
+    def __init__(self, model_path: str, log_callback: Callable = None, n_gpu_layers: int = -1):
         self.model_path = model_path
+        self.n_gpu_layers = n_gpu_layers
         self.model = None
         self._log_callback = log_callback
 
@@ -328,7 +329,7 @@ class LocalLLMCorrector:
             self._log("Caricamento modello LLM per correzione genere...")
             self.model = Llama(
                 model_path=self.model_path,
-                n_gpu_layers=-1,
+                n_gpu_layers=self.n_gpu_layers,
                 n_ctx=4096,
                 n_batch=512,
                 verbose=False,
@@ -524,8 +525,10 @@ class GenderCorrectionEngine:
 
             # 4. Load modello LLM
             from utils.config import get_config
-            model_path = get_config().get('gender_correction_model_path', '')
-            self._corrector = LocalLLMCorrector(model_path, log_callback=self._log_callback)
+            model_path, n_gpu_layers = get_config().resolve_llm_model(
+                'gender_correction_model_path', getattr(self, 'llm_model_preference', None))
+            self._corrector = LocalLLMCorrector(model_path, log_callback=self._log_callback,
+                                                n_gpu_layers=n_gpu_layers)
 
             if not self._corrector.load_model():
                 self._log("Impossibile caricare modello LLM. Salto correzione genere.")

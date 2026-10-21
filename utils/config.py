@@ -323,6 +323,7 @@ class Config:
         # Gender Correction (LLM post-traduzione)
         'gender_correction_enabled': False,
         'gender_correction_model_path': '',
+        'llm_model_preference': 'auto',   # ripiego automatico 14B/7B (utils.llm_model_select)
         # Serbatoio di traduzione (L3): modello Qwen di ripiego per le righe
         # che sopravvivono a unmask tollerante + retry senza masking. Vuota
         # per default -> get_fallback_translator_model_path() ricade sul
@@ -981,18 +982,46 @@ class Config:
     def is_gender_correction_available(self) -> bool:
         if not self.get('gender_correction_enabled', False):
             return False
-        p = self.get('gender_correction_model_path', '')
-        return bool(p) and Path(p).exists()
+        return bool(self.resolve_llm_model('gender_correction_model_path')[0])
+
+    def resolve_llm_model(self, key: str = 'gender_correction_model_path', preference=None):
+        """(percorso GGUF, n_gpu_layers) del Qwen locale. Percorso configurato in `key`
+        e file esistente -> invariato, n_gpu_layers=-1 (comportamento storico). Altrimenti
+        ripiego automatico 14B/7B in base alla VRAM (utils.llm_model_select) dentro models/.
+        `preference` (per singolo job) ha la precedenza sulla chiave
+        'llm_model_preference' (default 'auto'); conta solo nel ripiego automatico.
+        Nessun modello disponibile -> ('', 0)."""
+        p = self.get(key, '')
+        if p and Path(p).exists():
+            return p, -1
+        try:
+            from utils.llm_model_select import detect_vram_mib, pick_qwen_model
+            vram = getattr(self, '_llm_vram_mib', None)
+            if vram is None:
+                vram = detect_vram_mib()
+                if vram is not None:        # un errore momentaneo di nvidia-smi non resta in cache per tutta la sessione
+                    self._llm_vram_mib = vram
+            pref = preference or self.get('llm_model_preference', 'auto')
+            auto, ngl = pick_qwen_model(Path(__file__).resolve().parent.parent / 'models', vram, pref)
+            if auto:
+                return auto, ngl
+        except Exception as e:
+            logger.warning(f"Scelta automatica modello Qwen fallita: {e}")
+        return '', 0
 
     def get_fallback_translator_model_path(self) -> str:
         """Modello Qwen del serbatoio di traduzione (L3). Se non configurato
         esplicitamente ricade sul modello del gender corrector: stesso GGUF,
         stessa infrastruttura di caricamento, nessun download aggiuntivo per
         chi non ha mai toccato questa chiave."""
+        return self.get_fallback_translator_model()[0]
+
+    def get_fallback_translator_model(self, preference=None):
+        """(percorso, n_gpu_layers) del serbatoio L3: stessa regola di get_fallback_translator_model_path."""
         p = self.get('fallback_translator_model_path', '')
         if p and Path(p).exists():
-            return p
-        return self.get('gender_correction_model_path', '')
+            return p, -1
+        return self.resolve_llm_model('gender_correction_model_path', preference)
 
     def set_fallback_translator_model_path(self, path: str):
         self.set('fallback_translator_model_path', str(path))

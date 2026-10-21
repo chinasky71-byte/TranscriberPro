@@ -22,6 +22,7 @@
 .PARAMETER All                  Equivale a -WithNlp -WithCanary -WithGlossary -WithModels -InstallSystemDeps.
 .PARAMETER Yes                  Non chiede conferme (assume si').
 .PARAMETER SkipVerify           Salta il controllo finale.
+.PARAMETER QwenSize             Con -WithModels: Qwen2.5 da scaricare. auto = 14B con GPU da 12 GB o piu', 7B con GPU piu' piccola o senza GPU.
 .PARAMETER NoGpu                 PC senza GPU NVIDIA: il driver non e' richiesto e il controllo finale salta i test CUDA (l'app gira ~10 volte piu' lenta).
 .PARAMETER VenvRoot             Cartella dove creare i venv (default: la cartella del progetto). Serve per prove.
 .PARAMETER PythonExe            Percorso di un python.exe 3.11 (default: cerca "py -3.11" o "python").
@@ -43,6 +44,7 @@ param(
     [switch]$Yes,
     [switch]$SkipVerify,
     [switch]$NoGpu,
+    [ValidateSet('auto', '7b', '14b')][string]$QwenSize = 'auto',
     [string]$VenvRoot = '',
     [string]$PythonExe = ''
 )
@@ -324,7 +326,16 @@ if ($VenvRoot -ne $Root) { Write-Warn "VenvRoot diverso dalla cartella del proge
 # ------------------------------------------------------------------ modelli
 if ($WithModels) {
     Write-Head 'Modelli locali (HuggingFace)'
-    Write-Host '  Qwen2.5-14B-Instruct Q4_K_M (3 file, ~9 GB) -> models\'
+    $qsize = $QwenSize
+    if ($qsize -eq 'auto') {
+        $vram = 0
+        if (-not $NoGpu) {
+            try { $v = @(& nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>$null); $vram = [int](($v | Measure-Object -Maximum).Maximum) } catch { }
+        }
+        $qsize = if ($vram -ge 12000) { '14b' } else { '7b' }
+    }
+    if ($qsize -eq '7b') { Write-Host '  Qwen2.5-7B-Instruct Q4_K_M (2 file, ~4,7 GB: ripiego per GPU sotto i 12 GB) -> models\' }
+    else { Write-Host '  Qwen2.5-14B-Instruct Q4_K_M (3 file, ~9 GB) -> models\' }
     Write-Host '  NLLB-200 3.3B fine-tuned EN->IT (Chinasky71/nllb-200-3.3b-it-subtitles, molti GB) -> NLLB_Tranined\'
     if (Confirm-Step 'Scarico questi modelli?') {
         $tmp = Join-Path $env:TEMP 'tp_download_models.py'
@@ -332,21 +343,25 @@ if ($WithModels) {
 import sys
 from huggingface_hub import hf_hub_download, snapshot_download
 root = sys.argv[1]
-for i in (1, 2, 3):
-    f = 'qwen2.5-14b-instruct-q4_k_m-0000%d-of-00003.gguf' % i
+if sys.argv[2] == '7b':
+    repo, name, n = 'Qwen/Qwen2.5-7B-Instruct-GGUF', 'qwen2.5-7b-instruct-q4_k_m-0000%d-of-00002.gguf', 2
+else:
+    repo, name, n = 'Qwen/Qwen2.5-14B-Instruct-GGUF', 'qwen2.5-14b-instruct-q4_k_m-0000%d-of-00003.gguf', 3
+for i in range(1, n + 1):
+    f = name % i
     print('scarico', f, flush=True)
-    hf_hub_download('Qwen/Qwen2.5-14B-Instruct-GGUF', f, local_dir=root + '/models')
+    hf_hub_download(repo, f, local_dir=root + '/models')
 print('scarico NLLB fine-tuned', flush=True)
 snapshot_download('Chinasky71/nllb-200-3.3b-it-subtitles', local_dir=root + '/NLLB_Tranined')
 print('modelli scaricati')
 '@ | Set-Content -Path $tmp -Encoding UTF8
-        & $MainPy $tmp $Root | Out-Host
+        & $MainPy $tmp $Root $qsize | Out-Host
         if ($LASTEXITCODE -ne 0) { Write-Warn 'Download modelli non completato: rilancia install.ps1 -WithModels (riprende da dove si e'' fermato).' }
         Remove-Item $tmp -ErrorAction SilentlyContinue
     }
     Write-Warn 'TranslateGemma fine-tuned (models\translategemma-...): non e'' su un hub, va copiato a mano dal PC di origine.'
-    Write-Host '  Poi, nelle Impostazioni dell''app, seleziona i percorsi: NLLB fine-tuned -> NLLB_Tranined ; Qwen (correzione genere /'
-    Write-Host '  serbatoio / sync) -> models\qwen2.5-14b-instruct-q4_k_m-00001-of-00003.gguf'
+    Write-Host '  Poi, nelle Impostazioni dell''app, seleziona il percorso di NLLB fine-tuned -> NLLB_Tranined. Il Qwen in models\ (14B o 7B)'
+    Write-Host '  lo sceglie l''app da sola in base alla VRAM (glossario e serbatoio), se non imposti un percorso a mano.'
     Write-Host '  Whisper large-v3, Qwen3-ASR, Demucs e pyannote si scaricano da soli al primo uso (pyannote richiede il token HF).'
 }
 

@@ -409,7 +409,15 @@ class GlossaryDialog(QDialog):
             except Exception as e:
                 logger.warning(f"Lettura used_episodes fallita: {e}")
 
-        qwen_model_path = get_config().get('gender_correction_model_path', '') or None
+        qwen_model_path, qwen_ngl = get_config().resolve_llm_model(
+            'gender_correction_model_path', getattr(self, 'llm_model_preference', None))
+        if qwen_model_path and qwen_ngl == 0:
+            # Scelta automatica senza GPU utilizzabile: il canale Qwen su sola CPU richiederebbe ore, non si accende da solo.
+            logger.info(f"Canale Qwen del glossario non attivato (nessuna GPU rilevata): {qwen_model_path}")
+            qwen_model_path = None
+        elif qwen_model_path:
+            logger.info(f"Canale Qwen del glossario: {qwen_model_path} (n_gpu_layers={qwen_ngl})")
+        qwen_model_path = qwen_model_path or None
 
         args_payload = {
             "show_dir": show_dir,
@@ -422,7 +430,7 @@ class GlossaryDialog(QDialog):
             "use_qwen": bool(qwen_model_path),
             "qwen_model_path": qwen_model_path,
             "align_device": "cpu",
-            "qwen_n_gpu_layers": -1,
+            "qwen_n_gpu_layers": qwen_ngl,
             "exclude_episodes": exclude_episodes,
         }
         work_dir = PROJECT_ROOT / 'glossary_engine' / 'glossary_work' / name

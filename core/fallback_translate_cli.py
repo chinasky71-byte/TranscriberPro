@@ -194,7 +194,8 @@ def main(argv: list) -> int:
 
     try:
         _emit(f"📦 Caricamento modello di ripiego ({Path(model_path).name})...")
-        model = Llama(model_path=model_path, n_gpu_layers=-1, n_ctx=4096,
+        _ngl = args.get('n_gpu_layers')
+        model = Llama(model_path=model_path, n_gpu_layers=-1 if _ngl is None else int(_ngl), n_ctx=4096,
                      n_batch=512, verbose=False)
     except Exception as e:
         _emit(f"ERRORE CLI: caricamento modello fallito: {e}")
