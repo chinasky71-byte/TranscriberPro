@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.34.14-orange)
+![Version](https://img.shields.io/badge/Version-1.34.15-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -315,6 +315,7 @@ This project is licensed under the MIT License.
 ### v1.24.0 - v1.30.2
 Six weeks of work on translation/transcription quality for non-English sources, condensed here; full detail,
 measurement methodology and decision rules for every claim below are in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.15** — Qwen2.5-7B is now the automatic fallback for GPUs under 12 GB (glossary building and L3 reservoir); the 14B stays the default and an explicitly set model path behaves exactly as before. Installer option `-QwenSize`. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.14** — Licensing: added `LICENSE` and `NOTICE.md`, removed the TMDB key hardcoded in the source (now `tmdb_api.txt` / `TMDB_API_KEY`), removed third-party film test fixtures. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.13** — Linux phase 3 (UNVERIFIED on a real Linux machine): `install.sh`/`run.sh`, Library Scanner mounted-folder mapping, portable self-check, `notify-send`. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.12** — Clean-PC install: external tools (Tesseract, MKVToolNix) are found outside PATH, `-NoGpu` installs CPU torch, Library Scanner default address fixed. Details in [CHANGELOG.md](CHANGELOG.md).

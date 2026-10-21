@@ -3,6 +3,15 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.15 — 2026-10-21 — Qwen 7B come ripiego automatico per le GPU piccole
+
+- **Scelta del modello** (`utils/llm_model_select.py`, `Config.resolve_llm_model`): quando il percorso del Qwen (glossario per-show e serbatoio L3) non e' impostato,
+  l'app sceglie da sola in `models/` il Qwen2.5-14B con GPU da 12 GB o piu', il 7B tra 6 e 12 GB o se manca il 14B, con i layer su GPU calcolati dalla VRAM (offload parziale
+  sotto soglia). Senza GPU il canale Qwen del glossario non si accende da solo (su CPU richiederebbe ore). **Con un percorso impostato e il file presente, il comportamento e' identico a prima.**
+  Un errore momentaneo di `nvidia-smi` non resta in cache.
+- **`install.ps1`**: nuova opzione `-QwenSize auto|7b|14b`; con `-WithModels` e `auto` scarica il 14B (3 file) con GPU da 12 GB o piu' e il 7B (2 file, ~4,7 GB) con GPU piu' piccola o `-NoGpu`.
+- Misure (Grey's S22 e Veronica Mars, riferimento = sottotitolo professionale): glossario corretto nel 90,2% dei casi col 14B e nel 67,7% col 7B (7B 2x piu' veloce, meta' VRAM); sul testo finale righe con errore grave 9,8% (14B) contro 10,4% (7B). Per questo il 14B resta il predefinito e il 7B e' solo il ripiego.
+
 ## 1.34.14 — 2026-10-21 — Licenze e contenuti di terze parti
 
 - **`utils/tmdb_client.py`**: tolta la chiave TMDB che era scritta nel codice (pubblica nel repo). La chiave si legge da `tmdb_api.txt` o dalla variabile `TMDB_API_KEY`;

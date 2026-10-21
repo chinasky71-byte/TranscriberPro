@@ -853,10 +853,12 @@ class BaseTranslator(ABC):
 
         engine_choice = self._reservoir_engine_choice()
         model_path = ''
+        n_gpu_layers = -1
         if engine_choice == 'qwen':
             try:
                 from utils.config import get_config as _get_cfg
-                model_path = _get_cfg().get_fallback_translator_model_path()
+                model_path, n_gpu_layers = _get_cfg().get_fallback_translator_model(
+                    getattr(self, 'llm_model_preference', None))
             except Exception as exc:
                 self.log(f"  ⚠️ Serbatoio non disponibile (config): {exc}")
                 return {}
@@ -909,6 +911,7 @@ class BaseTranslator(ABC):
                 "glossary": relevant_glossary,
                 "output_json": str(output_path),
                 "model_path": model_path,
+                "n_gpu_layers": n_gpu_layers,
             }, ensure_ascii=False), encoding='utf-8')
 
             project_root = Path(__file__).resolve().parent.parent
