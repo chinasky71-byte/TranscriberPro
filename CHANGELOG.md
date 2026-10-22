@@ -3,6 +3,18 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.17 — 2026-10-22 — Rilevamento GPU multi-vendor (Windows e Linux)
+
+- **`utils/gpu_detect.py`** (nuovo, solo libreria standard, non inizializza mai CUDA): rileva le GPU NVIDIA, AMD e Intel con piu' fonti e ripiego —
+  `nvidia-smi` (nel PATH e nei percorsi noti di Windows) e NVML via ctypes; sysfs, `rocm-smi` e `/dev/kfd` su Linux; registro di Windows (VRAM a 64 bit);
+  `lspci`; `vulkaninfo` (i device software come llvmpipe non contano). Restituisce nome, VRAM totale/libera, driver, integrata o no, PCI id, e i backend
+  disponibili (cuda, rocm, vulkan) con un backend consigliato (cuda / rocm / vulkan / cpu). Riconosce WSL. Timeout per ogni fonte, nessuna finestra di console,
+  nessuna eccezione verso il chiamante, deduplicazione tra fonti; un errore momentaneo non resta in cache. Variabili per prove e assistenza:
+  `TP_GPU_DETECT=off`, `TP_GPU_FORCE_BACKEND=cuda|rocm|vulkan|cpu`. Da riga di comando: `python utils/gpu_detect.py [--json|--vram|--backend]`.
+- **`utils/llm_model_select.py`**: la VRAM per la scelta del Qwen viene dal nuovo modulo; con una GPU NVIDIA il valore e' quello di sempre. Le GPU AMD/Intel
+  per ora non contano (il `llama-cpp-python` installato e' la ruota CUDA o CPU): si attiveranno con il backend Vulkan/ROCm.
+- Non verificato su hardware AMD/Intel reale, Linux, WSL e macOS (provato su NVIDIA/Windows e con uscite simulate).
+
 ## 1.34.16 — 2026-10-21 — Linux: download dei modelli in `install.sh` (NON VERIFICATO su Linux reale)
 
 - **`install.sh`**: nuove opzioni `--with-models` e `--qwen-size=auto|7b|14b`, equivalenti a `-WithModels` / `-QwenSize` di `install.ps1`: scarica il Qwen2.5 (14B con GPU da 12 GB o piu', 7B con GPU piu' piccola o `--no-gpu`) e il NLLB fine-tuned da Hugging Face. Provato solo con `bash -n` e con `uname` finto.
