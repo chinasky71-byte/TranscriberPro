@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """Scelta del GGUF Qwen2.5-Instruct (14B o 7B) in base alla VRAM della GPU.
 
-Modulo PURO: solo libreria standard, niente torch. La VRAM si legge da `nvidia-smi`.
+Modulo PURO: solo libreria standard, niente torch. La VRAM si legge con utils.gpu_detect (nvidia-smi/NVML per NVIDIA,
+sysfs/rocm-smi per AMD su Linux, registro di Windows; vedi le regole del backend in quel modulo).
 Serve solo come RIPIEGO: chi ha gia' un percorso modello configurato (e il file esiste)
 non passa di qui (vedi Config.resolve_llm_model).
 
@@ -14,7 +15,6 @@ Le schede "da 12 GB" riportano 12282-12288 MiB, le "da 8 GB" ~8188 MiB, le "da 6
 le "da 11 GB" 11264 MiB.
 """
 import re
-import subprocess
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -29,8 +29,6 @@ MODELS = {
     '7b': {'glob': 'qwen2.5-7b-instruct-q4_k_m*.gguf', 'layers': 28, 'layer_mib': 170},
 }
 
-NVIDIA_SMI_TIMEOUT_S = 8
-
 # Preferenza: 'auto' = soglie VRAM; 'fast' = 7B se c'e' (anche con molta VRAM); 'quality' = 14B se c'e' e la VRAM lo regge.
 PREFERENCES = ('auto', 'fast', 'quality')
 
@@ -39,20 +37,18 @@ FAST_MODE_ENABLED = False
 
 
 def detect_vram_mib() -> Optional[int]:
-    """VRAM totale (MiB) della GPU NVIDIA con piu' memoria; None se assente/errore/timeout."""
+    """VRAM totale (MiB) della GPU NVIDIA piu' grande con driver funzionante (gpu_detect.usable_vram_mib con
+    backend='cuda', vedi il commento sotto); None se nessuna GPU CUDA, errore o timeout. Con nvidia-smi che risponde e'
+    lo stesso valore di sempre: il massimo di `nvidia-smi --query-gpu=memory.total`. Unica differenza voluta: se
+    nvidia-smi risponde ma riporta [N/A] per memory.total, si usa la VRAM del registro di Windows / sysfs della stessa
+    GPU, quindi il valore puo' essere noto dove prima era None. Le GPU AMD/Intel NON contano (None)."""
     try:
-        try:
-            from .platform_compat import no_window_flags
-            flags = no_window_flags()
-        except Exception:
-            flags = 0
-        out = subprocess.run(
-            ['nvidia-smi', '--query-gpu=memory.total', '--format=csv,noheader,nounits'],
-            capture_output=True, text=True, timeout=NVIDIA_SMI_TIMEOUT_S, creationflags=flags)
-        if out.returncode != 0:
-            return None
-        vals = [int(x) for x in re.findall(r'\d+', out.stdout or '')]
-        return max(vals) if vals else None
+        from .gpu_detect import detect_gpus, usable_vram_mib
+        # backend='cuda' (decisione del 22/10): il llama-cpp-python installato e' la ruota CUDA o la CPU; finche' non esiste una
+        # ruota Vulkan/HIP supportata dall'installer, contare la VRAM di una GPU AMD/Intel sceglierebbe il 14B con n_gpu_layers=-1
+        # su un llama che gira comunque su CPU (piu' lento, il doppio della RAM). Quando arrivera' il backend Vulkan/ROCm si
+        # passa a usable_vram_mib(rep) (backend consigliato).
+        return usable_vram_mib(detect_gpus(), backend='cuda')
     except Exception:
         return None
 
