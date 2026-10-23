@@ -13,6 +13,7 @@ from __future__ import annotations
 import bisect
 import torch
 from typing import List, Tuple, Dict, Optional, Callable, NamedTuple
+from utils.translations import tr
 
 
 class SpeakerVote(NamedTuple):
@@ -108,14 +109,13 @@ class Diarizer:
             supported = set(self._pipeline.parameters(instantiated=True).get('clustering', {}))
         except Exception as e:
             supported = None
-            self.log(f"  ⚠️ Introspezione parametri clustering fallita ({e}) — invio senza filtro")
+            self.log(tr('di_clustering_parameter_introspection_failed_sending').format(e=e))
 
         if supported is not None:
             dropped = {k: v for k, v in overrides.items() if k not in supported}
             overrides = {k: v for k, v in overrides.items() if k in supported}
             for k, v in dropped.items():
-                self.log(f"  ⚠️ Parametro clustering '{k}'={v} non esiste su "
-                         f"{self._effective_model or '?'} (disponibili: {sorted(supported)}) — IGNORATO")
+                self.log(tr('di_clustering_parameter_does_not_exist').format(k=k, v=v, model=self._effective_model or '?', available=sorted(supported)))
             if 'threshold' in dropped:
                 self._effective_threshold = 0.0
             if 'min_cluster_size' in dropped:
@@ -131,11 +131,7 @@ class Diarizer:
         # Uniform(0.5, 0.8) — 0.85 è fuori) e poi VBx ri-stima e pota i
         # cluster: il numero NON porta lo stesso significato, va ritarato.
         if 'threshold' in overrides and self._effective_model != self.DEFAULT_MODEL:
-            self.log(f"  ⚠️ threshold={overrides['threshold']} è stato tarato su "
-                     f"{self.DEFAULT_MODEL} (clustering agglomerativo). Su "
-                     f"{self._effective_model} il clustering è VBx e la soglia "
-                     f"inizializza solo l'AHC (default del modello 0.6, intervallo "
-                     f"previsto 0.5-0.8) — va RITARATA, non ereditata")
+            self.log(tr('di_threshold_was_tuned_on_agglomerative').format(threshold=overrides['threshold'], DEFAULT_MODEL=self.DEFAULT_MODEL, effective_model=self._effective_model))
 
         # Applicazione UNA CHIAVE ALLA VOLTA (bug-check Opus #2).
         # pyannote.pipeline.Pipeline.instantiate() itera il dict e fa
@@ -165,9 +161,9 @@ class Diarizer:
                     self._effective_threshold = 0.0
                 elif k == 'min_cluster_size':
                     self._effective_min_cluster_size = 0
-                self.log(f"  ⚠️ Override clustering '{k}'={v} ignorato ({e}) — default pyannote")
+                self.log(tr('di_clustering_override_ignored_pyannote_default').format(k=k, v=v, e=e))
         if applied:
-            self.log(f"  🔧 Clustering pyannote sovrascritto: {applied}")
+            self.log(tr('di_pyannote_clustering_overridden').format(applied=applied))
 
     def load(self) -> None:
         import warnings
@@ -188,16 +184,16 @@ class Diarizer:
                     or (get_config().get('diarization_model') or '').strip()
                     or self.DEFAULT_MODEL)
         self._effective_model = model_id
-        self.log(f"  📦 Caricamento modello pyannote {model_id.split('/')[-1]}...")
+        self.log(tr('di_loading_pyannote_model').format(model=model_id.split('/')[-1]))
         self._pipeline = Pipeline.from_pretrained(
             model_id,
             token=self.hf_token
         )
         if torch.cuda.is_available():
             self._pipeline = self._pipeline.to(torch.device("cuda"))
-            self.log("  ✅ Diarizer caricato su CUDA")
+            self.log(tr('di_diarizer_loaded_on_cuda'))
         else:
-            self.log("  ✅ Diarizer caricato su CPU")
+            self.log(tr('di_diarizer_loaded_on_cpu'))
 
         # instantiate() è economico (initialize() non è overridata: no-op) —
         # sicuro da chiamare subito dopo from_pretrained.
@@ -268,7 +264,7 @@ class Diarizer:
         essere soddisfatto tenendo i cluster sbagliati).
         """
         if not result:
-            self.log("  🎭 [diar-ab] nessun turno rilevato")
+            self.log(tr('di_diar_ab_no_turn_detected'))
             return
 
         from collections import defaultdict
@@ -361,9 +357,10 @@ class Diarizer:
         # in entrambi i casi — senza questa riga non è possibile capire da
         # un log quale algoritmo ha prodotto un dato SRT. "override" segna
         # una chiamata di taratura (diar_eval), "da config" un run reale.
-        provenance = "override" if _word_vote_overridden else "da config"
-        self.log(f"  🧭 Assegnazione speaker: word_vote="
-                 f"{'ON (tol=' + str(tolerance_ms) + 'ms, ' + provenance + ')' if word_vote else 'OFF (midpoint storico, ' + provenance + ')'}")
+        provenance = "override" if _word_vote_overridden else tr('di_provenance_from_config')
+        self.log(tr('di_speaker_assignment_word_vote').format(
+                 v='ON (tol=' + str(tolerance_ms) + 'ms, ' + provenance + ')' if word_vote
+                 else tr('di_word_vote_off').format(provenance=provenance)))
 
         v2_kwargs = dict(v2_params or {})
         result = []
@@ -380,7 +377,7 @@ class Diarizer:
             else:
                 sub_segs = self._split_at_speaker_changes(seg, words, diarization)
                 result.extend(sub_segs)
-        self.log(f"  📝 Segmenti dopo word-level alignment: {len(result)}")
+        self.log(tr('di_segments_after_word_level_alignment').format(n=len(result)))
         return result
 
     def _assign_segment_speaker(
@@ -754,8 +751,7 @@ class Diarizer:
         if changed and guard >= guard_max:
             still_short = sum(1 for s_i, e_i, _ in runs if e_i - s_i + 1 < min_words_per_turn)
             if still_short:
-                self.log(f"  ⚠️ _resolve_short_runs: guardia esaurita con "
-                         f"{still_short} run corte non risolte su un segmento")
+                self.log(tr('di_resolve_short_runs_guard_exhausted').format(still_short=still_short))
 
         # Coalescenza: fondere una run corta nella successiva può lasciare
         # due run adiacenti dello stesso speaker separate (v. C.2 passo 3).

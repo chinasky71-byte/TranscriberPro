@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Optional, Callable
 
 import requests
+from utils.translations import tr
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +138,7 @@ class OpenSubtitlesAITranslator:
         payload = {'username': self.username.lower(), 'password': self.password}
         body    = json.dumps(payload, ensure_ascii=False).encode('utf-8')
 
-        self.log("OpenSubtitles AI: login in corso...")
+        self.log(tr('oa2_opensubtitles_ai_logging_in'))
         try:
             resp = requests.post(self.LOGIN_URL, headers=headers, data=body, timeout=30)
         except requests.exceptions.RequestException as e:
@@ -181,8 +182,7 @@ class OpenSubtitlesAITranslator:
         user_info = data.get('user', {})
         self._allowed_translations = user_info.get('allowed_translations')
         self.log(
-            f"OpenSubtitles AI: login OK. "
-            f"Traduzioni disponibili: {self._allowed_translations}"
+            tr('oa2_opensubtitles_ai_login_ok_translations').format(allowed_translations=self._allowed_translations)
         )
         return True
 
@@ -220,13 +220,13 @@ class OpenSubtitlesAITranslator:
 
         # 2. Verifica quota
         if self._allowed_translations is not None and self._allowed_translations <= 0:
-            self.log("OpenSubtitles AI: quota traduzioni esaurita (allowed_translations=0)")
+            self.log(tr('oa2_opensubtitles_ai_translation_quota_exhausted'))
             return False
 
         # 3. Normalizza lingue
         src = self._normalize_lang(src_lang)
         tgt = self._normalize_lang(tgt_lang)
-        self.log(f"OpenSubtitles AI: traduzione {src} -> {tgt} per '{input_path.name}'")
+        self.log(tr('oa2_opensubtitles_ai_translation_for').format(src=src, tgt=tgt, name=input_path.name))
 
         # 4. Invio file
         correlation_id = self._submit_translation(input_path, src, tgt)
@@ -242,7 +242,7 @@ class OpenSubtitlesAITranslator:
         try:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(translated_content, encoding='utf-8')
-            self.log(f"OpenSubtitles AI: file tradotto salvato in '{output_path}'")
+            self.log(tr('oa2_opensubtitles_ai_translated_file_saved').format(output_path=output_path))
             return True
         except Exception as e:
             logger.error(f"OpenSubtitles AI: errore scrittura output: {e}")
@@ -260,7 +260,7 @@ class OpenSubtitlesAITranslator:
         headers = self._get_headers()
         # NON aggiungere Content-Type: la lasceremo costruire a requests per il multipart
 
-        self.log(f"OpenSubtitles AI: provider={self.translation_provider}")
+        self.log(tr('oa2_opensubtitles_ai_provider').format(translation_provider=self.translation_provider))
         try:
             with open(srt_path, 'rb') as f:
                 files = {'file': (srt_path.name, f, 'text/plain')}
@@ -282,7 +282,7 @@ class OpenSubtitlesAITranslator:
 
         if resp.status_code == 401:
             # Token scaduto: re-autentica e riprova una volta
-            self.log("OpenSubtitles AI: token scaduto durante invio, re-login...")
+            self.log(tr('oa2_opensubtitles_ai_token_expired_while'))
             self.jwt_token = None
             if not self.authenticate():
                 return None
@@ -296,8 +296,7 @@ class OpenSubtitlesAITranslator:
                 msg = str(err.get('error', ''))
                 if 'credit' in msg.lower():
                     self.log(
-                        "OpenSubtitles AI: crediti AI insufficienti. "
-                        "Acquista crediti su ai.opensubtitles.com o scegli un provider diverso."
+                        tr('oa2_opensubtitles_ai_insufficient_ai_credits')
                     )
             except Exception:
                 logger.error(resp.text[:300])
@@ -317,7 +316,7 @@ class OpenSubtitlesAITranslator:
         for key in ('correlation_id', 'correlationId', 'id', 'task_id', 'taskId'):
             if key in result:
                 cid = result[key]
-                self.log(f"OpenSubtitles AI: traduzione avviata, correlation_id={cid}")
+                self.log(tr('oa2_opensubtitles_ai_translation_started_correlation').format(cid=cid))
                 return str(cid)
 
         # Se non troviamo un campo noto, logghiamo la risposta completa per debug
@@ -338,7 +337,7 @@ class OpenSubtitlesAITranslator:
         deadline  = time.time() + self.POLL_TIMEOUT
         attempt   = 0
 
-        self.log(f"OpenSubtitles AI: attesa risultato traduzione (max {self.POLL_TIMEOUT}s)...")
+        self.log(tr('oa2_opensubtitles_ai_waiting_for_the').format(POLL_TIMEOUT=self.POLL_TIMEOUT))
 
         while time.time() < deadline:
             attempt += 1
@@ -374,7 +373,7 @@ class OpenSubtitlesAITranslator:
             ).lower()
 
             if status in ('done', 'completed', 'success'):
-                self.log(f"OpenSubtitles AI: traduzione completata (poll #{attempt})")
+                self.log(tr('oa2_opensubtitles_ai_translation_completed_poll').format(attempt=attempt))
                 return self._extract_translated_content(result, poll_url, headers)
 
             if status in ('error', 'failed', 'failure'):
@@ -383,7 +382,7 @@ class OpenSubtitlesAITranslator:
 
             # Ancora in elaborazione
             if attempt % 5 == 0:
-                self.log(f"OpenSubtitles AI: ancora in elaborazione... (poll #{attempt})")
+                self.log(tr('oa2_opensubtitles_ai_still_processing_poll').format(attempt=attempt))
 
         logger.error(f"OpenSubtitles AI: timeout dopo {self.POLL_TIMEOUT}s")
         return None
@@ -408,7 +407,7 @@ class OpenSubtitlesAITranslator:
         for key in ('download_url', 'url', 'file_url', 'link'):
             if key in result and result[key]:
                 dl_url = result[key]
-                self.log(f"OpenSubtitles AI: download risultato da {dl_url}")
+                self.log(tr('oa2_opensubtitles_ai_downloading_result_from').format(dl_url=dl_url))
                 try:
                     dl_resp = requests.get(dl_url, headers=headers, timeout=60)
                     if dl_resp.ok:

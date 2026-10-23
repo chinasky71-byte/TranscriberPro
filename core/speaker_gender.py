@@ -28,6 +28,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from utils.platform_compat import no_window_flags
 
 import logging
+from utils.translations import tr
 
 logger = logging.getLogger(__name__)
 
@@ -228,7 +229,7 @@ class SpeakerGenderMapper:
                            creationflags=_CREATE_NO_WINDOW)
         except subprocess.CalledProcessError:
             if language:  # fallback: prima traccia audio
-                self.log(f"  ⚠️ Traccia '{language}' non trovata, uso la prima")
+                self.log(tr('sg_track_not_found_using_the').format(language=language))
                 return self.extract_audio(media_path, out_wav, language=None)
             raise
         return out_wav
@@ -240,7 +241,7 @@ class SpeakerGenderMapper:
             return
         import torch
         from core.ecapa_gender import ECAPA_gender
-        self.log("  📦 Caricamento modello genere voce (ECAPA VoxCeleb2)...")
+        self.log(tr('sg_loading_voice_gender_model_ecapa'))
         self._gender_model = ECAPA_gender.from_pretrained(
             "JaesungHuh/voice-gender-classifier")
         self._gender_model.eval()
@@ -288,7 +289,7 @@ class SpeakerGenderMapper:
             if src.suffix.lower() in ('.wav', '.flac'):
                 wav = src
             else:
-                self.log("  🎧 Estrazione audio (16 kHz mono)...")
+                self.log(tr('sg_extracting_audio_16_khz_mono'))
                 self.extract_audio(str(src), wav, language=audio_language)
 
             # Diarization (riuso o calcolo)
@@ -338,8 +339,7 @@ class SpeakerGenderMapper:
             n_m = sum(1 for v in gmap.speakers.values() if v.gender == 'M'
                       and v.confidence >= self.conf_threshold)
             n_u = len(gmap.speakers) - n_f - n_m
-            self.log(f"  🎭 Genere parlanti: {n_f} F, {n_m} M, {n_u} incerti "
-                     f"(soglia {self.conf_threshold:.2f})")
+            self.log(tr('sg_speaker_gender_f_m_uncertain').format(n_f=n_f, n_m=n_m, n_u=n_u, conf_threshold=self.conf_threshold))
             return gmap
 
     def cleanup(self):

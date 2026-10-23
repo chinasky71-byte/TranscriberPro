@@ -30,6 +30,7 @@ import json
 import sys
 import traceback
 from pathlib import Path
+from utils.translations import tr
 
 
 def _emit(msg: str) -> None:
@@ -39,18 +40,18 @@ def _emit(msg: str) -> None:
 
 def main(argv: list) -> int:
     if len(argv) < 2:
-        _emit("ERRORE CLI: argomento args.json mancante")
+        _emit(tr('gcl_error_cli_args_json_argument'))
         return 2
 
     args_path = Path(argv[1])
     if not args_path.exists():
-        _emit(f"ERRORE CLI: args.json non trovato: {args_path}")
+        _emit(tr('gcl_error_cli_args_json_not').format(args_path=args_path))
         return 2
 
     try:
         args = json.loads(args_path.read_text(encoding='utf-8'))
     except Exception as e:
-        _emit(f"ERRORE CLI: parsing args.json fallito: {e}")
+        _emit(tr('gcl_error_cli_args_json_parsing').format(e=e))
         return 2
 
     input_srt = args.get('input_srt')
@@ -60,21 +61,21 @@ def main(argv: list) -> int:
     character_context = args.get('character_context') or {}
 
     if not input_srt or not output_srt:
-        _emit("ERRORE CLI: input_srt e output_srt sono obbligatori")
+        _emit(tr('gcl_error_cli_input_srt_and'))
         return 2
 
     input_path = Path(input_srt)
     output_path = Path(output_srt)
 
     if not input_path.exists():
-        _emit(f"ERRORE CLI: input SRT non trovato: {input_path}")
+        _emit(tr('gcl_error_cli_input_srt_not').format(input_path=input_path))
         return 2
 
     # Import LAZY: il check args.json non paga il costo di torch/pyannote
     try:
         from core.gender_corrector_v2 import GenderCorrectorV2
     except Exception as e:
-        _emit(f"ERRORE CLI: import gender_corrector_v2 fallito: {e}")
+        _emit(tr('gcl_error_cli_import_of_gender').format(e=e))
         traceback.print_exc(file=sys.stderr)
         return 1
 
@@ -85,10 +86,9 @@ def main(argv: list) -> int:
                 diarization = json.loads(
                     Path(diarization_json).read_text(encoding='utf-8'))
                 diarization = [tuple(t) for t in diarization]
-                _emit(f"   Riuso diarization della trascrizione "
-                      f"({len(diarization)} turni)")
+                _emit(tr('gcl_reusing_the_transcription_diarization_turns').format(n=len(diarization)))
             except Exception as e:
-                _emit(f"WARN CLI: diarization_json illeggibile: {e}")
+                _emit(tr('gcl_warn_cli_diarization_json_unreadable').format(e=e))
         engine = GenderCorrectorV2(log_callback=_emit)
         ok = engine.correct_file(
             srt_path=input_path,
@@ -101,15 +101,15 @@ def main(argv: list) -> int:
         try:
             engine.cleanup()
         except Exception as e:
-            _emit(f"WARN CLI: cleanup engine fallito: {e}")
+            _emit(tr('gcl_warn_cli_engine_cleanup_failed').format(e=e))
 
         if ok and output_path.exists():
             return 0
-        _emit("ERRORE CLI: correzione completata ma output mancante")
+        _emit(tr('gcl_error_cli_correction_completed_but'))
         return 1
 
     except Exception as e:
-        _emit(f"ERRORE CLI: eccezione fatale: {e}")
+        _emit(tr('gcl_error_cli_fatal_exception').format(e=e))
         traceback.print_exc(file=sys.stderr)
         return 1
 

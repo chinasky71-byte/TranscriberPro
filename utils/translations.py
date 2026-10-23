@@ -671,6 +671,7 @@ class Translations:
             'logm_noise_batched_single': 'BatchedInferencePipeline — single file',
             'logm_noise_robust_chunking': '🛡️ Robust chunking',
             'logm_noise_loading_audio': '📂 Loading audio',
+            'logm_noise_abm_started': 'AdaptiveBatchManager started',
 
             # ── log pipeline: pipeline.py ──
             'pl_opensubtitles_upload_from_ocr_is': 'ℹ️ OpenSubtitles upload from OCR is not available in "mux" mode (no sidecar produced): switch to "sidecar" in Options if you want the OCR SRT to be offered for upload.',
@@ -1129,6 +1130,236 @@ class Translations:
 
             # ── log pipeline: canary_engine ──
             'ca_unknown_error': 'unknown error',
+
+            # ── log pipeline: gender_corrector.py ──
+            'gc_llama_cpp_python_not_available': 'llama-cpp-python not available',
+            'gc_model_not_found': 'Model not found: {model_path}',
+            'gc_loading_llm_model_for_gender': 'Loading LLM model for gender correction...',
+            'gc_llm_model_loaded': 'LLM model loaded.',
+            'gc_llm_loading_error': 'LLM loading error: {e}',
+            'gc_no_subtitle_found_skipping_gender': 'No subtitle found. Skipping gender correction.',
+            'gc_original_text_loaded_entries': '   Original text loaded: {n} entries',
+            'gc_original_srt_misaligned_vs_ignoring': '   Original SRT misaligned ({n} vs {n_2}). Ignoring.',
+            'gc_pre_filter_subtitles_with_gender': '   Pre-filter: {gender_sensitive_count}/{n} subtitles with gender patterns',
+            'gc_no_gender_pattern_found_file': '   No gender pattern found. File copied unchanged.',
+            'gc_unable_to_load_the_llm': 'Unable to load the LLM model. Skipping gender correction.',
+            'gc_gender_correction_0_0': '   Gender correction: [░░░░░░░░░░]   0% (0/{chunks_with_gender})',
+            'gc_gender_correction_eta': '   Gender correction: [{bar}] {progress:3d}% ({chunks_processed}/{chunks_with_gender}) │ ETA:{eta_str}',
+            'gc_gender_correction_100': '   ✅ Gender correction: [██████████] 100% ({chunks_processed}/{chunks_with_gender}) │ {time_str}',
+            'gc_corrections_applied': '   Corrections applied: {total_patches}',
+            'gc_chunks_processed_skipped': '   Chunks processed: {chunks_processed}, skipped: {chunks_skipped}',
+            'gc_patches_discarded_not_found_in': '   Patches discarded: {skipped_patches} not found in the text, {out_of_range_patches} out of range',
+            'gc_gender_correction_error': 'Gender correction error: {e}',
+
+            # ── log pipeline: gender_corrector_v2.py ──
+            'g2_nlp_venv_spacy_not_found': '⚠️ NLP venv (spaCy) not found — correction skipped',
+            'g2_selector_failed': '⚠️ Selector failed: {e}',
+            'g2_selector_exit_code_skipping': '⚠️ Selector exit code {returncode} — skipping',
+            'g2_candidate_lines_in_1st_person': '   Candidate lines: {n1} in 1st person, {n2} in 2nd person out of {n}',
+            'g2_no_lines_to_correct': '   No lines to correct.',
+            'g2_video_path_missing_cannot_build': '⚠️ video_path missing: cannot build the speaker gender map. Skipping correction.',
+            'g2_tmdb_vocatives_active_cast_names': '   TMDB vocatives active: {n} cast names',
+            'g2_gender_correction_v2_lines_rewritten': '   ✅ Gender correction v2: {rewritten} lines rewritten, {unchanged} already correct, {unknown} uncertain speaker, {dialog} double dialogues skipped, {rejected} rejected by the validator',
+            'g2_1st_person_uncertain_no_turn': '      ↳ 1st person uncertain: no_turn={no_turn}, low_confidence={low_confidence}, no_votes={no_votes}',
+            'g2_2nd_person_uncertain_no_turn': '      ↳ 2nd person uncertain: no_turn={no_turn}, overlapping_scene={overlapping_scene}, no_addressee={no_addressee}, not_strict={not_strict}, low_confidence={low_confidence}, no_votes={no_votes}',
+
+            # ── log pipeline: gender_corrector_cli.py ──
+            'gcl_error_cli_args_json_argument': 'ERROR CLI: args.json argument missing',
+            'gcl_error_cli_args_json_not': 'ERROR CLI: args.json not found: {args_path}',
+            'gcl_error_cli_args_json_parsing': 'ERROR CLI: args.json parsing failed: {e}',
+            'gcl_error_cli_input_srt_and': 'ERROR CLI: input_srt and output_srt are required',
+            'gcl_error_cli_input_srt_not': 'ERROR CLI: input SRT not found: {input_path}',
+            'gcl_error_cli_import_of_gender': 'ERROR CLI: import of gender_corrector_v2 failed: {e}',
+            'gcl_reusing_the_transcription_diarization_turns': '   Reusing the transcription diarization ({n} turns)',
+            'gcl_warn_cli_diarization_json_unreadable': 'WARN CLI: diarization_json unreadable: {e}',
+            'gcl_warn_cli_engine_cleanup_failed': 'WARN CLI: engine cleanup failed: {e}',
+            'gcl_error_cli_correction_completed_but': 'ERROR CLI: correction completed but output missing',
+            'gcl_error_cli_fatal_exception': 'ERROR CLI: fatal exception: {e}',
+
+            # ── log pipeline: gender_rewriter.py ──
+            'gr_llama_cpp_python_not_available': 'llama-cpp-python not available: {e}',
+            'gr_loading_llm_for_gender_rewriting': '  📦 Loading LLM for gender rewriting...',
+
+            # ── log pipeline: speaker_gender.py ──
+            'sg_track_not_found_using_the': "  ⚠️ Track '{language}' not found, using the first one",
+            'sg_loading_voice_gender_model_ecapa': '  📦 Loading voice gender model (ECAPA VoxCeleb2)...',
+            'sg_extracting_audio_16_khz_mono': '  🎧 Extracting audio (16 kHz mono)...',
+            'sg_speaker_gender_f_m_uncertain': '  🎭 Speaker gender: {n_f} F, {n_m} M, {n_u} uncertain (threshold {conf_threshold:.2f})',
+
+            # ── log pipeline: diarizer.py ──
+            'di_clustering_parameter_introspection_failed_sending': '  ⚠️ Clustering parameter introspection failed ({e}) — sending without filter',
+            'di_clustering_parameter_does_not_exist': "  ⚠️ Clustering parameter '{k}'={v} does not exist on {model} (available: {available}) — IGNORED",
+            'di_threshold_was_tuned_on_agglomerative': '  ⚠️ threshold={threshold} was tuned on {DEFAULT_MODEL} (agglomerative clustering). On {effective_model} the clustering is VBx and the threshold only initializes the AHC (model default 0.6, range expected 0.5-0.8) — it must be RE-TUNED, not inherited',
+            'di_clustering_override_ignored_pyannote_default': "  ⚠️ Clustering override '{k}'={v} ignored ({e}) — pyannote default",
+            'di_pyannote_clustering_overridden': '  🔧 Pyannote clustering overridden: {applied}',
+            'di_loading_pyannote_model': '  📦 Loading pyannote model {model}...',
+            'di_diarizer_loaded_on_cuda': '  ✅ Diarizer loaded on CUDA',
+            'di_diarizer_loaded_on_cpu': '  ✅ Diarizer loaded on CPU',
+            'di_diar_ab_no_turn_detected': '  🎭 [diar-ab] no turn detected',
+            'di_segments_after_word_level_alignment': '  📝 Segments after word-level alignment: {n}',
+            'di_resolve_short_runs_guard_exhausted': '  ⚠️ _resolve_short_runs: guard exhausted with {still_short} unresolved short runs on a segment',
+
+            # ── log pipeline: punctuation_restorer.py ──
+            'pr_loading_punctuation_model': '  📦 Loading punctuation model {model_id}...',
+            'pr_punctuation_model_loaded_on': '  ✅ Punctuation model loaded on {device}',
+            'pr_punctuation_model_not_available_restoration': '  ⚠️ Punctuation model not available ({e}) — restoration skipped, raw text kept',
+            'pr_unexpected_punctuation_label_from_the': '  ⚠️ Unexpected punctuation label from the model ({raw_label!r}) — discarded, check id2label',
+            'pr_punctuation_prediction_failed_on_a': '  ⚠️ Punctuation prediction failed on a window ({e}) — skipped',
+
+            # ── log pipeline: aligner.py ──
+            'al_loading_alignment_model_for': "  📦 Loading alignment model for '{language_code}'...",
+            'al_no_native_model_for_falling': "  ℹ️ No native model for '{language_code}' — falling back to the generic model ({model})",
+            'al_forced_alignment_language_not_supported': "  ⚠️ Forced alignment: language '{language_code}' not supported — skip",
+            'al_aligner_loaded': '  ✅ Aligner loaded ({model})',
+            'al_alignment_completed_words_realigned_segments': '  ✅ Alignment completed: {n_words_moved}/{n_words} words realigned ({n_seg}/{n} segments, {n_seg_fallback} kept with Whisper timings)',
+
+            # ── log pipeline: pgs_ocr.py ──
+            'pgs_ocr_extracting_pgs_track': '⚙️ OCR — Extracting PGS track...',
+            'pgs_ocr_bitmap_analysis': '⚙️ OCR — Bitmap analysis...',
+            'pgs_ocr_re_reading_the_track': '⚙️ OCR — re-reading the track with the {better} model...',
+            'pgs_lines_to_review': '✅ {n} lines, {n_flag} to review',
+            'pgs_stream_ocr_failed_skipped': '⚠ Stream {index}: OCR failed, skipped',
+            'pgs_stream_no_text_skipped': '⚠ Stream {index}: no text, skipped',
+            'pgs_no_ocr_text_produced': '❌ No OCR text produced',
+            'pgs_italian_pgs_tracks_sidecar_from': 'ℹ️ {n} Italian PGS tracks: sidecar from track {index} (the most complete); the others stay in the video.',
+            'pgs_srt_tracks_embedded': '✅ {N} SRT tracks ({langs}) embedded: {name}',
+            'pgs_srt_saved': '✅ SRT saved: {name}',
+            'pgs_srt_embedded_in_the_file': '✅ SRT embedded in the file',
+
+            # ── log pipeline: vobsub_ocr.py ──
+            'vob_ocr_extracting_vobsub_track': '⚙️ OCR — Extracting VOBSUB track...',
+            'vob_italian_vobsub_tracks_sidecar_from': 'ℹ️ {n} Italian VOBSUB tracks: sidecar from track {index} (the most complete); the others stay in the video.',
+
+            # ── log pipeline: ocr_auto.py ──
+            'oa_ocr_track_contains_text_it': '⚙️ OCR — track {stream_index} contains {lang} text: it will be translated.',
+            'oa_no_ocr_text_produced': 'No OCR text produced',
+            'oa_ocr_translation_it': '⚙️ OCR — Translation {content_lang}→it...',
+            'oa_translategemma_is_not_ready_for': '⚠️ TranslateGemma is not ready for non-English sources ({content_lang}): automatically routed to fine-tuned NLLB.',
+            'oa_translation_failed': 'Translation failed: {exc}',
+            'oa_unable_to_read': 'Unable to read {name}: {exc}',
+            'oa_italian_srt_embedded_in_the': '✅ Italian SRT embedded in the file',
+            'oa_italian_srt_written': '✅ Italian SRT written: {name}',
+
+            # ── log pipeline: bitmap_ocr_common.py ──
+            'boc_the_ocr_text_is_not': '⚠️ The OCR text is {verdict}, not {presumed}: content language corrected.',
+
+            # ── log pipeline: diarizer ──
+            'di_speaker_assignment_word_vote': '  🧭 Speaker assignment: word_vote={v}',
+            'di_word_vote_off': 'OFF (historical midpoint, {provenance})',
+            'di_provenance_from_config': 'from config',
+
+            # ── log pipeline: env_check_cli.py ──
+            'ec_loading_pyannote_pipeline_first_time': '⏳ Loading pyannote pipeline {model_id} (first time: ~1 GB download)...',
+            'ec_testing_on_synthetic_audio': '⏳ Testing on synthetic audio...',
+            'ec_model_ok_found_turns_on': '✅ Model OK! Found {n} turns on the test audio.',
+            'ec_you_can_enable_diarization': 'You can enable diarization.',
+            'ec_access_denied_403': '❌ Access denied (403).',
+            'ec_accept_the_terms_at': 'Accept the terms at:',
+            'ec_token_invalid_or_expired_check': '❌ Token invalid or expired. Check it at huggingface.co/settings/tokens',
+            'ec_error': '❌ Error: {err}',
+            'ec_starting_model_loading': 'Starting model loading {chiave}...',
+            'ec_huggingface_token_not_detected_trying': 'HuggingFace token not detected. Trying anonymously...',
+            'ec_download_in_progress_may_take': 'Download in progress (may take a few minutes)...',
+            'ec_model_loaded_in_memory': 'Model loaded in memory.',
+            'ec_loading_failed': '❌ Loading failed',
+
+            # ── log pipeline: fallback_translate_cli.py ──
+            'fb_error_cli_lines_output_json': "ERROR CLI: 'lines', 'output_json' and 'model_path' are required",
+            'fb_error_cli_model_not_found': 'ERROR CLI: model not found: {model_path}',
+            'fb_error_cli_llama_cpp_import': 'ERROR CLI: llama_cpp import failed: {e}',
+            'fb_loading_fallback_model': '📦 Loading fallback model ({name})...',
+            'fb_error_cli_model_loading_failed': 'ERROR CLI: model loading failed: {e}',
+            'fb_translating_distinct_sentences': '🌐 Translating {total} distinct sentences...',
+            'fb_line_generation_error': '   line {key}: generation error ({e})',
+            'fb_error_cli_output_json_writing': 'ERROR CLI: output_json writing failed: {e}',
+            'fb_reservoir_completed_sentences_resolved': '✅ Reservoir completed: {n}/{total} sentences resolved',
+
+            # ── log pipeline: pipeline_cli.py ──
+            'pc_error_cli_video_path_is': 'ERROR CLI: video_path is required',
+            'pc_options_specific_to_this_file': 'ℹ️ Options specific to this file: {ov}',
+            'pc_warn_cli_per_file_exceptions': 'WARN CLI: per-file exceptions ignored: {e}',
+            'pc_error_cli_processingpipeline_import_failed': 'ERROR CLI: ProcessingPipeline import failed: {e}',
+            'pc_error_cli_fatal_pipeline_exception': 'ERROR CLI: fatal pipeline exception: {e}',
+            'pc_warn_cli_result_json_writing': 'WARN CLI: result.json writing failed: {e}',
+
+            # ── log pipeline: sync_cli.py ──
+            'sc_error_cli_video_path_and': 'ERROR CLI: video_path and external_srt_path are required',
+            'sc_error_cli_subtitlesynchronizer_import_failed': 'ERROR CLI: SubtitleSynchronizer import failed: {e}',
+
+            # ── log pipeline: sync_cli.py ──
+            'sc_sync_failed_see_the_log': 'sync failed (see the log)',
+
+            # ── log pipeline: adaptive_batch_manager.py ──
+            'ab_adaptivebatchmanager_started_initial_min_max': 'AdaptiveBatchManager started: initial={current_batch_size}, min={min_size}, max={max_size}, warmup={warmup_batches}, device={device}',
+            'ab_gpu_contended_gb_held_by': '  ⚠️ GPU contended: {ext:.1f} GB held by another process. Keeping the batch at {current_batch_size} — reducing it does not free memory held by others and slows things down.',
+            'ab_critical_oom_panic_fallback_batch': '  Critical OOM (×{oom_consecutive}): panic fallback → batch={new_size}',
+            'ab_oom_batch_consecutive_ooms': '  OOM! batch {current_batch_size} → {new_size} (consecutive OOMs: {oom_consecutive})',
+            'ab_batch_manager_stats_average_batch': '  Batch manager stats — average batch: {avg_batch:.1f} (min={min_batch}, max={max_batch}), OOM: {oom_events}, adjustments: {adjustments}, total batches: {total_batches}',
+            'ab_very_low_vram_gb_free': '  ⚠️ Very low VRAM: {free_gb:.1f} GB free, margin={safety_margin_gb} GB → batch={min_size}',
+
+            # ── log pipeline: opensubtitles_ai_translator.py ──
+            'oa2_opensubtitles_ai_logging_in': 'OpenSubtitles AI: logging in...',
+            'oa2_opensubtitles_ai_login_ok_translations': 'OpenSubtitles AI: login OK. Translations available: {allowed_translations}',
+            'oa2_opensubtitles_ai_translation_quota_exhausted': 'OpenSubtitles AI: translation quota exhausted (allowed_translations=0)',
+            'oa2_opensubtitles_ai_translation_for': "OpenSubtitles AI: translation {src} -> {tgt} for '{name}'",
+            'oa2_opensubtitles_ai_translated_file_saved': "OpenSubtitles AI: translated file saved in '{output_path}'",
+            'oa2_opensubtitles_ai_provider': 'OpenSubtitles AI: provider={translation_provider}',
+            'oa2_opensubtitles_ai_token_expired_while': 'OpenSubtitles AI: token expired while sending, re-login...',
+            'oa2_opensubtitles_ai_insufficient_ai_credits': 'OpenSubtitles AI: insufficient AI credits. Buy credits at ai.opensubtitles.com or choose a different provider.',
+            'oa2_opensubtitles_ai_translation_started_correlation': 'OpenSubtitles AI: translation started, correlation_id={cid}',
+            'oa2_opensubtitles_ai_waiting_for_the': 'OpenSubtitles AI: waiting for the translation result (max {POLL_TIMEOUT}s)...',
+            'oa2_opensubtitles_ai_translation_completed_poll': 'OpenSubtitles AI: translation completed (poll #{attempt})',
+            'oa2_opensubtitles_ai_still_processing_poll': 'OpenSubtitles AI: still processing... (poll #{attempt})',
+            'oa2_opensubtitles_ai_downloading_result_from': 'OpenSubtitles AI: downloading result from {dl_url}',
+
+            # ── log pipeline: glossary_builder_cli.py ──
+            'sc_fatal_exception': 'fatal exception: {e}',
+
+            # ── log pipeline: sync_cli.py ──
+            'sc_error_cli': 'ERROR CLI: {error}',
+
+            # ── log pipeline: subtitle_formatter.py ──
+            'sf_formatted_srt_blocks_dialogue_blocks': '  📄 Formatted SRT: {n} blocks, {n_dialog} dialogue blocks',
+            'sf_speaker_pairs_discarded_for_low': '  🎭 Speaker pairs discarded for low confidence (no dash): {dash_rejected_low_confidence}',
+            'sf_error_saving_formatted_srt': '  ⚠️ Error saving formatted SRT: {e}',
+            'sf_duplicate_segments_overlapping_chunks_removed': '  🧹 Duplicate segments (overlapping chunks) removed: {removed}',
+            'sf_blocks_with_invalid_timing_discarded': '  🛡️ Blocks with invalid timing discarded: {dropped}',
+            'sf_merging_fragments_segments_merged': '  🔗 Merging fragments: {before} → {after} segments ({merged} merged)',
+            'sf_readability_segments_merged': '  📖 Readability: {before} → {after} segments ({merged} merged)',
+
+            # ── log pipeline: queue_runner.py ──
+            'qr_no_video_file_found': 'No video file found.',
+            'qr_another_headless_queue_is_already': 'Another headless queue is already running (queue.lock). Not started.',
+            'qr_warning_the_transcriber_pro_gui': 'WARNING: the Transcriber Pro GUI appears to be open. Do not run queues in parallel (same GPU and same model cache).',
+            'qr_files_in_the_queue_status': '{n} files in the queue. Status: {path}',
+            'qr_interrupted': 'Interrupted.',
+            'qr_done_ok_failed_cancelled_out': 'Done: {completed} ok, {failed} failed, {cancelled} cancelled out of {total}.',
+
+            # ── log pipeline: queue_runner ──
+            'qr_status_failed': 'FAILED',
+
+            # ── log pipeline: vobsub_ocr.py ──
+            'vob_no_bitmap_subtitle_found': 'No bitmap subtitle found',
+            'vob_codec_is_not_vobsub_use': 'Codec {codec} is not VOBSUB (use the PGS module)',
+            'vob_mkvextract_not_found_install_mkvtoolnix': 'mkvextract not found (install MKVToolNix)',
+            'vob_mkvextract_failed_rc': 'mkvextract failed (rc={rc}): {err}',
+            'vob_no_italian_vobsub_subtitle_found': 'No Italian VOBSUB subtitle found',
+            'vob_language_not_supported_by_tesseract': "Language '{stream_lang3}' not supported by Tesseract (traineddata missing)",
+
+            # ── log pipeline: pgs_ocr.py ──
+            'pgs_codec_not_supported_by_the': 'Codec {codec} not supported by the review branch (PGS only; VOBSUB/DVD is phase 2)',
+            'pgs_sup_extraction_failed_stream': '.sup extraction failed (stream {index})',
+            'pgs_no_italian_pgs_subtitle_found': 'No Italian PGS subtitle found',
+
+            # ── log pipeline: punctuation_restorer.py ──
+            'pr_tokenizer_does_not_expose_word': "tokenizer '{model_id}' does not expose word_ids() (not a 'fast' version) — word↔label reprojection impossible",
+
+            # ── log pipeline: opensubtitles_rest_uploader.py ──
+            'ru_rest_api_key_not_configured': 'REST API Key not configured. Upload impossible.',
+
+            # ── log pipeline: profile_dialog.py ──
+            'pd_select_the_optimal_profile_for': 'Select the optimal profile for your use case.',
+            'pd_transcription_profiles': '⚙️ Transcription Profiles',
         },
 
         # ── ITALIANO ──────────────────────────────────────────────────────────
@@ -1786,6 +2017,7 @@ class Translations:
             'logm_noise_batched_single': 'BatchedInferencePipeline — file unico',
             'logm_noise_robust_chunking': '🛡️ Chunking robusto',
             'logm_noise_loading_audio': '📂 Caricamento audio',
+            'logm_noise_abm_started': 'AdaptiveBatchManager avviato',
 
             # ── log pipeline: pipeline.py ──
             'pl_opensubtitles_upload_from_ocr_is': 'ℹ️ Upload OpenSubtitles da OCR non disponibile in modalità "mux" (nessun sidecar prodotto): passa a "sidecar" in Opzioni se vuoi che l\'SRT OCR venga proposto per l\'upload.',
@@ -2244,6 +2476,236 @@ class Translations:
 
             # ── log pipeline: canary_engine ──
             'ca_unknown_error': 'errore sconosciuto',
+
+            # ── log pipeline: gender_corrector.py ──
+            'gc_llama_cpp_python_not_available': 'llama-cpp-python non disponibile',
+            'gc_model_not_found': 'Modello non trovato: {model_path}',
+            'gc_loading_llm_model_for_gender': 'Caricamento modello LLM per correzione genere...',
+            'gc_llm_model_loaded': 'Modello LLM caricato.',
+            'gc_llm_loading_error': 'Errore caricamento LLM: {e}',
+            'gc_no_subtitle_found_skipping_gender': 'Nessun sottotitolo trovato. Salto correzione genere.',
+            'gc_original_text_loaded_entries': '   Testo originale caricato: {n} entry',
+            'gc_original_srt_misaligned_vs_ignoring': '   Disallineamento SRT originale ({n} vs {n_2}). Ignoro.',
+            'gc_pre_filter_subtitles_with_gender': '   Pre-filtro: {gender_sensitive_count}/{n} sottotitoli con pattern di genere',
+            'gc_no_gender_pattern_found_file': '   Nessun pattern di genere trovato. File copiato senza modifiche.',
+            'gc_unable_to_load_the_llm': 'Impossibile caricare modello LLM. Salto correzione genere.',
+            'gc_gender_correction_0_0': '   Correzione genere: [░░░░░░░░░░]   0% (0/{chunks_with_gender})',
+            'gc_gender_correction_eta': '   Correzione genere: [{bar}] {progress:3d}% ({chunks_processed}/{chunks_with_gender}) │ ETA:{eta_str}',
+            'gc_gender_correction_100': '   ✅ Correzione genere: [██████████] 100% ({chunks_processed}/{chunks_with_gender}) │ {time_str}',
+            'gc_corrections_applied': '   Correzioni applicate: {total_patches}',
+            'gc_chunks_processed_skipped': '   Chunk processati: {chunks_processed}, skippati: {chunks_skipped}',
+            'gc_patches_discarded_not_found_in': '   Patch scartate: {skipped_patches} non trovate nel testo, {out_of_range_patches} fuori range',
+            'gc_gender_correction_error': 'Errore correzione genere: {e}',
+
+            # ── log pipeline: gender_corrector_v2.py ──
+            'g2_nlp_venv_spacy_not_found': '⚠️ Venv NLP (spaCy) non trovato — correzione saltata',
+            'g2_selector_failed': '⚠️ Selettore fallito: {e}',
+            'g2_selector_exit_code_skipping': '⚠️ Selettore exit code {returncode} — salto',
+            'g2_candidate_lines_in_1st_person': '   Righe candidate: {n1} in 1ª persona, {n2} in 2ª persona su {n}',
+            'g2_no_lines_to_correct': '   Nessuna riga da correggere.',
+            'g2_video_path_missing_cannot_build': '⚠️ video_path mancante: impossibile costruire la speaker gender map. Salto correzione.',
+            'g2_tmdb_vocatives_active_cast_names': '   Vocativi TMDB attivi: {n} nomi cast',
+            'g2_gender_correction_v2_lines_rewritten': '   ✅ Correzione genere v2: {rewritten} righe riscritte, {unchanged} già corrette, {unknown} parlante incerto, {dialog} dialoghi doppi saltati, {rejected} respinte dal validatore',
+            'g2_1st_person_uncertain_no_turn': '      ↳ 1ª persona incerta: no_turn={no_turn}, low_confidence={low_confidence}, no_votes={no_votes}',
+            'g2_2nd_person_uncertain_no_turn': '      ↳ 2ª persona incerta: no_turn={no_turn}, overlapping_scene={overlapping_scene}, no_addressee={no_addressee}, not_strict={not_strict}, low_confidence={low_confidence}, no_votes={no_votes}',
+
+            # ── log pipeline: gender_corrector_cli.py ──
+            'gcl_error_cli_args_json_argument': 'ERRORE CLI: argomento args.json mancante',
+            'gcl_error_cli_args_json_not': 'ERRORE CLI: args.json non trovato: {args_path}',
+            'gcl_error_cli_args_json_parsing': 'ERRORE CLI: parsing args.json fallito: {e}',
+            'gcl_error_cli_input_srt_and': 'ERRORE CLI: input_srt e output_srt sono obbligatori',
+            'gcl_error_cli_input_srt_not': 'ERRORE CLI: input SRT non trovato: {input_path}',
+            'gcl_error_cli_import_of_gender': 'ERRORE CLI: import gender_corrector_v2 fallito: {e}',
+            'gcl_reusing_the_transcription_diarization_turns': '   Riuso diarization della trascrizione ({n} turni)',
+            'gcl_warn_cli_diarization_json_unreadable': 'WARN CLI: diarization_json illeggibile: {e}',
+            'gcl_warn_cli_engine_cleanup_failed': 'WARN CLI: cleanup engine fallito: {e}',
+            'gcl_error_cli_correction_completed_but': 'ERRORE CLI: correzione completata ma output mancante',
+            'gcl_error_cli_fatal_exception': 'ERRORE CLI: eccezione fatale: {e}',
+
+            # ── log pipeline: gender_rewriter.py ──
+            'gr_llama_cpp_python_not_available': 'llama-cpp-python non disponibile: {e}',
+            'gr_loading_llm_for_gender_rewriting': '  📦 Caricamento LLM per riscrittura genere...',
+
+            # ── log pipeline: speaker_gender.py ──
+            'sg_track_not_found_using_the': "  ⚠️ Traccia '{language}' non trovata, uso la prima",
+            'sg_loading_voice_gender_model_ecapa': '  📦 Caricamento modello genere voce (ECAPA VoxCeleb2)...',
+            'sg_extracting_audio_16_khz_mono': '  🎧 Estrazione audio (16 kHz mono)...',
+            'sg_speaker_gender_f_m_uncertain': '  🎭 Genere parlanti: {n_f} F, {n_m} M, {n_u} incerti (soglia {conf_threshold:.2f})',
+
+            # ── log pipeline: diarizer.py ──
+            'di_clustering_parameter_introspection_failed_sending': '  ⚠️ Introspezione parametri clustering fallita ({e}) — invio senza filtro',
+            'di_clustering_parameter_does_not_exist': "  ⚠️ Parametro clustering '{k}'={v} non esiste su {model} (disponibili: {available}) — IGNORATO",
+            'di_threshold_was_tuned_on_agglomerative': "  ⚠️ threshold={threshold} è stato tarato su {DEFAULT_MODEL} (clustering agglomerativo). Su {effective_model} il clustering è VBx e la soglia inizializza solo l'AHC (default del modello 0.6, intervallo previsto 0.5-0.8) — va RITARATA, non ereditata",
+            'di_clustering_override_ignored_pyannote_default': "  ⚠️ Override clustering '{k}'={v} ignorato ({e}) — default pyannote",
+            'di_pyannote_clustering_overridden': '  🔧 Clustering pyannote sovrascritto: {applied}',
+            'di_loading_pyannote_model': '  📦 Caricamento modello pyannote {model}...',
+            'di_diarizer_loaded_on_cuda': '  ✅ Diarizer caricato su CUDA',
+            'di_diarizer_loaded_on_cpu': '  ✅ Diarizer caricato su CPU',
+            'di_diar_ab_no_turn_detected': '  🎭 [diar-ab] nessun turno rilevato',
+            'di_segments_after_word_level_alignment': '  📝 Segmenti dopo word-level alignment: {n}',
+            'di_resolve_short_runs_guard_exhausted': '  ⚠️ _resolve_short_runs: guardia esaurita con {still_short} run corte non risolte su un segmento',
+
+            # ── log pipeline: punctuation_restorer.py ──
+            'pr_loading_punctuation_model': '  📦 Caricamento modello punteggiatura {model_id}...',
+            'pr_punctuation_model_loaded_on': '  ✅ Modello punteggiatura caricato su {device}',
+            'pr_punctuation_model_not_available_restoration': '  ⚠️ Modello punteggiatura non disponibile ({e}) — ripristino saltato, testo grezzo mantenuto',
+            'pr_unexpected_punctuation_label_from_the': '  ⚠️ Etichetta punteggiatura inattesa dal modello ({raw_label!r}) — scartata, verificare id2label',
+            'pr_punctuation_prediction_failed_on_a': '  ⚠️ Predizione punteggiatura fallita su una finestra ({e}) — saltata',
+
+            # ── log pipeline: aligner.py ──
+            'al_loading_alignment_model_for': "  📦 Caricamento modello alignment per '{language_code}'...",
+            'al_no_native_model_for_falling': "  ℹ️ Nessun modello nativo per '{language_code}' — fallback modello generico ({model})",
+            'al_forced_alignment_language_not_supported': "  ⚠️ Forced alignment: lingua '{language_code}' non supportata — skip",
+            'al_aligner_loaded': '  ✅ Aligner caricato ({model})',
+            'al_alignment_completed_words_realigned_segments': '  ✅ Alignment completato: {n_words_moved}/{n_words} parole riallineate ({n_seg}/{n} segmenti, {n_seg_fallback} mantenuti con tempi Whisper)',
+
+            # ── log pipeline: pgs_ocr.py ──
+            'pgs_ocr_extracting_pgs_track': '⚙️ OCR — Estrazione traccia PGS...',
+            'pgs_ocr_bitmap_analysis': '⚙️ OCR — Analisi bitmap...',
+            'pgs_ocr_re_reading_the_track': '⚙️ OCR — rileggo la traccia col modello {better}...',
+            'pgs_lines_to_review': '✅ {n} battute, {n_flag} da rivedere',
+            'pgs_stream_ocr_failed_skipped': '⚠ Stream {index}: OCR fallito, saltato',
+            'pgs_stream_no_text_skipped': '⚠ Stream {index}: nessun testo, saltato',
+            'pgs_no_ocr_text_produced': '❌ Nessun testo OCR prodotto',
+            'pgs_italian_pgs_tracks_sidecar_from': "ℹ️ {n} tracce PGS italiane: sidecar dalla traccia {index} (la piu' completa); le altre restano nel video.",
+            'pgs_srt_tracks_embedded': '✅ {N} tracce SRT ({langs}) incorporate: {name}',
+            'pgs_srt_saved': '✅ SRT salvato: {name}',
+            'pgs_srt_embedded_in_the_file': '✅ SRT incorporato nel file',
+
+            # ── log pipeline: vobsub_ocr.py ──
+            'vob_ocr_extracting_vobsub_track': '⚙️ OCR — Estrazione traccia VOBSUB...',
+            'vob_italian_vobsub_tracks_sidecar_from': "ℹ️ {n} tracce VOBSUB italiane: sidecar dalla traccia {index} (la piu' completa); le altre restano nel video.",
+
+            # ── log pipeline: ocr_auto.py ──
+            'oa_ocr_track_contains_text_it': "⚙️ OCR — la traccia {stream_index} contiene testo {lang}: verra' tradotta.",
+            'oa_no_ocr_text_produced': 'Nessun testo OCR prodotto',
+            'oa_ocr_translation_it': '⚙️ OCR — Traduzione {content_lang}→it...',
+            'oa_translategemma_is_not_ready_for': "⚠️ TranslateGemma non e' pronto per sorgenti diverse dall'inglese ({content_lang}): instradato automaticamente su NLLB fine-tuned.",
+            'oa_translation_failed': 'Traduzione fallita: {exc}',
+            'oa_unable_to_read': 'Impossibile leggere {name}: {exc}',
+            'oa_italian_srt_embedded_in_the': '✅ SRT italiano incorporato nel file',
+            'oa_italian_srt_written': '✅ SRT italiano scritto: {name}',
+
+            # ── log pipeline: bitmap_ocr_common.py ──
+            'boc_the_ocr_text_is_not': "⚠️ Il testo OCR e' {verdict}, non {presumed}: lingua del contenuto corretta.",
+
+            # ── log pipeline: diarizer ──
+            'di_speaker_assignment_word_vote': '  🧭 Assegnazione speaker: word_vote={v}',
+            'di_word_vote_off': 'OFF (midpoint storico, {provenance})',
+            'di_provenance_from_config': 'da config',
+
+            # ── log pipeline: env_check_cli.py ──
+            'ec_loading_pyannote_pipeline_first_time': '⏳ Caricamento pipeline pyannote {model_id} (prima volta: download ~1 GB)...',
+            'ec_testing_on_synthetic_audio': '⏳ Test su audio sintetico...',
+            'ec_model_ok_found_turns_on': '✅ Modello OK! Trovati {n} turni sul test audio.',
+            'ec_you_can_enable_diarization': 'Puoi abilitare la diarization.',
+            'ec_access_denied_403': '❌ Accesso negato (403).',
+            'ec_accept_the_terms_at': 'Accetta i termini su:',
+            'ec_token_invalid_or_expired_check': '❌ Token non valido o scaduto. Controllalo su huggingface.co/settings/tokens',
+            'ec_error': '❌ Errore: {err}',
+            'ec_starting_model_loading': 'Avvio caricamento modello {chiave}...',
+            'ec_huggingface_token_not_detected_trying': 'Token HuggingFace non rilevato. Tentativo anonimo...',
+            'ec_download_in_progress_may_take': 'Download in corso (può richiedere alcuni minuti)...',
+            'ec_model_loaded_in_memory': 'Modello caricato in memoria.',
+            'ec_loading_failed': '❌ Caricamento fallito',
+
+            # ── log pipeline: fallback_translate_cli.py ──
+            'fb_error_cli_lines_output_json': "ERRORE CLI: 'lines', 'output_json' e 'model_path' sono obbligatori",
+            'fb_error_cli_model_not_found': 'ERRORE CLI: modello non trovato: {model_path}',
+            'fb_error_cli_llama_cpp_import': 'ERRORE CLI: import llama_cpp fallito: {e}',
+            'fb_loading_fallback_model': '📦 Caricamento modello di ripiego ({name})...',
+            'fb_error_cli_model_loading_failed': 'ERRORE CLI: caricamento modello fallito: {e}',
+            'fb_translating_distinct_sentences': '🌐 Traduzione di {total} frasi distinte...',
+            'fb_line_generation_error': '   riga {key}: errore generazione ({e})',
+            'fb_error_cli_output_json_writing': 'ERRORE CLI: scrittura output_json fallita: {e}',
+            'fb_reservoir_completed_sentences_resolved': '✅ Serbatoio completato: {n}/{total} frasi risolte',
+
+            # ── log pipeline: pipeline_cli.py ──
+            'pc_error_cli_video_path_is': 'ERRORE CLI: video_path obbligatorio',
+            'pc_options_specific_to_this_file': 'ℹ️ Opzioni specifiche di questo file: {ov}',
+            'pc_warn_cli_per_file_exceptions': 'WARN CLI: eccezioni per file ignorate: {e}',
+            'pc_error_cli_processingpipeline_import_failed': 'ERRORE CLI: import ProcessingPipeline fallito: {e}',
+            'pc_error_cli_fatal_pipeline_exception': 'ERRORE CLI: eccezione fatale pipeline: {e}',
+            'pc_warn_cli_result_json_writing': 'WARN CLI: scrittura result.json fallita: {e}',
+
+            # ── log pipeline: sync_cli.py ──
+            'sc_error_cli_video_path_and': 'ERRORE CLI: video_path ed external_srt_path sono obbligatori',
+            'sc_error_cli_subtitlesynchronizer_import_failed': 'ERRORE CLI: import SubtitleSynchronizer fallito: {e}',
+
+            # ── log pipeline: sync_cli.py ──
+            'sc_sync_failed_see_the_log': 'sincronizzazione fallita (vedi il log)',
+
+            # ── log pipeline: adaptive_batch_manager.py ──
+            'ab_adaptivebatchmanager_started_initial_min_max': 'AdaptiveBatchManager avviato: initial={current_batch_size}, min={min_size}, max={max_size}, warmup={warmup_batches}, device={device}',
+            'ab_gpu_contended_gb_held_by': '  ⚠️ GPU contesa: {ext:.1f} GB tenuti da un altro processo. Tengo il batch a {current_batch_size} — ridurlo non libera memoria altrui e rallenta.',
+            'ab_critical_oom_panic_fallback_batch': '  OOM critico (×{oom_consecutive}): panic fallback → batch={new_size}',
+            'ab_oom_batch_consecutive_ooms': '  OOM! batch {current_batch_size} → {new_size} (OOM consecutivi: {oom_consecutive})',
+            'ab_batch_manager_stats_average_batch': '  Batch manager stats — batch medio: {avg_batch:.1f} (min={min_batch}, max={max_batch}), OOM: {oom_events}, aggiustamenti: {adjustments}, batch totali: {total_batches}',
+            'ab_very_low_vram_gb_free': '  ⚠️ VRAM molto bassa: {free_gb:.1f} GB liberi, margine={safety_margin_gb} GB → batch={min_size}',
+
+            # ── log pipeline: opensubtitles_ai_translator.py ──
+            'oa2_opensubtitles_ai_logging_in': 'OpenSubtitles AI: login in corso...',
+            'oa2_opensubtitles_ai_login_ok_translations': 'OpenSubtitles AI: login OK. Traduzioni disponibili: {allowed_translations}',
+            'oa2_opensubtitles_ai_translation_quota_exhausted': 'OpenSubtitles AI: quota traduzioni esaurita (allowed_translations=0)',
+            'oa2_opensubtitles_ai_translation_for': "OpenSubtitles AI: traduzione {src} -> {tgt} per '{name}'",
+            'oa2_opensubtitles_ai_translated_file_saved': "OpenSubtitles AI: file tradotto salvato in '{output_path}'",
+            'oa2_opensubtitles_ai_provider': 'OpenSubtitles AI: provider={translation_provider}',
+            'oa2_opensubtitles_ai_token_expired_while': 'OpenSubtitles AI: token scaduto durante invio, re-login...',
+            'oa2_opensubtitles_ai_insufficient_ai_credits': 'OpenSubtitles AI: crediti AI insufficienti. Acquista crediti su ai.opensubtitles.com o scegli un provider diverso.',
+            'oa2_opensubtitles_ai_translation_started_correlation': 'OpenSubtitles AI: traduzione avviata, correlation_id={cid}',
+            'oa2_opensubtitles_ai_waiting_for_the': 'OpenSubtitles AI: attesa risultato traduzione (max {POLL_TIMEOUT}s)...',
+            'oa2_opensubtitles_ai_translation_completed_poll': 'OpenSubtitles AI: traduzione completata (poll #{attempt})',
+            'oa2_opensubtitles_ai_still_processing_poll': 'OpenSubtitles AI: ancora in elaborazione... (poll #{attempt})',
+            'oa2_opensubtitles_ai_downloading_result_from': 'OpenSubtitles AI: download risultato da {dl_url}',
+
+            # ── log pipeline: glossary_builder_cli.py ──
+            'sc_fatal_exception': 'eccezione fatale: {e}',
+
+            # ── log pipeline: sync_cli.py ──
+            'sc_error_cli': 'ERRORE CLI: {error}',
+
+            # ── log pipeline: subtitle_formatter.py ──
+            'sf_formatted_srt_blocks_dialogue_blocks': '  📄 SRT formattato: {n} blocchi, {n_dialog} blocchi dialogo',
+            'sf_speaker_pairs_discarded_for_low': '  🎭 Coppie speaker scartate per bassa confidenza (niente trattino): {dash_rejected_low_confidence}',
+            'sf_error_saving_formatted_srt': '  ⚠️ Errore salvataggio SRT formattato: {e}',
+            'sf_duplicate_segments_overlapping_chunks_removed': '  🧹 Segmenti duplicati (chunk sovrapposti) rimossi: {removed}',
+            'sf_blocks_with_invalid_timing_discarded': '  🛡️ Blocchi con timing invalido scartati: {dropped}',
+            'sf_merging_fragments_segments_merged': '  🔗 Merge frammenti: {before} → {after} segmenti ({merged} uniti)',
+            'sf_readability_segments_merged': '  📖 Leggibilità: {before} → {after} segmenti ({merged} uniti)',
+
+            # ── log pipeline: queue_runner.py ──
+            'qr_no_video_file_found': 'Nessun file video trovato.',
+            'qr_another_headless_queue_is_already': "Un'altra coda headless e' gia' in esecuzione (queue.lock). Non avviata.",
+            'qr_warning_the_transcriber_pro_gui': 'ATTENZIONE: la GUI di Transcriber Pro risulta aperta. Non lanciare code in parallelo (stessa GPU e stessa cache dei modelli).',
+            'qr_files_in_the_queue_status': '{n} file in coda. Stato: {path}',
+            'qr_interrupted': 'Interrotto.',
+            'qr_done_ok_failed_cancelled_out': 'Fine: {completed} ok, {failed} falliti, {cancelled} annullati su {total}.',
+
+            # ── log pipeline: queue_runner ──
+            'qr_status_failed': 'FALLITO',
+
+            # ── log pipeline: vobsub_ocr.py ──
+            'vob_no_bitmap_subtitle_found': 'Nessun sottotitolo bitmap trovato',
+            'vob_codec_is_not_vobsub_use': 'Codec {codec} non è VOBSUB (usa il modulo PGS)',
+            'vob_mkvextract_not_found_install_mkvtoolnix': 'mkvextract non trovato (installa MKVToolNix)',
+            'vob_mkvextract_failed_rc': 'mkvextract fallito (rc={rc}): {err}',
+            'vob_no_italian_vobsub_subtitle_found': 'Nessun sottotitolo VOBSUB italiano trovato',
+            'vob_language_not_supported_by_tesseract': "Lingua '{stream_lang3}' non supportata da Tesseract (traineddata mancante)",
+
+            # ── log pipeline: pgs_ocr.py ──
+            'pgs_codec_not_supported_by_the': 'Codec {codec} non supportato dal ramo review (solo PGS; VOBSUB/DVD è fase 2)',
+            'pgs_sup_extraction_failed_stream': 'Estrazione .sup fallita (stream {index})',
+            'pgs_no_italian_pgs_subtitle_found': 'Nessun sottotitolo PGS italiano trovato',
+
+            # ── log pipeline: punctuation_restorer.py ──
+            'pr_tokenizer_does_not_expose_word': "tokenizer '{model_id}' non espone word_ids() (non è una versione 'fast') — riproiezione parola↔etichetta impossibile",
+
+            # ── log pipeline: opensubtitles_rest_uploader.py ──
+            'ru_rest_api_key_not_configured': 'REST API Key non configurata. Upload impossibile.',
+
+            # ── log pipeline: profile_dialog.py ──
+            'pd_select_the_optimal_profile_for': "Seleziona il profilo ottimale per il tuo caso d'uso.",
+            'pd_transcription_profiles': '⚙️ Profili di Trascrizione',
         },
     }
 

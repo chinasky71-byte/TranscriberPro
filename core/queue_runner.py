@@ -33,6 +33,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
+from utils.translations import tr
 
 VIDEO_EXTS = {'.mkv', '.mp4', '.avi', '.mov', '.m4v', '.ts', '.mpg', '.mpeg', '.wmv', '.webm'}
 _ROOT = Path(__file__).resolve().parent.parent
@@ -384,23 +385,22 @@ def main(argv=None) -> int:
 
     files = collect_files(args.inputs, args.recursive, args.skip_existing)
     if not files:
-        print('Nessun file video trovato.')
+        print(tr('qr_no_video_file_found'))
         return 1
 
     lock = QueueLock(_HOME / 'queue.lock')
     if not lock.acquire():
-        print('Un\'altra coda headless e\' gia\' in esecuzione (queue.lock). Non avviata.')
+        print(tr('qr_another_headless_queue_is_already'))
         return 3
     if _gui_running():
-        print('ATTENZIONE: la GUI di Transcriber Pro risulta aperta. Non lanciare code in parallelo '
-              '(stessa GPU e stessa cache dei modelli).')
+        print(tr('qr_warning_the_transcriber_pro_gui'))
 
     log_dir = Path(args.log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     status = QueueStatus(Path(args.status), files)
     status.write()
-    print(f'{len(files)} file in coda. Stato: {status.path}', flush=True)
+    print(tr('qr_files_in_the_queue_status').format(n=len(files), path=status.path), flush=True)
 
     first_error_notified = False
     state = 'finished'
@@ -421,21 +421,20 @@ def main(argv=None) -> int:
             except Exception as exc:          # un file non deve fermare la coda
                 res = {'ok': False, 'output': None, 'error': f'{type(exc).__name__}: {exc}'}
             status.end_file(idx, res['ok'], res['output'], res['error'])
-            print(f"    {'OK' if res['ok'] else 'FALLITO'} ({status.files[idx]['seconds']} s)", flush=True)
+            print(f"    {'OK' if res['ok'] else tr('qr_status_failed')} ({status.files[idx]['seconds']} s)", flush=True)
             if not res['ok'] and args.notify and not first_error_notified:
                 first_error_notified = True
                 notify('Transcriber Pro: errore', f'Fallito: {video.name}')
     except KeyboardInterrupt:
         state = 'cancelled'
-        print('Interrotto.', flush=True)
+        print(tr('qr_interrupted'), flush=True)
         if idx is not None and status.files[idx]['status'] == 'processing':
             status.end_file(idx, False, error='interrotto', status='cancelled')
     finally:
         status.finish(state)
         lock.release()
     snap = status.snapshot()
-    print(f"Fine: {snap['completed']} ok, {snap['failed']} falliti, {snap['cancelled']} annullati "
-          f"su {snap['total']}.", flush=True)
+    print(tr('qr_done_ok_failed_cancelled_out').format(completed=snap['completed'], failed=snap['failed'], cancelled=snap['cancelled'], total=snap['total']), flush=True)
     if args.notify:
         notify('Transcriber Pro: coda terminata',
                f"{snap['completed']} completati, {snap['failed']} falliti su {snap['total']}.")

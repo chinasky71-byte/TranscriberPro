@@ -34,6 +34,7 @@ from core.pgs_types import (
     FLAG_LOW_CONF, FLAG_EMPTY,
     UnsupportedLanguage, ContentNotItalian,
 )
+from utils.translations import tr
 
 logger = logging.getLogger(__name__)
 
@@ -138,10 +139,10 @@ class VobSubOcr:
     def select_vobsub_stream(self) -> dict:
         sub = self.extractor.select_best_bitmap_subtitle()
         if not sub:
-            raise BitmapNotSupported("Nessun sottotitolo bitmap trovato")
+            raise BitmapNotSupported(tr('vob_no_bitmap_subtitle_found'))
         if sub["codec"].lower() not in VOBSUB_CODECS:
             raise BitmapNotSupported(
-                f"Codec {sub['codec']} non è VOBSUB (usa il modulo PGS)")
+                tr('vob_codec_is_not_vobsub_use').format(codec=sub['codec']))
         return sub
 
     def select_all_vobsub_streams_ita(self) -> List[dict]:
@@ -157,7 +158,7 @@ class VobSubOcr:
         """
         mkvextract = _find_mkvextract()
         if not mkvextract:
-            raise RuntimeError("mkvextract non trovato (installa MKVToolNix)")
+            raise RuntimeError(tr('vob_mkvextract_not_found_install_mkvtoolnix'))
         out_base.parent.mkdir(parents=True, exist_ok=True)
         # mkvextract scrive out_base.idx e out_base.sub
         cmd = [mkvextract, "tracks", str(self.video_path),
@@ -187,7 +188,7 @@ class VobSubOcr:
         idx = Path(str(out_base) + ".idx")
         sub = Path(str(out_base) + ".sub")
         if rc != 0 or not idx.exists() or not sub.exists():
-            raise RuntimeError(f"mkvextract fallito (rc={rc}): {err}")
+            raise RuntimeError(tr('vob_mkvextract_failed_rc').format(rc=rc, err=err))
         return idx, sub
 
     @staticmethod
@@ -220,7 +221,7 @@ class VobSubOcr:
         if stream_lang3 not in ('und', 'unk', '') and ocr_lang != stream_lang3:
             if stream_lang3 not in available_tesseract_langs():
                 raise UnsupportedLanguage(
-                    f"Lingua '{stream_lang3}' non supportata da Tesseract (traineddata mancante)")
+                    tr('vob_language_not_supported_by_tesseract').format(stream_lang3=stream_lang3))
         content_lang = lang2
 
         from utils.file_handler import FileHandler
@@ -232,18 +233,18 @@ class VobSubOcr:
             out_base = Path(tempfile.gettempdir()) / f"{self.video_path.stem}_vobsub_{sub_info['index']}"
 
         logger.info(f"Estrazione VOBSUB stream {sub_info['index']} ({stream_lang3}; OCR={ocr_lang})")
-        self._log("⚙️ OCR — Estrazione traccia VOBSUB...")
+        self._log(tr('vob_ocr_extracting_vobsub_track'))
         idx, sub = self.extract_idx_sub(sub_info["index"], out_base)
 
         from utils.events import emit as _tp_emit
         _tp_emit('phase', name='ocr_read')
-        self._log("⚙️ OCR — Analisi bitmap...")
+        self._log(tr('pgs_ocr_bitmap_analysis'))
         events = self._idxsub_to_events(idx, sub, ocr_lang)
         refined = refine_content_lang(events, content_lang, self._log)
         if refined != content_lang:
             better = tesseract_name(refined)
             if better != ocr_lang and better in available_tesseract_langs():
-                self._log(f"⚙️ OCR — rileggo la traccia col modello {better}...")
+                self._log(tr('pgs_ocr_re_reading_the_track').format(better=better))
                 events = self._idxsub_to_events(idx, sub, better)
             content_lang = refined
 
@@ -254,7 +255,7 @@ class VobSubOcr:
                 pass
 
         n_flag = sum(1 for e in events if e.is_flagged)
-        self._log(f"✅ {len(events)} battute, {n_flag} da rivedere")
+        self._log(tr('pgs_lines_to_review').format(n=len(events), n_flag=n_flag))
         return events, content_lang
 
     def ocr_to_events(self) -> Tuple[List[OcrEvent], str]:
@@ -333,7 +334,7 @@ class VobSubOcr:
         """
         streams = self.select_all_vobsub_streams_ita()
         if not streams:
-            raise BitmapNotSupported("Nessun sottotitolo VOBSUB italiano trovato")
+            raise BitmapNotSupported(tr('vob_no_italian_vobsub_subtitle_found'))
 
         results: List[Tuple[dict, str, str]] = []  # (stream_dict, srt_text, lang2)
         for sub_info in streams:
@@ -341,16 +342,16 @@ class VobSubOcr:
                 events, lang = self._ocr_single_stream(sub_info)
             except Exception as e:
                 logger.warning(f"Stream {sub_info['index']}: errore OCR: {e}")
-                self._log(f"⚠ Stream {sub_info['index']}: OCR fallito, saltato")
+                self._log(tr('pgs_stream_ocr_failed_skipped').format(index=sub_info['index']))
                 continue
             srt = events_to_srt(events)
             if srt.strip():
                 results.append((sub_info, srt, lang))
             else:
-                self._log(f"⚠ Stream {sub_info['index']}: nessun testo, saltato")
+                self._log(tr('pgs_stream_no_text_skipped').format(index=sub_info['index']))
 
         if not results:
-            self._log("❌ Nessun testo OCR prodotto")
+            self._log(tr('pgs_no_ocr_text_produced'))
             return False
 
         # Tracce COMPLETE (non forced) date per italiane dal tag ma con testo di un'altra lingua: da
@@ -381,8 +382,7 @@ class VobSubOcr:
             pool = [r for r in full if r[2] == "it"] or full or results
             sub, srt, lang = max(pool, key=lambda r: len(r[1]))
             self._bitmap_stream_abs_idx = sub["index"]
-            self._log(f"ℹ️ {len(results)} tracce VOBSUB italiane: sidecar dalla traccia {sub['index']} "
-                      "(la piu' completa); le altre restano nel video.")
+            self._log(tr('vob_italian_vobsub_tracks_sidecar_from').format(n=len(results), index=sub['index']))
             return self.writeback(srt, lang)
 
         if self.video_path.suffix.lower() != ".mkv":
@@ -464,7 +464,7 @@ class VobSubOcr:
             return False
         temp.replace(self.video_path)
         langs = ", ".join(l for _, _, l in results)
-        self._log(f"✅ {N} tracce SRT ({langs}) incorporate: {self.video_path.name}")
+        self._log(tr('pgs_srt_tracks_embedded').format(N=N, langs=langs, name=self.video_path.name))
         return True
 
     # ── Write-back ────────────────────────────────────────────────────────
@@ -472,7 +472,7 @@ class VobSubOcr:
         """Scrive un sidecar <stem>.<lang2>.srt e ritorna il Path."""
         out = self.video_path.with_name(f"{self.video_path.stem}.{lang2}.srt")
         out.write_text(srt_text, encoding="utf-8")
-        self._log(f"✅ SRT salvato: {out.name}")
+        self._log(tr('pgs_srt_saved').format(name=out.name))
         return out
 
     def writeback(self, srt_text: str, language: str) -> bool:
@@ -485,7 +485,7 @@ class VobSubOcr:
             except Exception as e:
                 logger.error(f"Scrittura sidecar fallita: {e}")
                 return False
-            self._log(f"✅ SRT salvato: {out.name}")
+            self._log(tr('pgs_srt_saved').format(name=out.name))
             return True
         # MUX: scrivi un SRT temporaneo e rimuxalo nell'MKV in-place.
         tmp_srt = self.video_path.with_suffix(".ocr_tmp.srt")
@@ -557,7 +557,7 @@ class VobSubOcr:
                 temp.unlink()
             return False
         temp.replace(self.video_path)
-        self._log("✅ SRT incorporato nel file")
+        self._log(tr('pgs_srt_embedded_in_the_file'))
         return True
 
 
