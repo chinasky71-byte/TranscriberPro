@@ -158,3 +158,34 @@ def test_righe_errore_del_sincronizzatore_iniziano_col_prefisso_in_ogni_lingua()
 def test_nota_finestra_dell_allineatore_riconosciuta_in_ogni_lingua():
     for lang in ('it', 'en'):
         assert any(k in TX[lang]['ta_piecewise_offset_at_the_window'] for k in all_texts('logm_kw_window'))
+
+
+MARKER_IN_LINES.update({
+    'logm_bar_translation': ['tl_translation_batch', 'tl_translation_100', 'lt_translation_batch', 'lt_translation_100'],
+    'logm_progress': ['tl_progress', 'tl_progress_100'],
+    'logm_noise_recovery': ['lt_recovery_without_masking_blocks_in'],
+})
+
+
+@pytest.mark.parametrize('lang', ['it', 'en'])
+@pytest.mark.parametrize('key,args', [
+    ('tl_translation_batch', dict(bar=BAR, progress=40, i=4, total=10, bs=8, eta_txt='')),
+    ('lt_translation_batch', dict(bar=BAR, pct=40, done=4, total=10, batch_size=8, tail='')),
+    ('tl_progress', dict(progress=40, i=4, total=10, eta_txt='')),
+])
+def test_barre_traduzione_reali_muovono_log_e_avanzamento(lang, key, args):
+    line = TX[lang][key].format(**args)
+    d = LogFilter().decide(line)
+    assert d.action == 'progress'
+    fp = FileProgress('ita')
+    fp.feed('1. Setup')
+    fp.feed(TX[lang]['pl_6_translation'].format(src='en', dst='it'))
+    before = fp.value
+    fp.feed(line)
+    assert fp.value > before
+
+
+@pytest.mark.parametrize('lang', ['it', 'en'])
+def test_riga_recupero_senza_mascheramento_e_rumore(lang):
+    line = TX[lang]['lt_recovery_without_masking_blocks_in'].format(total=3, minutes=0.5)
+    assert LogFilter().decide(line).action == 'drop_noise'

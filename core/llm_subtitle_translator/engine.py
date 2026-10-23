@@ -39,6 +39,7 @@ from threading import Lock
 from typing import Any, Callable, Dict, List, Optional
 
 from utils.logger import setup_logger
+from utils.translations import tr
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -360,7 +361,7 @@ class SubtitleLLMEngine:
         token = self._hf_token()
         is_gemma3 = self.spec.loader == "gemma3"
 
-        self.log(f"📦 Caricamento modello {self.spec.label}...")
+        self.log(tr('le_loading_model').format(label=self.spec.label))
 
         if is_gemma3:
             # Il chat template di TranslateGemma sta nel processor, non nel
@@ -394,12 +395,12 @@ class SubtitleLLMEngine:
         )
 
         if not use_gpu:
-            self.log("  GPU non disponibile: caricamento su CPU (lento)")
+            self.log(tr('le_gpu_not_available_loading_on'))
         elif free_gb >= self.spec.bf16_min_free_gb:
-            self.log(f"  VRAM libera {free_gb:.1f} GB -> bfloat16")
+            self.log(tr('le_free_vram_gb_bfloat16').format(free_gb=free_gb))
             kwargs.update(dtype=torch.bfloat16, device_map="auto")
         else:
-            self.log(f"  VRAM libera {free_gb:.1f} GB -> NF4")
+            self.log(tr('le_free_vram_gb_nf4').format(free_gb=free_gb))
             from transformers import BitsAndBytesConfig
             kwargs.update(
                 # `dtype` NON è ridondante con `bnb_4bit_compute_dtype`, ed è
@@ -439,7 +440,7 @@ class SubtitleLLMEngine:
             )
         if self.adapter:
             from peft import PeftModel
-            self.log(f"  applico l'adattatore {self.adapter}")
+            self.log(tr('le_applying_adapter').format(adapter=self.adapter))
             self.model = PeftModel.from_pretrained(
                 self.model, self.adapter, is_trainable=False)
         if not use_gpu:
@@ -449,7 +450,7 @@ class SubtitleLLMEngine:
         if self.model.config.pad_token_id is None:
             self.model.config.pad_token_id = self.tokenizer.pad_token_id
 
-        self.log(f"  {self.spec.label} pronto su {self.device}")
+        self.log(tr('le_ready_on').format(label=self.spec.label, device=self.device))
 
     def _hf_token(self) -> Optional[str]:
         try:
@@ -596,7 +597,7 @@ class SubtitleLLMEngine:
         if self.model is None and self.tokenizer is None:
             return
 
-        self.log(f"  Scarico {self.spec.label} dalla VRAM...")
+        self.log(tr('le_unloading_from_vram').format(label=self.spec.label))
         try:
             import torch
             if self.model is not None:
