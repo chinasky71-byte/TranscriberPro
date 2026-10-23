@@ -9,12 +9,13 @@ UPLOAD = 'opensubtitles_upload_enabled'
 MUX = 'mux_subtitle_into_video'
 GENDER = 'gender_correction_enabled'
 TRANSLATION = 'translation_model'
+FORCE_AUDIO = 'force_audio_transcription'      # ignora i sottotitoli gia' presenti nel video e trascrive l'audio
 
 # lingue ammesse (stessi codici di gui/job_options_card.py::SUBTITLE_LANGUAGES)
 LANGUAGES = ('ita', 'eng', 'fra', 'spa', 'deu', 'por', 'rus', 'jpn', 'zho', 'ara', 'kor', 'nld', 'pol', 'tur')
 TRANSLATION_MODELS = ('nllb_finetuned', 'llm')
-BOOL_KEYS = (UPLOAD, MUX, GENDER)
-ALL_KEYS = (TARGET_LANGUAGE, TRANSLATION, GENDER, MUX, UPLOAD)
+BOOL_KEYS = (UPLOAD, MUX, GENDER, FORCE_AUDIO)
+ALL_KEYS = (TARGET_LANGUAGE, TRANSLATION, FORCE_AUDIO, GENDER, MUX, UPLOAD)
 
 _TM_SHORT = {'nllb_finetuned': 'NLLB', 'llm': 'TG'}
 
@@ -49,6 +50,8 @@ def label(overrides: Optional[Dict[str, Any]]) -> str:
         parts.append(o[TARGET_LANGUAGE].upper())
     if TRANSLATION in o:
         parts.append(_TM_SHORT[o[TRANSLATION]])
+    if FORCE_AUDIO in o:
+        parts.append('audio' if o[FORCE_AUDIO] else '¬audio')
     if GENDER in o:
         parts.append('⚧' if o[GENDER] else '¬⚧')
     if MUX in o:

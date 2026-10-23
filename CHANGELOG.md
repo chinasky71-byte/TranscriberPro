@@ -3,6 +3,11 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.23 — 2026-10-23 — "Forza trascrizione da audio" tra le opzioni per file
+
+- Il menu tasto destro della coda ha anche **Forza trascrizione da audio** (Predefinito / Si' / No): per quel file ignora i sottotitoli gia' presenti nel video e trascrive l'audio.
+  Sulla riga compare la sigla `audio`. Stessa logica delle altre eccezioni per file (mai scritta in `config.json`).
+
 ## 1.34.22 — 2026-10-23 — Opzioni job predefinite nelle Impostazioni; piu' spazio a coda e Library Scanner
 
 - **Scheda "Opzioni job" nelle Impostazioni:** lingua dei sottotitoli, upload OpenSubtitles, "Muxa nel video" e genere avanzato (con righe che rimandano alle schede Traduzione e OCR per motore e revisione).
