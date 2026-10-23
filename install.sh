@@ -4,7 +4,9 @@
 #
 #   ./install.sh --check        solo il rapporto dei prerequisiti, nessuna modifica
 #   ./install.sh                crea il venv e installa requirements.txt (chiede conferma per sudo)
-#   ./install.sh --system-deps  propone anche l'installazione dei pacchetti di sistema con sudo
+#   ./install.sh --system-deps  installa anche i pacchetti di sistema con sudo e rilancia da solo lo script (un solo rilancio); se sudo non
+#                               puo' chiedere la password (niente terminale) o il comando fallisce, stampa il comando e esce con 2
+#                               senza l'opzione, con un terminale interattivo, chiede "Li installo ora con sudo?"
 #   opzioni: --no-gpu (ruote CPU di torch e llama-cpp-python, ~250 MB invece di ~3 GB) --yes (nessuna domanda)
 #            --with-models  scarica da Hugging Face il Qwen2.5 (glossario/serbatoio) e il NLLB fine-tuned (molti GB)
 #            --qwen-size=auto|7b|14b  (auto = 14B con GPU da 12 GB o piu', 7B con GPU piu' piccola o --no-gpu)
@@ -31,7 +33,7 @@ for a in "$@"; do
     --with-models) WITHMODELS=1 ;;
     --qwen-size=*) QWENSIZE="${a#--qwen-size=}" ;;
     --gpu-backend=*) GPUBACKEND="${a#--gpu-backend=}" ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
     *) echo "Opzione sconosciuta: $a"; exit 2 ;;
   esac
 done
@@ -146,16 +148,47 @@ if [ "${#MISSING[@]}" -gt 0 ]; then
     warn "e le librerie Qt: xcb-cursor, xkbcommon-x11, EGL, fontconfig."
   else
     case "$PM" in
-      apt) CMD="sudo apt-get install -y $PKGS" ;;
-      dnf) CMD="sudo dnf install -y $PKGS" ;;
-      pacman) CMD="sudo pacman -S --needed $PKGS" ;;
-      zypper) CMD="sudo zypper install -y $PKGS" ;;
+      apt) CMDA=(sudo apt-get install -y $PKGS) ;;
+      dnf) CMDA=(sudo dnf install -y $PKGS) ;;
+      pacman) CMDA=(sudo pacman -S --needed $PKGS) ;;
+      zypper) CMDA=(sudo zypper install -y $PKGS) ;;
     esac
+    CMD="${CMDA[*]}"
     echo "  Comando per $PM (i nomi dei pacchetti possono variare con la versione della distribuzione):"
     echo "    $CMD"
-    if [ "$SYSDEPS" = "1" ] && [ "$CHECK" = "0" ]; then
-      if ask "Eseguo questo comando con sudo?"; then $CMD || warn "Il gestore pacchetti ha restituito un errore: correggi i nomi o installa a mano."; fi
-      echo "  Rilancia ./install.sh per ricontrollare i prerequisiti."
+    # solo i prerequisiti che un pacchetto di sistema puo' risolvere (non disco, accesso a /dev/kfd)
+    PKGFIX=0; for m in "${MISSING[@]}"; do case "$m" in disco|kfd|kfd-access) ;; *) PKGFIX=1 ;; esac; done
+    if [ "${TP_INSTALL_RETRY:-}" = "1" ] && [ "$CHECK" = "0" ]; then
+      # secondo giro dopo l'installazione automatica: nessun terzo tentativo
+      bad "Dopo l'installazione dei pacchetti manca ancora: ${MISSING[*]}. Non riprovo: controlla l'errore del gestore pacchetti, installa a mano ed esegui di nuovo ./install.sh."
+      exit 2
+    fi
+    if [ "$CHECK" = "0" ] && [ "$PKGFIX" = "1" ]; then
+      GO=0
+      if [ "$SYSDEPS" = "1" ]; then ask "Eseguo questo comando con sudo?" && GO=1
+      elif [ "$YES" = "1" ] || [ -t 0 ]; then ask "Li installo ora con sudo?" && GO=1; fi
+      if [ "$GO" = "1" ]; then
+        # senza terminale sudo non puo' chiedere la password: serve una credenziale gia' valida (o NOPASSWD)
+        if ! have sudo || { [ ! -t 0 ] && ! sudo -n true 2>/dev/null; }; then
+          bad "Non posso usare sudo qui (manca sudo, oppure non c'e' un terminale per la password). Esegui a mano:"
+          echo "    $CMD"; echo "  poi rilancia ./install.sh"
+          exit 2
+        fi
+        if [ "$PM" = "apt" ] && [ -z "$(ls -A "${TP_APT_LISTS:-/var/lib/apt/lists}" 2>/dev/null | grep -Ev '^(lock|partial)$')" ]; then
+          echo "  elenchi dei pacchetti vuoti (macchina nuova): sudo apt-get update"
+          sudo apt-get update || warn "apt-get update ha restituito un errore: provo comunque l'installazione."
+        fi
+        if "${CMDA[@]}"; then
+          echo "  Pacchetti installati: ricontrollo i prerequisiti rilanciando lo script."
+          export TP_INSTALL_RETRY=1
+          exec "$BASH" "${BASH_SOURCE[0]}" ${1+"$@"}
+        fi
+        bad "Il gestore pacchetti ha restituito un errore. Correggi i nomi o esegui a mano:"
+        echo "    $CMD"; echo "  poi rilancia ./install.sh"
+        exit 2
+      elif [ "$SYSDEPS" = "1" ]; then
+        echo "  Installa a mano il comando qui sopra, poi rilancia ./install.sh"
+      fi
     fi
   fi
 fi
