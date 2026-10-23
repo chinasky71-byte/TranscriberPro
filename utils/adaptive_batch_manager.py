@@ -16,6 +16,7 @@ from typing import Optional, Callable
 # condiviso — gli aggiustamenti di batch (l'unica traccia di cosa ha fatto
 # davvero il gestore adattivo) non finivano mai nel log.
 from utils.logger import setup_logger
+from utils.translations import tr
 
 logger = setup_logger(__name__)
 
@@ -101,9 +102,7 @@ class AdaptiveBatchSizeManager:
         self._size_history: list = []
 
         self._log(
-            f"AdaptiveBatchManager avviato: initial={self.current_batch_size}, "
-            f"min={min_size}, max={max_size}, warmup={warmup_batches}, "
-            f"device={'GPU' if use_gpu else 'CPU'}"
+            tr('ab_adaptivebatchmanager_started_initial_min_max').format(current_batch_size=self.current_batch_size, min_size=min_size, max_size=max_size, warmup_batches=warmup_batches, device='GPU' if use_gpu else 'CPU')
         )
 
     # ------------------------------------------------------------------
@@ -158,9 +157,7 @@ class AdaptiveBatchSizeManager:
                     if not self._ext_warned:
                         self._ext_warned = True
                         self._log(
-                            f"  ⚠️ GPU contesa: {ext:.1f} GB tenuti da un altro "
-                            f"processo. Tengo il batch a {self.current_batch_size} "
-                            f"— ridurlo non libera memoria altrui e rallenta."
+                            tr('ab_gpu_contended_gb_held_by').format(ext=ext, current_batch_size=self.current_batch_size)
                         )
                 else:
                     new_size = max(self.min_size, self.current_batch_size - 2)
@@ -193,9 +190,7 @@ class AdaptiveBatchSizeManager:
                     if not self._ext_warned:
                         self._ext_warned = True
                         self._log(
-                            f"  ⚠️ GPU contesa: {ext:.1f} GB tenuti da un altro "
-                            f"processo. Tengo il batch a {self.current_batch_size} "
-                            f"— ridurlo non libera memoria altrui e rallenta."
+                            tr('ab_gpu_contended_gb_held_by').format(ext=ext, current_batch_size=self.current_batch_size)
                         )
                 else:
                     new_size = max(self.min_size, self.current_batch_size - 2)
@@ -252,13 +247,12 @@ class AdaptiveBatchSizeManager:
             # Panic fallback: vai al minimo
             new_size = self.min_size
             self._log(
-                f"  OOM critico (×{self._oom_consecutive}): panic fallback → batch={new_size}"
+                tr('ab_critical_oom_panic_fallback_batch').format(oom_consecutive=self._oom_consecutive, new_size=new_size)
             )
         else:
             new_size = max(self.min_size, self.current_batch_size // 2)
             self._log(
-                f"  OOM! batch {self.current_batch_size} → {new_size} "
-                f"(OOM consecutivi: {self._oom_consecutive})"
+                tr('ab_oom_batch_consecutive_ooms').format(current_batch_size=self.current_batch_size, new_size=new_size, oom_consecutive=self._oom_consecutive)
             )
 
         self.current_batch_size = new_size
@@ -301,10 +295,7 @@ class AdaptiveBatchSizeManager:
         """Stampa statistiche finali via log_callback."""
         m = self.get_metrics()
         self._log(
-            f"  Batch manager stats — batch medio: {m['avg_batch']:.1f} "
-            f"(min={m['min_batch']}, max={m['max_batch']}), "
-            f"OOM: {m['oom_events']}, aggiustamenti: {m['adjustments']}, "
-            f"batch totali: {m['total_batches']}"
+            tr('ab_batch_manager_stats_average_batch').format(avg_batch=m['avg_batch'], min_batch=m['min_batch'], max_batch=m['max_batch'], oom_events=m['oom_events'], adjustments=m['adjustments'], total_batches=m['total_batches'])
         )
 
     # ------------------------------------------------------------------
@@ -365,8 +356,7 @@ class AdaptiveBatchSizeManager:
 
         if available_gb <= 0:
             self._log(
-                f"  ⚠️ VRAM molto bassa: {free_gb:.1f} GB liberi, "
-                f"margine={safety_margin_gb} GB → batch={self.min_size}"
+                tr('ab_very_low_vram_gb_free').format(free_gb=free_gb, safety_margin_gb=safety_margin_gb, min_size=self.min_size)
             )
             return self.min_size
 

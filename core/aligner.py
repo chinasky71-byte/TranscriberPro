@@ -26,6 +26,7 @@ from __future__ import annotations
 import re
 import torch
 from typing import List, Dict, Optional, Callable
+from utils.translations import tr
 
 
 # Override modello: lingue per cui vogliamo un modello specifico
@@ -82,29 +83,28 @@ class ForcedAligner:
         if language_code in MODEL_OVERRIDES:
             kwargs['model_name'] = MODEL_OVERRIDES[language_code]
 
-        self.log(f"  📦 Caricamento modello alignment per '{language_code}'...")
+        self.log(tr('al_loading_alignment_model_for').format(language_code=language_code))
         try:
             self._model, self._metadata = whisperx.load_align_model(**kwargs)
         except ValueError:
             # whisperx lancia ValueError per lingue senza modello wav2vec2 nativo.
             # Proviamo il modello generico multilingua come fallback.
             self.log(
-                f"  ℹ️ Nessun modello nativo per '{language_code}' "
-                f"— fallback modello generico ({GENERIC_ALIGN_MODEL.split('/')[-1]})"
+                tr('al_no_native_model_for_falling').format(language_code=language_code, model=GENERIC_ALIGN_MODEL.split('/')[-1])
             )
             kwargs['model_name'] = GENERIC_ALIGN_MODEL
             try:
                 self._model, self._metadata = whisperx.load_align_model(**kwargs)
             except Exception as e:
                 self.log(
-                    f"  ⚠️ Forced alignment: lingua '{language_code}' non supportata — skip"
+                    tr('al_forced_alignment_language_not_supported').format(language_code=language_code)
                 )
                 return False
 
         self._device = device
         model_id = getattr(self._model, 'name_or_path',
                            kwargs.get('model_name', GENERIC_ALIGN_MODEL))
-        self.log(f"  ✅ Aligner caricato ({model_id.split('/')[-1]})")
+        self.log(tr('al_aligner_loaded').format(model=model_id.split('/')[-1]))
         return True
 
     def align(self, segments: List[Dict], audio_path: str) -> List[Dict]:
@@ -160,9 +160,7 @@ class ForcedAligner:
             result.append(new_seg)
 
         self.log(
-            f"  ✅ Alignment completato: {n_words_moved}/{n_words} parole riallineate "
-            f"({len(result) - n_seg_fallback}/{len(result)} segmenti, "
-            f"{n_seg_fallback} mantenuti con tempi Whisper)"
+            tr('al_alignment_completed_words_realigned_segments').format(n_words_moved=n_words_moved, n_words=n_words, n_seg=len(result) - n_seg_fallback, n=len(result), n_seg_fallback=n_seg_fallback)
         )
         return result
 

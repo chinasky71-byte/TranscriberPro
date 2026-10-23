@@ -211,3 +211,29 @@ MARKER_IN_LINES.update({
 ])
 def test_righe_di_rumore_del_motore_restano_fuori_dallo_schermo(lang, key, args):
     assert LogFilter().decide(TX[lang][key].format(**args)).action == 'drop_noise'
+
+
+MARKER_IN_LINES.update({
+    'logm_bar_gender': ['gc_gender_correction_0_0', 'gc_gender_correction_eta', 'gc_gender_correction_100'],
+    'logm_ocr_analysis': ['pgs_ocr_bitmap_analysis'],
+    'logm_ocr_translation': ['oa_ocr_translation_it'],
+    'logm_srt_written': ['oa_italian_srt_written'],
+    'logm_noise_abm_started': ['ab_adaptivebatchmanager_started_initial_min_max'],
+})
+
+
+@pytest.mark.parametrize('lang', ['it', 'en'])
+def test_barra_correzione_genere_e_ocr_reali(lang):
+    line = TX[lang]['gc_gender_correction_eta'].format(bar=BAR, progress=40, chunks_processed=4,
+                                                         chunks_with_gender=10, eta_str='1m')
+    assert LogFilter().decide(line).action == 'progress'
+    fp = FileProgress('ita')
+    fp.feed('1b. ' + TX[lang]['pl_1b_bitmap_subtitles_ocr_translation'].format(kind='PGS').split('. ', 1)[-1])
+    fp.feed(TX[lang]['pgs_ocr_bitmap_analysis'])
+    assert fp.phase == 'ocr_read'
+    fp.feed(TX[lang]['oa_ocr_translation_it'].format(content_lang='en'))
+    assert fp.phase == 'ocr_translate'
+    fp.feed(TX[lang]['oa_italian_srt_written'].format(name='x.srt'))
+    assert fp.phase == 'final'
+    assert LogFilter().decide(TX[lang]['ab_adaptivebatchmanager_started_initial_min_max'].format(
+        current_batch_size=8, min_size=1, max_size=16, warmup_batches=5, device='GPU')).action == 'drop_noise'

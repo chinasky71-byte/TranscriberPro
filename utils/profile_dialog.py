@@ -21,6 +21,7 @@ from PyQt6.QtGui import QFont
 
 from utils.config import get_config
 from utils.transcription_profiles import ProfileConfig, TranscriptionProfile
+from utils.translations import tr
 
 
 class ProfileSelectionDialog(QDialog):
@@ -74,7 +75,7 @@ class ProfileSelectionDialog(QDialog):
         
         # ✅ OTTIMIZZATO: Descrizione più concisa
         desc_label = QLabel(
-            "Seleziona il profilo ottimale per il tuo caso d'uso."
+            tr('pd_select_the_optimal_profile_for')
         )
         desc_label.setObjectName("descLabel")
         desc_label.setWordWrap(True)
@@ -143,7 +144,7 @@ class ProfileSelectionDialog(QDialog):
     
     def create_header(self):
         """Crea header dialog compatto"""
-        header = QLabel("⚙️ Profili di Trascrizione")
+        header = QLabel(tr('pd_transcription_profiles'))
         header.setObjectName("dialogHeader")
         
         font = QFont()

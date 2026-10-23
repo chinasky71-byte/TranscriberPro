@@ -23,6 +23,7 @@ import json
 import sys
 import traceback
 from pathlib import Path
+from utils.translations import tr
 
 PCT_PREFIX = '[SYNC-PCT] '
 
@@ -37,36 +38,36 @@ def _write_result(result_path, payload: dict) -> None:
     try:
         Path(result_path).write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
     except Exception as e:
-        _emit(f"WARN CLI: scrittura result.json fallita: {e}")
+        _emit(tr('pc_warn_cli_result_json_writing').format(e=e))
 
 
 def main(argv: list) -> int:
     if len(argv) < 2:
-        _emit("ERRORE CLI: argomento args.json mancante")
+        _emit(tr('gcl_error_cli_args_json_argument'))
         return 2
     args_path = Path(argv[1])
     if not args_path.exists():
-        _emit(f"ERRORE CLI: args.json non trovato: {args_path}")
+        _emit(tr('gcl_error_cli_args_json_not').format(args_path=args_path))
         return 2
     try:
         args = json.loads(args_path.read_text(encoding='utf-8'))
     except Exception as e:
-        _emit(f"ERRORE CLI: parsing args.json fallito: {e}")
+        _emit(tr('gcl_error_cli_args_json_parsing').format(e=e))
         return 2
     video_path = args.get('video_path')
     srt_path = args.get('external_srt_path')
     output_path = args.get('output_path') or None
     result_path = args.get('result_path')
     if not video_path or not srt_path:
-        _emit("ERRORE CLI: video_path ed external_srt_path sono obbligatori")
+        _emit(tr('sc_error_cli_video_path_and'))
         return 2
 
     try:
         from core.subtitle_synchronizer import SubtitleSynchronizer
     except Exception as e:
-        _emit(f"ERRORE CLI: import SubtitleSynchronizer fallito: {e}")
+        _emit(tr('sc_error_cli_subtitlesynchronizer_import_failed').format(e=e))
         traceback.print_exc(file=sys.stderr)
-        _write_result(result_path, {"success": False, "output_path": None, "error": f"import fallito: {e}"})
+        _write_result(result_path, {"success": False, "output_path": None, "error": tr('sc_import_failed').format(e=e)})
         return 1
 
     sync = None
@@ -84,10 +85,10 @@ def main(argv: list) -> int:
         success = bool(sync.synchronize())
         out = str(sync._output_path) if success else None
         if not success:
-            error = getattr(sync, 'last_error', None) or "sincronizzazione fallita (vedi il log)"
+            error = getattr(sync, 'last_error', None) or tr('sc_sync_failed_see_the_log')
     except Exception as e:
-        error = f"eccezione fatale: {e}"
-        _emit(f"ERRORE CLI: {error}")
+        error = tr('sc_fatal_exception').format(e=e)
+        _emit(tr('sc_error_cli').format(error=error))
         traceback.print_exc(file=sys.stderr)
     _write_result(result_path, {"success": success, "output_path": out, "error": error})
     return 0 if success else 1

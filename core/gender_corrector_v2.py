@@ -37,6 +37,7 @@ from typing import Callable, List, Optional, Tuple
 # in utils/adaptive_batch_manager.py.
 from utils.logger import setup_logger
 from utils.platform_compat import venv_python
+from utils.translations import tr
 
 logger = setup_logger(__name__)
 
@@ -178,7 +179,7 @@ class GenderCorrectorV2:
     def _run_selector(self, lines: List[str]) -> Optional[List[list]]:
         py = find_selector_python()
         if py is None:
-            self._log("⚠️ Venv NLP (spaCy) non trovato — correzione saltata")
+            self._log(tr('g2_nlp_venv_spacy_not_found'))
             return None
         cli = Path(__file__).resolve().parent / 'gender_selector_cli.py'
         with tempfile.TemporaryDirectory(prefix="gsel_") as td:
@@ -191,13 +192,13 @@ class GenderCorrectorV2:
                     capture_output=True, text=True, encoding='utf-8',
                     errors='replace', timeout=600)
             except Exception as e:
-                self._log(f"⚠️ Selettore fallito: {e}")
+                self._log(tr('g2_selector_failed').format(e=e))
                 return None
             for line in (proc.stdout or '').splitlines():
                 if line.strip():
                     self._log(f"   {line.strip()}")
             if proc.returncode != 0:
-                self._log(f"⚠️ Selettore exit code {proc.returncode} — salto")
+                self._log(tr('g2_selector_exit_code_skipping').format(returncode=proc.returncode))
                 return None
             data = json.loads(out_p.read_text(encoding='utf-8'))
             return data['tokens'], data.get('tokens_p2', [[] for _ in lines])
@@ -221,7 +222,7 @@ class GenderCorrectorV2:
 
         cues = _parse_srt(Path(srt_path))
         if not cues:
-            self._log("Nessun sottotitolo trovato. Salto correzione genere.")
+            self._log(tr('gc_no_subtitle_found_skipping_gender'))
             shutil.copy(srt_path, output_path)
             return True
 
@@ -241,16 +242,14 @@ class GenderCorrectorV2:
                       if _t or tokens_p2_per_line[i]]
         n1 = sum(1 for t in tokens_per_line if t)
         n2 = sum(1 for t in tokens_p2_per_line if t)
-        self._log(f"   Righe candidate: {n1} in 1ª persona, "
-                  f"{n2} in 2ª persona su {len(cues)}")
+        self._log(tr('g2_candidate_lines_in_1st_person').format(n1=n1, n2=n2, n=len(cues)))
         if not candidates:
             shutil.copy(srt_path, output_path)
-            self._log("   Nessuna riga da correggere.")
+            self._log(tr('g2_no_lines_to_correct'))
             return True
 
         if video_path is None:
-            self._log("⚠️ video_path mancante: impossibile costruire la "
-                      "speaker gender map. Salto correzione.")
+            self._log(tr('g2_video_path_missing_cannot_build'))
             shutil.copy(srt_path, output_path)
             return True
 
@@ -272,7 +271,7 @@ class GenderCorrectorV2:
         engine = RuleRewriter()
         cast_names = _build_cast_firstnames(character_context or {})
         if cast_names:
-            self._log(f"   Vocativi TMDB attivi: {len(cast_names)} nomi cast")
+            self._log(tr('g2_tmdb_vocatives_active_cast_names').format(n=len(cast_names)))
         stats = {'rewritten': 0, 'unchanged': 0, 'rejected': 0,
                  'no_output': 0, 'unknown': 0, 'dialog': 0}
         diag = {'p1': {'no_turn': 0, 'low_confidence': 0, 'no_votes': 0},
@@ -350,22 +349,11 @@ class GenderCorrectorV2:
 
         output_path.write_text(_generate_srt(new_cues), encoding='utf-8')
 
-        self._log(f"   ✅ Correzione genere v2: {stats['rewritten']} righe "
-                  f"riscritte, {stats['unchanged']} già corrette, "
-                  f"{stats['unknown']} parlante incerto, "
-                  f"{stats['dialog']} dialoghi doppi saltati, "
-                  f"{stats['rejected']} respinte dal validatore")
+        self._log(tr('g2_gender_correction_v2_lines_rewritten').format(rewritten=stats['rewritten'], unchanged=stats['unchanged'], unknown=stats['unknown'], dialog=stats['dialog'], rejected=stats['rejected']))
         if stats['unknown']:
             p1, p2 = diag['p1'], diag['p2']
-            self._log(f"      ↳ 1ª persona incerta: no_turn={p1['no_turn']}, "
-                      f"low_confidence={p1['low_confidence']}, "
-                      f"no_votes={p1['no_votes']}")
-            self._log(f"      ↳ 2ª persona incerta: no_turn={p2['no_turn']}, "
-                      f"overlapping_scene={p2['overlapping_scene']}, "
-                      f"no_addressee={p2['no_addressee']}, "
-                      f"not_strict={p2['not_strict']}, "
-                      f"low_confidence={p2['low_confidence']}, "
-                      f"no_votes={p2['no_votes']}")
+            self._log(tr('g2_1st_person_uncertain_no_turn').format(no_turn=p1['no_turn'], low_confidence=p1['low_confidence'], no_votes=p1['no_votes']))
+            self._log(tr('g2_2nd_person_uncertain_no_turn').format(no_turn=p2['no_turn'], overlapping_scene=p2['overlapping_scene'], no_addressee=p2['no_addressee'], not_strict=p2['not_strict'], low_confidence=p2['low_confidence'], no_votes=p2['no_votes']))
         return True
 
     def cleanup(self):

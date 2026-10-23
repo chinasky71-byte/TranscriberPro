@@ -29,7 +29,7 @@ UPDATABLE_PATTERNS = [*all_texts('logm_progress'), "Demucs: [", *all_texts('logm
 # la pipeline le scrive anche con logger.info (v. core/pipeline.py::_log e engines/base_engine.py::log).
 # NON mettere qui i "📦 Caricamento modello ..." (l'utente li vuole a schermo) ne' le barre.
 FILE_ONLY_RE = re.compile("|".join([
-    r"AdaptiveBatchManager avviato",
+    *[re.escape(t) for t in all_texts('logm_noise_abm_started')],
     r"Parametri profilo caricati",
     *[r"⚙️ " + re.escape(t) for t in all_texts('logm_noise_profile')],
     *[re.escape(t) + r".*Workers:" for t in all_texts('logm_noise_profile')], r"👷 Workers:",

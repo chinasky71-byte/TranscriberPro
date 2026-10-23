@@ -27,6 +27,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import List, Dict, Optional, Callable
+from utils.translations import tr
 
 
 CPL_MAX       = 42    # Characters Per Line massimo
@@ -113,11 +114,9 @@ class SubtitleFormatter:
         blocks = self._enforce_min_duration(blocks)
         blocks = self._drop_invalid_blocks(blocks)
         srt = self._render(blocks)
-        self.log(f"  📄 SRT formattato: {len(blocks)} blocchi, "
-                 f"{sum(1 for b in blocks if len(b['lines']) > 1)} blocchi dialogo")
+        self.log(tr('sf_formatted_srt_blocks_dialogue_blocks').format(n=len(blocks), n_dialog=sum(1 for b in blocks if len(b['lines']) > 1)))
         if self._dash_rejected_low_confidence:
-            self.log(f"  🎭 Coppie speaker scartate per bassa confidenza "
-                      f"(niente trattino): {self._dash_rejected_low_confidence}")
+            self.log(tr('sf_speaker_pairs_discarded_for_low').format(dash_rejected_low_confidence=self._dash_rejected_low_confidence))
         return srt
 
     def save(self, segments: List[Dict], output_path) -> bool:
@@ -127,7 +126,7 @@ class SubtitleFormatter:
             Path(output_path).write_text(srt, encoding='utf-8')
             return True
         except Exception as e:
-            self.log(f"  ⚠️ Errore salvataggio SRT formattato: {e}")
+            self.log(tr('sf_error_saving_formatted_srt').format(e=e))
             return False
 
     # ── Cleanup ───────────────────────────────────────────────────────────────
@@ -209,7 +208,7 @@ class SubtitleFormatter:
             result.append(seg)
 
         if removed:
-            self.log(f"  🧹 Segmenti duplicati (chunk sovrapposti) rimossi: {removed}")
+            self.log(tr('sf_duplicate_segments_overlapping_chunks_removed').format(removed=removed))
         return result
 
     def _drop_invalid_blocks(self, blocks: List[Dict]) -> List[Dict]:
@@ -225,7 +224,7 @@ class SubtitleFormatter:
                 continue
             result.append(b)
         if dropped:
-            self.log(f"  🛡️ Blocchi con timing invalido scartati: {dropped}")
+            self.log(tr('sf_blocks_with_invalid_timing_discarded').format(dropped=dropped))
         return result
 
     def _merge_short_segments(self, segs: List[Dict]) -> List[Dict]:
@@ -279,7 +278,7 @@ class SubtitleFormatter:
 
         merged = len(segs) - len(result)
         if merged:
-            self.log(f"  🔗 Merge frammenti: {len(segs)} → {len(result)} segmenti ({merged} uniti)")
+            self.log(tr('sf_merging_fragments_segments_merged').format(before=len(segs), after=len(result), merged=merged))
         return result
 
     def _is_hurried(self, seg: Dict) -> bool:
@@ -361,7 +360,7 @@ class SubtitleFormatter:
 
         n = len(segs) - len(result)
         if n:
-            self.log(f"  📖 Leggibilità: {len(segs)} → {len(result)} segmenti ({n} uniti)")
+            self.log(tr('sf_readability_segments_merged').format(before=len(segs), after=len(result), merged=n))
         return result
 
     # ── Dialogue detection ────────────────────────────────────────────────────
