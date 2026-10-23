@@ -14,6 +14,13 @@ from utils import llm_model_select as sel  # noqa: E402
 GB = 1024
 
 
+@pytest.fixture(autouse=True)
+def _senza_marcatore_llama(monkeypatch, tmp_path):
+    # venv/llama_backend.txt (scritto dall'installer con --gpu-backend=vulkan) cambierebbe il backend contato da detect_vram_mib:
+    # questi test descrivono il comportamento di default (nessun marcatore), indipendentemente dal venv in cui girano
+    monkeypatch.setattr(sel, 'LLAMA_BACKEND_MARKER', tmp_path / 'assente' / 'llama_backend.txt')
+
+
 def _mk(d, which=('14b', '7b'), shards=None):
     shards = shards or {'14b': 3, '7b': 2}
     for k in which:
