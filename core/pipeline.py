@@ -67,6 +67,7 @@ from utils.subtitle_uploader_interface import UploaderFactory, SubtitleMetadata
 from utils.logger import setup_logger
 from utils.resource_monitor import release_ram_to_os
 from utils.platform_compat import find_tool
+from utils.translations import tr
 
 logger = setup_logger(__name__)
 
@@ -312,9 +313,7 @@ class ProcessingPipeline:
                 self._mislabeled_bitmap_stream = getattr(self._ocr, 'mislabeled_stream_index', None)
                 is_mux = self._ocr._cfg(CFG_WRITEBACK, WRITEBACK_MUX) == WRITEBACK_MUX
                 if is_mux:
-                    self._log("ℹ️ Upload OpenSubtitles da OCR non disponibile in modalità "
-                               "\"mux\" (nessun sidecar prodotto): passa a \"sidecar\" in "
-                               "Opzioni se vuoi che l'SRT OCR venga proposto per l'upload.")
+                    self._log(tr('pl_opensubtitles_upload_from_ocr_is'))
                 else:
                     it_srt = self.video_path.with_name(f"{self.video_path.stem}.it.srt")
                     # Margine di 2s per differenze di risoluzione del filesystem
@@ -323,15 +322,15 @@ class ProcessingPipeline:
                         self._ocr_upload_srt = it_srt
             return ok
         except (PgsNotSupported, VobNotSupported) as e:
-            self._log(f"⚠️ Nessun sottotitolo bitmap OCR-abile: {e}")
+            self._log(tr('pl_no_ocr_able_bitmap_subtitle').format(e=e))
             return False
         except UnsupportedLanguage as e:
-            self._log(f"⚠️ Tesseract: lingua non supportata ({e})")
+            self._log(tr('pl_tesseract_language_not_supported').format(e=e))
             return False
         except Exception as e:
             logger.warning(f"OCR bitmap fallito: {e}", exc_info=True)
             self._ev('ocr_leave')
-            self._log(f"⚠️ Errore OCR bitmap: {e}")
+            self._log(tr('pl_bitmap_ocr_error').format(e=e))
             return False
 
     def process(self, target_language: str = 'ita') -> bool:
@@ -360,8 +359,8 @@ class ProcessingPipeline:
             # STEP 0: Inizializzazione e Check
             # ============================================================
             self._log(f"\n{'='*80}")
-            self._log(f"🎬 Inizio elaborazione: {self.video_name}")
-            self._log(f"   Lingua Target: {target_language.upper()}")
+            self._log(tr('pl_processing_started').format(video_name=self.video_name))
+            self._log(tr('pl_target_language').format(kind=target_language.upper()))
             self._log(f"{'='*80}")
 
             # Il file può sparire tra l'aggiunta in coda e l'elaborazione
@@ -369,18 +368,17 @@ class ProcessingPipeline:
             # l'errore emergeva più avanti in forma fuorviante
             # ("Nessuna traccia audio trovata" da ffprobe su file inesistente).
             if not Path(self.video_path).exists():
-                self._log(f"❌ File non trovato (rinominato, spostato o share "
-                          f"di rete non raggiungibile):\n   {self.video_path}")
+                self._log(tr('pl_file_not_found_renamed_moved').format(video_path=self.video_path))
                 return False
 
             # Recupero metadati e temp dir
-            self._log("🔍 Ricerca metadati TMDB/IMDb...")
+            self._log(tr('pl_searching_tmdb_imdb_metadata'))
             self.metadata = self.tmdb_client.get_media_info(str(self.video_path))
             imdb_id = self.metadata.get('imdb_id') if self.metadata else None
             if imdb_id:
-                self._log(f"✅ Metadati trovati. IMDb ID: {imdb_id}")
+                self._log(tr('pl_metadata_found_imdb_id').format(imdb_id=imdb_id))
             else:
-                self._log("⚠️ Metadati non trovati. Upload OpenSubtitles disabilitato.")
+                self._log(tr('pl_metadata_not_found_opensubtitles_upload'))
                 
             temp_dir = self.file_handler.get_temp_dir(self.video_path)
             
@@ -389,7 +387,7 @@ class ProcessingPipeline:
                 return True
 
             if self._cancelled:
-                self._log("⏹ Elaborazione annullata")
+                self._log(tr('pl_processing_cancelled'))
                 return False
 
             # ============================================================
@@ -410,7 +408,7 @@ class ProcessingPipeline:
             subtitle_path = self._clean_subtitles_step(subtitle_path, source_language_639_2)
 
             if self._cancelled:
-                self._log("⏹ Elaborazione annullata")
+                self._log(tr('pl_processing_cancelled'))
                 return False
 
             # ============================================================
@@ -426,7 +424,7 @@ class ProcessingPipeline:
                 subtitle_path, source_language_639_2, target_language)
 
             if self._cancelled:
-                self._log("⏹ Elaborazione annullata")
+                self._log(tr('pl_processing_cancelled'))
                 return False
 
 
@@ -438,11 +436,11 @@ class ProcessingPipeline:
                                          imdb_id, start_time)
 
         except InterruptedError:
-            self._log("⏹ Elaborazione annullata")
+            self._log(tr('pl_processing_cancelled'))
             return False
 
         except Exception as e:
-            error_msg = f"❌ Errore critico pipeline: {e}"
+            error_msg = tr('pl_critical_pipeline_error').format(e=e)
             logger.error(error_msg, exc_info=True)
             self._log(error_msg)
             return False
@@ -460,7 +458,7 @@ class ProcessingPipeline:
         # ============================================================
         self._ev('phase', name='final', fraction=0.4)
         self._ev('step', name='save', state='start')
-        self._log("\n7. Salvataggio file finale...")
+        self._log(tr('pl_7_saving_final_file'))
             
         # Crea nome file finale: [nome_video].[lang].srt
         final_name = self.video_name + f".{final_language_639_1}.srt"
@@ -468,14 +466,13 @@ class ProcessingPipeline:
         if translation_failed and final_output_path.exists():
             # Traduzione fallita: il file esistente (es. X.en.srt d'ingresso)
             # non va MAI sovrascritto con la versione ripulita.
-            self._log(f"❌ Traduzione fallita: {final_output_path.name} esiste già e "
-                      f"NON viene sovrascritto.")
+            self._log(tr('pl_translation_failed_already_exists_and').format(name=final_output_path.name))
             # La cartella temporanea viene cancellata a fine job: si
             # conserva il lavoro (trascrizione/OCR) FUORI dalla libreria.
             saved = self._preserve_recovered_srt(
                 subtitle_path, f"{self.video_name}.{final_language_639_1}.srt")
             if saved:
-                self._log(f"💾 Copia di recupero (lingua originale): {saved}")
+                self._log(tr('pl_recovery_copy_original_language').format(saved=saved))
             return False
 
         self.last_output_path = final_output_path
@@ -483,22 +480,19 @@ class ProcessingPipeline:
         try:
             shutil.copy(subtitle_path, final_output_path)
         except PermissionError:
-            self._log(f"❌ Impossibile salvare il file: permesso negato.\n"
-                      f"   Percorso: {final_output_path}\n"
-                      f"   Verificare che la cartella di destinazione non sia in sola lettura.")
+            self._log(tr('pl_unable_to_save_the_file').format(final_output_path=final_output_path))
             return False
 
         if translation_failed:
             # Salvato per non perdere la trascrizione, ma il job NON e'
             # riuscito: niente watermark del motore, niente upload.
-            self._log(f"⚠️ Salvato {final_output_path.name} nella lingua ORIGINALE "
-                      f"perché la traduzione è fallita. Job segnato come fallito.")
+            self._log(tr('pl_saved_in_the_original_language').format(name=final_output_path.name))
             return False
 
         self._add_watermark_subtitle(final_output_path,
                                      self._motore_traduzione)
 
-        self._log(f"✅ File salvato: {final_output_path.name}")
+        self._log(tr('pl_file_saved').format(name=final_output_path.name))
         self._ev('step', name='save', state='done')
             
         # ============================================================
@@ -527,7 +521,7 @@ class ProcessingPipeline:
         # ============================================================
         self.last_execution_time = time.time() - start_time
         self._log(f"\n{'='*80}")
-        self._log(f"✅ Elaborazione completata! Tempo totale: {self.last_execution_time:.2f} secondi.")
+        self._log(tr('pl_processing_completed_total_time_seconds').format(seconds=self.last_execution_time))
         self._log(f"{'='*80}")
             
         return True
@@ -551,24 +545,24 @@ class ProcessingPipeline:
             # Italiano NATIVO (nessuna traduzione): il corrector sarebbe
             # inutile (niente errori di genere da traduzione) e costoso.
             self._ev('skip', phases=['gender'])
-            self._log("\n6.5. Correzione genere saltata: italiano nativo, nessuna traduzione.")
+            self._log(tr('pl_6_5_gender_correction_skipped'))
 
         if (final_language_639_1 == 'it'
                 and translation_performed
                 and self.config.get('gender_correction_enabled', False)):
             self._ev('phase', name='gender')
-            self._log("\n6.5. Correzione genere grammaticale (v2, subprocess)...")
+            self._log(tr('pl_6_5_grammatical_gender_correction'))
             try:
                 from core.gender_corrector_v2 import find_selector_python
                 if not self.config.get('huggingface_token', ''):
-                    self._log("⚠️ Token HuggingFace mancante (serve per pyannote). Salto.")
+                    self._log(tr('pl_huggingface_token_missing_required_for'))
                 elif find_selector_python() is None:
-                    self._log("⚠️ Venv NLP (spaCy) non trovato. Salto.")
+                    self._log(tr('pl_nlp_venv_spacy_not_found'))
                 else:
                     # Cleanup parent: libera RAM/VRAM prima dello spawn.
                     # Non aiuta direttamente la VRAM del child (CUDA context
                     # parent resta), ma libera RAM e rompe ref Python locali.
-                    self._log("   Cleanup risorse parent prima dello spawn...")
+                    self._log(tr('pl_cleaning_up_parent_resources_before'))
 
                     if self._transcriber is not None:
                         try:
@@ -655,7 +649,7 @@ class ProcessingPipeline:
                     env['PYTHONIOENCODING'] = 'utf-8'
                     env['PYTHONUTF8'] = '1'
 
-                    self._log("   Avvio subprocess Gender Corrector...")
+                    self._log(tr('pl_starting_gender_corrector_subprocess'))
                     try:
                         # stderr SEPARATO: il rumore di libreria (warning
                         # transformers/speechbrain/torchaudio) va solo nel
@@ -674,7 +668,7 @@ class ProcessingPipeline:
                             bufsize=1,
                         )
                     except Exception as e:
-                        self._log(f"⚠️ Spawn subprocess fallito: {e}")
+                        self._log(tr('pl_subprocess_spawn_failed').format(e=e))
                         proc = None
 
                     if proc is not None:
@@ -729,14 +723,13 @@ class ProcessingPipeline:
                             self._current_proc = None
 
                         if self._cancelled:
-                            self._log("⏹ Correzione genere annullata.")
+                            self._log(tr('pl_gender_correction_cancelled'))
                         elif return_code == 0 and corrected_path.exists():
                             subtitle_path = corrected_path
-                            self._log("✅ Correzione genere completata.")
+                            self._log(tr('pl_gender_correction_completed'))
                         else:
                             self._log(
-                                f"⚠️ Correzione genere fallita "
-                                f"(exit code {return_code}). Uso originale.")
+                                tr('pl_gender_correction_failed_exit_code').format(return_code=return_code))
 
                     # Cleanup args temp file (best effort)
                     try:
@@ -745,7 +738,7 @@ class ProcessingPipeline:
                     except Exception:
                         pass
             except Exception as e:
-                self._log(f"⚠️ Errore correzione genere: {e}")
+                self._log(tr('pl_gender_correction_error').format(e=e))
                 logger.error(f"Gender correction error: {e}", exc_info=True)
 
         return subtitle_path
@@ -767,7 +760,7 @@ class ProcessingPipeline:
         if source_language_639_1 != target_language_639_1:
 
             self._ev('phase', name='translate')
-            self._log(f"\n6. Traduzione ({source_language_639_1} → {target_language_639_1})...")
+            self._log(tr('pl_6_translation').format(src=source_language_639_1, dst=target_language_639_1))
             # ✅ FIX TRANSLATOR SELECTION: Usa il metodo corretto per leggere il modello dalla config
             # Leggi il modello di traduzione selezionato dall'utente
             selected_model = self.config.get_translation_model()
@@ -789,12 +782,10 @@ class ProcessingPipeline:
             _routed = self._route_non_english_away_from_llm(
                 selected_model, source_language_639_1)
             if _routed != selected_model:
-                self._log(f"⚠️ TranslateGemma non e' pronto per sorgenti diverse "
-                          f"dall'inglese ({source_language_639_1}): instradato "
-                          f"automaticamente su NLLB fine-tuned.")
+                self._log(tr('pl_translategemma_is_not_ready_for').format(src=source_language_639_1))
                 selected_model = _routed
 
-            self._log(f"📋 Modello di traduzione selezionato: {selected_model.upper()}")
+            self._log(tr('pl_selected_translation_model').format(model=selected_model.upper()))
 
             # Contesto dell'opera per il traduttore: titolo e trama sono
             # già in self.metadata e aiutano soprattutto sui nomi propri e
@@ -813,7 +804,7 @@ class ProcessingPipeline:
                 from core.glossary import load_glossary
                 translation_glossary = load_glossary(self.metadata['id'])
                 if translation_glossary:
-                    self._log(f"   Glossario attivo: {len(translation_glossary)} termini")
+                    self._log(tr('pl_active_glossary_terms').format(n=len(translation_glossary)))
 
             # Usa la factory intelligente passando la scelta esplicita del modello.
             # Ogni eccezione qui (factory, callback, traduzione) equivale a
@@ -842,22 +833,22 @@ class ProcessingPipeline:
                 raise
             except Exception as e:
                 logger.error(f"Errore traduzione: {e}", exc_info=True)
-                self._log(f"❌ Errore traduzione: {e}")
+                self._log(tr('pl_translation_error').format(e=e))
                 _translation_ok = False
 
             if _translation_ok:
                 subtitle_path = translated_srt_path
                 final_language_639_1 = target_language_639_1
                 translation_performed = True
-                self._log("✅ Traduzione completata con successo.")
+                self._log(tr('pl_translation_completed_successfully'))
             else:
-                self._log("❌ Traduzione fallita. Uso i sottotitoli originali.")
+                self._log(tr('pl_translation_failed_using_the_original'))
                 final_language_639_1 = source_language_639_1
                 translation_failed = True
         else:
             final_language_639_1 = source_language_639_1
             self._ev('skip', phases=['translate', 'gender'])
-            self._log("\n6. Lingua originale == Lingua target. Salto traduzione.")
+            self._log(tr('pl_6_original_language_target_language'))
         return subtitle_path, final_language_639_1, translation_performed, translation_failed
 
     def _release_asr_models_before_translation(self) -> None:
@@ -903,10 +894,10 @@ class ProcessingPipeline:
         # STEP 5: Pulizia e Normalizzazione SRT
         # ============================================================
         if subtitle_path is None:
-             raise Exception("Nessun sottotitolo o trascrizione disponibile.")
+             raise Exception(tr('pl_no_subtitle_or_transcription_available'))
                  
         self._ev('phase', name='clean')
-        self._log("\n5. Pulizia e normalizzazione sottotitoli...")
+        self._log(tr('pl_5_cleaning_and_normalizing_subtitles'))
         cleaned_srt_path = self.file_handler.get_temp_path(
             self.video_path, 
             f"temp_{source_language_639_2}_cleaned.srt"
@@ -914,7 +905,7 @@ class ProcessingPipeline:
             
         SubtitleCleaner.clean_file(subtitle_path, cleaned_srt_path)
         subtitle_path = cleaned_srt_path
-        self._log("✅ Pulizia e fix overlap completati.")
+        self._log(tr('pl_cleanup_and_overlap_fix_completed'))
         return subtitle_path
 
     def _transcribe_step(self, subtitle_path, source_language_639_2: str, temp_dir):
@@ -924,7 +915,7 @@ class ProcessingPipeline:
 
             # STEP 2: Estrazione audio
             self._ev('phase', name='extract')
-            self._log("\n2. Estrazione traccia audio...")
+            self._log(tr('pl_2_extracting_audio_track'))
             audio_selector = AudioTrackSelector(str(self.video_path))
             self._track_selector = audio_selector
             audio_stream = audio_selector.select_best_track()
@@ -939,10 +930,10 @@ class ProcessingPipeline:
                     # Usa get_selected_language() per ottenere lingua traccia
                     source_language_639_2 = audio_selector.get_selected_language()
                     self._ev('audio_lang', lang=source_language_639_2)
-                    self._log(f"✅ Audio estratto. Lingua: {source_language_639_2}")
+                    self._log(tr('pl_audio_extracted_language').format(lang=source_language_639_2))
 
                     if self._cancelled:
-                        self._log("⏹ Elaborazione annullata")
+                        self._log(tr('pl_processing_cancelled'))
                         return None
 
                     # ================================================
@@ -965,7 +956,7 @@ class ProcessingPipeline:
                     # prima di caricare l'engine nuovo.
                     # ================================================
                     self._ev('phase', name='extract')
-                    self._log("\n2.5. Pre-caricamento Whisper (ordine CUDA / ripiego)...")
+                    self._log(tr('pl_2_5_pre_loading_whisper'))
                     _planned_lang = self.LANG_MAP_639_2_TO_639_1.get(source_language_639_2)
                     if _planned_lang == 'und':
                         _planned_lang = None
@@ -989,12 +980,11 @@ class ProcessingPipeline:
                         'faster-whisper': 'Faster-Whisper',
                     }
                     _engine_label = _ENGINE_LABELS.get(_planned_engine, _planned_engine)
-                    self._log(f"🧭 Engine pianificato: {_engine_label} ({_plan_reason})")
+                    self._log(tr('pl_planned_engine').format(engine_label=_engine_label, plan_reason=_plan_reason))
                     # Riga letta dalla GUI (tessera "Modello" della Diagnostica).
                     try:
                         from utils.engine_labels import model_display
-                        self._log(f"🧩 Modello trascrizione: "
-                                  f"{model_display(_planned_engine, self.config, _planned_lang)}")
+                        self._log(tr('pl_transcription_model').format(model=model_display(_planned_engine, self.config, _planned_lang)))
                     except Exception as _e:
                         logger.debug(f"Etichetta modello trascrizione non disponibile: {_e}")
 
@@ -1007,7 +997,7 @@ class ProcessingPipeline:
 
                     step3_label = "Demucs + BatchedInferencePipeline" if _use_batched else "Demucs + Chunking"
                     self._ev('phase', name='demucs')
-                    self._log(f"\n3. Processing audio ({step3_label})...")
+                    self._log(tr('pl_3_processing_audio').format(step3_label=step3_label))
                     if self._audio_processor is None:
                         self._audio_processor = AudioProcessor()
                         self._audio_processor.set_log_callback(self._log_callback)
@@ -1020,14 +1010,14 @@ class ProcessingPipeline:
                     )
 
                     if self._cancelled:
-                        self._log("⏹ Elaborazione annullata")
+                        self._log(tr('pl_processing_cancelled'))
                         return None
 
                     if chunk_list:
-                        self._log(f"✅ Audio processato: {len(chunk_list)} chunks creati")
+                        self._log(tr('pl_audio_processed_chunks_created').format(n=len(chunk_list)))
 
                         if self._cancelled:
-                            self._log("⏹ Elaborazione annullata")
+                            self._log(tr('pl_processing_cancelled'))
                             return None
 
                         # ================================================
@@ -1040,8 +1030,7 @@ class ProcessingPipeline:
                         # Whisper resta ricaricabile per il fallback.
                         # ================================================
                         if _planned_engine != 'faster-whisper' and len(chunk_list) > 1:
-                            self._log("🧹 Unload anticipato Demucs + Whisper (engine pianificato: "
-                                      f"{_engine_label})...")
+                            self._log(tr('pl_early_unload_of_demucs_whisper').format(engine_label=_engine_label))
                             if self._audio_processor:
                                 self._audio_processor.cleanup_model()
                             if self._transcriber:
@@ -1052,7 +1041,7 @@ class ProcessingPipeline:
                         # errore degli engine nuovi → fallback automatico
                         # su Faster-Whisper dentro la facade)
                         self._ev('phase', name='asr', engine=str(_engine_label))
-                        self._log(f"\n4. Trascrizione audio ({_engine_label})...")
+                        self._log(tr('pl_4_audio_transcription').format(engine_label=_engine_label))
                         if self._transcriber is None:
                             # Fallback: non dovrebbe mai entrare qui dopo il pre-load 2.5
                             self._transcriber = Transcriber(log_callback=self._log_callback,
@@ -1085,12 +1074,12 @@ class ProcessingPipeline:
                         if success and detected_lang_639_1 and subtitle_path.exists():
                             # Converti da ISO 639-1 (2 lettere) a ISO 639-2 (3 lettere)
                             source_language_639_2 = self._convert_639_1_to_639_2(detected_lang_639_1)
-                            self._log(f"✅ Trascrizione completata. Lingua rilevata: {source_language_639_2}")
+                            self._log(tr('pl_transcription_completed_detected_language').format(lang=source_language_639_2))
                         else:
-                            raise Exception("Trascrizione fallita o file SRT non creato.")
+                            raise Exception(tr('pl_transcription_failed_or_srt_file'))
 
                         if self._cancelled:
-                            self._log("⏹ Elaborazione annullata")
+                            self._log(tr('pl_processing_cancelled'))
                             return None
 
                         # ================================================
@@ -1110,16 +1099,16 @@ class ProcessingPipeline:
                                 device_align = "cuda" if torch.cuda.is_available() else "cpu"
                                 loaded = aligner.load(detected_lang_639_1, device_align)
                                 if loaded:
-                                    self._log("🔠 Forced alignment in corso...")
+                                    self._log(tr('pl_forced_alignment_in_progress'))
                                     aligned_segs = aligner.align(
                                         list(self._transcriber._last_segments),
                                         vocals_path_align,
                                     )
                                     self._transcriber._last_segments = aligned_segs
                                     save_srt_file(aligned_segs, subtitle_path)
-                                    self._log("✅ Timestamp riallineati con precisione fonema")
+                                    self._log(tr('pl_timestamps_realigned_with_phoneme_precision'))
                             except Exception as e:
-                                self._log(f"⚠️ Forced alignment fallito: {e} — timestamp Whisper mantenuti")
+                                self._log(tr('pl_forced_alignment_failed_whisper_timestamps').format(e=e))
                             finally:
                                 aligner.unload()
 
@@ -1153,7 +1142,7 @@ class ProcessingPipeline:
                                 _diar_src = self.config.get('diarization_audio_source', 'vocals')
                                 if _diar_src == 'original':
                                     vocals_path = str(audio_path)
-                                    self._log("  🎭 Diarization su audio ORIGINALE (A/B: bypass Demucs)")
+                                    self._log(tr('pl_diarization_on_original_audio_a'))
                                 elif len(chunk_list) == 1:
                                     vocals_path = str(chunk_list[0][0])
                                 else:
@@ -1177,7 +1166,7 @@ class ProcessingPipeline:
 
                                 from core.diarizer import Diarizer
                                 from core.subtitle_formatter import SubtitleFormatter
-                                self._log("🎭 Speaker diarization in corso...")
+                                self._log(tr('pl_speaker_diarization_in_progress'))
                                 diarizer = Diarizer(self.config.get_huggingface_token(), self._log)
                                 try:
                                     diarizer.load()
@@ -1201,27 +1190,27 @@ class ProcessingPipeline:
                                         readability=bool(self.config.get(
                                             'subtitle_readability_enabled', True)))
                                     if formatter.save(annotated, subtitle_path):
-                                        self._log("✅ Speaker labels + formattazione professionale applicati")
+                                        self._log(tr('pl_speaker_labels_professional_formatting_applied'))
                                     else:
-                                        self._log("⚠️ Formattazione con speaker non riuscita — provo senza speaker")
+                                        self._log(tr('pl_formatting_with_speakers_failed_trying'))
                                         self._format_srt_fallback(_segments_snapshot, subtitle_path)
                                 except Exception as e:
-                                    self._log(f"⚠️ Diarization fallita: {e} — SRT senza speaker labels")
+                                    self._log(tr('pl_diarization_failed_srt_without_speaker').format(e=e))
                                     self._format_srt_fallback(_segments_snapshot, subtitle_path)
                                 finally:
                                     diarizer.unload()
                             else:
-                                self._log("⚠️ Diarization abilitata ma token HuggingFace non configurato.")
+                                self._log(tr('pl_diarization_enabled_but_huggingface_token'))
                                 self._format_srt_fallback(_segments_snapshot, subtitle_path)
                         else:
                             self._format_srt_fallback(_segments_snapshot, subtitle_path)
 
                     else:
-                        raise Exception("Processing audio fallito - nessun chunk creato.")
+                        raise Exception(tr('pl_audio_processing_failed_no_chunks'))
                 else:
-                    raise Exception("Estrazione traccia audio fallita.")
+                    raise Exception(tr('pl_audio_track_extraction_failed'))
             else:
-                raise Exception("Nessuna traccia audio trovata nel video.")
+                raise Exception(tr('pl_no_audio_track_found_in'))
         return subtitle_path, source_language_639_2
 
     def _select_subtitles_step(self, imdb_id):
@@ -1238,10 +1227,10 @@ class ProcessingPipeline:
         force_audio = self.config.get('force_audio_transcription', False)
         if force_audio:
             self._ev('phase', name='setup')
-            self._log("\n1. Forza trascrizione da audio attivata. Salto check sottotitoli embedded.")
+            self._log(tr('pl_1_force_transcription_from_audio'))
         else:
             self._ev('phase', name='setup')
-            self._log("\n1. Estrazione sottotitoli embedded...")
+            self._log(tr('pl_1_extracting_embedded_subtitles'))
             extractor = SubtitleExtractor(str(self.video_path))
             self._subtitle_extractor = extractor
             extractor.detect_subtitles()
@@ -1285,8 +1274,7 @@ class ProcessingPipeline:
                     continue
                 verdict, evidence = _verdict(path)
                 if verdict:
-                    self._log(f"ℹ️ La traccia {st['index']} non ha una lingua dichiarata: il testo e' "
-                              f"{verdict.upper()}.")
+                    self._log(tr('pl_track_has_no_declared_language').format(index=st['index'], verdict=verdict.upper()))
                     logger.info(f"   Prove lingua stream {st['index']}: {evidence}")
                     extractor.set_language(st['index'], verdict, 'text')
                     corrected.add(st['index'])
@@ -1303,14 +1291,14 @@ class ProcessingPipeline:
                     is_ita = cand.get('lang') == 'it'
                     if is_ita:
                         self._ev('route', path='ocr', translate=False)
-                        self._log(f"\n1b. Sottotitoli bitmap italiani ({kind.upper()}) → OCR...")
+                        self._log(tr('pl_1b_italian_bitmap_subtitles_ocr').format(kind=kind.upper()))
                     else:
                         self._ev('route', path='ocr', translate=True)
-                        self._log(f"\n1b. Sottotitoli bitmap ({kind.upper()}) → OCR + traduzione...")
+                        self._log(tr('pl_1b_bitmap_subtitles_ocr_translation').format(kind=kind.upper()))
                     if self._run_bitmap_ocr(kind, italian=is_ita):
                         self._ev('phase', name='final')
                         self._ev('step', name='save', state='done')
-                        self._log("✅ OCR bitmap completato.")
+                        self._log(tr('pl_bitmap_ocr_completed'))
                         if self._ocr_upload_srt is not None:
                             self.last_output_path = self._ocr_upload_srt   # output del job (queue_status, GUI)
                             self._upload_opensubtitles(self._ocr_upload_srt, 'it', imdb_id)
@@ -1324,7 +1312,7 @@ class ProcessingPipeline:
                                     self._ocr_upload_srt, idx=self._mislabeled_bitmap_stream, bitmap=True)
                         return subtitle_path, source_language_639_2, True
                     self._ev('ocr_leave')
-                    self._log("⚠️ OCR bitmap non riuscito.")
+                    self._log(tr('pl_bitmap_ocr_failed'))
                     # dopo un OCR fallito non si riprovano i bitmap dello stesso tipo (stesso motore OCR)
                     tried |= {x['index'] for x in extractor.subtitle_streams
                               if extractor._is_bitmap(x) and self._bitmap_kind(x['codec']) == kind}
@@ -1333,7 +1321,7 @@ class ProcessingPipeline:
                 # Traccia testo: estrai (una sola volta) e verifica la lingua sul contenuto
                 path = _text_path(cand)
                 if path is None:
-                    self._log("❌ Estrazione sottotitoli fallita. Provo la traccia successiva.")
+                    self._log(tr('pl_subtitle_extraction_failed_trying_the'))
                     tried.add(cand['index'])
                     continue
                 verdict, evidence = _verdict(path)
@@ -1341,9 +1329,7 @@ class ProcessingPipeline:
                     corrected.add(cand['index'])
                     if cand['lang'] == 'it' and not cand['forced']:
                         self._mislabeled_it_stream = cand['index']
-                    self._log(f"⚠️ La traccia {cand['index']} (tag '{cand['language']}', "
-                              f"titolo '{cand['title']}') contiene testo {verdict.upper()}: "
-                              f"lingua corretta da {cand['lang'].upper()} a {verdict.upper()}.")
+                    self._log(tr('pl_track_tag_title_contains_text').format(index=cand['index'], tag=cand['language'], title=cand['title'], verdict=verdict.upper(), old_lang=cand['lang'].upper()))
                     logger.info(f"   Prove lingua stream {cand['index']}: {evidence}")
                     extractor.set_language(cand['index'], verdict, 'text')
                     continue
@@ -1351,7 +1337,7 @@ class ProcessingPipeline:
                     logger.warning(f"   Stream {cand['index']}: tag e titolo in contrasto, il testo non da' "
                                    f"un verdetto affidabile ({evidence}): resta la lingua del tag.")
                 self._ev('embedded', lang=cand['lang'])
-                self._log(f"✅ Sottotitoli embedded trovati ({cand['lang']}). Salto trascrizione.")
+                self._log(tr('pl_embedded_subtitles_found_skipping_transcription').format(lang=cand['lang']))
                 subtitle_path, source_language_639_2 = path, lang2_to_3(cand['lang'])
                 self._embedded_source_stream = cand['index']
                 self._embedded_lang_639_1 = cand['lang']
@@ -1360,7 +1346,7 @@ class ProcessingPipeline:
                 logger.warning("Selezione sottotitoli: limite di tentativi raggiunto")
 
             if subtitle_path is None:
-                self._log("ℹ️ Nessun sottotitolo embedded utilizzabile. Procedo con trascrizione.")
+                self._log(tr('pl_no_usable_embedded_subtitles_proceeding'))
         return subtitle_path, source_language_639_2, False
 
     # Codec testo che ffmpeg puo' togliere/sostituire in un MKV senza perdere informazione.
@@ -1396,8 +1382,7 @@ class ProcessingPipeline:
         video = self._sig_target()
         if self._file_sig(video) == sig0:
             return True
-        self._log(f"⚠️ Il file video e' cambiato (o non esiste piu') durante l'elaborazione, forse a opera di un "
-                  f"altro programma: {what} non eseguito. Il sottotitolo resta accanto al video.")
+        self._log(tr('pl_the_video_file_changed_or').format(what=what))
         return False
 
     def _run_cancellable(self, cmd, timeout):
@@ -1453,7 +1438,7 @@ class ProcessingPipeline:
         temp = Path(str(video) + ".converting")
         lang3 = self._convert_639_1_to_639_2(lang_639_1)
         title = self._SUB_TITLES.get(lang_639_1, lang3.upper())
-        what = f"traccia {remove_idx}" if remove_idx is not None else "sottotitolo"
+        what = tr('pl_track').format(remove_idx=remove_idx) if remove_idx is not None else tr('pl_subtitle')
         try:
             if temp.exists():
                 try:
@@ -1461,16 +1446,16 @@ class ProcessingPipeline:
                 except Exception:
                     pass
             if video.suffix.lower() != '.mkv':
-                self._log(f"ℹ️ {what.capitalize()}: il file non e' un MKV, non lo modifico.")
+                self._log(tr('pl_the_file_is_not_an').format(what=what.capitalize()))
                 return False
             if not sidecar.exists() or sidecar.stat().st_size < 200:
-                self._log(f"ℹ️ {what.capitalize()}: sottotitolo assente o vuoto, non modifico il video.")
+                self._log(tr('pl_subtitle_missing_or_empty_i').format(what=what.capitalize()))
                 return False
-            if not self._video_unchanged("il mux del sottotitolo"):
+            if not self._video_unchanged(tr('pl_the_subtitle_mux')):
                 return False
             before = self._ffprobe_streams(video)
             if before is None:
-                self._log(f"⚠️ {what.capitalize()}: ffprobe non ha letto il file, non lo modifico.")
+                self._log(tr('pl_ffprobe_could_not_read_the').format(what=what.capitalize()))
                 return False
             dur0, streams0 = before
             subs0 = [s for s in streams0 if s.get('codec_type') == 'subtitle']
@@ -1479,12 +1464,12 @@ class ProcessingPipeline:
                 target = next((s for s in subs0 if s.get('index') == remove_idx), None)
                 removable = self._TEXT_SUB_CODECS | (self._BITMAP_SUB_CODECS if allow_bitmap else set())
                 if target is None or target.get('codec_name') not in removable:
-                    self._log(f"ℹ️ Traccia {remove_idx} assente o di tipo non sostituibile: non la sostituisco.")
+                    self._log(tr('pl_track_missing_or_of_a').format(remove_idx=remove_idx))
                     return False
                 # Con `allow_bitmap` l'OCR ha gia' trattato la traccia come COMPLETA (flag forced anomalo ignorato,
                 # SubtitleExtractor) e ne ha provato il testo non italiano: il flag del contenitore non la protegge.
                 if target.get('disposition', {}).get('forced') and not allow_bitmap:
-                    self._log(f"ℹ️ La traccia {remove_idx} ha il flag forced del contenitore: non la sostituisco.")
+                    self._log(tr('pl_track_has_the_container_forced').format(remove_idx=remove_idx))
                     return False
                 is_default = bool(target.get('disposition', {}).get('default'))
                 n_after = len(subs0)           # una tolta, una aggiunta
@@ -1530,7 +1515,7 @@ class ProcessingPipeline:
                     rc = 0
             if rc != 0 or not temp.exists() or temp.stat().st_size < 1024:
                 logger.error(f"Mux sottotitolo: {tool} fallito (rc={rc}): {((err or '') + (_out or ''))[-300:]}")
-                self._log("⚠️ Mux del sottotitolo non riuscito: il file video e' rimasto invariato.")
+                self._log(tr('pl_subtitle_mux_failed_the_video'))
                 return False
 
             after = self._ffprobe_streams(temp)
@@ -1576,16 +1561,16 @@ class ProcessingPipeline:
                     except Exception:
                         pass
             if not ok:
-                self._log("⚠️ Verifica del file con il sottotitolo non superata: il video e' rimasto invariato.")
+                self._log(tr('pl_verification_of_the_file_with'))
                 return False
-            if not self._video_unchanged("il mux del sottotitolo"):
+            if not self._video_unchanged(tr('pl_the_subtitle_mux')):
                 return False            # il `finally` cancella il temporaneo
             temp.replace(video)
             self._video_sig0 = self._file_sig(video)   # il file e' cambiato per mano nostra: nuovo riferimento
             return True
         except Exception as exc:
             logger.error(f"Mux sottotitolo fallito: {exc}", exc_info=True)
-            self._log("⚠️ Mux del sottotitolo non riuscito: il file video e' rimasto invariato.")
+            self._log(tr('pl_subtitle_mux_failed_the_video'))
             return False
         finally:
             try:
@@ -1610,13 +1595,12 @@ class ProcessingPipeline:
         if idx is None:
             return False
         if not self.config.get('replace_mislabeled_italian_track', True):
-            self._log("ℹ️ Sostituzione della traccia segnata per errore come italiana disattivata.")
+            self._log(tr('pl_replacement_of_the_track_wrongly'))
             return False
         self._ev('phase', name='final', fraction=0.9)
-        self._log(f"\n9. Sostituzione della traccia {idx} (segnata come italiana, testo non italiano) "
-                  f"con il sottotitolo italiano...")
+        self._log(tr('pl_9_replacing_track_marked_as').format(idx=idx))
         if self._remux_with_sidecar(sidecar, 'it', remove_idx=idx, allow_bitmap=bitmap):
-            self._log(f"✅ Traccia {idx} sostituita con il sottotitolo italiano (sidecar mantenuto: {sidecar.name}).")
+            self._log(tr('pl_track_replaced_with_the_italian').format(idx=idx, name=sidecar.name))
             return True
         return False
 
@@ -1627,11 +1611,11 @@ class ProcessingPipeline:
             return False
         self._ev('phase', name='final', fraction=0.9)
         self._ev('step', name='mux', state='start')
-        self._log("\n9. Mux del sottotitolo nel video...")
+        self._log(tr('pl_9_muxing_the_subtitle_into'))
         _mux_ok = False
         try:
             if self._remux_with_sidecar(sidecar, lang_639_1):
-                self._log(f"✅ Sottotitolo incorporato nel video (sidecar mantenuto: {sidecar.name}).")
+                self._log(tr('pl_subtitle_embedded_in_the_video').format(name=sidecar.name))
                 _mux_ok = True
                 return True
             return False
@@ -1699,8 +1683,7 @@ class ProcessingPipeline:
         # CHECK 1: Upload abilitato da configurazione?
         # ============================================================
         if not self.config.get('opensubtitles_upload_enabled'):
-            self._log("ℹ️ Upload OpenSubtitles non attivo "
-                       "(Opzioni → OpenSubtitles → \"Upload OpenSubtitles\"). Salto.")
+            self._log(tr('pl_opensubtitles_upload_not_active_options'))
             self._ev('step', name='upload', state='skip', reason='disabled')
             return
 
@@ -1708,7 +1691,7 @@ class ProcessingPipeline:
         # CHECK 2: Credenziali configurate per l'implementazione scelta?
         # ============================================================
         if not self.config.is_opensubtitles_configured():
-            self._log("⚠️ Credenziali OpenSubtitles non configurate (Opzioni → OpenSubtitles). Salto upload.")
+            self._log(tr('pl_opensubtitles_credentials_not_configured_options'))
             self._ev('step', name='upload', state='skip', reason='disabled')
             return
 
@@ -1716,18 +1699,18 @@ class ProcessingPipeline:
         # CHECK 3: IMDb ID disponibile? (obbligatorio)
         # ============================================================
         if not imdb_id:
-            self._log("⚠️ IMDb ID non disponibile. Upload OpenSubtitles saltato (obbligatorio).")
+            self._log(tr('pl_imdb_id_not_available_opensubtitles'))
             self._ev('step', name='upload', state='skip', reason='no_imdb')
             return
 
-        if not self._video_unchanged("l'upload OpenSubtitles"):
+        if not self._video_unchanged(tr('pl_the_opensubtitles_upload')):
             self._ev('step', name='upload', state='skip', reason='video_changed')
             return
 
         self._ev('phase', name='final', fraction=0.7)
         self._upload_step_started = True
         self._ev('step', name='upload', state='start')
-        self._log("\n8. Upload OpenSubtitles...")
+        self._log(tr('pl_8_opensubtitles_upload'))
 
         try:
             # Importa moduli per garantire registrazione factory
@@ -1760,7 +1743,7 @@ class ProcessingPipeline:
             # il video originale nella stessa cartella per il calcolo dell'hash.
             video_for_hash = self._resolve_video_path()
             if video_for_hash is None:
-                self._log("⚠️ Nessun file video trovato per il calcolo dell'hash. Upload saltato.")
+                self._log(tr('pl_no_video_file_found_to'))
                 return
 
             success, url_or_error = self._try_upload_with(
@@ -1782,15 +1765,15 @@ class ProcessingPipeline:
                 # dall'uploader ("Upload riuscito", "GIÀ PRESENTE - <url>", ecc.):
                 # non anteporgli "Upload completato", sarebbe fuorviante nel
                 # caso "già presente" (non è stato caricato nulla di nuovo).
-                self._log(f"✅ OpenSubtitles: {url_or_error}")
+                self._log(tr('pl_opensubtitles').format(url_or_error=url_or_error))
                 self._upload_ok = True
             else:
-                self._log(f"❌ Upload fallito: {url_or_error}")
+                self._log(tr('pl_upload_failed').format(url_or_error=url_or_error))
 
         except Exception as e:
-            error_msg = f"Errore upload OpenSubtitles: {e}"
+            error_msg = tr('pl_opensubtitles_upload_error').format(e=e)
             logger.error(error_msg, exc_info=True)
-            self._log(f"❌ {error_msg}")
+            self._log(tr('pl_msg').format(error_msg=error_msg))
 
     def _try_upload_with(
         self, implementation: str, creds: dict, metadata: SubtitleMetadata,
@@ -1812,20 +1795,20 @@ class ProcessingPipeline:
             (success, message) — message è già pronto per il log.
         """
         uploader = UploaderFactory.create_uploader(implementation=implementation, **creds)
-        self._log(f"🔧 Implementazione: {uploader.get_implementation_name()}")
+        self._log(tr('pl_implementation').format(impl=uploader.get_implementation_name()))
 
-        self._log("🔑 Autenticazione OpenSubtitles...")
+        self._log(tr('pl_opensubtitles_authentication'))
         if not uploader.authenticate():
-            self._log("❌ Login fallito.")
-            return False, "Login fallito"
+            self._log(tr('pl_login_failed'))
+            return False, tr('pl_login_failed_2')
 
-        self._log("✅ Login riuscito")
+        self._log(tr('pl_login_successful'))
         try:
-            self._log(f" Avvio upload per {language_code_639_1} ({lang_639_2})...")
+            self._log(tr('pl_starting_upload_for').format(language_code_639_1=language_code_639_1, lang_639_2=lang_639_2))
             return uploader.upload(video_path=video_for_hash, subtitle_path=subtitle_path, metadata=metadata)
         finally:
             uploader.logout()
-            self._log("🔓 Sessione OpenSubtitles chiusa")
+            self._log(tr('pl_opensubtitles_session_closed'))
     
     def _resolve_video_path(self) -> Optional[Path]:
         """
@@ -1908,7 +1891,7 @@ class ProcessingPipeline:
             srt = formatter.format_srt(segments)
             if srt.strip():   # mai sostituire l'SRT grezzo con uno vuoto
                 Path(srt_path).write_text(srt, encoding='utf-8')
-                self._log("✅ Formattazione sottotitoli applicata (senza speaker)")
+                self._log(tr('pl_subtitle_formatting_applied_without_speakers'))
         except Exception as e:
             logger.warning(f"Formattazione di ripiego fallita: {e}")
 
@@ -2066,50 +2049,50 @@ class ProcessingPipeline:
         try:
             _proc = psutil.Process(os.getpid())
             _ram_before = _proc.memory_info().rss / 1024**3
-            self._log(f"🧹 Cleanup risorse... (RAM processo: {_ram_before:.2f} GB)")
+            self._log(tr('pl_resource_cleanup_process_ram_gb').format(ram_before=_ram_before))
 
             # 1. Unload engine di trascrizione (whisper + eventuali Canary/Qwen3)
             if self._transcriber:
                 self._transcriber.cleanup()
                 self._transcriber = None
-                self._log("  ✅ Engine trascrizione scaricato")
+                self._log(tr('pl_transcription_engine_unloaded'))
 
             # 2. Unload Demucs
             if self._audio_processor:
                 self._audio_processor.cleanup_model()
                 self._audio_processor = None
-                self._log("  ✅ Demucs scaricato")
+                self._log(tr('pl_demucs_unloaded'))
 
             # 3. Unload Traduttore
             if self._translator:
                 self._translator.cleanup()
                 self._translator = None
-                self._log("  ✅ Traduttore scaricato")
+                self._log(tr('pl_translator_unloaded'))
 
             # 4. CUDA: sync + svuota cache VRAM
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
                 torch.cuda.empty_cache()
-                self._log("  ✅ Cache CUDA svuotata")
+                self._log(tr('pl_cuda_cache_cleared'))
 
             # 5. RAM: 3x gc + EmptyWorkingSet (Windows) / malloc_trim (Linux)
             release_ram_to_os()
 
             _ram_after = _proc.memory_info().rss / 1024**3
             _freed = _ram_before - _ram_after
-            self._log(f"  ✅ RAM: {_ram_before:.2f} → {_ram_after:.2f} GB (liberati {_freed:.2f} GB)")
+            self._log(tr('pl_ram_gb_freed_gb').format(ram_before=_ram_before, ram_after=_ram_after, freed=_freed))
 
             # 6. File temporanei
             if self.video_path:
                 self.file_handler.cleanup(self.video_path)
-                self._log("  ✅ File temporanei rimossi")
+                self._log(tr('pl_temporary_files_removed'))
 
             # 7. Cache modelli HF/torch: NON si tocca qui. La pulizia gira
             # UNA volta sola a fine coda (o su "Ferma") in ProcessingWorker:
             # farla per-file riscaricava gli stessi modelli (pyannote, ECAPA,
             # Demucs...) a ogni elemento della coda.
 
-            self._log("✅ Cleanup completato")
+            self._log(tr('pl_cleanup_completed'))
 
         except Exception as e:
             logger.warning(f"❌ Errore cleanup: {e}")

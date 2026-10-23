@@ -89,3 +89,58 @@ def test_marcatori_non_vuoti():
     for k in TX['en']:
         if k.startswith('logm_'):
             assert all(t.strip() for t in all_texts(k)), k
+
+
+# marcatore (logm_*) -> chiavi delle righe di log che lo devono contenere, IN OGNI LINGUA
+MARKER_IN_LINES = {
+    'logm_audio_extracted': ['pl_audio_extracted_language'],
+    'logm_embedded_found': ['pl_embedded_subtitles_found_skipping_transcription'],
+    'logm_model_line': ['pl_transcription_model'],
+    'logm_ocr_failed': ['pl_bitmap_ocr_failed'],
+    'logm_ocr_error': ['pl_bitmap_ocr_error'],
+    'logm_ocr_done': ['pl_bitmap_ocr_completed'],
+    'logm_kw_skip_translation': ['pl_6_original_language_target_language'],
+    'logm_kw_skipped': ['pl_6_5_gender_correction_skipped'],
+    'logm_kw_translation': ['pl_1b_bitmap_subtitles_ocr_translation'],
+}
+
+
+def test_ogni_riga_contiene_il_marcatore_che_il_consumatore_cerca():
+    for marker, lines in MARKER_IN_LINES.items():
+        for lang in ('it', 'en'):
+            for lk in lines:
+                assert TX[lang][marker].lower() in TX[lang][lk].lower(), (marker, lk, lang)
+
+
+def test_righe_senza_traduzione_non_contengono_la_parola_chiave():
+    for lang in ('it', 'en'):
+        assert TX[lang]['logm_kw_translation'] not in TX[lang]['pl_1b_italian_bitmap_subtitles_ocr'].lower()
+        assert TX[lang]['logm_kw_skipped'] not in TX[lang]['pl_6_5_grammatical_gender_correction'].lower()
+        assert TX[lang]['logm_kw_skip_translation'] not in TX[lang]['pl_6_translation'].lower()
+        assert TX[lang]['logm_kw_original_lang'] not in TX[lang]['pl_6_translation'].lower()
+
+
+@pytest.mark.parametrize('lang', ['it', 'en'])
+def test_passi_6_e_6_5_con_le_righe_reali(lang):
+    fp = FileProgress('ita')
+    fp.feed(TX[lang]['pl_6_original_language_target_language'])
+    assert 'translate' not in fp.possible and 'gender' not in fp.possible
+    fp = FileProgress('ita')
+    fp.feed(TX[lang]['pl_6_translation'].format(src='en', dst='it'))
+    assert fp.phase == 'translate'
+    fp.feed(TX[lang]['pl_6_5_gender_correction_skipped'])
+    assert 'gender' not in fp.possible
+    fp = FileProgress('ita')
+    fp.feed(TX[lang]['pl_6_5_grammatical_gender_correction'])
+    assert fp.phase == 'gender'
+
+
+@pytest.mark.parametrize('lang', ['it', 'en'])
+def test_righe_reali_audio_ed_embedded(lang):
+    fp = FileProgress('ita')
+    fp.feed(TX[lang]['pl_audio_extracted_language'].format(lang='ita'))
+    assert 'translate' not in fp.possible
+    fp = FileProgress('ita')
+    fp.feed(TX[lang]['pl_embedded_subtitles_found_skipping_transcription'].format(lang='ita'))
+    assert 'asr' not in fp.possible and 'translate' not in fp.possible
+    assert LogFilter().decide(TX[lang]['pl_transcription_model'].format(model='M1')).model_name == 'M1'
