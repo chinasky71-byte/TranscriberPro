@@ -27,6 +27,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
+from utils.translations import all_texts, tr
 
 logger = logging.getLogger(__name__)
 
@@ -139,13 +140,13 @@ class _LocalQwenMatcher:
 
     def load(self) -> bool:
         if not _LLAMA_CPP_AVAILABLE:
-            self._log("  llama-cpp-python non disponibile — abbinamento solo posizionale.")
+            self._log(tr('sy_llama_cpp_python_not_available'))
             return False
         if not Path(self._model_path).exists():
-            self._log(f"  Modello Qwen non trovato: {self._model_path}")
+            self._log(tr('sy_qwen_model_not_found').format(model_path=self._model_path))
             return False
         try:
-            self._log("  Caricamento Qwen in VRAM...")
+            self._log(tr('sy_loading_qwen_into_vram'))
             # n_ctx=8192 (non 4096): con finestre dense il prompt da solo può
             # superare i 2000 token e lasciare troppo poco spazio alla
             # risposta — il limite che tronca la risposta JSON a metà è
@@ -159,13 +160,13 @@ class _LocalQwenMatcher:
                 n_batch=512,
                 verbose=False,
             )
-            self._log("  Qwen caricato.")
+            self._log(tr('sy_qwen_loaded'))
 
             # Compila grammar GBNF per output JSON strutturato (opt. velocità)
             if _GRAMMAR_AVAILABLE:
                 try:
                     self._grammar = _LlamaGrammar.from_string(_JSON_GRAMMAR, verbose=False)
-                    self._log("  Grammar JSON attiva.")
+                    self._log(tr('sy_json_grammar_active'))
                 except Exception as eg:
                     logger.warning(f"Grammar GBNF non compilata: {eg}")
                     self._grammar = None
@@ -173,7 +174,7 @@ class _LocalQwenMatcher:
             return True
         except Exception as e:
             logger.error(f"Errore caricamento Qwen: {e}", exc_info=True)
-            self._log(f"  Errore caricamento Qwen: {e}")
+            self._log(tr('sy_qwen_loading_error').format(e=e))
             return False
 
     def match_window(self, system_prompt: str, user_prompt: str, max_tokens: int = 2048) -> Optional[str]:
@@ -342,19 +343,19 @@ class SubtitleSynchronizer:
         """
         try:
             self._log("=" * 68)
-            self._log(f"Sincronizzazione: {self.video_path.name}")
-            self._log(f"SRT esterno:      {self.external_srt_path.name}")
-            self._log(f"Output:           {self._output_path.name}")
+            self._log(tr('sy_synchronization').format(name=self.video_path.name))
+            self._log(tr('sy_external_srt').format(name=self.external_srt_path.name))
+            self._log(tr('sy_output').format(name=self._output_path.name))
             self._log("=" * 68)
 
             externals = self._parse_srt_file(self.external_srt_path)
             if not externals:
-                self._log("ERRORE: SRT esterno vuoto o non leggibile.")
+                self._log(tr('sy_error_external_srt_empty_or'))
                 return False
-            self._log(f"  SRT esterno: {len(externals)} sottotitoli caricati.")
+            self._log(tr('sy_external_srt_subtitles_loaded').format(n=len(externals)))
 
             # ── S1: Ancoraggio ────────────────────────────────────────────
-            self._log("\n1. Ancoraggio — estrazione timing di riferimento...")
+            self._log(tr('sy_1_anchoring_extracting_reference_timing'))
             anchors = self._step1_extract_anchors()
             if self._cancelled:
                 return False
@@ -366,9 +367,9 @@ class SubtitleSynchronizer:
             # Una manciata di anchor non basta nemmeno a coprire una sola
             # finestra in modo significativo: soglia minima 10.
             if not anchors or len(anchors) < 10:
-                self._log(f"ERRORE S1: anchor insufficienti ({len(anchors or [])}, minimo 10).")
+                self._log(tr('sy_error_s1_insufficient_anchors_minimum').format(n=len(anchors or [])))
                 return False
-            self._log(f"  Anchor estratti: {len(anchors)} segmenti.")
+            self._log(tr('sy_anchors_extracted_segments').format(n=len(anchors)))
             self._report_progress(self._STEP_PCT['S1'])
 
             self._unload_transcriber()
@@ -376,7 +377,7 @@ class SubtitleSynchronizer:
             # ── S2+S3 (motore 'timing', predefinito): allineamento solo temporale, senza LLM ──
             matches = None
             if self._engine == 'timing':
-                self._log("\n2. Allineamento — scala/offset globali e offset a tratti sul parlato di riferimento...")
+                self._log(tr('sy_2_alignment_global_scale_offset'))
                 matches = self._step23_timing_align(anchors, externals)
                 if self._cancelled:
                     return False
@@ -385,20 +386,20 @@ class SubtitleSynchronizer:
                     # puo' rimediare (Qwen abbinerebbe righe a caso in un'ora) e scrivere un output sarebbe peggio.
                     return False
                 self._report_progress(self._STEP_PCT['S2'])
-                self._log("\n3. Controllo — copertura del parlato verificata.")
+                self._log(tr('sy_3_check_speech_coverage_verified'))
             else:
                 # ── S2: Ponte Semantico ───────────────────────────────────
-                self._log("\n2. Ponte Semantico — traduzione anchor → IT grezzo...")
+                self._log(tr('sy_2_semantic_bridge_anchor_translation'))
                 anchors_it = self._step2_translate_anchors(anchors)
                 if anchors_it is None or self._cancelled:
                     if not self._cancelled:
-                        self._log("ERRORE S2: traduzione NLLB fallita.")
+                        self._log(tr('sy_error_s2_nllb_translation_failed'))
                     return False
-                self._log(f"  Traduzione completata: {len(anchors_it)} anchor in italiano.")
+                self._log(tr('sy_translation_completed_anchors_in_italian').format(n=len(anchors_it)))
                 self._report_progress(self._STEP_PCT['S2'])
 
                 # ── S3: Abbinamento ───────────────────────────────────────
-                self._log("\n3. Abbinamento — semantic matching con Qwen...")
+                self._log(tr('sy_3_matching_semantic_matching_with'))
                 matches = self._step3_match_subtitles(anchors_it, externals)
                 if self._cancelled:
                     return False
@@ -413,23 +414,23 @@ class SubtitleSynchronizer:
             # shift è dedotto dai vicini risolti) ma è un segnale che
             # l'utente deve poter vedere, non solo dedurre dal codice.
             riepilogo = ", ".join(f"{v} {k}" for k, v in sorted(tipi.items(), key=lambda kv: -kv[1]))
-            self._log(f"  Match: {riepilogo} (totale {len(matches)}).")
+            self._log(tr('sy_match_total').format(summary=riepilogo, n=len(matches)))
             self._report_progress(self._STEP_PCT['S3'])
 
             # ── S4: Rifinitura ────────────────────────────────────────────
-            self._log("\n4. Rifinitura — costruzione SRT finale...")
+            self._log(tr('sy_4_finishing_building_the_final'))
             ok = self._step4_build_output(externals, matches)
             if not ok:
-                self._log("ERRORE S4: scrittura output fallita.")
+                self._log(tr('sy_error_s4_writing_the_output'))
                 return False
             self._report_progress(self._STEP_PCT['S4'])
 
-            self._log(f"\nSincronizzazione completata: {self._output_path.name}")
+            self._log(tr('sy_synchronization_completed').format(name=self._output_path.name))
             self._report_progress(self._STEP_PCT['done'])
             return True
 
         except Exception as e:
-            self._log(f"ERRORE CRITICO: {e}")
+            self._log(tr('sy_critical_error').format(e=e))
             logger.error(f"SubtitleSynchronizer error: {e}", exc_info=True)
             return False
 
@@ -545,14 +546,13 @@ class SubtitleSynchronizer:
         ]
         if discarded_it:
             self._log(
-                f"  Scartati {len(discarded_it)} stream italiani embedded "
-                f"(non utilizzabili come anchor)."
+                tr('sy_discarded_embedded_italian_streams_not').format(n=len(discarded_it))
             )
 
         selected = None
 
         if valid_streams:
-            self._log(f"  Trovati {len(valid_streams)} stream non-IT validi.")
+            self._log(tr('sy_found_valid_non_it_streams').format(n=len(valid_streams)))
 
         # Seleziona seguendo la priorità lingua
         for lang in ANCHOR_PRIORITY:
@@ -568,8 +568,7 @@ class SubtitleSynchronizer:
             chosen  = regular[0] if regular else lang_subs[0]
             tag     = "regular" if regular else "HI"
             self._log(
-                f"  Anchor selezionato: {chosen['language'].upper()} {tag} "
-                f"(Stream {chosen['index']})"
+                tr('sy_anchor_selected_stream').format(lang=chosen['language'].upper(), tag=tag, index=chosen['index'])
             )
             selected = chosen
             break
@@ -578,9 +577,7 @@ class SubtitleSynchronizer:
         if selected is None and valid_streams:
             selected = valid_streams[0]
             self._log(
-                f"  ⚠️ Nessuna lingua prioritaria trovata — "
-                f"uso fallback: {selected['language'].upper()} "
-                f"(Stream {selected['index']})"
+                tr('sy_no_priority_language_found_using').format(lang=selected['language'].upper(), index=selected['index'])
             )
 
         # Estrazione embedded
@@ -593,8 +590,7 @@ class SubtitleSynchronizer:
                 if subs:
                     self._anchor_language = self._canon_lang(selected.get('language'))
                     self._log(
-                        f"  {len(subs)} anchor embedded estratti "
-                        f"(lingua: {selected.get('language', '?').upper()})."
+                        tr('sy_embedded_anchors_extracted_language').format(n=len(subs), lang=selected.get('language', '?').upper())
                     )
                     return subs
             self._log("  Estrazione embedded fallita — ripiego sul parlato dell'audio." if self._engine == 'timing'
@@ -608,7 +604,7 @@ class SubtitleSynchronizer:
 
         # Whisper fallback
         if not self.config.get('sync_allow_whisper_fallback', True):
-            self._log("  Fallback sul parlato dell'audio disabilitato dalla configurazione.")
+            self._log(tr('sy_fallback_on_the_audio_speech'))
             return None
 
         if self._engine == 'timing':
@@ -629,20 +625,20 @@ class SubtitleSynchronizer:
         selector = AudioTrackSelector(str(self.video_path))
         stream = selector.select_best_track()
         if not stream:
-            self._log("  Nessuna traccia audio trovata nel video.")
+            self._log(tr('sy_no_audio_track_found_in'))
             return None
         audio_path = self.file_handler.get_temp_path(self.video_path, "anchor_audio.wav")
         if not selector.extract_audio_track(audio_path, stream['index']):
-            self._log("  Estrazione traccia audio fallita.")
+            self._log(tr('sy_audio_track_extraction_failed'))
             return None
         self._audio_processor = AudioProcessor()
         self._audio_processor.set_log_callback(self._log_callback)
-        self._log("  Separazione vocale (Demucs) per isolare il parlato...")
+        self._log(tr('sy_vocal_separation_demucs_to_isolate'))
         vocals = self._audio_processor.separate_vocals(audio_path)
         if self._cancelled:
             return None
         if not vocals or not Path(vocals).exists():
-            self._log("  Separazione vocale fallita: uso l'audio originale (musica e rumori peggiorano il risultato).")
+            self._log(tr('sy_vocal_separation_failed_using_the'))
             vocals = audio_path
         try:
             from faster_whisper.audio import decode_audio
@@ -651,7 +647,7 @@ class SubtitleSynchronizer:
             stamps = get_speech_timestamps(wave, VadOptions(threshold=0.5, min_speech_duration_ms=250,
                                                             min_silence_duration_ms=300, speech_pad_ms=100))
         except Exception as e:
-            self._log(f"  VAD fallito: {e}")
+            self._log(tr('sy_vad_failed').format(e=e))
             return None
         self._anchor_kind = 'vad'
         subs = [
@@ -659,7 +655,7 @@ class SubtitleSynchronizer:
                          end_time=SyncSubtitle._sec_to_ts(st['end'] / 16000.0), text='(voce)')
             for i, st in enumerate(stamps)
         ]
-        self._log(f"  VAD: {len(subs)} intervalli di parlato.")
+        self._log(tr('sy_vad_speech_intervals').format(n=len(subs)))
         return subs
 
     def _step1_whisper_fallback(self) -> Optional[List[SyncSubtitle]]:
@@ -673,12 +669,12 @@ class SubtitleSynchronizer:
         selector = AudioTrackSelector(str(self.video_path))
         stream   = selector.select_best_track()
         if not stream:
-            self._log("  Nessuna traccia audio trovata nel video.")
+            self._log(tr('sy_no_audio_track_found_in'))
             return None
 
         audio_path = self.file_handler.get_temp_path(self.video_path, "anchor_audio.wav")
         if not selector.extract_audio_track(audio_path, stream['index']):
-            self._log("  Estrazione traccia audio fallita.")
+            self._log(tr('sy_audio_track_extraction_failed'))
             return None
 
         self._audio_processor = AudioProcessor()
@@ -690,7 +686,7 @@ class SubtitleSynchronizer:
             use_batched_pipeline=False,
         )
         if self._cancelled or not chunks:
-            self._log("  Elaborazione audio fallita o annullata.")
+            self._log(tr('sy_audio_processing_failed_or_cancelled'))
             return None
 
         transcribed_srt = self.file_handler.get_temp_path(
@@ -709,12 +705,12 @@ class SubtitleSynchronizer:
         )
         if detected_lang:
             self._anchor_language = self._canon_lang(detected_lang)
-            self._log(f"  Lingua rilevata da Whisper: {detected_lang.upper()}")
+            self._log(tr('sy_language_detected_by_whisper').format(lang=detected_lang.upper()))
         if not success or not transcribed_srt.exists():
-            self._log("  Trascrizione Whisper fallita.")
+            self._log(tr('sy_whisper_transcription_failed'))
             return None
 
-        self._log("  Trascrizione Whisper completata.")
+        self._log(tr('sy_whisper_transcription_completed'))
         return self._parse_srt_file(transcribed_srt)
 
     # ── STEP 2+3 (motore 'timing') ───────────────────────────────────────────
@@ -738,24 +734,21 @@ class SubtitleSynchronizer:
             log=self._log,
         )
         if res is None:
-            self._log("  Allineamento temporale impossibile (dati insufficienti).")
+            self._log(tr('sy_time_alignment_impossible_insufficient_data'))
             return None
 
         for note in res.notes:
-            if 'finestra' in note:
-                self._log(f"  ⚠️ {note}.")
+            if any(k in note for k in all_texts('logm_kw_window')):
+                self._log(tr('sy_msg').format(note=note))
         min_lift, warn_lift = (0.30, 0.50) if self._anchor_kind == 'vad' else (0.60, 0.80)
         if res.lift < min_lift:
             self._log(
-                f"ERRORE: l'SRT non corrisponde al video: copertura del parlato {res.mean_coverage:.0%} contro "
-                f"{res.density:.0%} attesa a caso (indice {res.lift:.2f}, minimo {min_lift:.2f}). Episodio o lingua "
-                f"sbagliati? Nessun file scritto."
+                tr('sy_error_the_srt_does_not').format(mean_coverage=res.mean_coverage, density=res.density, lift=res.lift, min_lift=min_lift)
             )
             return None
         if res.lift < warn_lift:
             self._log(
-                f"  ⚠️ Risultato dubbio: indice di sovrapposizione {res.lift:.2f} (< {warn_lift:.2f}); copertura "
-                f"{res.mean_coverage:.0%}. Verifica il file (montaggio diverso, molte battute senza riferimento)."
+                tr('sy_doubtful_result_overlap_index_coverage').format(lift=res.lift, warn_lift=warn_lift, mean_coverage=res.mean_coverage)
             )
 
         matches = [
@@ -771,7 +764,7 @@ class SubtitleSynchronizer:
         ]
 
         if res.n_pieces > 1:
-            self._log(f"  Rilevati {res.n_pieces} tratti con offset diverso (tagli/scene aggiunte o tolte).")
+            self._log(tr('sy_found_segments_with_a_different').format(n_pieces=res.n_pieces))
         dubious = [(e, c) for e, c in zip(ordered, res.coverage) if c < 0.2]
         if dubious:
             def _fmt(t: float) -> str:
@@ -779,8 +772,7 @@ class SubtitleSynchronizer:
             pos = ", ".join(_fmt(m.new_start_sec) for m in
                             [mm for mm, c in zip(matches, res.coverage) if c < 0.2][:6])
             self._log(
-                f"  {len(dubious)} battute su {len(ordered)} senza parlato di riferimento sotto "
-                f"(dialoghi in altra lingua, canzoni o punti da verificare): {pos}{' …' if len(dubious) > 6 else ''}"
+                tr('sy_lines_out_of_without_reference').format(n=len(dubious), total=len(ordered), pos=pos, ellipsis=' …' if len(dubious) > 6 else '')
             )
         return matches
 
@@ -815,10 +807,10 @@ class SubtitleSynchronizer:
         # fallisce) invece di procedere con una traduzione sub-ottimale ma
         # funzionante.
         if hasattr(self._nllb_translator, '_nllb_to_iso') and self._nllb_translator._nllb_to_iso(src_lang) is None:
-            self._log(f"  ⚠️ Lingua anchor '{src_lang}' non riconosciuta da NLLB — uso il default '{self._src_language}'.")
+            self._log(tr('sy_anchor_language_not_recognized_by').format(src_lang=src_lang, src_language=self._src_language))
             src_lang = self._src_language
 
-        self._log(f"  Lingua sorgente per la traduzione: {src_lang.upper()}")
+        self._log(tr('sy_source_language_for_the_translation').format(lang=src_lang.upper()))
         try:
             ok = self._nllb_translator.translate_file(
                 input_path=str(temp_in),
@@ -827,7 +819,7 @@ class SubtitleSynchronizer:
                 tgt_lang='it',
             )
         except Exception as e:
-            self._log(f"  Errore traduzione NLLB: {e}")
+            self._log(tr('sy_nllb_translation_error').format(e=e))
             logger.error(f"NLLB translate error: {e}", exc_info=True)
             ok = False
         finally:
@@ -848,8 +840,7 @@ class SubtitleSynchronizer:
         # verifichiamo che il count sia coerente)
         if len(translated) != len(anchors):
             self._log(
-                f"  ⚠️ Count anchor cambiato dopo traduzione "
-                f"({len(anchors)} → {len(translated)}). Uso count tradotto."
+                tr('sy_anchor_count_changed_after_translation').format(n=len(anchors), n_2=len(translated))
             )
         # Ripristina i timestamp dall'anchor originale corrispondente
         anchor_map = {a.index: a for a in anchors}
@@ -1006,11 +997,7 @@ class SubtitleSynchronizer:
 
         if not qwen_ok:
             self._log(
-                "  ⚠️ Qwen non disponibile — abbinamento POSIZIONALE TOTALE "
-                "(per rapporto d'indice, non semantico): l'output può avere "
-                "errori di decine di secondi su singole righe. Configura "
-                "'sync_qwen_model_path' (o 'gender_correction_model_path') "
-                "per un matching affidabile."
+                tr('sy_qwen_not_available_total_positional')
             )
             return self._positional_fallback(anchors_it, externals, set())
 
@@ -1018,8 +1005,7 @@ class SubtitleSynchronizer:
         ratio = len(externals) / max(len(anchors_it), 1)
         if ratio > 3.0 or ratio < 0.33:
             self._log(
-                f"  ⚠️ Rapporto anchor/external molto asimmetrico ({ratio:.1f}x) "
-                f"— abbinamento posizionale totale."
+                tr('sy_anchor_external_ratio_very_asymmetric').format(ratio=ratio)
             )
             try:
                 self._qwen_matcher.unload()
@@ -1049,7 +1035,7 @@ class SubtitleSynchronizer:
                 wins.append(n_anc - self._window_size)
         n_wins = len(wins)
 
-        self._log(f"  Finestre da elaborare: {n_wins} (window={self._window_size}, step={step})")
+        self._log(tr('sy_windows_to_process_window_step').format(n_wins=n_wins, window_size=self._window_size, step=step))
 
         for wi, a_start in enumerate(wins):
             if self._cancelled:
@@ -1185,15 +1171,11 @@ class SubtitleSynchronizer:
         rejected = getattr(self, '_gate_rejected', 0)
         if entries and rejected / entries > 0.5:
             self._log(
-                f"  ⚠️ Il gate di plausibilità ha scartato {rejected}/{entries} "
-                f"proposte dell'LLM ({100 * rejected / entries:.0f}%): il desync "
-                f"del file supera probabilmente 'sync_max_offset_sec' "
-                f"({self._max_offset_sec:.0f}s) — alzalo in config.json e riprova."
+                tr('sy_the_plausibility_gate_rejected_llm').format(rejected=rejected, entries=entries, pct=100 * rejected / entries, max_offset_sec=self._max_offset_sec)
             )
         elif entries:
             self._log(
-                f"  Gate di plausibilità: {rejected}/{entries} proposte scartate "
-                f"({100 * rejected / entries:.0f}%)."
+                tr('sy_plausibility_gate_proposals_rejected').format(rejected=rejected, entries=entries, pct=100 * rejected / entries)
             )
 
         # Fallback per interpolazione (dai vicini risolti) per external non
@@ -1202,7 +1184,7 @@ class SubtitleSynchronizer:
         # _interpolate_fallback).
         unresolved = [e for e in externals if e.index not in results]
         if unresolved:
-            self._log(f"  Fallback per interpolazione per {len(unresolved)} sottotitoli non abbinati.")
+            self._log(tr('sy_interpolation_fallback_for_unmatched_subtitles').format(n=len(unresolved)))
             for mr in self._interpolate_fallback(externals, results, anchors_it):
                 results[mr.external_index] = mr
 
@@ -1228,7 +1210,7 @@ class SubtitleSynchronizer:
         _parse_llm_match_response.
         """
         if not matches:
-            self._log("  ERRORE: nessun match prodotto — output non scritto.")
+            self._log(tr('sy_error_no_match_produced_output'))
             return False
 
         match_map = {mr.external_index: mr for mr in matches}
@@ -1302,16 +1284,15 @@ class SubtitleSynchronizer:
 
         if clamped:
             self._log(
-                f"  ⚠️ {clamped} timestamp corretti per inversione/overlap "
-                f"dopo il matching — segnale di match dubbi, verifica il file."
+                tr('sy_timestamps_corrected_for_inversion_overlap').format(clamped=clamped)
             )
 
         try:
             self._output_path.parent.mkdir(parents=True, exist_ok=True)
             self._write_srt_file(ordered, self._output_path)
-            self._log(f"  Scritto: {self._output_path}")
+            self._log(tr('sy_written').format(output_path=self._output_path))
         except Exception as e:
-            self._log(f"  Errore scrittura: {e}")
+            self._log(tr('sy_write_error').format(e=e))
             return False
 
         # Gender correction opzionale (stesso pattern subprocess pipeline STEP 6.5)
@@ -1735,9 +1716,7 @@ class SubtitleSynchronizer:
             # per interpolazione", che qui sarebbe fuorviante — è il
             # caso peggiore della pipeline, non un'interpolazione affidabile.
             self._log(
-                "  ⚠️ Nessun sottotitolo risolto da Qwen in tutto il file — "
-                "fallback POSIZIONALE TOTALE (per rapporto d'indice, senza "
-                "garanzia semantica): il file va verificato a mano."
+                tr('sy_no_subtitle_resolved_by_qwen')
             )
             return self._positional_fallback(anchors, all_externals, set(results))
 
@@ -1807,7 +1786,7 @@ class SubtitleSynchronizer:
             env['PYTHONIOENCODING'] = 'utf-8'
             env['PYTHONUTF8']       = '1'
 
-            self._log("  Avvio subprocess Gender Corrector...")
+            self._log(tr('sy_starting_gender_corrector_subprocess'))
             proc = subprocess.Popen(
                 [sys.executable, "-m", "core.gender_corrector_cli", str(args_path)],
                 stdout=subprocess.PIPE,
@@ -1849,12 +1828,12 @@ class SubtitleSynchronizer:
                     unchanged = False
                 shutil.copy2(str(corrected), str(self._output_path))
                 if unchanged:
-                    self._log("  Correzione genere: nessuna modifica necessaria.")
+                    self._log(tr('sy_gender_correction_no_change_needed'))
                 else:
-                    self._log("  Correzione genere applicata.")
+                    self._log(tr('sy_gender_correction_applied'))
             elif not self._cancelled:
                 self._log(
-                    f"  ⚠️ Correzione genere fallita (exit {return_code}). Uso originale."
+                    tr('sy_gender_correction_failed_exit_using').format(return_code=return_code)
                 )
 
             try:
@@ -1863,7 +1842,7 @@ class SubtitleSynchronizer:
                 pass
 
         except Exception as e:
-            self._log(f"  ⚠️ Errore gender correction: {e}")
+            self._log(tr('sy_gender_correction_error').format(e=e))
             logger.error(f"Gender correction sync error: {e}", exc_info=True)
 
     # ── Helper: VRAM / cleanup ────────────────────────────────────────────────
@@ -1946,7 +1925,7 @@ class SubtitleSynchronizer:
 
     def _log(self, message: str) -> None:
         logger.info(message)
-        if message.lstrip().startswith("ERRORE"):
+        if message.lstrip().startswith(all_texts('logm_error_prefix')):
             self.last_error = message.strip()          # motivo del fallimento, riportato dalla coda (result.json)
         if self._log_callback:
             try:

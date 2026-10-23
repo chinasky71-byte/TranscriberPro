@@ -96,7 +96,7 @@ class TimingAlignerTests(unittest.TestCase):
         ext = mk([(a + 3.5, b + 3.5) for a, b in self.truth])
         self.assertIsNotNone(sync._step23_timing_align(mk(self.ref), ext))
         self.assertIsNone(sync._step23_timing_align(mk(make_speech(seed=99)), mk(self.truth)))
-        self.assertIn('ERRORE', sync.last_error)
+        self.assertRegex(sync.last_error, r'ERRORE|ERROR')    # il messaggio segue la lingua dell'interfaccia (IT/EN)
 
     def test_empty_inputs(self):
         self.assertIsNone(TA.align([], self.ref))

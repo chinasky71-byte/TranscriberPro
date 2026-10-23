@@ -144,3 +144,17 @@ def test_righe_reali_audio_ed_embedded(lang):
     fp.feed(TX[lang]['pl_embedded_subtitles_found_skipping_transcription'].format(lang='ita'))
     assert 'asr' not in fp.possible and 'translate' not in fp.possible
     assert LogFilter().decide(TX[lang]['pl_transcription_model'].format(model='M1')).model_name == 'M1'
+
+
+def test_righe_errore_del_sincronizzatore_iniziano_col_prefisso_in_ogni_lingua():
+    """core/subtitle_synchronizer.py::_log imposta last_error se la riga inizia con il prefisso di errore."""
+    prefixes = {lang: all_texts('logm_error_prefix') for lang in ('it', 'en')}
+    for k, it_text in TX['it'].items():
+        if k.startswith('sy_') and it_text.lstrip().startswith('ERRORE'):
+            assert TX['en'][k].lstrip().startswith(prefixes['en']), k
+    assert 'ERRORE' in prefixes['it'] and 'ERROR' in prefixes['it']
+
+
+def test_nota_finestra_dell_allineatore_riconosciuta_in_ogni_lingua():
+    for lang in ('it', 'en'):
+        assert any(k in TX[lang]['ta_piecewise_offset_at_the_window'] for k in all_texts('logm_kw_window'))

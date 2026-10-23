@@ -3,6 +3,20 @@
 Piu' recenti in alto. Regole: testo italiano identico carattere per carattere; consumatori che leggono il testo
 riconoscono IT ed EN; mai tradurre `logger.*` (restano in italiano per gli sviluppatori).
 
+## 2026-10-23 · PR 3 — core/subtitle_synchronizer.py (67 chiavi `sy_*`) e core/timing_aligner.py (2 chiavi `ta_*`)
+
+**Fatto**: 69 chiamate `_log` del sincronizzatore + nota "finestra" e riga di sintesi dell'allineatore. `verify_i18n_identity.py`: 69 + 1 identici, 0 differenti.
+Non convertiti volutamente: righe `[LLM] {line}` (testo del figlio) e simili senza testo proprio.
+
+**Punti delicati trovati (testo letto dal codice)**
+1. `SubtitleSynchronizer._log` impostava `last_error` solo se la riga iniziava con `"ERRORE"` (poi scritto in result.json e mostrato dalla coda): in inglese
+   sarebbe rimasto vuoto. Ora usa `all_texts('logm_error_prefix')` (ERRORE/ERROR); il test controlla che ogni riga `sy_*` d'errore inizi col prefisso in EN. Il testo di `last_error` e' solo mostrato, mai confrontato.
+2. `if 'finestra' in note` (nota dell'allineatore) → chiave `logm_kw_window` (finestra/window), la nota e' ora `ta_piecewise_offset_at_the_window`.
+3. `test_timing_aligner.py` (radice) verificava `'ERRORE'`: ora accetta `ERRORE|ERROR` perche' il messaggio segue la lingua.
+4. Da fare in PR engines: `core/engines/canary_engine.py:305` fa `line.startswith("ERRORE")` su righe del figlio Canary.
+
+**Test**: `python -m pytest linux_tests -q` → 284 passed, 6 skipped; `test_timing_aligner.py` 11 passed. **Non verificato**: sincronizzazione reale (richiede modelli/GPU).
+
 ## 2026-10-23 · PR 2 — core/pipeline.py (117 chiavi `pl_*`, 126 punti)
 
 **Fatto**: 113 chiamate `_log(...)` convertite + 13 messaggi fuori da `_log` diretto (eccezioni mostrate in `Errore critico pipeline: {e}`,
