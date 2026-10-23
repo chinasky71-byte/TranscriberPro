@@ -17,6 +17,7 @@ from abc import ABC, abstractmethod
 from typing import Callable, List, Optional, Tuple
 
 from utils.logger import setup_logger
+from utils.translations import tr
 
 logger = setup_logger()
 
@@ -32,7 +33,7 @@ class LanguageNotAlignable(Exception):
     def __init__(self, detected_language_639_1: Optional[str], message: str = ""):
         self.detected_language_639_1 = detected_language_639_1
         super().__init__(
-            message or f"Lingua '{detected_language_639_1}' non allineabile da questo engine"
+            message or tr('be_language_cannot_be_aligned_by').format(detected_language_639_1=detected_language_639_1)
         )
 
 
