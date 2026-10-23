@@ -249,6 +249,24 @@ def cmd_apply(path, en_file, prefix, use_print):
     print(f"{len(repl)} punti riscritti, {len(new_it)} chiavi nuove")
 
 
+def cmd_keys(src_file, header):
+    """Aggiunge chiavi scritte a mano: file Python con {chiave: (testo IT originale, testo EN)} (per i casi non automatizzabili)."""
+    items = eval(Path(src_file).read_text(encoding='utf-8'), {})
+    tr_src = TRANSL.read_text(encoding='utf-8')
+    head = f"\n            # ── log pipeline: {header} ──\n"
+    j = tr_src.index("        'it': {")
+    j = tr_src.rfind("        },", 0, j)
+    tr_src = tr_src[:j] + head + table_block([(k, v[1]) for k, v in items.items()]) + tr_src[j:]
+    k = tr_src.rindex("        },\n    }")
+    tr_src = tr_src[:k] + head + table_block([(k2, v[0]) for k2, v in items.items()]) + tr_src[k:]
+    TRANSL.write_text(tr_src, encoding='utf-8', newline='')
+    mf = ROOT / 'linux_tests' / 'i18n_it_originals.json'
+    cur = json.loads(mf.read_text(encoding='utf-8')) if mf.exists() else {}
+    cur.update({k2: v[0] for k2, v in items.items()})
+    mf.write_text(json.dumps(cur, ensure_ascii=False, indent=0, sort_keys=True) + '\n', encoding='utf-8')
+    print(f"{len(items)} chiavi aggiunte")
+
+
 if __name__ == '__main__':
     sys.stdout.reconfigure(encoding='utf-8')
     a = sys.argv[1:]
@@ -259,7 +277,9 @@ if __name__ == '__main__':
         i = a.index('--also')
         also = set(a[i + 1].split(','))
         del a[i:i + 2]
-    if a[0] == 'list':
+    if a[0] == 'keys':
+        cmd_keys(a[1], a[2] if len(a) > 2 else 'manuali')
+    elif a[0] == 'list':
         cmd_list(a[1], use_print, also)
     elif a[0] == 'apply':
         prefix = 'pl'
