@@ -5,7 +5,7 @@ riconoscono IT ed EN; mai tradurre `logger.*` (restano in italiano per gli svilu
 
 ## 2026-10-23 · PR 3 — core/subtitle_synchronizer.py (67 chiavi `sy_*`) e core/timing_aligner.py (2 chiavi `ta_*`)
 
-**Fatto**: 69 chiamate `_log` del sincronizzatore + nota "finestra" e riga di sintesi dell'allineatore. `verify_i18n_identity.py`: 69 + 1 identici, 0 differenti.
+**Fatto**: 73 messaggi `_log` del sincronizzatore (69 automatici + 4 ternari a mano, chiavi `sy_embedded_*`/`sy_no_non_italian_*`) + nota "finestra" e riga di sintesi dell'allineatore. `verify_i18n_identity.py`: 69 + 1 identici, 0 differenti.
 Non convertiti volutamente: righe `[LLM] {line}` (testo del figlio) e simili senza testo proprio.
 
 **Punti delicati trovati (testo letto dal codice)**

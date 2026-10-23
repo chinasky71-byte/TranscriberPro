@@ -593,13 +593,12 @@ class SubtitleSynchronizer:
                         tr('sy_embedded_anchors_extracted_language').format(n=len(subs), lang=selected.get('language', '?').upper())
                     )
                     return subs
-            self._log("  Estrazione embedded fallita — ripiego sul parlato dell'audio." if self._engine == 'timing'
-                      else "  Estrazione embedded fallita — provo trascrizione Whisper.")
+            self._log(tr('sy_embedded_extraction_failed_audio') if self._engine == 'timing'
+                      else tr('sy_embedded_extraction_failed_whisper'))
         else:
             self._log(
-                "  Nessun sottotitolo embedded non-italiano trovato — "
-                + ("uso il parlato dell'audio come riferimento." if self._engine == 'timing'
-                   else "provo trascrizione Whisper.")
+                tr('sy_no_non_italian_embedded_audio') if self._engine == 'timing'
+                else tr('sy_no_non_italian_embedded_whisper')
             )
 
         # Whisper fallback

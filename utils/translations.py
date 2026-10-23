@@ -856,6 +856,12 @@ class Translations:
             # ── log pipeline: timing_aligner.py ──
             'ta_piecewise_offset_at_the_window': 'piecewise offset at the window limit: possible incomplete alignment',
             'ta_global_alignment_scale_offset_s': '  Global alignment: scale {scale:.5f}, offset {offset:+.2f} s; segments with different offset: {n_pieces}; mean speech coverage {mean_coverage:.0%} (by chance: {density:.0%}, index {lift:.2f}); lines with low coverage: {low_coverage}/{n}.',
+
+            # ── log pipeline: core/subtitle_synchronizer.py ──
+            'sy_embedded_extraction_failed_audio': '  Embedded extraction failed — falling back on the audio speech.',
+            'sy_embedded_extraction_failed_whisper': '  Embedded extraction failed — trying Whisper transcription.',
+            'sy_no_non_italian_embedded_audio': '  No non-Italian embedded subtitle found — using the audio speech as reference.',
+            'sy_no_non_italian_embedded_whisper': '  No non-Italian embedded subtitle found — trying Whisper transcription.',
         },
 
         # ── ITALIANO ──────────────────────────────────────────────────────────
@@ -1698,6 +1704,12 @@ class Translations:
             # ── log pipeline: timing_aligner.py ──
             'ta_piecewise_offset_at_the_window': 'offset a tratti al limite della finestra: possibile allineamento incompleto',
             'ta_global_alignment_scale_offset_s': '  Allineamento globale: scala {scale:.5f}, offset {offset:+.2f} s; tratti con offset diverso: {n_pieces}; copertura media del parlato {mean_coverage:.0%} (a caso: {density:.0%}, indice {lift:.2f}); battute con poca copertura: {low_coverage}/{n}.',
+
+            # ── log pipeline: core/subtitle_synchronizer.py ──
+            'sy_embedded_extraction_failed_audio': "  Estrazione embedded fallita — ripiego sul parlato dell'audio.",
+            'sy_embedded_extraction_failed_whisper': '  Estrazione embedded fallita — provo trascrizione Whisper.',
+            'sy_no_non_italian_embedded_audio': "  Nessun sottotitolo embedded non-italiano trovato — uso il parlato dell'audio come riferimento.",
+            'sy_no_non_italian_embedded_whisper': '  Nessun sottotitolo embedded non-italiano trovato — provo trascrizione Whisper.',
         },
     }
 
