@@ -134,10 +134,10 @@ class _TermCard(CollapsibleCard):
         info = QLabel(
             f"{tr('glossary_occurrences')}: {record.get('occurrences', 0)} · "
             f"{tr('glossary_align_channel')}: {record.get('align_verdict', 'n/a')} "
-            f"({record.get('align_extracted', 0)} estratte) · "
+            f"({tr('glossary_extracted').format(n=record.get('align_extracted', 0))}) · "
             f"{tr('glossary_qwen_channel')}: {record.get('qwen_verdict', 'n/a')} "
-            f"({record.get('qwen_extracted', 0)} estratte, "
-            f"{record.get('qwen_coverage', 0):.0%} coverage) · {record.get('reason', '')}")
+            f"({tr('glossary_extracted_cov').format(n=record.get('qwen_extracted', 0), cov=format(record.get('qwen_coverage', 0), '.0%'))}) · "
+            f"{record.get('reason', '')}")
         info.setWordWrap(True)
         info.setObjectName("glossaryTermReason")
         lay.addWidget(info)

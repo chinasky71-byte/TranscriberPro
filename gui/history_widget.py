@@ -17,6 +17,7 @@ from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
 
 from gui.theme import set_flat
+from utils.translations import tr
 
 
 class HistoryWidget(QWidget):
@@ -42,7 +43,7 @@ class HistoryWidget(QWidget):
 
         self._search = QLineEdit()
         self._search.setObjectName("historySearch")
-        self._search.setPlaceholderText("Cerca per nome file o lingua…")
+        self._search.setPlaceholderText(tr('hist_search_ph'))
         self._search.textChanged.connect(self._apply_search)
         layout.addWidget(self._search)
 
@@ -187,14 +188,14 @@ class HistoryWidget(QWidget):
         srt = entry.get('srt_path', '')
         folder = str(Path(entry['video_path']).parent) if entry.get('video_path') else ''
 
-        btn_srt = QPushButton("Apri .srt")
+        btn_srt = QPushButton(tr('hist_open_srt'))
         btn_srt.setObjectName("historyActionBtn")
         btn_srt.setEnabled(bool(srt))
         btn_srt.clicked.connect(lambda: QDesktopServices.openUrl(
             QUrl.fromLocalFile(srt)
         ))
 
-        btn_dir = QPushButton("Cartella")
+        btn_dir = QPushButton(tr('hist_folder'))
         btn_dir.setObjectName("historyActionBtn")
         btn_dir.setEnabled(bool(folder))
         btn_dir.clicked.connect(lambda: QDesktopServices.openUrl(

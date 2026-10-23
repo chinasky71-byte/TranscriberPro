@@ -365,10 +365,7 @@ class LibraryScannerWidget(QFrame):
         self.superpower_btn.setObjectName("scannerImportAllBtn")
         self.superpower_btn.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.superpower_btn.setMinimumWidth(0)
-        self.superpower_btn.setToolTip(
-            "Acquisisci tutti i file bitmap pending dalla Library Scanner\n"
-            "e processali qui (più veloce).\n"
-            "La Library Scanner OCR viene fermata e riattivata al termine.")
+        self.superpower_btn.setToolTip(tr('ls_superpower_tip'))
         self.superpower_btn.clicked.connect(self._superpower_ocr)
         buttons_layout.addWidget(self.superpower_btn)
 
@@ -481,7 +478,7 @@ class LibraryScannerWidget(QFrame):
     def _update_status_dot(self, connected: bool):
         color = T.legacy_mat_green if connected else T.legacy_mat_red
         self.status_dot.setStyleSheet(_dot_qss(color))
-        self.status_changed.emit("Attivo" if connected else "Inattivo")
+        self.status_changed.emit(tr('mw_scanner_active') if connected else tr('mw_scanner_idle'))
 
     # ========================================================================
     # TABELLA
@@ -524,7 +521,7 @@ class LibraryScannerWidget(QFrame):
             # Rileva lingua audio dal filename e colora di conseguenza
             if _detect_italian(filename) == 'ita':
                 name_item.setForeground(QColor(T.legacy_blue_link))
-                name_item.setToolTip(f"🇮🇹 Audio ITA · {windows_path}")
+                name_item.setToolTip(tr('ls_audio_ita_tip').format(path=windows_path))
             else:
                 name_item.setToolTip(windows_path)
 
@@ -621,7 +618,7 @@ class LibraryScannerWidget(QFrame):
         self._update_badge(visible_count)
         self.import_all_btn.setEnabled(visible_count > 0)
         if fmt == 'assssa':
-            self.import_all_btn.setText("Converti ASS/SSA")
+            self.import_all_btn.setText(tr('ls_convert_ass'))
         else:
             self.import_all_btn.setText(tr('import_filtered'))
 
@@ -642,11 +639,7 @@ class LibraryScannerWidget(QFrame):
         btn = QPushButton(label)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setStyleSheet(_badge_btn_qss(T.legacy_orange_deep, T.legacy_orange_hover))
-        btn.setToolTip(
-            "Sottotitoli immagine (PGS/VOBSUB).\n"
-            "Clicca per convertirli in SRT testuale tramite OCR\n"
-            "(strategia configurabile in Opzioni → OCR Sottotitoli)."
-        )
+        btn.setToolTip(tr('ls_bitmap_tip'))
         btn.clicked.connect(lambda _checked, p=windows_path, k=kind: self._start_bitmap_ocr(p, k))
         lay.addWidget(btn)
         return container
@@ -674,14 +667,11 @@ class LibraryScannerWidget(QFrame):
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         if conversion_status == 'done':
             btn.setStyleSheet(_badge_btn_qss(T.legacy_mat_green_deep))
-            btn.setToolTip("ASS/SSA già convertito in SRT.")
+            btn.setToolTip(tr('ls_ass_done_tip'))
             btn.setEnabled(False)
         else:
             btn.setStyleSheet(_badge_btn_qss(T.legacy_violet, T.legacy_violet_hover))
-            btn.setToolTip(
-                "Sottotitoli ASS/SSA embedded.\n"
-                "Clicca per convertirli in SRT via FFmpeg sul server Library Scanner."
-            )
+            btn.setToolTip(tr('ls_ass_tip'))
             btn.clicked.connect(lambda _checked, vid=video_id: self._start_ass_conversion([vid]))
         lay.addWidget(btn)
         return container
@@ -693,8 +683,7 @@ class LibraryScannerWidget(QFrame):
         url     = self.config.get('library_scanner_url', '').strip().rstrip('/')
         api_key = self.config.get('library_scanner_api_key', '').strip()
         if not url or not api_key:
-            QMessageBox.warning(self, "Conversione ASS/SSA",
-                                "Library Scanner non configurato (URL o API key mancante).")
+            QMessageBox.warning(self, tr('ls_ass_title'), tr('ls_not_configured'))
             return
         # Corpo vuoto = server converte tutti i pending; IDs specifici = solo quei file
         body = {"video_ids": video_ids} if video_ids else {}
@@ -710,23 +699,22 @@ class LibraryScannerWidget(QFrame):
     def _on_ass_conversion_reply(self, status: int, text: str, video_ids: list):
         if status == 200:
             if video_ids:
-                desc = f"{len(video_ids)} file"
-                self._log(f"⚙️ Conversione ASS→SRT avviata sul server: {desc}")
+                desc = tr('ls_n_files').format(n=len(video_ids))
+                self._log(tr('ls_ass_log_started').format(desc=desc))
             else:
-                desc = "tutti i file pending"
-                self._log("⚙️ Conversione ASS→SRT avviata sul server (tutti i pending)")
+                desc = tr('ls_all_pending')
+                self._log(tr('ls_ass_log_started_all'))
             QMessageBox.information(
-                self, "Conversione ASS/SSA",
-                f"Conversione avviata sul server per {desc}.\n"
-                "Controlla lo stato nell'interfaccia web Library Scanner.")
+                self, tr('ls_ass_title'),
+                tr('ls_ass_started_body').format(desc=desc))
         elif status == 0:
-            self._log(f"⚠ Conversione ASS: errore connessione: {text}")
-            QMessageBox.warning(self, "Conversione ASS/SSA",
-                                f"Errore di connessione al server:\n{text}")
+            self._log(tr('ls_ass_log_conn_err').format(text=text))
+            QMessageBox.warning(self, tr('ls_ass_title'),
+                                tr('ls_conn_err').format(text=text))
         else:
-            self._log(f"⚠ Conversione ASS: errore server {status}")
-            QMessageBox.warning(self, "Conversione ASS/SSA",
-                                f"Errore dal server: {status}\n{text[:200]}")
+            self._log(tr('ls_ass_log_srv_err').format(status=status))
+            QMessageBox.warning(self, tr('ls_ass_title'),
+                                tr('ls_srv_err').format(status=status, text=text[:200]))
 
     def _untrack_api_worker(self, worker):
         try:
@@ -768,11 +756,11 @@ class LibraryScannerWidget(QFrame):
             self._ocr_deferred_queue.append((windows_path, kind, force_auto))
             self._ocr_add_job(windows_path, kind_label)
             self._ocr_set_status(windows_path, 'queued', 0)
-            self._log(f"⏳ OCR accodato (trascrizione in corso): {Path(windows_path).name}")
+            self._log(tr('ls_ocr_queued_log').format(name=Path(windows_path).name))
             return
         if getattr(self, '_ocr_worker', None) is not None:
             QMessageBox.information(self, tr('ocr_section_title'),
-                                    "Un'altra conversione OCR è già in corso.")
+                                    tr('ls_ocr_other_running'))
             return
 
         from gui.ocr_worker import OcrWorker
@@ -787,7 +775,7 @@ class LibraryScannerWidget(QFrame):
         self._ocr_video_path = windows_path
         self._ocr_kind = kind
         self._ocr_name = Path(windows_path).name
-        self._log(f"🔤 OCR avviato ({kind}, {strategy}): {self._ocr_name}")
+        self._log(tr('ls_ocr_started_log').format(kind=kind, strategy=strategy, name=self._ocr_name))
         # Mostra il job nella coda di processamento (display; non in trascrizione)
         kind_label = 'VOBSUB' if kind == 'vobsub' else 'PGS'
         self._ocr_add_job(windows_path, kind_label)
@@ -845,7 +833,7 @@ class LibraryScannerWidget(QFrame):
             srt_text = dlg.get_srt()
             self._run_ocr_writeback(srt_text, language)
         else:
-            self._log(f"OCR annullato in revisione: {self._ocr_name}")
+            self._log(tr('ls_ocr_cancel_log').format(name=self._ocr_name))
             self.ocr_progress_label.setText("")
             self._ocr_set_status(getattr(self, '_ocr_video_path', ''), 'failed', 0)
 
@@ -854,7 +842,7 @@ class LibraryScannerWidget(QFrame):
         from core.pgs_types import CFG_STRATEGY, DEFAULT_STRATEGY
         config = get_config()
         strategy = getattr(self, '_ocr_strategy_used', None) or config.get(CFG_STRATEGY, DEFAULT_STRATEGY)
-        self._log(f"Scrittura SRT: {self._ocr_name}")
+        self._log(tr('ls_srt_write_log').format(name=self._ocr_name))
         self._ocr_worker = OcrWorker(
             to_local(self._ocr_video_path, self._path_rules()), config, strategy, mode="writeback",
             srt_text=srt_text, language=language, kind=getattr(self, '_ocr_kind', 'pgs'))
@@ -877,11 +865,11 @@ class LibraryScannerWidget(QFrame):
         self.ocr_progress_label.setText("")
         if ok:
             QMessageBox.information(self, tr('ocr_section_title'),
-                                   f"Conversione completata:\n{self._ocr_name}")
+                                   tr('ls_conv_done').format(name=self._ocr_name))
             self._auto_refresh()
         else:
             QMessageBox.warning(self, tr('ocr_section_title'),
-                                f"Conversione fallita:\n{self._ocr_name}")
+                                tr('ls_conv_failed').format(name=self._ocr_name))
 
     def _on_ocr_writeback_done(self, ok: bool):
         self.ocr_progress_label.setText("")
@@ -891,11 +879,11 @@ class LibraryScannerWidget(QFrame):
             self._mark_row_done(getattr(self, '_ocr_video_path', ''))
             self.notify_subtitle_created(getattr(self, '_ocr_video_path', ''))
             QMessageBox.information(self, tr('ocr_section_title'),
-                                   f"SRT scritto:\n{self._ocr_name}")
+                                   tr('ls_srt_written').format(name=self._ocr_name))
             self._auto_refresh()
         else:
             QMessageBox.warning(self, tr('ocr_section_title'),
-                                f"Scrittura SRT fallita:\n{self._ocr_name}")
+                                tr('ls_srt_write_failed').format(name=self._ocr_name))
 
     def _mark_row_done(self, windows_path: str):
         """Marca la riga del file convertito (bottone ✓ disabilitato)."""
@@ -927,7 +915,7 @@ class LibraryScannerWidget(QFrame):
             return
         self.ocr_progress_label.setText("")
         QMessageBox.information(self, tr('ocr_section_title'),
-                               f"{getattr(self, '_ocr_name', '')}\n\nLingua non supportata — file saltato.\n{msg}")
+                               tr('ls_lang_skipped').format(name=getattr(self, '_ocr_name', ''), msg=msg))
 
     def _on_ocr_error(self, msg: str):
         self._ocr_set_status(getattr(self, '_ocr_video_path', ''), 'failed', 0)
@@ -935,7 +923,7 @@ class LibraryScannerWidget(QFrame):
             self._ocr_batch_fail += 1
             return
         QMessageBox.warning(self, tr('ocr_section_title'),
-                            f"Errore OCR:\n{self._ocr_name}\n\n{msg}")
+                            tr('ls_ocr_error').format(name=self._ocr_name, msg=msg))
 
     def _on_ocr_phase_finished(self):
         # Cleanup legato al sender (non all'attributo condiviso): il write-back
@@ -959,23 +947,20 @@ class LibraryScannerWidget(QFrame):
         url     = self.config.get('library_scanner_url', '').strip().rstrip('/')
         api_key = self.config.get('library_scanner_api_key', '').strip()
         if not url or not api_key:
-            QMessageBox.warning(self, "⚡ Superpower",
-                                "Library Scanner non configurato (URL o API key mancante).")
+            QMessageBox.warning(self, "⚡ Superpower", tr('ls_not_configured'))
             return
         if getattr(self, '_ocr_worker', None) is not None:
-            QMessageBox.information(self, "⚡ Superpower", "Un OCR è già in corso.")
+            QMessageBox.information(self, "⚡ Superpower", tr('ls_ocr_running'))
             return
         reply = QMessageBox.question(
             self, "⚡ Superpower OCR",
-            "Recupera tutti i file con sottotitoli bitmap (PGS/VOBSUB) dalla Library Scanner\n"
-            "e li converte qui localmente tramite OCR.\n\n"
-            "Continuare?",
+            tr('ls_sp_confirm'),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if reply != QMessageBox.StandardButton.Yes:
             return
         # GET in background (_ApiCallWorker): con il server lento/spento la
         # richiesta sincrona bloccava il thread GUI fino a 15s.
-        self._log("⚡ Superpower: recupero lista bitmap dalla Library Scanner...")
+        self._log(tr('ls_sp_list_log'))
         worker = _ApiCallWorker('get', f"{url}/api/subtitles/list", api_key,
                                 params={"issue_type": "bitmap", "limit": 500},
                                 timeout=15)
@@ -986,19 +971,19 @@ class LibraryScannerWidget(QFrame):
 
     def _on_superpower_list_reply(self, status: int, text: str):
         if getattr(self, '_ocr_worker', None) is not None:
-            QMessageBox.information(self, "⚡ Superpower", "Un OCR è già in corso.")
+            QMessageBox.information(self, "⚡ Superpower", tr('ls_ocr_running'))
             return
         if status != 200:
             err = text if status == 0 else f"HTTP {status}: {text[:200]}"
             QMessageBox.warning(self, "⚡ Superpower",
-                                f"Errore recupero lista dalla Library Scanner:\n{err}")
+                                tr('ls_sp_list_err').format(err=err))
             return
         try:
             import json as _json
             data = _json.loads(text)
         except Exception as e:
             QMessageBox.warning(self, "⚡ Superpower",
-                                f"Risposta del server non valida:\n{e}")
+                                tr('ls_sp_bad_reply').format(err=e))
             return
         items = []
         for v in data.get("videos", []):
@@ -1012,23 +997,23 @@ class LibraryScannerWidget(QFrame):
             items.append((wp, kind))
         if not items:
             QMessageBox.information(self, "⚡ Superpower",
-                                    "Nessun file bitmap trovato nella Library Scanner.")
+                                    tr('ls_sp_none'))
             return
         self._ocr_superpower_active = True
-        self._log(f"⚡ Superpower: {len(items)} file bitmap acquisiti dalla Library Scanner")
+        self._log(tr('ls_sp_acquired_log').format(n=len(items)))
         self._start_ocr_batch(items)
 
     def _superpower_reactivate(self):
         """Chiamato al termine del batch Superpower."""
         self._ocr_superpower_active = False
-        self._log("⚡ Superpower OCR completato")
+        self._log(tr('ls_sp_done_log'))
 
     # ── Batch OCR (azione esplicita: Superpower) ───────────────────────────
     def _start_ocr_batch(self, items: list):
         """items: lista di (windows_path, kind). Converte tutti in AUTO, in sequenza."""
         if getattr(self, '_ocr_worker', None) is not None:
             QMessageBox.information(self, tr('ocr_section_title'),
-                                    "Un'altra conversione OCR è già in corso.")
+                                    tr('ls_ocr_other_running'))
             return
         if not items:
             return
@@ -1040,7 +1025,7 @@ class LibraryScannerWidget(QFrame):
         # Pre-popola la coda di processamento con tutti i job (stato "in coda").
         for path, kind in items:
             self._ocr_add_job(path, 'VOBSUB' if kind == 'vobsub' else 'PGS')
-        self._log(f"🔤 Batch OCR avviato: {self._ocr_batch_total} file (automatico)")
+        self._log(tr('ls_batch_started_log').format(n=self._ocr_batch_total))
         self._ocr_batch_advance()
 
     def _ocr_batch_advance(self):
@@ -1057,8 +1042,8 @@ class LibraryScannerWidget(QFrame):
                 QTimer.singleShot(5000, self.main_window.shutdown_system)
             QMessageBox.information(
                 self, tr('ocr_section_title'),
-                f"Batch OCR completato.\nConvertiti: {self._ocr_batch_ok} · "
-                f"Falliti: {self._ocr_batch_fail} (su {self._ocr_batch_total})")
+                tr('ls_batch_done').format(ok=self._ocr_batch_ok, fail=self._ocr_batch_fail,
+                                           total=self._ocr_batch_total))
             self._auto_refresh()
             # Avvia eventuali job singoli che erano in attesa durante il batch
             self._drain_deferred_ocr()

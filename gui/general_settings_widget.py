@@ -106,14 +106,14 @@ class GeneralSettingsWidget(QWidget):
         key_lay.setContentsMargins(0, 0, 0, 0)
         key_lay.setSpacing(6)
         key_lay.addWidget(self.ls_key_edit)
-        self._show_key_btn = QPushButton("Mostra")
+        self._show_key_btn = QPushButton(tr('gs_show'))
         self._show_key_btn.setFixedWidth(80)
         self._show_key_btn.setCheckable(True)
         self._show_key_btn.toggled.connect(self._toggle_key_visibility)
         key_lay.addWidget(self._show_key_btn)
         ls_form.addRow("API key:", key_row)
 
-        self._ping_btn = QPushButton("Testa connessione")
+        self._ping_btn = QPushButton(tr('gs_test_connection'))
         self._ping_status = QLabel("")
         self._ping_status.setWordWrap(True)
         ping_row = set_flat(QWidget())
@@ -129,7 +129,7 @@ class GeneralSettingsWidget(QWidget):
             # Fuori da Windows i percorsi del server (\\\\server\\film\\...) non esistono: servono le cartelle condivise montate
             self.ls_map_edit = QPlainTextEdit()
             self.ls_map_edit.setPlaceholderText("\\\\192.168.1.12\\film=/mnt/film\nV:\\=/mnt/v")
-            self.ls_map_edit.setToolTip("Una regola per riga: <percorso sul server>=<cartella montata su questo computer>")
+            self.ls_map_edit.setToolTip(tr('gs_map_tip'))
             self.ls_map_edit.setFixedHeight(64)
             self.ls_map_edit.textChanged.connect(self._on_ls_map_changed)
             ls_form.addRow("Cartelle montate:", self.ls_map_edit)
@@ -186,7 +186,7 @@ class GeneralSettingsWidget(QWidget):
     def _toggle_key_visibility(self, checked: bool):
         mode = QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
         self.ls_key_edit.setEchoMode(mode)
-        self._show_key_btn.setText("Nascondi" if checked else "Mostra")
+        self._show_key_btn.setText(tr('gs_hide') if checked else tr('gs_show'))
 
     def _set_ping_color(self, color: str):
         self._ping_status.setStyleSheet(f"color: {color};")
@@ -196,11 +196,11 @@ class GeneralSettingsWidget(QWidget):
         key = self.ls_key_edit.text().strip()
         if not url:
             self._set_ping_color(T.legacy_red_soft)
-            self._ping_status.setText("Inserisci un URL valido.")
+            self._ping_status.setText(tr('gs_invalid_url'))
             return
         self._ping_btn.setEnabled(False)
         self._set_ping_color(T.legacy_grey_888)
-        self._ping_status.setText("Test in corso…")
+        self._ping_status.setText(tr('gs_testing'))
         self._ping_worker = _PingWorker(url, key, self)
         self._ping_worker.result.connect(self._on_ping_result)
         self._ping_worker.start()
