@@ -4,6 +4,8 @@ Test di fumo per macchine con GPU AMD (Linux, ROCm o Vulkan). NON PROVATO SU HAR
 
 Raccoglie in un solo file di testo, da rimandare agli sviluppatori:
   - il rapporto di utils/gpu_detect.py (--json);
+  - famiglia della scheda (RDNA1..4, CDNA), percorso scelto (ROCm / ROCm con override RDNA2 / Vulkan+CPU) e se
+    HSA_OVERRIDE_GFX_VERSION e' stata applicata alle prove (solo ai sottoprocessi, mai se l'hai gia' impostata tu);
   - versioni di torch/HIP e un piccolo calcolo su GPU;
   - ctranslate2: versione e compute types per 'cuda' (su ROCm la ruota ctranslate2 usa questo nome);
   - llama_cpp (ruota Vulkan): carica un GGUF piccolo e genera 5 token (solo con --gguf PERCORSO);
@@ -27,6 +29,7 @@ import tempfile
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 TIMEOUT_S = 180
 
 _TORCH = r'''
@@ -93,10 +96,14 @@ def anonymize(text):
     return text
 
 
+CHILD_ENV = None        # ambiente dei sottoprocessi di prova (con l'eventuale override AMD); None = quello corrente
+
+
 def run_py(code, args=(), timeout=TIMEOUT_S):
     """Esegue `code` in un processo nuovo. Ritorna (esito 'OK'|'FAIL'|'SKIP', testo)."""
     try:
-        p = subprocess.run([sys.executable, '-c', code, *args], capture_output=True, text=True, timeout=timeout, cwd=tempfile.gettempdir())
+        p = subprocess.run([sys.executable, '-c', code, *args], capture_output=True, text=True, timeout=timeout, cwd=tempfile.gettempdir(),
+                           env=CHILD_ENV)
     except subprocess.TimeoutExpired:
         return 'FAIL', 'timeout dopo %d s' % timeout
     except Exception as e:
@@ -119,6 +126,34 @@ def gpu_detect_section():
             return 'OK', json.dumps(json.loads(p.stdout), indent=2)
         except Exception:
             return 'FAIL', (p.stdout + p.stderr)[:1500]
+    except Exception as e:
+        return 'FAIL', '%s: %s' % (type(e).__name__, e)
+
+
+def amd_family_section():
+    """Famiglia, percorso scelto e override. Imposta CHILD_ENV (override solo per i sottoprocessi di prova, come fa l'app)."""
+    global CHILD_ENV
+    try:
+        from utils import gpu_detect as gd
+        rep = gd.detect_gpus(force=True)
+        plan = gd.amd_runtime_plan(rep)
+        env = os.environ.copy()
+        gd.apply_subprocess_env(env)
+        before, after = os.environ.get(gd.HSA_OVERRIDE_VAR), env.get(gd.HSA_OVERRIDE_VAR)
+        CHILD_ENV = env
+        applied = bool(after) and after != before
+        if applied:
+            ovr = 'APPLICATO (%s=%s, solo ai sottoprocessi di prova)' % (gd.HSA_OVERRIDE_VAR, after)
+        elif before:
+            ovr = 'NON applicato: %s=%s gia\' impostata dall\'utente, non toccata' % (gd.HSA_OVERRIDE_VAR, before)
+        else:
+            ovr = 'non applicato (non serve per questa scheda)'
+        lines = ['gfx: %s' % (plan['gfx'] or 'sconosciuto'), 'famiglia: %s' % (plan['amd_family'] or 'nessuna GPU AMD'),
+                 'supporto ROCm: %s' % (plan['rocm_support'] or 'n/d'), 'percorso scelto: %s' % (plan['path'] or 'nessuno'),
+                 'override HSA: %s' % ovr, 'nota: %s' % plan['message']]
+        if plan.get('override_source'):
+            lines.append('fonte override: %s' % plan['override_source'])
+        return 'OK', '\n'.join(lines)
     except Exception as e:
         return 'FAIL', '%s: %s' % (type(e).__name__, e)
 
@@ -148,6 +183,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
 
     sections = [('Sistema', system_section()), ('gpu_detect --json', gpu_detect_section()),
+                ('Famiglia AMD e percorso', amd_family_section()),
                 ('torch / HIP', run_py(_TORCH)), ('ctranslate2', run_py(_CT2)),
                 ('llama_cpp (Vulkan)', run_py(_LLAMA, [a.gguf] if a.gguf else []))]
     if not a.gguf:
