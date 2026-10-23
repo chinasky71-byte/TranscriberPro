@@ -1,6 +1,6 @@
 # Registro del lavoro Linux / AMD
 
-**Prossimo passo:** chiudere la verifica del ritorno al default di F5 (vedi voce F5), poi F4e (Library Scanner con server finto), poi F6. F5 (Vulkan) è sul branch `linux-amd/f5-vulkan` (PR impilata su questa).
+**Prossimo passo:** F4e (Library Scanner con server finto), poi F6. F5 (Vulkan) è sul branch `linux-amd/f5-vulkan` (PR impilata su questa).
 
 Aggiorna questo file a ogni fase, in cima i più recenti. Formato per voce: data, fase, cosa è stato fatto, comandi e risultati dei test, PR/commit, cosa **non** è verificato, domande aperte per il proprietario.
 
@@ -13,7 +13,8 @@ File cambiati: `install.sh`, `install.ps1`, `utils/llm_model_select.py`, `glossa
 - **Glossario GPU:** `_free_vram_mb()` usa ancora `nvidia-smi` per primo; ripiego su `gpu_detect` (`vram_free_mib`) solo se non risponde.
 - **Test:** `python -m pytest linux_tests -q` → **114 passed** (28 nuovi: marcatore, NVIDIA invariata, AMD con/senza marcatore, ripiego del glossario).
 - **Prove nella VM (Ubuntu 24.04, lavapipe, senza GPU reale):** `mesa-vulkan-drivers` → `vulkaninfo` vede llvmpipe; ruota Vulkan installata; **llama.cpp ignora i dispositivi di tipo CPU** salvo `GGML_VK_VISIBLE_DEVICES=0` (solo aiuto di prova, non nel codice del prodotto). Con quella variabile: `llama_supports_gpu_offload()` True, Qwen2.5-0.5B Q4_K_M, 25/25 layer su Vulkan0, 8 token generati. `./install.sh --gpu-backend=vulkan --yes` sul venv esistente → exit 0, marcatore `vulkan`, selfcheck senza KO. L'app, senza GPU reale, non conta VRAM (gpu_detect esclude llvmpipe): corretto.
-- **In corso al momento della scrittura:** ritorno al default (`./install.sh --yes`) sullo stesso venv: ha avviato il ripristino della ruota CUDA (log: "ripristino la ruota CUDA"); esito finale da annotare qui.
+- **Ritorno al default (verificato):** `./install.sh --yes` sullo stesso venv → "ripristino la ruota CUDA (il venv aveva la ruota vulkan)", ruota CUDA di llama reinstallata, torch 2.8.0+cu126, `venv/llama_backend.txt` rimosso, `llama_backend_marker()` = `cuda`. Il selfcheck finale dà exit 1 (torch.cuda, ctranslate2 CUDA, llama): **atteso** in una VM senza GPU/driver NVIDIA.
+- **Punto aperto emerso (Linux + NVIDIA, non verificabile qui):** con la ruota CUDA `import llama_cpp` fallisce con `libcudart.so.12` (poi `libcublas.so.12`) non trovate: le librerie ci sono in `venv/.../site-packages/nvidia/*/lib` ma non nel percorso del loader. Su Windows se ne occupa `utils/cuda_dll_path.py` (PATH); su Linux serve l'equivalente (`LD_LIBRARY_PATH` o preload) per il glossario/gender corrector. Da affrontare in F7 con una macchina NVIDIA Linux; non toccato qui (non è un cambio sul percorso Windows).
 - **Non verificato:** `install.ps1` (nessun PowerShell nella VM, solo rilettura del diff: le righe NVIDIA di default sono invariate); qualsiasi GPU AMD/Intel reale (prestazioni, driver Mesa/AMDVLK); la ruota CUDA di llama senza GPU NVIDIA; Python 3.12.
 - **Domande per il proprietario:** (1) con marcatore `cpu` e GPU NVIDIA presente, la scelta del modello resta quella storica (backend cuda): va bene? (2) provare `-GpuBackend vulkan` su un PC Windows con GPU AMD/Intel quando possibile.
 
