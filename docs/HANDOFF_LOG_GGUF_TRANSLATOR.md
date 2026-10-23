@@ -7,7 +7,30 @@ dietro `llm_translator_gguf_enabled` (default **False**) finche' il banco di qua
 Regole di flusso: una PR per fase; implementa, prova, revisione critica separata in sola lettura, correggi. Niente toccato:
 APP_VERSION, CHANGELOG, README, requirements*, pin (ctranslate2 4.6.0, llama-cpp-python 0.3.34), percorso NVIDIA.
 
-## 2026-10-23 · Fase 1 — codice del percorso GGUF (PR #14)
+## 2026-10-23 · Fase 2 — strumenti di conversione (PR #15)
+
+**Fatto**: `scripts_manutenzione/gguf_convert.py` (sottocomandi `plan`, `merge`, `convert`, `corpus`, `imatrix`, `quantize`, `verify`), guida
+`docs/GGUF_CONVERSIONE.md`, test `linux_tests/test_gguf_convert.py` (11).
+
+**Compatibilita'**: llama-cpp-python 0.3.34 vendorizza llama.cpp `e3546c794` (dal CHANGELOG di llama-cpp-python). Gemma3 e' supportata da quel runtime
+(provato). Per convertire/quantizzare si usano gli strumenti dello STESSO commit: **nessuna versione piu' recente serve, il pin del prodotto non cambia**.
+`convert_hf_to_gguf.py` a quel commit registra `Gemma3ForConditionalGeneration` (esporta il solo testo).
+
+**Risorse (stime)**: f16 ~22 GiB; Q4_K_M/Q3_K_M/IQ3_M ~6,6/5,3/5,0 GiB; Q8_0 ~11,7 GiB; disco totale ~50 GiB; merge LoRA ~25 GiB di RAM. I GB dell'incarico
+sono decimali: il selettore, che li usa come GiB, e' prudente. `verify` stampa le dimensioni reali da riportare in `QUANT_WEIGHTS_GIB`.
+
+**Revisione critica separata**: 1 bloccante e 5 importanti corretti: `llama-imatrix --parse-special` (senza, i marcatori del corpus erano testo: l'imatrix sarebbe stata calcolata su token diversi da quelli del motore); IQ3_M non richiede imatrix in llama.cpp (avviso invece di rifiuto); binari anche in `build/bin/Release` con errore chiaro; controllo disco sul volume giusto; default `bf16` (tipo nativo di Gemma3) invece di f16; `merge` verifica che l'adattatore sia applicato e non dipende dal processor immagini. Dichiarato: stime di dimensione dei quantizzati non misurate (i GGUF pubblici di Gemma3-12B potrebbero dare Q4_K_M ~6,8 GiB, sopra la stima 6,6).
+
+**Prova in cloud (solo CPU, NON sui pesi veri)**: llama.cpp compilato al commit pinnato; Gemma3 270M (HF, safetensors) -> `convert` bf16 -> `corpus` (150 coppie
+sintetiche) -> `quantize` Q8_0 -> `imatrix` (con `--parse-special`) -> `quantize` Q4_K_M/Q3_K_M/IQ3_M con imatrix -> `verify` (arch gemma3, quant corretta) ->
+`verify --smoke` genera con `GGUFEngine` da tutti e quattro i file. Dimostra che gli script e il percorso funzionano; il 270M non traduce e i numeri di
+dimensione/tempo non valgono per il 12B.
+
+**Non verificato**: conversione del 12B reale (pesi non scaricabili in cloud: sono nella cartella locale dell'utente), tempi e RAM reali, `merge` (peft non provato
+su pesi veri), qualita' dei quantizzati. **Serve dall'utente**: le coppie EN/IT per l'imatrix (file `inglese<TAB>italiano`, fuori dal materiale del banco) e, per la
+fase 3, il materiale di prova (sottotitoli inglesi reali + traduzione professionale di riferimento).
+
+## 2026-10-23 · Fase 1 — codice del percorso GGUF (PR #14, unita in master 1823e9a)
 
 **Fatto**
 - `utils/translator_path_select.py`: funzione pura `choose_translator_path(free_gib, backend, ...)` -> `bf16 | nf4 | gguf:<quant> | nllb`
