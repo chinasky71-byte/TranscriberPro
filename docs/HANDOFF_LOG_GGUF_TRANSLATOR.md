@@ -7,6 +7,22 @@ dietro `llm_translator_gguf_enabled` (default **False**) finche' il banco di qua
 Regole di flusso: una PR per fase; implementa, prova, revisione critica separata in sola lettura, correggi. Niente toccato:
 APP_VERSION, CHANGELOG, README, requirements*, pin (ctranslate2 4.6.0, llama-cpp-python 0.3.34), percorso NVIDIA.
 
+## 2026-10-23 · Fase 3 — banco di qualita' (strumenti pronti, esecuzione in locale; PR di solo registro)
+
+**Fatto**: cartella `_banco_gguf_da_spostare/` (`bench_gguf.py`, `test_bench_gguf.py`, `README.md`), **non nel repository** (regola: i banchi restano fuori da GitHub); consegnata a Franz come allegato nel thread. Sottocomandi: `check`, `run`, `cieco`, `analizza`, `power`.
+- Regola d'oro: prima di ogni variante rifiuta se non c'e' una GPU NVIDIA dedicata libera (>2048 MiB occupati, processi di calcolo, piu' GPU senza `CUDA_VISIBLE_DEVICES`, nvidia-smi assente) o se la RAM libera e' < 20 GiB.
+- Misura NF4 (riferimento) e Q4_K_M/Q3_K_M/IQ3_M con il traduttore di produzione (`LLMSubtitleTranslator.translate_file`, serbatoio L3 spento): velocita', VRAM di picco, righe perse, inglese residuo, glossario, validatore. Un processo per variante.
+- Qualita': giudizio alla cieca (candidati in ordine casuale, varianti nascoste, testi identici fusi), tassi di errori gravi con IC di Wilson, confronto accoppiato con NF4 (IC di Newcombe, test esatto), verdetto di non-inferiorita' solo con un margine scelto dall'utente e con almeno `--min-n` righe.
+- `power`: numerosita'. Per PROMUOVERE servono circa il doppio delle righe che per stimare (~870 righe per margine 3 punti con il 10% di discordanti, potenza 80%): con ~430 non basta.
+
+**Revisione critica separata**: 1 bloccante (IC Wald inaffidabile con pochi discordanti -> Newcombe, verdetto non decidibile sotto `--min-n`) e 8 importanti corretti: numerosita' per la non-inferiorita'; risultati vecchi/di altro materiale mescolati (cancellati in `run`, esclusi in `cieco` via sha del materiale); giudizio compilato sovrascritto (`--force`) e CSV modificato (sha dei testi); `--max-used-mib` inoltrato ai figli; gate solo GPU NVIDIA dedicata e `CUDA_VISIBLE_DEVICES` con piu' schede; NF4 verificato su cuda; nvidia-smi trovato come nel prodotto, errori dichiarati, picco `n/d` se non leggibile; `--model-path` obbligatorio (stessi pesi fusi per NF4 e GGUF).
+
+**Test**: `python -m pytest _banco_gguf_da_spostare/test_bench_gguf.py` -> 26 passed senza GGUF; con un GGUF Gemma3 270M (`TP_TEST_GGUF_DIR`) una variante vera su CPU passa da `_variant_main` fino ai risultati: **27 passed**.
+
+**Non verificato**: nessuna esecuzione su GPU ne' con i pesi del 12B; la lettura di nvidia-smi su Windows/WDDM (non elenca i processi) e la velocita'/VRAM reali; `analizza` su un giudizio vero. Il codice del banco e' provato solo con dati sintetici: nessuna conclusione di qualita' esiste ancora.
+
+**Serve da Franz**: materiale (JSONL EN + traduzione professionale allineata, indicando i film), cartella HF fusa e i tre GGUF, coppie di calibrazione imatrix (distinte dal materiale del banco), margine di non-inferiorita' accettato (da cui la numerosita'), conferma NF4 10,5 GiB e `n_parallel` 4.
+
 ## 2026-10-23 · Fase 2 — strumenti di conversione (PR #15)
 
 **Fatto**: `scripts_manutenzione/gguf_convert.py` (sottocomandi `plan`, `merge`, `convert`, `corpus`, `imatrix`, `quantize`, `verify`), guida
