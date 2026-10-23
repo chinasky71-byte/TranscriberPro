@@ -111,6 +111,7 @@ def qt(tmp_path, monkeypatch):
     monkeypatch.setenv('USERPROFILE', str(tmp_path))
     from utils import config as cfg
     monkeypatch.setattr(cfg.Config, 'CONFIG_DIR', tmp_path / '.transcriberpro', raising=False)
+    monkeypatch.setattr(cfg.Config, 'CONFIG_FILE', tmp_path / '.transcriberpro' / 'config.json', raising=False)   # fissato all'import: senza questo si scrive nel config.json VERO
     cfg.reset_config()
     from PyQt6.QtWidgets import QApplication
     app = QApplication.instance() or QApplication([])

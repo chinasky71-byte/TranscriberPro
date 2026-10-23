@@ -67,7 +67,7 @@ esac
 MISSING=()
 
 echo; echo "== Prerequisiti"
-# Python: 3.11 (provato dall'autore) o 3.12 (ruote disponibili per tutti i pin, ma non verificato a runtime)
+# Python: 3.11 (provato dall'autore) o 3.12 (provato su Ubuntu 24.04 il 23/10/2026: installazione, selfcheck, test, avvio offscreen, Vulkan/lavapipe; mai su GPU)
 PY=""
 for c in python3.11 python3.12; do if have "$c"; then PY="$(command -v "$c")"; break; fi; done
 if [ -n "$PY" ]; then
