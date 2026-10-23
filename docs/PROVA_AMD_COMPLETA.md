@@ -42,7 +42,7 @@ Se 1.2 fallisce: copia le ultime 40 righe dell'output.
 
 ## 4. Elaborazione vera, step per step
 
-Usa un video breve (1-2 minuti, con parlato **in inglese**). Le modifiche alla configurazione si fanno dalle Impostazioni dell'app, oppure a app chiusa in `~/.transcriberpro/config.json`. Per ogni prova guarda `rocm-smi`: durante lo step la GPU deve mostrare uso e VRAM crescenti.
+Usa il video di prova del repository: `Prova_AMD/prova_amd_test.mp4` (2 min 10 s, dialogo in inglese a due voci sintetiche; il testo atteso è in `Prova_AMD/testo_atteso.txt`), oppure un altro video breve con parlato **in inglese**. Le modifiche alla configurazione si fanno dalle Impostazioni dell'app, oppure a app chiusa in `~/.transcriberpro/config.json`. Per ogni prova guarda `rocm-smi`: durante lo step la GPU deve mostrare uso e VRAM crescenti.
 
 | # | Step | Come provarlo | GPU attesa | Note |
 |---|---|---|---|---|
