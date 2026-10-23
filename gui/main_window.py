@@ -1020,6 +1020,7 @@ class MainWindow(QMainWindow):
         sub(tr('job_ov_lang'), JO.TARGET_LANGUAGE, [(n, c) for n, c in SUBTITLE_LANGUAGES if c in JO.LANGUAGES])
         sub(tr('job_ov_translation'), JO.TRANSLATION, [(tr('job_ov_nllb'), 'nllb_finetuned'), (tr('job_ov_tg'), 'llm')])
         yes_no = [(tr('job_ov_yes'), True), (tr('job_ov_no'), False)]
+        sub(tr('force_audio_title'), JO.FORCE_AUDIO, yes_no)
         sub(tr('job_ov_gender'), JO.GENDER, yes_no)
         sub(tr('job_ov_mux'), JO.MUX, yes_no)
         sub(tr('job_ov_upload'), JO.UPLOAD, yes_no)

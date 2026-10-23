@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.34.22-orange)
+![Version](https://img.shields.io/badge/Version-1.34.23-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -315,6 +315,7 @@ This project is licensed under the MIT License.
 ### v1.24.0 - v1.30.2
 Six weeks of work on translation/transcription quality for non-English sources, condensed here; full detail,
 measurement methodology and decision rules for every claim below are in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.23** — "Force audio transcription" added to the per-file options of the queue's right-click menu. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.22** — Default job options moved to Settings ("Job options" tab); the main panel keeps a one-line summary and the shutdown checkbox, freeing space for the queue and the Library Scanner. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.21** — Per-file job options from the queue's right-click menu (subtitle language, translation engine, gender correction, mux, OpenSubtitles upload, OCR review) and multi-selection. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.20** — Detected graphics card shown under the status pill: green for NVIDIA, red for AMD, "CPU only" when no compatible GPU. Details in [CHANGELOG.md](CHANGELOG.md).
