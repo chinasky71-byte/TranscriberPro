@@ -284,6 +284,9 @@ def run_one(video: Path, target_language: str, files_done: int, file_progress_cl
         # Stesso ambiente della GUI (gui/workers.py): NIENTE PYTHONUTF8 / `-X utf8` (cambierebbe la codifica
         # di default delle subprocess annidate), solo gli stream del figlio in UTF-8.
         env = os.environ.copy()
+        # RDNA2: HSA_OVERRIDE_GFX_VERSION=10.3.0 solo per il figlio, solo se rilevata e se l'utente non l'ha gia' impostata
+        from utils.gpu_detect import apply_subprocess_env
+        apply_subprocess_env(env)
         env['PYTHONIOENCODING'] = 'utf-8'
         env['TP_SUBPROCESS'] = '1'
         env['TQDM_DISABLE'] = '1'
