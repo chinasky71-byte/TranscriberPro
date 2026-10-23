@@ -1286,6 +1286,14 @@ class TranslationModelDialog(QDialog):
             self.gender_env_status.setText(" — ".join(missing))
             _status_style(self.gender_env_status, T.css_red, size=11)
 
+    def refresh_from_config(self):
+        """Allinea la casella del genere al config (la scheda 'Opzioni job' delle Impostazioni puo' averla cambiata)."""
+        cb = getattr(self, 'gender_correction_checkbox', None)
+        if cb is not None:
+            cb.blockSignals(True)
+            cb.setChecked(bool(self.config.get('gender_correction_enabled', False)))
+            cb.blockSignals(False)
+
     def _on_gender_correction_toggled(self, checked: bool):
         """Salva stato checkbox gender correction."""
         self.config.set('gender_correction_enabled', checked)

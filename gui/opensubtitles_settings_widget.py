@@ -274,6 +274,13 @@ class OpenSubtitlesSettingsWidget(QWidget):
         self.update_status(refresh_inputs=False)
         self.settings_changed.emit()
 
+    def refresh_from_config(self):
+        """Allinea la casella dell'upload al config (la scheda 'Opzioni job' delle Impostazioni puo' averla cambiata)."""
+        cb = self.upload_enabled_checkbox
+        cb.blockSignals(True)
+        cb.setChecked(bool(self.app_config.get('opensubtitles_upload_enabled', True)))
+        cb.blockSignals(False)
+
     def on_upload_enabled_toggled(self, checked: bool):
         """Handler toggle upload abilitato (master)"""
         self.app_config.set('opensubtitles_upload_enabled', checked)

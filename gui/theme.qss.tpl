@@ -908,6 +908,17 @@ QPushButton#profileButton::menu-indicator {
 /* ============================================================
  * Tab bar principale (Fase 4A)
  * ============================================================ */
+QPushButton#defaultsSummary {
+    background: transparent;
+    border: none;
+    color: {{fg_3}};
+    font-size: 11px;
+    text-align: left;
+    padding: 2px 4px;
+}
+QPushButton#defaultsSummary:hover {
+    color: {{accent}};
+}
 QTabBar#mainTabBar {
     background: {{bg_0}};
     border-bottom: 1px solid {{line}};

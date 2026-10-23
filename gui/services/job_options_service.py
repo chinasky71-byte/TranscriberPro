@@ -9,6 +9,29 @@ persistito al momento del cambio, non a fine sessione.
 from dataclasses import dataclass
 
 
+def engine_short(config) -> str:
+    """Motore di traduzione predefinito, in breve ('TG', 'NLLB-FT', ...)."""
+    try:
+        m = config.get_translation_model()
+    except Exception:
+        return '?'
+    return {'llm': 'TG', 'nllb_finetuned': 'NLLB-FT', 'nllb': 'NLLB'}.get(m, str(m).upper())
+
+
+def ocr_review_label(config) -> str:
+    """Revisione OCR predefinita: 'mirata' o 'automatica' (config 'ocr_strategy')."""
+    from utils.translations import tr
+    return tr('job_ocr_mode_auto') if config.get('ocr_strategy', 'review') == 'auto' else tr('job_ocr_mode_targeted')
+
+
+def defaults_summary(config) -> str:
+    """Riga di riepilogo dei predefiniti sotto Avvia: 'ITA · ↗ OS · ⧉ mux · ⚧ · TG' (senza lo spegnimento, che ha la sua casella)."""
+    c = config
+    text = JobOptionsService.summary_text(c.get_target_language(), c.get('opensubtitles_upload_enabled', True),
+                                          c.get('mux_subtitle_into_video', False), c.get('gender_correction_enabled', False), False)
+    return f"{text} · {engine_short(c)}"
+
+
 @dataclass(frozen=True)
 class JobOptions:
     target_language: str

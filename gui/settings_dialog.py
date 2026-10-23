@@ -32,6 +32,7 @@ from gui.theme import set_role
 # Identificatori stabili delle tab (usati per initial_tab e per la
 # persistenza in config 'ui_settings_last_tab').
 TAB_GENERAL = 'general'
+TAB_JOBS = 'jobs'
 TAB_TRANSCRIPTION = 'transcription'
 TAB_TRANSLATION = 'translation'
 TAB_BATCH = 'batch'
@@ -40,6 +41,7 @@ TAB_OCR = 'ocr'
 
 _TAB_ORDER = (
     TAB_GENERAL,
+    TAB_JOBS,
     TAB_TRANSCRIPTION,
     TAB_TRANSLATION,
     TAB_BATCH,
@@ -49,6 +51,7 @@ _TAB_ORDER = (
 
 _TAB_ICON = {
     TAB_GENERAL:       'wrench',
+    TAB_JOBS:          'list',
     TAB_TRANSCRIPTION: 'mic',
     TAB_TRANSLATION:   'globe',
     TAB_BATCH:         'target',
@@ -161,6 +164,7 @@ class SettingsDialog(QDialog):
         """
         labels = {
             TAB_GENERAL: tr('settings_tab_general'),
+            TAB_JOBS: tr('settings_tab_jobs'),
             TAB_TRANSCRIPTION: tr('settings_tab_transcription'),
             TAB_TRANSLATION: tr('settings_tab_translation'),
             TAB_BATCH: tr('settings_tab_batch'),
@@ -185,6 +189,10 @@ class SettingsDialog(QDialog):
         if tab_id == TAB_GENERAL:
             from gui.general_settings_widget import GeneralSettingsWidget
             return GeneralSettingsWidget(parent=self)
+
+        if tab_id == TAB_JOBS:
+            from gui.job_options_card import JobOptionsPanel
+            return JobOptionsPanel(parent=self, go_to_tab=self._select_tab)
 
         if tab_id == TAB_TRANSCRIPTION:
             from gui.profile_dialog import ProfileSelectionDialog
@@ -252,6 +260,13 @@ class SettingsDialog(QDialog):
             QTimer.singleShot(0, lambda r=row, t=tab_id: self._deferred_build(r, t))
         else:
             self.stack.setCurrentIndex(row)
+            page = self._pages.get(tab_id)
+            refresh = getattr(page, 'refresh_from_config', None)
+            if callable(refresh):               # un'altra scheda puo' aver cambiato lo stesso valore (upload, genere)
+                try:
+                    refresh()
+                except Exception:
+                    pass
 
         # Persisti l'ultima tab visitata
         try:
