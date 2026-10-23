@@ -31,6 +31,7 @@ import json
 import sys
 import traceback
 from pathlib import Path
+from utils.translations import tr
 
 
 def _emit(msg: str) -> None:
@@ -66,18 +67,18 @@ def _suppress_subprocess_windows() -> None:
 
 def main(argv: list) -> int:
     if len(argv) < 2:
-        _emit("ERRORE CLI: argomento args.json mancante")
+        _emit(tr('gcl_error_cli_args_json_argument'))
         return 2
 
     args_path = Path(argv[1])
     if not args_path.exists():
-        _emit(f"ERRORE CLI: args.json non trovato: {args_path}")
+        _emit(tr('gcl_error_cli_args_json_not').format(args_path=args_path))
         return 2
 
     try:
         args = json.loads(args_path.read_text(encoding='utf-8'))
     except Exception as e:
-        _emit(f"ERRORE CLI: parsing args.json fallito: {e}")
+        _emit(tr('gcl_error_cli_args_json_parsing').format(e=e))
         return 2
 
     video_path = args.get('video_path')
@@ -86,7 +87,7 @@ def main(argv: list) -> int:
     result_path = args.get('result_path')
 
     if not video_path:
-        _emit("ERRORE CLI: video_path obbligatorio")
+        _emit(tr('pc_error_cli_video_path_is'))
         return 2
 
     # Eccezioni per file alle opzioni job: sovrapposizione IN MEMORIA sulla configurazione (mai scritta su disco).
@@ -97,15 +98,15 @@ def main(argv: list) -> int:
         if _ov:
             from utils.config import get_config as _gc
             _gc().set_overlay(_ov)
-            _emit(f"ℹ️ Opzioni specifiche di questo file: {_ov}")
+            _emit(tr('pc_options_specific_to_this_file').format(ov=_ov))
     except Exception as e:
-        _emit(f"WARN CLI: eccezioni per file ignorate: {e}")
+        _emit(tr('pc_warn_cli_per_file_exceptions').format(e=e))
 
     # Import LAZY: il costo di torch/moduli ML si paga solo qui, non al check args.
     try:
         from core.pipeline import ProcessingPipeline
     except Exception as e:
-        _emit(f"ERRORE CLI: import ProcessingPipeline fallito: {e}")
+        _emit(tr('pc_error_cli_processingpipeline_import_failed').format(e=e))
         traceback.print_exc(file=sys.stderr)
         return 1
 
@@ -126,7 +127,7 @@ def main(argv: list) -> int:
         except Exception:
             last_output_path = None
     except Exception as e:
-        _emit(f"ERRORE CLI: eccezione fatale pipeline: {e}")
+        _emit(tr('pc_error_cli_fatal_pipeline_exception').format(e=e))
         traceback.print_exc(file=sys.stderr)
         success = False
 
@@ -140,7 +141,7 @@ def main(argv: list) -> int:
                            ensure_ascii=False),
                 encoding='utf-8')
         except Exception as e:
-            _emit(f"WARN CLI: scrittura result.json fallita: {e}")
+            _emit(tr('pc_warn_cli_result_json_writing').format(e=e))
 
     # Cleanup pipeline: ridondante per la RAM (il processo muore comunque) ma
     # rimuove i file temporanei del video.

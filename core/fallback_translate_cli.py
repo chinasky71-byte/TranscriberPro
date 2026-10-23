@@ -50,6 +50,7 @@ import re
 import sys
 import traceback
 from pathlib import Path
+from utils.translations import tr
 
 
 def _emit(msg: str) -> None:
@@ -153,18 +154,18 @@ def _is_degenerate_or_english(candidate: str, source: str) -> bool:
 
 def main(argv: list) -> int:
     if len(argv) < 2:
-        _emit("ERRORE CLI: argomento args.json mancante")
+        _emit(tr('gcl_error_cli_args_json_argument'))
         return 2
 
     args_path = Path(argv[1])
     if not args_path.exists():
-        _emit(f"ERRORE CLI: args.json non trovato: {args_path}")
+        _emit(tr('gcl_error_cli_args_json_not').format(args_path=args_path))
         return 2
 
     try:
         args = json.loads(args_path.read_text(encoding='utf-8'))
     except Exception as e:
-        _emit(f"ERRORE CLI: parsing args.json fallito: {e}")
+        _emit(tr('gcl_error_cli_args_json_parsing').format(e=e))
         return 2
 
     lines = args.get('lines') or []
@@ -173,11 +174,11 @@ def main(argv: list) -> int:
     model_path = args.get('model_path')
 
     if not lines or not output_json or not model_path:
-        _emit("ERRORE CLI: 'lines', 'output_json' e 'model_path' sono obbligatori")
+        _emit(tr('fb_error_cli_lines_output_json'))
         return 2
 
     if not Path(model_path).exists():
-        _emit(f"ERRORE CLI: modello non trovato: {model_path}")
+        _emit(tr('fb_error_cli_model_not_found').format(model_path=model_path))
         return 1
 
     try:
@@ -188,23 +189,23 @@ def main(argv: list) -> int:
     try:
         from llama_cpp import Llama
     except Exception as e:
-        _emit(f"ERRORE CLI: import llama_cpp fallito: {e}")
+        _emit(tr('fb_error_cli_llama_cpp_import').format(e=e))
         traceback.print_exc(file=sys.stderr)
         return 1
 
     try:
-        _emit(f"📦 Caricamento modello di ripiego ({Path(model_path).name})...")
+        _emit(tr('fb_loading_fallback_model').format(name=Path(model_path).name))
         _ngl = args.get('n_gpu_layers')
         model = Llama(model_path=model_path, n_gpu_layers=-1 if _ngl is None else int(_ngl), n_ctx=4096,
                      n_batch=512, verbose=False)
     except Exception as e:
-        _emit(f"ERRORE CLI: caricamento modello fallito: {e}")
+        _emit(tr('fb_error_cli_model_loading_failed').format(e=e))
         traceback.print_exc(file=sys.stderr)
         return 1
 
     translations = {}
     total = len(lines)
-    _emit(f"🌐 Traduzione di {total} frasi distinte...")
+    _emit(tr('fb_translating_distinct_sentences').format(total=total))
 
     try:
         for i, item in enumerate(lines, 1):
@@ -231,7 +232,7 @@ def main(argv: list) -> int:
                     candidate = _clean_output(
                         resp['choices'][0]['message']['content'])
                 except Exception as e:
-                    _emit(f"   riga {key}: errore generazione ({e})")
+                    _emit(tr('fb_line_generation_error').format(key=key, e=e))
                     candidate = ""
                 if candidate and not _is_degenerate_or_english(candidate, text):
                     best = candidate
@@ -261,10 +262,10 @@ def main(argv: list) -> int:
             json.dumps({"translations": translations}, ensure_ascii=False),
             encoding='utf-8')
     except Exception as e:
-        _emit(f"ERRORE CLI: scrittura output_json fallita: {e}")
+        _emit(tr('fb_error_cli_output_json_writing').format(e=e))
         return 1
 
-    _emit(f"✅ Serbatoio completato: {len(translations)}/{total} frasi risolte")
+    _emit(tr('fb_reservoir_completed_sentences_resolved').format(n=len(translations), total=total))
     return 0
 
 

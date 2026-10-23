@@ -19,6 +19,7 @@ mancante): il chiamante decide come gestirle (es. fallback a trascrizione).
 """
 from pathlib import Path
 import logging
+from utils.translations import tr
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +66,7 @@ def run_ocr_auto(ocr, log_callback=None, italian: bool = True) -> bool:
         return ocr.run_auto()
     except ContentNotItalian as exc:
         if log_callback:
-            log_callback(f"⚙️ OCR — la traccia {exc.stream_index} contiene testo {exc.lang.upper()}: "
-                         f"verra' tradotta.")
+            log_callback(tr('oa_ocr_track_contains_text_it').format(stream_index=exc.stream_index, lang=exc.lang.upper()))
         done = convert_and_translate(ocr, exc.srt_text, exc.lang, log_callback)
         if done and exc.lang != 'it':
             ocr.mislabeled_stream_index = exc.stream_index
@@ -93,7 +93,7 @@ def convert_and_translate(ocr, events, content_lang: str, log_callback=None) -> 
 
     src_text = events if isinstance(events, str) else events_to_srt(events)
     if not src_text.strip():
-        _log("Nessun testo OCR prodotto")
+        _log(tr('oa_no_ocr_text_produced'))
         return False
 
     if content_lang == 'it':
@@ -106,7 +106,7 @@ def convert_and_translate(ocr, events, content_lang: str, log_callback=None) -> 
 
     from utils.events import emit as _tp_emit
     _tp_emit('phase', name='ocr_translate')
-    _log(f"⚙️ OCR — Traduzione {content_lang}→it...")
+    _log(tr('oa_ocr_translation_it').format(content_lang=content_lang))
     try:
         from core.translator import get_translator, route_non_english_away_from_llm
         # Instradamento automatico (v1.25.0): questo percorso (OCR bitmap, coda
@@ -121,9 +121,7 @@ def convert_and_translate(ocr, events, content_lang: str, log_callback=None) -> 
             model_type = None
         routed = route_non_english_away_from_llm(model_type, content_lang) if model_type else None
         if routed and routed != model_type:
-            _log(f"⚠️ TranslateGemma non e' pronto per sorgenti diverse "
-                 f"dall'inglese ({content_lang}): instradato automaticamente "
-                 f"su NLLB fine-tuned.")
+            _log(tr('oa_translategemma_is_not_ready_for').format(content_lang=content_lang))
         translator = get_translator(model_type=routed or model_type)
         if log_callback:
             # Senza callback le barre di avanzamento / ETA / warm-up del traduttore non andavano da nessuna parte:
@@ -140,7 +138,7 @@ def convert_and_translate(ocr, events, content_lang: str, log_callback=None) -> 
             pass
     except Exception as exc:
         logger.exception("Traduzione OCR fallita")
-        _log(f"Traduzione fallita: {exc}")
+        _log(tr('oa_translation_failed').format(exc=exc))
         return False
 
     if not ok:
@@ -151,7 +149,7 @@ def convert_and_translate(ocr, events, content_lang: str, log_callback=None) -> 
         try:
             it_text = it_path.read_text(encoding='utf-8')
         except Exception as exc:
-            _log(f"Impossibile leggere {it_path.name}: {exc}")
+            _log(tr('oa_unable_to_read').format(name=it_path.name, exc=exc))
             return False
         mux_ok = ocr.writeback(it_text, 'it')
         for p in (Path(src_path), it_path):
@@ -160,12 +158,12 @@ def convert_and_translate(ocr, events, content_lang: str, log_callback=None) -> 
             except Exception:
                 pass
         if mux_ok:
-            _log("✅ SRT italiano incorporato nel file")
+            _log(tr('oa_italian_srt_embedded_in_the'))
         return mux_ok
     else:
         try:
             Path(src_path).unlink(missing_ok=True)
         except Exception:
             pass
-        _log(f"✅ SRT italiano scritto: {it_path.name}")
+        _log(tr('oa_italian_srt_written').format(name=it_path.name))
         return True

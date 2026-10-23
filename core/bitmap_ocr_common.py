@@ -9,6 +9,7 @@ Validati dagli spike PGS (2026-06-03) e VOBSUB (2026-06-03).
 """
 import re
 from typing import Tuple
+from utils.translations import tr
 
 
 def srt_track_title(orig_title: str) -> str:
@@ -48,8 +49,7 @@ def refine_content_lang(events, presumed: str, log=None) -> str:
         verdict, evidence = detect_text_language(events_to_srt(events))
         if contradicts(presumed, verdict):
             if log:
-                log(f"⚠️ Il testo OCR e' {verdict.upper()}, non {str(presumed).upper()}: "
-                    f"lingua del contenuto corretta.")
+                log(tr('boc_the_ocr_text_is_not').format(verdict=verdict.upper(), presumed=str(presumed).upper()))
             return verdict
     except Exception:
         pass

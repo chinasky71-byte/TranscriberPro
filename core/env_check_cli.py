@@ -17,6 +17,7 @@ Il token HuggingFace viene letto dalla config (come nel resto dell'app).
 """
 import sys
 import traceback
+from utils.translations import tr
 
 
 def _emit(msg: str) -> None:
@@ -29,7 +30,7 @@ def diarization_test() -> int:
     cfg = get_config()
     token = cfg.get_huggingface_token()
     if not token:
-        _emit("❌ Token non configurato. Salvalo prima.")
+        _emit(tr('tmd_token_not_set_save_first'))
         return 1
     # Letto qui, non nel try: deve esistere anche nel ramo except (bug-check
     # Opus, v. Diarizer._apply_clustering_overrides per lo stesso pattern).
@@ -46,14 +47,14 @@ def diarization_test() -> int:
 
         warnings.filterwarnings("ignore", message="torchcodec is not installed")
 
-        _emit(f"⏳ Caricamento pipeline pyannote {model_id} (prima volta: download ~1 GB)...")
+        _emit(tr('ec_loading_pyannote_pipeline_first_time').format(model_id=model_id))
         from pyannote.audio import Pipeline
         pipeline = Pipeline.from_pretrained(
             model_id, token=token)
         if torch.cuda.is_available():
             pipeline = pipeline.to(torch.device("cuda"))
 
-        _emit("⏳ Test su audio sintetico...")
+        _emit(tr('ec_testing_on_synthetic_audio'))
         # Audio sintetico: 4 secondi, 2 "parlanti" (toni diversi)
         sr = 16000
         t = np.linspace(0, 4.0, sr * 4, dtype=np.float32)
@@ -73,15 +74,15 @@ def diarization_test() -> int:
         finally:
             os.unlink(tmp_path)
 
-        _emit(f"✅ Modello OK! Trovati {len(turns)} turni sul test audio.")
-        _emit("Puoi abilitare la diarization.")
+        _emit(tr('ec_model_ok_found_turns_on').format(n=len(turns)))
+        _emit(tr('ec_you_can_enable_diarization'))
         return 0
 
     except Exception as e:
         err = str(e)
         if "403" in err or "gated" in err.lower() or "restricted" in err.lower():
-            _emit("❌ Accesso negato (403).")
-            _emit("Accetta i termini su:")
+            _emit(tr('ec_access_denied_403'))
+            _emit(tr('ec_accept_the_terms_at'))
             _emit(f"  huggingface.co/{model_id}")
             # community-1 impacchetta segmentation/embedding/plda nello
             # stesso repo (config.yaml verificato: '$model/segmentation'
@@ -90,10 +91,9 @@ def diarization_test() -> int:
             if model_id == 'pyannote/speaker-diarization-3.1':
                 _emit("  huggingface.co/pyannote/segmentation-3.0")
         elif "401" in err or "token" in err.lower():
-            _emit("❌ Token non valido o scaduto. "
-                  "Controllalo su huggingface.co/settings/tokens")
+            _emit(tr('ec_token_invalid_or_expired_check'))
         else:
-            _emit(f"❌ Errore: {err}")
+            _emit(tr('ec_error').format(err=err))
         traceback.print_exc(file=sys.stderr)
         return 1
 
@@ -108,24 +108,24 @@ def llm_download() -> int:
     from utils.config import get_config
 
     chiave = get_config().get('llm_translator_model') or 'translategemma-12b'
-    _emit(f"Avvio caricamento modello {chiave}...")
+    _emit(tr('ec_starting_model_loading').format(chiave=chiave))
     if not get_config().is_huggingface_token_set():
-        _emit("Token HuggingFace non rilevato. Tentativo anonimo...")
-    _emit("Download in corso (può richiedere alcuni minuti)...")
+        _emit(tr('ec_huggingface_token_not_detected_trying'))
+    _emit(tr('ec_download_in_progress_may_take'))
 
     try:
         from core.translator import get_translator
         translator = get_translator(model_type='llm')
         if translator is not None:
-            _emit("Modello caricato in memoria.")
+            _emit(tr('ec_model_loaded_in_memory'))
             return 0
-        _emit("❌ Caricamento fallito")
+        _emit(tr('ec_loading_failed'))
         return 1
     except Exception as e:
         err = str(e)
         if "GatedRepo" in err or "401" in err:
-            err = "Errore autenticazione. Token HuggingFace non valido."
-        _emit(f"❌ Errore: {err}")
+            err = tr('ec_authentication_error_invalid_huggingface_token')
+        _emit(tr('ec_error').format(err=err))
         traceback.print_exc(file=sys.stderr)
         return 1
 

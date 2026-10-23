@@ -13,6 +13,7 @@ import re
 import logging
 from pathlib import Path
 from typing import List, Tuple, Dict, Optional, Callable
+from utils.translations import tr
 
 logger = logging.getLogger(__name__)
 
@@ -318,15 +319,15 @@ class LocalLLMCorrector:
     def load_model(self) -> bool:
         """Carica il modello GGUF in VRAM."""
         if not LLAMA_CPP_AVAILABLE:
-            self._log("llama-cpp-python non disponibile")
+            self._log(tr('gc_llama_cpp_python_not_available'))
             return False
 
         if not Path(self.model_path).exists():
-            self._log(f"Modello non trovato: {self.model_path}")
+            self._log(tr('gc_model_not_found').format(model_path=self.model_path))
             return False
 
         try:
-            self._log("Caricamento modello LLM per correzione genere...")
+            self._log(tr('gc_loading_llm_model_for_gender'))
             self.model = Llama(
                 model_path=self.model_path,
                 n_gpu_layers=self.n_gpu_layers,
@@ -334,11 +335,11 @@ class LocalLLMCorrector:
                 n_batch=512,
                 verbose=False,
             )
-            self._log("Modello LLM caricato.")
+            self._log(tr('gc_llm_model_loaded'))
             return True
         except Exception as e:
             logger.error(f"Errore caricamento modello LLM: {e}", exc_info=True)
-            self._log(f"Errore caricamento LLM: {e}")
+            self._log(tr('gc_llm_loading_error').format(e=e))
             return False
 
     def unload_model(self):
@@ -494,7 +495,7 @@ class GenderCorrectionEngine:
             # 1. Parse SRT tradotto
             entries = _parse_srt(srt_path)
             if not entries:
-                self._log("Nessun sottotitolo trovato. Salto correzione genere.")
+                self._log(tr('gc_no_subtitle_found_skipping_gender'))
                 return True
 
             # 1b. Parse SRT originale (opzionale)
@@ -503,21 +504,20 @@ class GenderCorrectionEngine:
                 parsed_original = _parse_srt(Path(original_srt_path))
                 if parsed_original and len(parsed_original) == len(entries):
                     original_entries = parsed_original
-                    self._log(f"   Testo originale caricato: {len(original_entries)} entry")
+                    self._log(tr('gc_original_text_loaded_entries').format(n=len(original_entries)))
                 elif parsed_original:
                     self._log(
-                        f"   Disallineamento SRT originale "
-                        f"({len(parsed_original)} vs {len(entries)}). Ignoro.")
+                        tr('gc_original_srt_misaligned_vs_ignoring').format(n=len(parsed_original), n_2=len(entries)))
 
             # 2. Pre-filtro: conta quanti entry hanno pattern di genere
             gender_sensitive_count = sum(1 for _, _, _, t in entries if needs_gender_fix(t))
-            self._log(f"   Pre-filtro: {gender_sensitive_count}/{len(entries)} sottotitoli con pattern di genere")
+            self._log(tr('gc_pre_filter_subtitles_with_gender').format(gender_sensitive_count=gender_sensitive_count, n=len(entries)))
 
             if gender_sensitive_count == 0:
                 # Nessun pattern trovato, copia originale
                 import shutil
                 shutil.copy(srt_path, output_path)
-                self._log("   Nessun pattern di genere trovato. File copiato senza modifiche.")
+                self._log(tr('gc_no_gender_pattern_found_file'))
                 return True
 
             # 3. Chunk
@@ -531,7 +531,7 @@ class GenderCorrectionEngine:
                                                 n_gpu_layers=n_gpu_layers)
 
             if not self._corrector.load_model():
-                self._log("Impossibile caricare modello LLM. Salto correzione genere.")
+                self._log(tr('gc_unable_to_load_the_llm'))
                 return False
 
             # 5. Correggi chunk per chunk
@@ -546,7 +546,7 @@ class GenderCorrectionEngine:
             )
             import time as _time
             t0 = _time.time()
-            self._log(f"   Correzione genere: [\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591]   0% (0/{chunks_with_gender})")
+            self._log(tr('gc_gender_correction_0_0').format(chunks_with_gender=chunks_with_gender))
             last_progress = -1
 
             for ci, chunk in enumerate(chunks):
@@ -575,9 +575,7 @@ class GenderCorrectionEngine:
                     from utils.events import emit as _tp_emit
                     _tp_emit('bar', phase='gender', pct=progress, eta_s=eta_s)   # ETA del motore (la stessa del log)
                     self._log(
-                        f"   Correzione genere: [{bar}] {progress:3d}% "
-                        f"({chunks_processed}/{chunks_with_gender}) "
-                        f"\u2502 ETA:{eta_str}"
+                        tr('gc_gender_correction_eta').format(bar=bar, progress=progress, chunks_processed=chunks_processed, chunks_with_gender=chunks_with_gender, eta_str=eta_str)
                     )
                     last_progress = progress
 
@@ -602,8 +600,7 @@ class GenderCorrectionEngine:
             mins, secs = divmod(int(elapsed_total), 60)
             time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
             self._log(
-                f"   \u2705 Correzione genere: [\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588] 100% "
-                f"({chunks_processed}/{chunks_with_gender}) \u2502 {time_str}"
+                tr('gc_gender_correction_100').format(chunks_processed=chunks_processed, chunks_with_gender=chunks_with_gender, time_str=time_str)
             )
 
             # 7. Genera SRT output
@@ -612,18 +609,17 @@ class GenderCorrectionEngine:
                 f.write(srt_content)
 
             # 8. Log statistiche
-            self._log(f"   Correzioni applicate: {total_patches}")
-            self._log(f"   Chunk processati: {chunks_processed}, skippati: {chunks_skipped}")
+            self._log(tr('gc_corrections_applied').format(total_patches=total_patches))
+            self._log(tr('gc_chunks_processed_skipped').format(chunks_processed=chunks_processed, chunks_skipped=chunks_skipped))
             if skipped_patches or out_of_range_patches:
                 self._log(
-                    f"   Patch scartate: {skipped_patches} non trovate nel testo, "
-                    f"{out_of_range_patches} fuori range")
+                    tr('gc_patches_discarded_not_found_in').format(skipped_patches=skipped_patches, out_of_range_patches=out_of_range_patches))
 
             return True
 
         except Exception as e:
             logger.error(f"Errore fatale correzione genere: {e}", exc_info=True)
-            self._log(f"Errore correzione genere: {e}")
+            self._log(tr('gc_gender_correction_error').format(e=e))
             return False
 
     def cleanup(self):

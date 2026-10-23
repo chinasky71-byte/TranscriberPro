@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import re
 from typing import Callable, List, Optional, Tuple
+from utils.translations import tr
 
 logger = logging.getLogger(__name__)
 
@@ -196,9 +197,9 @@ class LlamaRewriter:
         try:
             from llama_cpp import Llama
         except Exception as _e:   # anche RuntimeError (DLL CUDA non trovata)
-            self.log(f"llama-cpp-python non disponibile: {_e}")
+            self.log(tr('gr_llama_cpp_python_not_available').format(e=_e))
             return False
-        self.log("  📦 Caricamento LLM per riscrittura genere...")
+        self.log(tr('gr_loading_llm_for_gender_rewriting'))
         self._model = Llama(model_path=self.model_path, n_gpu_layers=-1,
                             n_ctx=2048, n_batch=512, verbose=False)
         return True

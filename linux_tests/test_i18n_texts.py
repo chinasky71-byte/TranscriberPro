@@ -93,3 +93,17 @@ def test_lingua_del_figlio_segue_la_config():
             assert T.get_translations().current_language == expected
     finally:
         T.get_translations().current_language = prev
+
+
+@pytest.mark.parametrize('module', ['core.pipeline_cli', 'core.sync_cli', 'core.fallback_translate_cli'])
+def test_figlio_scrive_gli_errori_nella_lingua_richiesta(module):
+    """Il processo figlio (python -m core.*_cli) segue TP_LANG: stesso evento (exit 2), solo testo diverso."""
+    out = {}
+    for lang in ('it', 'en'):
+        env = dict(os.environ, TP_LANG=lang)
+        r = subprocess.run([sys.executable, '-m', module], cwd=ROOT, env=env, capture_output=True, text=True,
+                           encoding='utf-8')
+        assert r.returncode == 2
+        out[lang] = [ln for ln in r.stdout.splitlines() if 'CLI' in ln]
+    assert len(out['it']) == len(out['en']) == 1
+    assert out['it'][0].startswith('ERRORE CLI:') and out['en'][0].startswith('ERROR CLI:')

@@ -20,6 +20,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from typing import Callable, List, Optional
+from utils.translations import tr
 
 logger_name = __name__
 
@@ -119,7 +120,7 @@ class PunctuationRestorer:
             from transformers import AutoTokenizer, AutoModelForTokenClassification
             import torch
 
-            self.log(f"  📦 Caricamento modello punteggiatura {self.model_id}...")
+            self.log(tr('pr_loading_punctuation_model').format(model_id=self.model_id))
             self._tokenizer = AutoTokenizer.from_pretrained(self.model_id)
             self._model = AutoModelForTokenClassification.from_pretrained(self.model_id)
             self._model.to(self.device)
@@ -135,18 +136,15 @@ class PunctuationRestorer:
             word_ids = test_encoding.word_ids(batch_index=0)
             if word_ids is None or all(w is None for w in word_ids):
                 raise RuntimeError(
-                    f"tokenizer '{self.model_id}' non espone word_ids() "
-                    f"(non è una versione 'fast') — riproiezione parola↔"
-                    f"etichetta impossibile")
+                    tr('pr_tokenizer_does_not_expose_word').format(model_id=self.model_id))
 
-            self.log(f"  ✅ Modello punteggiatura caricato su {self.device.upper()}")
+            self.log(tr('pr_punctuation_model_loaded_on').format(device=self.device.upper()))
             return True
         except Exception as e:
             self._load_failed = True
             self._model = None
             self._tokenizer = None
-            self.log(f"  ⚠️ Modello punteggiatura non disponibile ({e}) — "
-                     f"ripristino saltato, testo grezzo mantenuto")
+            self.log(tr('pr_punctuation_model_not_available_restoration').format(e=e))
             return False
 
     def unload(self) -> None:
@@ -271,11 +269,10 @@ class PunctuationRestorer:
                 if raw_label not in _VALID_LABELS:
                     if raw_label not in ('O', 'o', '0', 0) and not self._warned_unexpected_label:
                         self._warned_unexpected_label = True
-                        self.log(f"  ⚠️ Etichetta punteggiatura inattesa dal modello "
-                                 f"({raw_label!r}) — scartata, verificare id2label")
+                        self.log(tr('pr_unexpected_punctuation_label_from_the').format(raw_label=raw_label))
                     raw_label = '0'
                 labels[w_idx] = raw_label
             return labels
         except Exception as e:
-            self.log(f"  ⚠️ Predizione punteggiatura fallita su una finestra ({e}) — saltata")
+            self.log(tr('pr_punctuation_prediction_failed_on_a').format(e=e))
             return None

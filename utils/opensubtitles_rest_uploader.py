@@ -26,6 +26,7 @@ from utils.subtitle_uploader_interface import (
     UploaderFactory,
     OPENSUBTITLES_USER_AGENT
 )
+from utils.translations import tr
 
 # --- CONFIGURAZIONE LOGGING ---
 logger = logging.getLogger(__name__)
@@ -118,7 +119,7 @@ class OpenSubtitlesRESTUploader(SubtitleUploaderInterface):
             ValueError: Se API Key non configurata
         """
         if not self.api_key:
-            raise ValueError("REST API Key non configurata. Upload impossibile.")
+            raise ValueError(tr('ru_rest_api_key_not_configured'))
             
         headers = {
             'Api-Key': self.api_key,
