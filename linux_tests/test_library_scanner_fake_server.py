@@ -71,7 +71,10 @@ class _Fake(BaseHTTPRequestHandler):
 
 
 @pytest.fixture
-def server():
+def server(monkeypatch):
+    # con HTTP(S)_PROXY impostato (CI, reti aziendali) requests instraderebbe anche 127.0.0.1 verso il proxy (405): localhost si esclude
+    monkeypatch.setenv('NO_PROXY', '127.0.0.1,localhost')
+    monkeypatch.setenv('no_proxy', '127.0.0.1,localhost')
     _Fake.notified = []
     srv = ThreadingHTTPServer(('127.0.0.1', 0), _Fake)
     t = threading.Thread(target=srv.serve_forever, daemon=True)
