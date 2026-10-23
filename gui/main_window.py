@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QFrame, QToolButton, QSizePolicy, QLayout, QDialog,
                              QComboBox, QSplitter, QMenu, QTabBar, QStackedWidget,
                              QGraphicsOpacityEffect)
-from PyQt6.QtCore import (Qt, QTimer, QSize,
+from PyQt6.QtCore import (Qt, QTimer, QSize, QEvent,
                           QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup,
                           pyqtSignal)
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPixmap, QTextCursor, QAction
@@ -75,6 +75,7 @@ SUBTITLE_LANGUAGES = [
 
 class MainWindow(QMainWindow):
     processing_done = pyqtSignal()   # emesso quando il ProcessingWorker termina
+    _gpu_badge_ready = pyqtSignal(str, str)   # (testo, fornitore): dal thread di rilevamento alla GUI
 
     def __init__(self):
         super().__init__()
@@ -164,6 +165,7 @@ class MainWindow(QMainWindow):
         # Tab bar principale (Coda / Cronologia)
         self.main_tab_bar = self._create_tab_bar()
         outer_layout.addWidget(self.main_tab_bar)
+        self._create_gpu_badge()
 
         # QStackedWidget: 0=coda (splitter_wrap), 1=cronologia
         from gui.history_widget import HistoryWidget
@@ -219,6 +221,7 @@ class MainWindow(QMainWindow):
         # ── CENTRO: status pill ──────────────────────────────────────────
         status_pill = QFrame()
         status_pill.setObjectName("statusPill")
+        self._status_pill = status_pill
         status_pill.setFixedHeight(26)   # altezza fissa: la pill non si estende piu' a tutta la barra
         status_lay = QHBoxLayout(status_pill)
         status_lay.setContentsMargins(12, 0, 14, 0)
@@ -1241,6 +1244,7 @@ class MainWindow(QMainWindow):
     def update_profile_indicator(self):
         current_profile = self.settings_service.current_profile()
         self.profile_button.setText(f"⚙️  {tr(f'profile_{current_profile}_name')}  ▾")
+        QTimer.singleShot(0, self._place_gpu_badge)      # la pill si sposta se cambia la larghezza del bottone profilo
 
     def _on_profile_selected(self, profile_key: str):
         message = self.settings_service.select_profile(profile_key)
@@ -1264,6 +1268,69 @@ class MainWindow(QMainWindow):
 
     def _on_tab_changed(self, index: int):
         self.main_stack.setCurrentIndex(index)
+
+    def _create_gpu_badge(self):
+        """Scheda video rilevata, centrata sulla riga delle schede (sotto la pill di stato): verde NVIDIA, rosso AMD, 'CPU only' neutro.
+        Il rilevamento gira in un thread (nvidia-smi/registro possono richiedere qualche secondo) e non blocca l'avvio."""
+        self._gpu_badge = QLabel("", self.main_tab_bar)
+        self._gpu_badge.setObjectName("gpuBadge")
+        self._gpu_badge.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._gpu_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.main_tab_bar.installEventFilter(self)
+        self._gpu_badge_ready.connect(self._on_gpu_badge_ready)
+
+        import threading
+
+        def work(first=True):
+            try:
+                from utils.gpu_detect import detect_gpus
+                from utils.gpu_label import gpu_badge_info, looks_incomplete
+                rep = detect_gpus(force=not first)
+                text, vendor = gpu_badge_info(rep)
+                retry = first and looks_incomplete(rep)
+            except Exception:
+                text, vendor, retry = 'CPU only', 'cpu', False
+            try:
+                self._gpu_badge_ready.emit(text, vendor)
+            except RuntimeError:        # finestra gia' distrutta
+                return
+            if retry:                   # nvidia-smi lento al primo avvio: un secondo giro dopo 30 s
+                t = threading.Timer(30.0, work, args=(False,)); t.daemon = True; t.start()
+        threading.Thread(target=work, name='gpu-badge', daemon=True).start()
+
+    def _on_gpu_badge_ready(self, text: str, vendor: str):
+        color = {'nvidia': T.success, 'amd': T.danger}.get(vendor, T.fg_2)
+        self._gpu_badge.setStyleSheet(f"color: {color}; font-size: 12px; font-weight: 600; background: transparent;")
+        self._gpu_badge.setText(text)
+        self._gpu_badge.setToolTip(tr('gpu_badge_tip').format(name=text) if vendor != 'cpu' else tr('gpu_badge_cpu_tip'))
+        self._place_gpu_badge()
+
+    def _place_gpu_badge(self):
+        if not hasattr(self, '_gpu_badge'):
+            return
+        bar = self.main_tab_bar
+        lbl = self._gpu_badge
+        lbl.adjustSize()
+        w = min(lbl.sizeHint().width() + 8, max(bar.width() - 2 * 380, 120))   # non invade le schede a sinistra
+        lbl.setFixedWidth(w)
+        pill = getattr(self, '_status_pill', None)
+        cx = bar.width() // 2                      # ripiego: centro della finestra
+        if pill is not None and pill.isVisible():
+            cx = bar.mapFrom(self, pill.mapTo(self, pill.rect().center())).x()   # centro della pill 'Pronto'
+        lbl.move(max(0, min(cx - w // 2, bar.width() - w)), (bar.height() - lbl.height()) // 2)
+        lbl.raise_()
+
+    def eventFilter(self, obj, event):
+        if obj is getattr(self, 'main_tab_bar', None):
+            if event.type() in (QEvent.Type.Resize, QEvent.Type.Show):
+                self._place_gpu_badge()
+            elif (event.type() == QEvent.Type.ToolTip and self._gpu_badge.toolTip()
+                    and self._gpu_badge.geometry().contains(event.pos())):
+                # la label e' trasparente al mouse (i clic vanno alle schede): il tooltip lo mostriamo noi
+                from PyQt6.QtWidgets import QToolTip
+                QToolTip.showText(event.globalPos(), self._gpu_badge.toolTip(), obj)
+                return True
+        return super().eventFilter(obj, event)
 
     def _on_file_history_entry(self, entry: dict):
         self.history_widget.append_entry(entry)
