@@ -129,6 +129,10 @@ class GpuInfo:
     source: str = ''                            # fonti che l'hanno vista, la prima e' quella principale ('nvidia-smi+registry')
     bus_id: Optional[str] = None                # 'dddd:bb:dd.f' minuscolo, se noto
     backends: List[str] = field(default_factory=list)   # backend che possono usare questa GPU (vedi docstring)
+    gfx: Optional[str] = None                   # solo AMD: target 'gfx1030' (rocminfo > sysfs KFD > nome della scheda)
+    gfx_source: Optional[str] = None            # 'rocminfo' | 'kfd' | 'name' (da nome = approssimato)
+    amd_family: Optional[str] = None            # solo AMD: RDNA4 | RDNA3 | RDNA2 | RDNA1 | CDNA | GCN | unknown
+    rocm_support: Optional[str] = None          # solo AMD: official | unofficial | unsupported | unknown
 
 
 @dataclass
@@ -262,6 +266,7 @@ class _State:
         self.start = ctx.clock()
         self.errors: List[str] = []
         self.notes: Dict[str, str] = {}
+        self.rocminfo_targets: List[str] = []       # agenti gfx di rocminfo nell'ordine di KFD
 
     def remaining(self) -> float:
         return self.ctx.deadline_s - (self.ctx.clock() - self.start)
@@ -829,11 +834,223 @@ def _rocm_backend(st: _State, gpus: List[GpuInfo], in_wsl: bool) -> Tuple[bool, 
     if res is None:
         return False, 'rocminfo non ha risposto'
     rc, out = res
-    targets = sorted(set(re.findall(r'(?m)^\s*Name:\s+(gfx[0-9a-z]+)\s*$', out or '')))
+    listed = re.findall(r'(?m)^\s*Name:\s+(gfx[0-9a-z]+)\s*$', out or '')
+    st.rocminfo_targets = listed
+    targets = sorted(set(listed))
     if rc != 0 or not targets:
         st.err(f'rocminfo: codice {rc}, agenti gfx: {len(targets)}')
         return False, 'rocminfo non elenca agenti GPU'
     return True, 'rocminfo: ' + ', '.join(targets)
+
+
+# ------------------------------------------------------------------------------------------- famiglie AMD (gfx)
+# Fonti del target gfx (la prima che risponde): rocminfo > sysfs KFD (gfx_target_version) > nome della scheda (lspci/sysfs).
+# Solo logica: nessuna esecuzione di GPU. Un dato mancante lascia i campi a None/'unknown', mai un'eccezione.
+HSA_OVERRIDE_VAR = 'HSA_OVERRIDE_GFX_VERSION'
+# RDNA2 non gfx1030: tutte le gfx103x hanno lo stesso ISA di gfx1030 (unico target RDNA2 compilato nelle librerie ROCm e unico
+# "ufficiale": Radeon PRO W6800/V620), quindi l'override e' 10.3.0 anche per gfx1031 (RX 6700), 1032 (RX 6600), 1034 (RX 6500/6400),
+# 1035/1036 (iGPU Rembrandt/Raphael). Fonti: ROCm "Linux system requirements" (matrice Radeon: di RDNA2 solo gfx1030) e la
+# discussione Debian AI list 2022-07 e ROCm/TheRock#1719 (override 10.3.0 per le RX 6000); vedi docs/studio_rocm_2026_10_22.md.
+# NON PROVATO su hardware reale.
+RDNA2_OVERRIDE = '10.3.0'
+RDNA2_OVERRIDE_SOURCE = ('gfx103x condividono l\'ISA di gfx1030, unico target RDNA2 delle librerie ROCm: override 10.3.0 '
+                         '(ROCm Linux system requirements; Debian AI 2022-07; TheRock#1719; docs/studio_rocm_2026_10_22.md). Non provato su hardware.')
+_OFFICIAL_GFX = {'gfx1100', 'gfx1101', 'gfx1102', 'gfx1150', 'gfx1151', 'gfx1200', 'gfx1201'}
+_CDNA_GFX = re.compile(r'^gfx(908|90a|94\d|95\d)$')
+
+# nome della scheda -> gfx rappresentativo (solo per classificare la famiglia quando mancano rocminfo e KFD)
+_NAME_GFX = [
+    (r'navi\s*48|rx\s*9070|rx\s*9080|radeon\s*ai\s*pro\s*r9700', 'gfx1201'), (r'navi\s*44|rx\s*90[56]0|rx\s*9050', 'gfx1200'),
+    (r'navi\s*31|rx\s*79\d0|pro\s*w7[89]00', 'gfx1100'), (r'navi\s*32|rx\s*7[78]00|pro\s*w7[67]00', 'gfx1101'),
+    (r'navi\s*33|rx\s*7[67]00s?|rx\s*7600|pro\s*w7[56]00', 'gfx1102'),
+    (r'navi\s*21|rx\s*6[89]\d0|pro\s*w6800|v620', 'gfx1030'), (r'navi\s*22|rx\s*67\d0', 'gfx1031'),
+    (r'navi\s*23|rx\s*66\d0|pro\s*w6[56]00', 'gfx1032'), (r'navi\s*24|rx\s*6[45]\d0|pro\s*w6[34]00', 'gfx1034'),
+    (r'navi\s*10|rx\s*5[5-7]\d0|pro\s*w5[5-7]00', 'gfx1010'), (r'navi\s*12', 'gfx1011'), (r'navi\s*14|rx\s*5[35]00', 'gfx1012'),
+    (r'vega\s*20|radeon\s*vii|instinct\s*mi(50|60)\b', 'gfx906'), (r'vega\s*10|rx\s*vega|vega\s*(56|64)|vega\s*frontier', 'gfx900'),
+    (r'arcturus|mi100\b', 'gfx908'), (r'aldebaran|mi2[05]0', 'gfx90a'), (r'aqua\s*vanjaram|mi3[0-9]{2}', 'gfx942'),
+    (r'polaris|ellesmere|baffin|rx\s*[45][789]0\b', 'gfx803'),
+]
+_NAME_GFX_RE = [(re.compile(p, re.I), g) for p, g in _NAME_GFX]
+
+
+def _gfx_from_kfd_version(v: Any) -> Optional[str]:
+    """gfx_target_version di KFD (decimale MMmmss: 100300 -> gfx1030, 90010 -> gfx90a, 120001 -> gfx1201) -> 'gfxXXXX'."""
+    n = _int(v)
+    if not n or n < 0:
+        return None
+    major, minor, step = n // 10000, (n // 100) % 100, n % 100
+    if minor > 15 or step > 15:
+        return None
+    return f'gfx{major}{minor:x}{step:x}'
+
+
+def _gfx_from_name(name: Any) -> Optional[str]:
+    n = _clean(name) or ''
+    for rx, gfx in _NAME_GFX_RE:
+        if rx.search(n):
+            return gfx
+    return None
+
+
+def classify_gfx(gfx: Optional[str]) -> Tuple[str, str]:
+    """gfx -> (famiglia, rocm_support). Famiglie: RDNA4 (gfx12xx), RDNA3 (gfx11xx), RDNA2 (gfx103x), RDNA1 (gfx101x),
+    CDNA (gfx908/90a/94x/95x: Instinct MI100..MI350), GCN (Vega e precedenti: gfx9xx non CDNA, gfx8xx), unknown.
+    rocm_support (riferimento ROCm 7.0): official | unofficial | unsupported | unknown."""
+    g = (gfx or '').lower()
+    m = re.match(r'^gfx(\d+)', g)
+    if not m:
+        return 'unknown', 'unknown'
+    digits = m.group(1)
+    if digits.startswith('12'):
+        return 'RDNA4', 'official' if g in _OFFICIAL_GFX else 'unofficial'
+    if digits.startswith('11'):
+        return 'RDNA3', 'official' if g in _OFFICIAL_GFX else 'unofficial'
+    if digits.startswith('103'):
+        return 'RDNA2', 'unofficial'            # ufficiale solo per le PRO W6800/V620 (gfx1030); le RX 6000 no
+    if digits.startswith('101'):
+        return 'RDNA1', 'unsupported'
+    if _CDNA_GFX.match(g):
+        return 'CDNA', 'official'
+    if digits.startswith(('9', '8')):
+        return 'GCN', 'unsupported'
+    return 'unknown', 'unknown'
+
+
+def _kfd_gfx_nodes(st: _State) -> List[Tuple[str, Optional[str]]]:
+    """sysfs KFD: [(gfxXXXX, 'vvvv:dddd' o None)] per ogni nodo GPU (gfx_target_version diverso da 0; i nodi CPU hanno 0)."""
+    base = Path(st.ctx.sysfs_root) / 'class' / 'kfd' / 'kfd' / 'topology' / 'nodes'
+    try:
+        nodes = sorted(base.iterdir(), key=lambda p: (len(p.name), p.name))
+    except Exception:
+        return []
+    out = []
+    for n in nodes:
+        txt = _read(n / 'properties')
+        if not txt:
+            continue
+        props = {}
+        for line in txt.splitlines():
+            parts = line.split()
+            if len(parts) == 2:
+                props[parts[0]] = parts[1]
+        gfx = _gfx_from_kfd_version(props.get('gfx_target_version'))
+        if gfx:
+            vid, did = _int(props.get('vendor_id')), _int(props.get('device_id'))
+            out.append((gfx, _pci(vid, did) if vid is not None and did is not None else None))
+    return out
+
+
+def _classify_amd(st: _State, gpus: List[GpuInfo]):
+    """Riempie gfx/amd_family/rocm_support delle GPU AMD. Mai eccezioni (chiamata dentro _guard)."""
+    amd = [g for g in gpus if g.vendor == 'amd']
+    if not amd:
+        return
+    kfd = _kfd_gfx_nodes(st)
+    listed = list(st.rocminfo_targets)
+    for i, g in enumerate(amd):
+        gfx, how = None, None
+        if listed:
+            if len(listed) == len(amd):
+                gfx = listed[i]
+            elif len(set(listed)) == 1:
+                gfx = listed[0]
+            if gfx:
+                how = 'rocminfo'
+        if not gfx and kfd:
+            byid = [k for k, pci in kfd if pci and g.pci_id and pci == g.pci_id]
+            if byid:
+                gfx = byid[0]
+            elif len(kfd) == len(amd):
+                gfx = kfd[i][0]
+            elif len({k for k, _ in kfd}) == 1:
+                gfx = kfd[0][0]
+            if gfx:
+                how = 'kfd'
+        if not gfx:
+            gfx = _gfx_from_name(g.name)
+            how = 'name' if gfx else None
+        g.gfx, g.gfx_source = gfx, how
+        g.amd_family, g.rocm_support = classify_gfx(gfx)
+
+
+def amd_runtime_plan(report: Optional[GpuReport] = None, env: Optional[Mapping[str, str]] = None) -> Dict[str, Any]:
+    """Percorso AMD scelto dal solo codice (nessuna GPU toccata). Chiavi:
+       gfx, amd_family, rocm_support          della GPU AMD migliore (la prima con 'rocm', altrimenti la prima AMD)
+       path    'rocm' | 'rocm_override' | 'vulkan_cpu' | None (nessuna GPU AMD)
+       hsa_override_gfx_version  valore da mettere SOLO nell'ambiente dei sottoprocessi (None = niente)
+       override_source           perche' quel valore (documentazione)
+       user_override             valore gia' impostato dall'utente (mai sovrascritto) o None
+       message                   spiegazione per l'utente
+    RDNA3/RDNA4/CDNA: ROCm normale. RDNA2: ROCm con override 10.3.0, tranne se l'utente ha gia' impostato la variabile.
+    RDNA1 e precedenti, o ROCm che non parte: Vulkan per llama e CPU per il resto."""
+    plan: Dict[str, Any] = {'gfx': None, 'amd_family': None, 'rocm_support': None, 'path': None,
+                            'hsa_override_gfx_version': None, 'override_source': None, 'user_override': None, 'message': ''}
+    try:
+        rep = report if report is not None else detect_gpus()
+        e = os.environ if env is None else env
+        amd = [g for g in rep.gpus if g.vendor == 'amd']
+        if not amd:
+            plan['message'] = 'Nessuna GPU AMD rilevata.'
+            return plan
+        g = next((x for x in amd if 'rocm' in x.backends), amd[0])
+        plan.update(gfx=g.gfx, amd_family=g.amd_family or 'unknown', rocm_support=g.rocm_support or 'unknown')
+        fam = plan['amd_family']
+        user = (e.get(HSA_OVERRIDE_VAR) or '').strip() or None
+        plan['user_override'] = user
+        label = f'{g.gfx} ({fam})' if g.gfx else 'famiglia non determinata'
+        if 'rocm' not in g.backends:
+            if fam in ('RDNA1', 'GCN'):
+                why = f'la scheda {label} e\' troppo vecchia per ROCm 7'
+            else:
+                why = 'ROCm non parte: ' + str(rep.backends.get('rocm', {}).get('detail') or 'motivo sconosciuto')
+            plan['path'] = 'vulkan_cpu'
+            plan['message'] = (f'{why}. Uso Vulkan per il glossario (llama.cpp) e la CPU per trascrizione e traduzione '
+                               f'(molto piu\' lente).')
+            return plan
+        if fam == 'RDNA2':
+            if user:
+                plan['path'] = 'rocm'
+                plan['message'] = (f'Scheda {label}: uso ROCm con {HSA_OVERRIDE_VAR}={user} gia\' impostata da te (non la tocco). '
+                                   f'bf16 su RDNA2 non ha accelerazione hardware: Qwen3-ASR e TranslateGemma saranno lenti.')
+            else:
+                plan['path'] = 'rocm_override'
+                plan['hsa_override_gfx_version'] = RDNA2_OVERRIDE
+                plan['override_source'] = RDNA2_OVERRIDE_SOURCE
+                plan['message'] = (f'Scheda {label}: ROCm non la supporta ufficialmente; imposto {HSA_OVERRIDE_VAR}={RDNA2_OVERRIDE} '
+                                   f'solo per i processi dell\'app. bf16 su RDNA2 non ha accelerazione hardware: Qwen3-ASR e '
+                                   f'TranslateGemma saranno lenti.')
+            return plan
+        plan['path'] = 'rocm'
+        plan['message'] = f'Scheda {label}: ROCm normale' + ('' if plan['rocm_support'] != 'unofficial'
+                                                          else ' (modello non nella matrice ufficiale: potrebbe non funzionare)') + '.'
+        return plan
+    except Exception as ex:                              # rete di sicurezza: nessuna eccezione verso il chiamante
+        plan['message'] = _ascii(f'piano AMD non determinato: {type(ex).__name__}: {ex}')
+        return plan
+
+
+def subprocess_env_overrides(report: Optional[GpuReport] = None, env: Optional[Mapping[str, str]] = None) -> Dict[str, str]:
+    """Variabili da aggiungere SOLO all'ambiente dei sottoprocessi dell'app (mai a os.environ del processo corrente).
+    Vuoto salvo RDNA2 rilevata con ROCm utilizzabile e HSA_OVERRIDE_GFX_VERSION non gia' impostata dall'utente."""
+    try:
+        if not _is_linux(sys.platform):
+            return {}
+        v = amd_runtime_plan(report, env).get('hsa_override_gfx_version')
+        return {HSA_OVERRIDE_VAR: v} if v else {}
+    except Exception:
+        return {}
+
+
+def apply_subprocess_env(child_env: Dict[str, str]) -> Dict[str, str]:
+    """Aggiunge a `child_env` (la copia dell'ambiente per un Popen) l'override AMD, se serve. Rilevamento (con cache) solo su
+    Linux; mai eccezioni; HSA_OVERRIDE_GFX_VERSION gia' presente in child_env non viene mai cambiata."""
+    try:
+        if _is_linux(sys.platform) and not child_env.get(HSA_OVERRIDE_VAR):
+            for k, v in subprocess_env_overrides(None, child_env).items():
+                child_env[k] = v
+    except Exception:
+        pass
+    return child_env
 
 
 # ---------------------------------------------------------------------------------------------------------- Windows
@@ -1124,10 +1341,14 @@ def _detect(ctx: DetectContext) -> GpuReport:
         if g.vendor == 'nvidia' and any(s in ('nvidia-smi', 'nvml') for s in g.source.split('+')):
             g.backends.append('cuda')
     rocm_ok, rocm_detail = _guard(st, 'ROCm', lambda: _rocm_backend(st, gpus, in_wsl), (False, 'controllo ROCm fallito'))
+    _guard(st, 'famiglie AMD', lambda: _classify_amd(st, gpus), None)
     if rocm_ok:
         for g in gpus:
-            if g.vendor == 'amd' and g.driver in (None, 'amdgpu'):
-                g.backends.append('rocm')
+            if g.vendor == 'amd' and g.driver in (None, 'amdgpu') and g.amd_family not in ('RDNA1', 'GCN'):
+                g.backends.append('rocm')           # RDNA1 e GCN (Vega e precedenti): fuori da ROCm 7, ripiego Vulkan/CPU
+        if not any('rocm' in g.backends for g in gpus):
+            rocm_ok = False
+            rocm_detail += '; famiglia GPU non supportata da ROCm 7 (RDNA1 o precedente)'
     loader = _guard(st, 'loader Vulkan', lambda: _vulkan_loader(ctx), False) if vk is None else True
     for g in gpus:
         if g.vendor not in ('nvidia', 'amd', 'intel') or g.integrated is True:
@@ -1256,6 +1477,8 @@ def describe(report: GpuReport) -> str:
             info.append(f'cc {g.compute_cap}')
         if g.pci_id:
             info.append(g.pci_id)
+        if g.gfx:
+            info.append(f'{g.gfx} {g.amd_family}')
         info.append(f'da {g.source}')
         parts.append(f'{g.name or "?"} [{", ".join(info)}]')
     head = ('GPU: ' + '; '.join(parts)) if parts else 'Nessuna GPU rilevata'
@@ -1271,15 +1494,23 @@ def describe(report: GpuReport) -> str:
 
 def _main(argv: List[str]) -> int:
     """CLI per gli installer (Python di sistema). Esce sempre con 0 e non scrive su stderr.
-    --json      report completo + recommended_backend + usable_vram_mib
+    --json      report completo + recommended_backend + usable_vram_mib + campi AMD (amd_family, rocm_support, amd_path, ...)
     --backend   solo il backend consigliato
+    --amd       righe chiave=valore: amd_family, gfx, rocm_support, path, hsa_override_gfx_version (vuote senza GPU AMD)
     --vram      solo usable_vram_mib (riga vuota se nessuna)"""
     rep = detect_gpus(force=True)
-    if '--json' in argv:
+    if '--amd' in argv:
+        plan = amd_runtime_plan(rep)
+        out = '\n'.join(f'{k}={plan.get(k) or ""}' for k in ('amd_family', 'gfx', 'rocm_support', 'path', 'hsa_override_gfx_version'))
+    elif '--json' in argv:
         d = rep.to_dict()
         d['recommended_backend'] = recommended_backend(rep)
         d['usable_vram_mib'] = usable_vram_mib(rep)
         d['max_vram_mib'] = max_vram_mib(rep)
+        plan = amd_runtime_plan(rep)
+        d['amd_gfx'], d['amd_family'], d['rocm_support'] = plan['gfx'], plan['amd_family'], plan['rocm_support']
+        d['amd_path'], d['amd_hsa_override_gfx_version'] = plan['path'], plan['hsa_override_gfx_version']
+        d['amd_user_hsa_override'], d['amd_message'] = plan['user_override'], plan['message']
         out = json.dumps(d, ensure_ascii=True, indent=2)
     elif '--backend' in argv:
         out = recommended_backend(rep)
