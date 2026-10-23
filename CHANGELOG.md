@@ -3,6 +3,12 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.20 — 2026-10-23 — Scheda video rilevata in primo piano
+
+- **Etichetta GPU** sulla riga delle schede, centrata sotto la pill di stato: modello della scheda rilevata, **verde per NVIDIA, rosso per AMD**, oppure "CPU only" (grigio) se non c'e' una GPU compatibile
+  (NVIDIA con CUDA; AMD con ROCm o Vulkan; Intel e integrate = CPU). Rilevamento in un thread (non rallenta l'avvio); se `nvidia-smi` e' lento al primo avvio e la scheda risulta senza CUDA
+  il rilevamento si ripete dopo 30 s. Tooltip con il dettaglio. Logica in `utils/gpu_label.py` (7+1 test).
+
 ## 1.34.19 — 2026-10-23 — Installer: con --no-gpu / -NoGpu un download CPU fallito ferma l'installazione; Linux/AMD (lavoro del cloud)
 
 - **Installer (`install.sh`, `install.ps1`):** con `--no-gpu` / `-NoGpu`, se il download delle ruote CPU di torch o di llama-cpp-python fallisce, lo script si ferma con un messaggio chiaro
