@@ -28,6 +28,7 @@ from utils.config import get_config
 from utils.eta import EtaEstimator
 from utils.transcription_profiles import ProfileConfig, TranscriptionProfile
 from utils.cache_bootstrap import HF_HUB_CACHE_DIR
+from utils.translations import tr
 
 logger = setup_logger()
 
@@ -219,8 +220,8 @@ class FasterWhisperEngine(TranscriptionEngine):
             model_size = self._target_model(self.language_hint)
             specialized = model_size != default_model
 
-            self.log(f"  📦 Caricamento modello {model_size}...")
-            self.log(f"  ⚙️ Profilo: {self.profile_name}")
+            self.log(tr('fw_loading_model').format(model_size=model_size))
+            self.log(tr('fw_profile').format(profile_name=self.profile_name))
             self.log(f"  👷 Workers: {self.num_workers} | 🎯 Beam: {self.beam_size}")
 
             try:
@@ -231,7 +232,7 @@ class FasterWhisperEngine(TranscriptionEngine):
                     raise
                 # Il modello specializzato non deve MAI far fallire il file:
                 # si ripiega sul modello generico configurato.
-                self.log(f"  ⚠️ Modello {model_size} non caricabile ({e}) → uso {default_model}")
+                self.log(tr('fw_model_cannot_be_loaded_using').format(model_size=model_size, e=e, default_model=default_model))
                 logger.warning(f"Modello per lingua '{model_size}' fallito: {e}", exc_info=True)
                 self._failed_models.add(model_size)
                 self.faster_whisper_model = None
@@ -240,7 +241,7 @@ class FasterWhisperEngine(TranscriptionEngine):
                 self.faster_whisper_model = self._create_model(model_size)
             self.loaded_model = model_size
             where = "CUDA" if self.device == "cuda" else "CPU"
-            self.log(f"  ✅ Modello {model_size} caricato su {where} con {self.num_workers} workers")
+            self.log(tr('fw_model_loaded_on_with_workers').format(model_size=model_size, where=where, num_workers=self.num_workers))
 
             # VAD check sul WhisperModel puro (prima del wrapping)
             self._check_vad_availability()
@@ -249,13 +250,13 @@ class FasterWhisperEngine(TranscriptionEngine):
             if _batched_available:
                 self.faster_whisper_model = BatchedInferencePipeline(self.faster_whisper_model)
                 self.batch_size_for_transcription = self.batch_manager.current_batch_size
-                self.log(f"  BatchedInferencePipeline attivo (batch_size={self.batch_size_for_transcription})")
+                self.log(tr('fw_batchedinferencepipeline_active_batch_size').format(batch_size_for_transcription=self.batch_size_for_transcription))
             else:
                 self.batch_size_for_transcription = None
-                self.log("  BatchedInferencePipeline non disponibile — elaborazione sequenziale")
+                self.log(tr('fw_batchedinferencepipeline_not_available_sequential_processing'))
 
         except Exception as e:
-            error_msg = f"❌ Errore caricamento modello Faster-Whisper: {e}"
+            error_msg = tr('fw_error_loading_faster_whisper_model').format(e=e)
             self.log(error_msg)
             logger.error(error_msg, exc_info=True)
             raise
@@ -317,12 +318,12 @@ class FasterWhisperEngine(TranscriptionEngine):
 
             _ = list(segments)
             self.vad_available = True
-            self.log("  ✅ VAD (Voice Activity Detection) disponibile")
+            self.log(tr('fw_vad_voice_activity_detection_available'))
             logger.info("VAD test successful - enabled")
 
         except Exception as e:
             self.vad_available = False
-            self.log("  ⚠️ VAD non disponibile, uso modalità standard")
+            self.log(tr('fw_vad_not_available_using_standard'))
             logger.warning(f"VAD not available: {e}")
 
     # ------------------------------------------------------------------
@@ -346,8 +347,7 @@ class FasterWhisperEngine(TranscriptionEngine):
         # altro engine, lingua corretta a valle) si ricarica quello giusto.
         want = self._target_model(language)
         if self.faster_whisper_model is not None and self.loaded_model not in (None, want):
-            self.log(f"  🔄 Cambio modello Whisper per la lingua '{language}': "
-                     f"{self.loaded_model} → {want}")
+            self.log(tr('fw_switching_whisper_model_for_language').format(language=language, loaded_model=self.loaded_model, want=want))
             self.unload()
         self.language_hint = language
         if self.faster_whisper_model is None:
@@ -357,7 +357,7 @@ class FasterWhisperEngine(TranscriptionEngine):
         # (ripiego da Qwen3/Canary, lingua rilevata dopo, modello specializzato caduto su large-v3).
         try:
             from utils.engine_labels import whisper_label
-            self.log(f"🧩 Modello trascrizione: {whisper_label(self.loaded_model)}")
+            self.log(tr('pl_transcription_model').format(model=whisper_label(self.loaded_model)))
         except Exception:
             pass
 
@@ -413,12 +413,12 @@ class FasterWhisperEngine(TranscriptionEngine):
                 f"  📊 Batch size: adaptive={adaptive_bs}, safe_ceiling={safe_bs}, "
                 f"using={bs}"
             )
-            self.log(f"  📊 BatchedInferencePipeline — file unico ({total_duration:.0f}s), batch_size={bs}")
-            self.log(f"  ⚙️ Profilo: {self.profile_name} (beam={self.beam_size})")
+            self.log(tr('fw_batchedinferencepipeline_single_file_s_batch').format(total_duration=total_duration, bs=bs))
+            self.log(tr('fw_profile_beam').format(profile_name=self.profile_name, beam_size=self.beam_size))
             if auto_detect:
-                self.log("  🎯 Lingua: AUTO-DETECT")
+                self.log(tr('fw_language_auto_detect'))
             else:
-                self.log(f"  🎯 Lingua: {whisper_language}")
+                self.log(tr('fw_language').format(whisper_language=whisper_language))
 
             # BatchedInferencePipeline richiede vad_filter=True obbligatoriamente
             # word_timestamps=True per splitting preciso dei segmenti lunghi
@@ -439,7 +439,7 @@ class FasterWhisperEngine(TranscriptionEngine):
 
                 detected_language = info.language if hasattr(info, 'language') else None
                 if detected_language and auto_detect:
-                    self.log(f"  🔍 Lingua rilevata automaticamente: {detected_language}")
+                    self.log(tr('fw_language_detected_automatically').format(detected_language=detected_language))
 
                 # `segments` e' un generatore pigro: e' QUI che avviene la trascrizione. Si consuma con barra
                 # ed ETA reali (prima `list()` la nascondeva e la barra saltava da 0 a 99% in un istante).
@@ -458,7 +458,7 @@ class FasterWhisperEngine(TranscriptionEngine):
                             _bar = '█' * (_live_pct // 10) + '░' * (10 - _live_pct // 10)
                             from utils.events import emit as _tp_emit
                             _tp_emit('bar', phase='asr', pct=_live_pct, eta_s=_live_eta.eta_seconds())
-                            self.log(f"  🎙️ Trascrizione: [{_bar}] {_live_pct:3d}%{_txt}")
+                            self.log(tr('fw_transcription').format(bar=_bar, live_pct=_live_pct, txt=_txt))
                 segments = _seg_list
                 # v1.30.0 (core/whisper_lang_retry.py, trovato su X Factor): SOLO con lingua forzata (mai in
                 # auto-detect, che sceglie già liberamente) i segmenti/vuoti sospetti vengono ritrascritti con
@@ -495,7 +495,7 @@ class FasterWhisperEngine(TranscriptionEngine):
                 time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
                 from utils.events import emit as _tp_emit
                 _tp_emit('bar', phase='asr', pct=100)
-                self.log(f"  ✅ Trascrizione: [██████████] 100% │ {time_str}")
+                self.log(tr('fw_transcription_100').format(time_str=time_str))
 
                 # Suddividi segmenti lunghi usando i word timestamps
                 raw_count = len(all_segments)
@@ -505,12 +505,12 @@ class FasterWhisperEngine(TranscriptionEngine):
                 for seg in all_segments:
                     split_segments.extend(self._split_segment_by_words(seg))
                 all_segments = split_segments
-                self.log(f"  ✂️ Suddivisione: {raw_count} → {len(all_segments)} segmenti")
+                self.log(tr('fw_splitting_segments').format(raw_count=raw_count, n=len(all_segments)))
                 self._last_segments = all_segments   # esposto per diarization in pipeline
 
             except Exception as e:
                 logger.error(f"❌ Errore BatchedInferencePipeline: {e}", exc_info=True)
-                self.log(f"  ❌ Errore trascrizione: {str(e)}")
+                self.log(tr('fw_transcription_error').format(error=str(e)))
 
         else:
             # ── Modalità classica: N chunk sequenziali ──
@@ -519,12 +519,12 @@ class FasterWhisperEngine(TranscriptionEngine):
             eta = EtaEstimator()
             t0_transcribe = time.time()
 
-            self.log(f"  📊 Trascrizione di {total_chunks} chunks audio...")
-            self.log(f"  ⚙️ Profilo: {self.profile_name} (beam={self.beam_size}, workers={self.num_workers})")
+            self.log(tr('fw_transcribing_audio_chunks').format(total_chunks=total_chunks))
+            self.log(tr('fw_profile_beam_workers').format(profile_name=self.profile_name, beam_size=self.beam_size, num_workers=self.num_workers))
             if auto_detect:
-                self.log("  🎯 Lingua: AUTO-DETECT (rilevamento automatico)")
+                self.log(tr('fw_language_auto_detect_automatic_detection'))
             else:
-                self.log(f"  🎯 Lingua: {whisper_language}")
+                self.log(tr('fw_language').format(whisper_language=whisper_language))
 
             # Tetto VRAM-aware anche in modalità classica (come nel batched):
             # calcolato UNA volta sulla VRAM libera reale a inizio file — il
@@ -599,7 +599,7 @@ class FasterWhisperEngine(TranscriptionEngine):
                     if detected_language is None:
                         detected_language = info.language if hasattr(info, 'language') else None
                         if detected_language and auto_detect:
-                            self.log(f"  🔍 Lingua rilevata automaticamente: {detected_language}")
+                            self.log(tr('fw_language_detected_automatically').format(detected_language=detected_language))
 
                     segments = list(segments)
                     if lang_retry_on:
@@ -629,7 +629,7 @@ class FasterWhisperEngine(TranscriptionEngine):
                         bar = '█' * bars + '░' * (10 - bars)
                         from utils.events import emit as _tp_emit
                         _tp_emit('bar', phase='asr', pct=pct, eta_s=eta.eta_seconds())
-                        self.log(f"  🎙️ Trascrizione: [{bar}] {pct:3d}% ({chunk_num}/{total_chunks}){eta_txt}")
+                        self.log(tr('fw_transcription_2').format(bar=bar, pct=pct, chunk_num=chunk_num, total_chunks=total_chunks, eta_txt=eta_txt))
                         last_progress_pct = pct
 
                 except Exception as e:
@@ -642,16 +642,16 @@ class FasterWhisperEngine(TranscriptionEngine):
             mins, secs = divmod(int(elapsed), 60)
             time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
             if failed_chunks > 0:
-                self.log(f"  ⚠️ Completato con {failed_chunks} chunks falliti su {total_chunks}")
+                self.log(tr('fw_completed_with_failed_chunks_out').format(failed_chunks=failed_chunks, total_chunks=total_chunks))
             from utils.events import emit as _tp_emit
             _tp_emit('bar', phase='asr', pct=100)
-            self.log(f"  ✅ Trascrizione: [██████████] 100% ({total_chunks}/{total_chunks}) │ {time_str}")
+            self.log(tr('fw_transcription_100_2').format(total_chunks=total_chunks, time_str=time_str))
             n_retried = sum(r.get('decision') == 'ritrascritto' for r in lang_retry_records)
             if lang_retry_records:
-                self.log(f"  🌐 Segmenti/vuoti sospetti: {len(lang_retry_records)}, ritrascritti: {n_retried}")
+                self.log(tr('fw_suspicious_segments_empties_re_transcribed').format(n=len(lang_retry_records), n_retried=n_retried))
             self._last_segments = all_segments   # esposto per diarization in pipeline
 
-        self.log(f"  📝 Totale segmenti trascritti: {len(all_segments)}")
+        self.log(tr('fw_total_segments_transcribed').format(n=len(all_segments)))
 
         # Salva se richiesto
         if output_path and all_segments:

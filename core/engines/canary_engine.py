@@ -34,6 +34,7 @@ from utils.config import get_config
 from utils.eta import EtaEstimator
 from utils.platform_compat import venv_python
 from utils.cache_bootstrap import HF_CACHE, HF_HUB_CACHE_DIR
+from utils.translations import tr
 
 logger = setup_logger()
 
@@ -101,8 +102,7 @@ class CanaryEngine(TranscriptionEngine):
         caricamento in-process qui)."""
         if find_canary_python() is None:
             raise RuntimeError(
-                "venv_canary non trovato (atteso in <progetto>/venv_canary "
-                "o config 'canary_python_path')")
+                tr('ca_venv_canary_not_found_expected'))
 
     def unload(self):
         """Termina l'eventuale subprocess e scarica l'aligner."""
@@ -202,10 +202,10 @@ class CanaryEngine(TranscriptionEngine):
 
         canary_python = find_canary_python()
         if canary_python is None:
-            raise RuntimeError("venv_canary non trovato")
+            raise RuntimeError(tr('ca_venv_canary_not_found'))
 
         total_chunks = len(audio_chunks)
-        self.log(f"  📊 Trascrizione di {total_chunks} chunks audio (Canary subprocess)...")
+        self.log(tr('ca_transcribing_audio_chunks_canary_subprocess').format(total_chunks=total_chunks))
 
         # ── FASE 1: testo dal subprocess Canary (VRAM dedicata al SALM) ──
         temp_dir = Path(output_path).parent
@@ -236,11 +236,10 @@ class CanaryEngine(TranscriptionEngine):
             mid = str(args_payload['model_id'])
             snaps = Path(HF_HUB_CACHE_DIR) / ('models--' + mid.replace('/', '--')) / 'snapshots'
             if '/' in mid and not Path(mid).exists() and not any(snaps.glob('*/model.safetensors')):
-                self.log("  📥 Modello Canary non in cache: download di circa 5 GB in corso (puo' richiedere "
-                         "molto tempo, non c'e' una barra di avanzamento)...")
+                self.log(tr('ca_canary_model_not_in_cache'))
         except Exception:
             pass
-        self.log("  🚀 Avvio subprocess Canary (venv dedicato)...")
+        self.log(tr('ca_starting_canary_subprocess_dedicated_venv'))
         try:
             # stderr separato: il rumore NeMo/lightning va solo nel file di log
             proc = subprocess.Popen(
@@ -295,13 +294,13 @@ class CanaryEngine(TranscriptionEngine):
                             bar = '█' * bars + '░' * (10 - bars)
                             from utils.events import emit as _tp_emit
                             _tp_emit('bar', phase='asr', pct=pct, eta_s=eta.eta_seconds())
-                            self.log(f"  🎙️ Trascrizione: [{bar}] {pct:3d}% ({done}/{tot}){eta_txt}")
+                            self.log(tr('ca_transcription').format(bar=bar, pct=pct, done=done, tot=tot, eta_txt=eta_txt))
                             last_pct = pct
                     except Exception:
                         pass
                 elif line.startswith("LOAD_DONE"):
                     eta = EtaEstimator()   # il caricamento del modello non fa parte del ritmo di trascrizione
-                    self.log(f"  ✅ Canary caricato nel subprocess ({line.split()[-1]})")
+                    self.log(tr('ca_canary_loaded_in_the_subprocess').format(load_time=line.split()[-1]))
                 elif line.startswith("ERRORE"):
                     self.log(f"  ❌ {line}")
             return_code = proc.wait()
@@ -324,10 +323,9 @@ class CanaryEngine(TranscriptionEngine):
         # prenderebbe i tempi di un altro senza che nulla se ne accorga.
         if len(texts) != total_chunks:
             raise RuntimeError(
-                f"Canary ha restituito {len(texts)} testi per {total_chunks} chunk: "
-                f"testi e tempi non sarebbero allineati")
+                tr('ca_canary_returned_texts_for_chunks').format(n=len(texts), total_chunks=total_chunks))
         elapsed = time.time() - t0
-        self.log(f"  ✅ Testi Canary ricevuti ({len(texts)} chunk, {elapsed:.0f}s)")
+        self.log(tr('ca_canary_texts_received_chunks_s').format(n=len(texts), elapsed=elapsed))
 
         # Cleanup file di scambio (best effort)
         for p in (args_path, out_path):
@@ -345,10 +343,10 @@ class CanaryEngine(TranscriptionEngine):
         dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
 
         t1 = time.time()
-        self.log(f"  📦 Caricamento ForcedAligner per i timestamp...")
+        self.log(tr('ca_loading_forcedaligner_for_timestamps'))
         self._aligner = Qwen3ForcedAligner.from_pretrained(
             aligner_id, dtype=dtype, device_map=device)
-        self.log(f"  ✅ Aligner caricato in {time.time() - t1:.1f}s")
+        self.log(tr('ca_aligner_loaded_in_s').format(seconds=time.time() - t1))
 
         all_segments = []
         failed_chunks = 0
@@ -395,10 +393,10 @@ class CanaryEngine(TranscriptionEngine):
             torch.cuda.empty_cache()
 
         if failed_chunks > 0:
-            self.log(f"  ⚠️ Aligner fallito su {failed_chunks} chunk (timestamp a livello chunk)")
-        self.log(f"  📝 Totale segmenti trascritti: {len(all_segments)}")
+            self.log(tr('ca_aligner_failed_on_chunks_chunk').format(failed_chunks=failed_chunks))
+        self.log(tr('fw_total_segments_transcribed').format(n=len(all_segments)))
         if self._n_punct_restored:
-            self.log(f"  ✍️ Punteggiatura ripristinata su {self._n_punct_restored}/{total_chunks} chunk")
+            self.log(tr('qw_punctuation_restored_on_chunks').format(n_punct_restored=self._n_punct_restored, total_chunks=total_chunks))
 
         self._last_segments = all_segments
 

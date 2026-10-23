@@ -34,6 +34,7 @@ from typing import List, Tuple, Optional, Callable
 # ogni logger.info() verrebbe scartato (v. utils/adaptive_batch_manager.py): le righe nascoste
 # a schermo (Overlap, Merge, Chunking robusto...) non finirebbero nemmeno nel file di log.
 from utils.logger import setup_logger
+from utils.translations import tr
 
 logger = setup_logger(__name__)
 
@@ -160,35 +161,33 @@ class AudioProcessor:
                 effective_target = min(self.CHUNK_TARGET_DURATION, effective_max * 0.8)
                 effective_min = min(self.CHUNK_MIN_DURATION, effective_target * 0.5)
                 self._log(
-                    f"  ⚠️ Chunk max {self.CHUNK_MAX_DURATION}s oltre il limite "
-                    f"'{engine or 'sconosciuto'}' ({cap}s) — cappato a {effective_max:.0f}s "
-                    f"(target {effective_target:.0f}s, min {effective_min:.0f}s)")
+                    tr('ap_chunk_max_s_over_the').format(CHUNK_MAX_DURATION=self.CHUNK_MAX_DURATION, engine_name=engine or tr('ap_unknown'), cap=cap, effective_max=effective_max, effective_target=effective_target, effective_min=effective_min))
                 self.CHUNK_MAX_DURATION = effective_max
                 self.CHUNK_TARGET_DURATION = effective_target
                 self.CHUNK_MIN_DURATION = effective_min
                 _capped = True
         try:
             self._log(f"🎬 Audio: {audio_path.name}")
-            self._log("  🎵 Separazione vocale Demucs...")
+            self._log(tr('ap_demucs_vocal_separation'))
 
             t0 = time.time()
             vocals_path = self.separate_vocals(audio_path)
 
             if not vocals_path or not vocals_path.exists():
-                self._log("  ⚠️ Separazione vocale fallita - Uso audio originale")
+                self._log(tr('ap_vocal_separation_failed_using_original'))
                 vocals_path = audio_path
             else:
                 elapsed = time.time() - t0
                 mins, secs = divmod(int(elapsed), 60)
                 time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
-                self._log(f"  ✅ Vocals separati in {time_str}: {vocals_path.name}")
+                self._log(tr('ap_vocals_separated_in').format(time_str=time_str, name=vocals_path.name))
 
             # BatchedInferencePipeline mode — salta chunking
             if use_batched_pipeline:
-                self._log("  ⚡ Batched mode — chunking saltato")
+                self._log(tr('ap_batched_mode_chunking_skipped'))
                 wav_info = torchaudio.info(str(vocals_path))
                 total_duration = wav_info.num_frames / wav_info.sample_rate
-                self._log(f"✅ Audio processing completato: file unico ({total_duration:.1f}s)")
+                self._log(tr('ap_audio_processing_completed_single_file').format(total_duration=total_duration))
                 return [(vocals_path, 0.0, total_duration)]
 
             chunk_times = self.chunk_audio_intelligent(vocals_path)
@@ -206,7 +205,7 @@ class AudioProcessor:
             elapsed_total = time.time() - t0
             mins, secs = divmod(int(elapsed_total), 60)
             time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
-            self._log(f"✅ Audio processing completato: {len(chunk_files)} chunks pronti in {time_str}")
+            self._log(tr('ap_audio_processing_completed_chunks_ready').format(n=len(chunk_files), time_str=time_str))
             return chunk_files
 
         except Exception as e:
@@ -237,55 +236,55 @@ class AudioProcessor:
                 # aver lasciato frammenti di altri modelli, es. pyannote)
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-                self._log("  📦 Caricamento modello Demucs htdemucs...")
+                self._log(tr('ap_loading_demucs_htdemucs_model'))
                 self.demucs_model = get_model('htdemucs')
                 self.demucs_model.to(self.device)
                 self.demucs_model.eval()
-                self._log(f"  ✅ Modello caricato su {self.device}")
+                self._log(tr('ap_model_loaded_on').format(device=self.device))
             
             # Carica audio e calcola durata
-            self._log("  📂 Caricamento audio...")
+            self._log(tr('ap_loading_audio'))
             wav, sr = torchaudio.load(str(audio_path))
             
             duration_seconds = wav.shape[1] / sr
             duration_minutes = duration_seconds / 60
-            self._log(f"  ⏱️ Durata: {duration_minutes:.1f} minuti ({duration_seconds:.0f}s)")
+            self._log(tr('ap_duration_minutes_s').format(duration_minutes=duration_minutes, duration_seconds=duration_seconds))
             
             # SELEZIONE PIPELINE INTELLIGENTE
             if duration_seconds <= self.FAST_PATH_THRESHOLD:
                 # FAST PATH: File brevi (≤5 min)
-                self._log(f"  🚀 Pipeline: FAST PATH (file breve)")
+                self._log(tr('ap_pipeline_fast_path_short_file'))
                 vocals = self._separate_fast_path(wav, sr)
                 
             elif duration_seconds <= self.STANDARD_PATH_THRESHOLD:
                 # STANDARD PATH: File medi (5-60 min)
-                self._log(f"  ⚙️ Pipeline: STANDARD PATH (split automatico)")
+                self._log(tr('ap_pipeline_standard_path_automatic_split'))
                 vocals = self._separate_standard_path(wav, sr, duration_seconds)
                 
             else:
                 # ROBUST PATH: File lunghi (>60 min)
-                self._log(f"  🛡️ Pipeline: ROBUST PATH (chunking manuale)")
+                self._log(tr('ap_pipeline_robust_path_manual_chunking'))
                 vocals = self._separate_robust_path(wav, sr, duration_seconds)
             
             if vocals is None:
-                self._log("  ❌ Separazione vocale fallita")
+                self._log(tr('ap_vocal_separation_failed'))
                 return None
             
             # Salva vocals processati
             output_path = self._save_vocals(vocals, audio_path)
             
             if output_path:
-                self._log(f"  ✅ Separazione completata: {output_path.name}")
+                self._log(tr('ap_separation_completed').format(name=output_path.name))
             
             return output_path
             
         except ImportError:
             self.logger.error("Demucs non installato! pip install demucs")
-            self._log("  ⚠️ Demucs non installato")
+            self._log(tr('ap_demucs_not_installed'))
             return None
         except Exception as e:
             self.logger.error(f"Errore Demucs: {e}", exc_info=True)
-            self._log(f"  ❌ Errore Demucs: {str(e)}")
+            self._log(tr('ap_demucs_error').format(error=str(e)))
             return None
     
     def _separate_fast_path(self, wav: torch.Tensor, sr: int) -> Optional[torch.Tensor]:
@@ -296,7 +295,7 @@ class AudioProcessor:
         try:
             from demucs.apply import apply_model
             
-            self._log("    ⚡ Processing diretto...")
+            self._log(tr('ap_direct_processing'))
             
             # Prepare audio
             wav = self._prepare_audio_for_demucs(wav, sr)
@@ -310,7 +309,7 @@ class AudioProcessor:
                 )[0]
             
             vocals = sources[3].cpu()
-            self._log("    ✅ Fast path completato")
+            self._log(tr('ap_fast_path_completed'))
             
             # Cleanup
             del sources
@@ -320,7 +319,7 @@ class AudioProcessor:
             
         except RuntimeError as e:
             if "out of memory" in str(e).lower():
-                self._log("    ⚠️ OOM su fast path - Fallback standard path")
+                self._log(tr('ap_oom_on_fast_path_fallback'))
                 self._cleanup_gpu_memory()
                 # Retry con standard path
                 duration = wav.shape[1] / sr
@@ -342,7 +341,7 @@ class AudioProcessor:
         try:
             from demucs.apply import apply_model
 
-            self._log("    ⚙️ Processing con split automatico...")
+            self._log(tr('ap_processing_with_automatic_split'))
 
             # Prepare audio (residente su CPU: la GPU vede solo i segmenti)
             wav = self._prepare_audio_for_demucs(wav, sr, keep_on_cpu=True)
@@ -361,7 +360,7 @@ class AudioProcessor:
             # clone(): stacca i vocals dallo storage a 4 sorgenti (~7 GB su
             # 83 min) così del sources libera davvero la RAM
             vocals = sources[3].clone()
-            self._log("    ✅ Standard path completato")
+            self._log(tr('ap_standard_path_completed'))
 
             # Cleanup
             del sources
@@ -371,7 +370,7 @@ class AudioProcessor:
             
         except RuntimeError as e:
             if "out of memory" in str(e).lower():
-                self._log("    ⚠️ OOM su standard path - Fallback robust path")
+                self._log(tr('ap_oom_on_standard_path_fallback'))
                 self._cleanup_gpu_memory()
                 # Retry con robust path
                 return self._separate_robust_path(wav.cpu(), sr, duration)
@@ -441,8 +440,8 @@ class AudioProcessor:
             
             num_chunks = int(np.ceil(duration / self.DEMUCS_CHUNK_DURATION))
             
-            self._log(f"    🛡️ Chunking robusto: {num_chunks} chunks da {self.DEMUCS_CHUNK_DURATION/60:.1f}min")
-            self._log(f"    📏 Overlap: {self.DEMUCS_OVERLAP}s per continuità seamless")
+            self._log(tr('ap_robust_chunking_chunks_of_min').format(num_chunks=num_chunks, minutes=self.DEMUCS_CHUNK_DURATION/60))
+            self._log(tr('ap_overlap_s_for_seamless_continuity').format(DEMUCS_OVERLAP=self.DEMUCS_OVERLAP))
             
             vocal_chunks = []
             failed_chunks = 0
@@ -509,7 +508,7 @@ class AudioProcessor:
 
                 except RuntimeError as e:
                     if "out of memory" in str(e).lower():
-                        self._log(f"      ⚠️ OOM chunk {chunk_num} - Fallback audio originale")
+                        self._log(tr('ap_oom_chunk_fallback_to_original').format(chunk_num=chunk_num))
                         failed_chunks += 1
 
                         # Fallback: audio originale per questo chunk
@@ -540,20 +539,20 @@ class AudioProcessor:
             elapsed = time.time() - chunk_start_time
             mins, secs = divmod(int(elapsed), 60)
             time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
-            self._log(f"    ✅ Demucs completato: {num_chunks}/{num_chunks} chunks in {time_str}")
+            self._log(tr('ap_demucs_completed_chunks_in').format(num_chunks=num_chunks, time_str=time_str))
 
             # Merge chunks
             self._log("    🔗 Merge chunks...")
             vocals_full = torch.cat(vocal_chunks, dim=1)
             
             if failed_chunks > 0:
-                self._log(f"    ⚠️ {failed_chunks}/{num_chunks} chunks usano audio originale")
+                self._log(tr('ap_chunks_use_original_audio').format(failed_chunks=failed_chunks, num_chunks=num_chunks))
             
             return vocals_full
             
         except Exception as e:
             self.logger.error(f"Errore robust path: {e}", exc_info=True)
-            self._log(f"    ❌ Robust path fallito: {str(e)}")
+            self._log(tr('ap_robust_path_failed').format(error=str(e)))
             return None
     
     def _prepare_audio_for_demucs(self, wav: torch.Tensor, sr: int,
@@ -586,7 +585,7 @@ class AudioProcessor:
     def _save_vocals(self, vocals: torch.Tensor, audio_path: Path) -> Optional[Path]:
         """Converte vocals in mono 16kHz e salva"""
         try:
-            self._log("    🔄 Conversione a mono 16kHz...")
+            self._log(tr('ap_converting_to_mono_16khz'))
             
             # Convert to mono
             vocals_mono = torch.mean(vocals, dim=0, keepdim=True)
@@ -601,7 +600,7 @@ class AudioProcessor:
             torchaudio.save(str(output_path), vocals_16k, 16000)
             
             file_size_mb = output_path.stat().st_size / (1024 * 1024)
-            self._log(f"    💾 Vocals salvati: {output_path.name} ({file_size_mb:.1f}MB)")
+            self._log(tr('ap_vocals_saved_mb').format(name=output_path.name, file_size_mb=file_size_mb))
             
             # Cleanup finale
             self._cleanup_gpu_memory()
@@ -610,7 +609,7 @@ class AudioProcessor:
             
         except Exception as e:
             self.logger.error(f"Errore salvataggio vocals: {e}")
-            self._log(f"    ❌ Errore salvataggio: {str(e)}")
+            self._log(tr('ap_save_error').format(error=str(e)))
             return None
     
     def chunk_audio_intelligent(self, audio_path: Path) -> List[Tuple[float, float]]:
@@ -630,13 +629,13 @@ class AudioProcessor:
         try:
             import librosa
             
-            self._log(f"  📊 Analisi audio: {audio_path.name}")
+            self._log(tr('ap_audio_analysis').format(name=audio_path.name))
             
             # Carica audio
             y, sr = librosa.load(str(audio_path), sr=16000, mono=True)
             total_duration = len(y) / sr
             
-            self._log(f"  ⏱️ Durata totale: {total_duration:.1f}s ({total_duration/60:.1f}min)")
+            self._log(tr('ap_total_duration_s_min').format(total_duration=total_duration, minutes=total_duration/60))
             
             # Parametri ottimizzati per QUALITÀ
             silence_threshold_db = -35  # Più sensibile (era -40)
@@ -650,7 +649,7 @@ class AudioProcessor:
                 hop_length=512
             )
             
-            self._log(f"  🔍 Trovati {len(non_silent_intervals)} intervalli audio")
+            self._log(tr('ap_found_audio_intervals').format(n=len(non_silent_intervals)))
             
             # Costruisci chunks intelligenti
             chunks = []
@@ -758,13 +757,13 @@ class AudioProcessor:
             final_chunks = safe_chunks
 
             if overlap_fixed:
-                self._log(f"  🛡️ Overlap fisici tra chunk corretti: {overlap_fixed}")
+                self._log(tr('ap_physical_overlaps_between_chunks_fixed').format(overlap_fixed=overlap_fixed))
             if degenerate:
-                self._log(f"  🛡️ Chunk a durata nulla scartati: {degenerate}")
+                self._log(tr('ap_zero_duration_chunks_discarded').format(degenerate=degenerate))
 
             if not final_chunks:
                 self.logger.error("Chunking: nessun chunk valido dopo la normalizzazione")
-                self._log("  ❌ Nessun chunk valido prodotto")
+                self._log(tr('ap_no_valid_chunk_produced'))
                 return []
 
             # Statistiche (dopo la normalizzazione: riflettono i chunk reali)
@@ -773,10 +772,10 @@ class AudioProcessor:
             min_duration = np.min(durations)
             max_duration = np.max(durations)
 
-            self._log(f"  ✅ Chunks creati: {len(final_chunks)}")
-            self._log(f"  📊 Durata media: {avg_duration:.1f}s (min: {min_duration:.1f}s, max: {max_duration:.1f}s)")
+            self._log(tr('ap_chunks_created').format(n=len(final_chunks)))
+            self._log(tr('ap_average_duration_s_min_s').format(avg_duration=avg_duration, min_duration=min_duration, max_duration=max_duration))
             if split_count > 0:
-                self._log(f"  ✂️ Split forzati: {split_count} chunks")
+                self._log(tr('ap_forced_splits_chunks').format(split_count=split_count))
 
             # Log dettagliato primi 5 e ultimi 5 chunks
             self.logger.debug("  Primi 5 chunks:")
@@ -793,11 +792,11 @@ class AudioProcessor:
             
         except ImportError:
             self.logger.error("librosa non installato! pip install librosa")
-            self._log("  ❌ librosa non disponibile")
+            self._log(tr('ap_librosa_not_available'))
             return []
         except Exception as e:
             self.logger.error(f"Errore chunking: {e}", exc_info=True)
-            self._log(f"  ❌ Errore chunking: {str(e)}")
+            self._log(tr('ap_chunking_error').format(error=str(e)))
             return []
     
     def _create_physical_chunks(
@@ -879,10 +878,10 @@ class AudioProcessor:
                 failed += 1
         
         success_rate = (len(chunk_files) / len(chunk_times)) * 100
-        self._log(f"  ✅ Chunks creati: {len(chunk_files)}/{len(chunk_times)} ({success_rate:.1f}%)")
+        self._log(tr('ap_chunks_created_2').format(n=len(chunk_files), n_2=len(chunk_times), success_rate=success_rate))
         
         if failed > 0:
-            self._log(f"  ⚠️ Chunks falliti: {failed}")
+            self._log(tr('ap_failed_chunks').format(failed=failed))
         
         return chunk_files
     

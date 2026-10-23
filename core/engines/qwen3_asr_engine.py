@@ -29,6 +29,7 @@ from core.engines.base_engine import TranscriptionEngine, LanguageNotAlignable
 from utils.logger import setup_logger
 from utils.config import get_config
 from utils.eta import EtaEstimator
+from utils.translations import tr
 
 logger = setup_logger()
 
@@ -178,7 +179,7 @@ class Qwen3AsrEngine(TranscriptionEngine):
 
         t0 = time.time()
         free0 = self._free_vram_gb()
-        self.log(f"  📦 Caricamento modello {asr_id} + aligner (bfloat16)...")
+        self.log(tr('qw_loading_model_aligner_bfloat16').format(asr_id=asr_id))
 
         dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
         device_map = "cuda:0" if self.device == "cuda" else "cpu"
@@ -197,8 +198,8 @@ class Qwen3AsrEngine(TranscriptionEngine):
 
         elapsed = time.time() - t0
         free1 = self._free_vram_gb()
-        self.log(f"  ✅ Qwen3-ASR caricato in {elapsed:.1f}s su {self.device.upper()}"
-                 + (f" │ VRAM: {free0:.1f} → {free1:.1f} GB liberi" if free0 else ""))
+        self.log(tr('qw_qwen3_asr_loaded_in_on').format(elapsed=elapsed, device=self.device.upper())
+                 + (tr('er_vram_freed_suffix').format(free0=free0, free1=free1) if free0 else ""))
         self.log(f"  ⚙️ batch={self.batch_size} │ max_new_tokens={self._max_new_tokens}")
 
     def unload(self):
@@ -337,7 +338,7 @@ class Qwen3AsrEngine(TranscriptionEngine):
         # ── Probe LID sul primo chunk quando la lingua è ignota ──
         detected_639_1: Optional[str] = None
         if language is None:
-            self.log("  🎯 Lingua: AUTO-DETECT (LID nativo Qwen3)")
+            self.log(tr('qw_language_auto_detect_native_qwen3'))
             first_path = str(audio_chunks[0][0])
             probe = self.model.transcribe(audio=first_path, language=None)
             probe_lang_name = (probe[0].language or '').split(',')[0].strip()
@@ -345,24 +346,24 @@ class Qwen3AsrEngine(TranscriptionEngine):
             if detected_639_1 is None:
                 # Silenzio o lingua non riconosciuta dall'ASR
                 raise LanguageNotAlignable(
-                    None, f"LID Qwen3 inconclusivo ('{probe[0].language}')")
-            self.log(f"  🔍 Lingua rilevata automaticamente: {detected_639_1} ({probe_lang_name})")
+                    None, tr('qw_lid_qwen3_inconclusive').format(language=probe[0].language))
+            self.log(tr('qw_language_detected_automatically').format(detected_639_1=detected_639_1, probe_lang_name=probe_lang_name))
             if detected_639_1 not in ALIGNER_LANGS_639_1:
                 # ASR la supporta ma l'aligner no → timestamp inaffidabili
                 raise LanguageNotAlignable(
                     detected_639_1,
-                    f"Lingua '{detected_639_1}' supportata dall'ASR ma non dal ForcedAligner")
+                    tr('qw_language_supported_by_the_asr').format(detected_639_1=detected_639_1))
             language = detected_639_1
         else:
             detected_639_1 = language
-            self.log(f"  🎯 Lingua: {language}")
+            self.log(tr('qw_language').format(language=language))
 
         lang_name = ISO_TO_QWEN_NAME.get(language)
         if lang_name is None or language not in ALIGNER_LANGS_639_1:
             raise LanguageNotAlignable(
-                language, f"Lingua '{language}' non supportata da Qwen3+aligner")
+                language, tr('qw_language_not_supported_by_qwen3').format(language=language))
 
-        self.log(f"  📊 Trascrizione di {total_chunks} chunks audio (batch={self.batch_size})...")
+        self.log(tr('qw_transcribing_audio_chunks_batch').format(total_chunks=total_chunks, batch_size=self.batch_size))
 
         all_segments = []
         failed_chunks = 0
@@ -460,7 +461,7 @@ class Qwen3AsrEngine(TranscriptionEngine):
                     bar = '█' * bars + '░' * (10 - bars)
                     from utils.events import emit as _tp_emit
                     _tp_emit('bar', phase='asr', pct=pct, eta_s=eta.eta_seconds())
-                    self.log(f"  🎙️ Trascrizione: [{bar}] {pct:3d}% ({chunk_num}/{total_chunks}){eta_txt}")
+                    self.log(tr('fw_transcription_2').format(bar=bar, pct=pct, chunk_num=chunk_num, total_chunks=total_chunks, eta_txt=eta_txt))
                     last_pct = pct
 
             except Exception as e:
@@ -472,19 +473,17 @@ class Qwen3AsrEngine(TranscriptionEngine):
         mins, secs = divmod(int(elapsed), 60)
         time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
         if failed_chunks > 0:
-            self.log(f"  ⚠️ Completato con {failed_chunks} chunks falliti su {total_chunks}")
+            self.log(tr('fw_completed_with_failed_chunks_out').format(failed_chunks=failed_chunks, total_chunks=total_chunks))
         from utils.events import emit as _tp_emit
         _tp_emit('bar', phase='asr', pct=100)
-        self.log(f"  ✅ Trascrizione: [██████████] 100% ({total_chunks}/{total_chunks}) │ {time_str}")
-        self.log(f"  📝 Totale segmenti trascritti: {len(all_segments)}")
+        self.log(tr('fw_transcription_100_2').format(total_chunks=total_chunks, time_str=time_str))
+        self.log(tr('fw_total_segments_transcribed').format(n=len(all_segments)))
         if truncation_suspects:
-            self.log(f"  ⚠️ Chunk con sospetto troncamento generazione "
-                     f"(cap {self._max_new_tokens} token): {truncation_suspects}/{total_chunks}")
+            self.log(tr('qw_chunks_with_suspected_generation_truncation').format(max_new_tokens=self._max_new_tokens, truncation_suspects=truncation_suspects, total_chunks=total_chunks))
         if n_lang_retried:
-            self.log(f"  🌐 Chunk ritrascritti per lingua diversa da quella forzata: "
-                     f"{n_lang_retried}/{total_chunks}")
+            self.log(tr('qw_chunks_re_transcribed_for_a').format(n_lang_retried=n_lang_retried, total_chunks=total_chunks))
         if self._n_punct_restored:
-            self.log(f"  ✍️ Punteggiatura ripristinata su {self._n_punct_restored}/{total_chunks} chunk")
+            self.log(tr('qw_punctuation_restored_on_chunks').format(n_punct_restored=self._n_punct_restored, total_chunks=total_chunks))
 
         # Troppi fallimenti = engine inaffidabile su questo file → fallback
         if total_chunks > 0 and failed_chunks > total_chunks * 0.5:

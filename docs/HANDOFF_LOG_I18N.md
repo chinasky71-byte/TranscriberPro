@@ -3,6 +3,20 @@
 Piu' recenti in alto. Regole: testo italiano identico carattere per carattere; consumatori che leggono il testo
 riconoscono IT ed EN; mai tradurre `logger.*` (restano in italiano per gli sviluppatori).
 
+## 2026-10-23 · PR 5 — engines, engine_router, audio_processor (`fw_*`, `qw_*`, `ca_*`, `be_*`, `er_*`, `ap_*`)
+
+**Fatto**: faster_whisper_engine 30, qwen3_asr_engine 16, canary_engine 14, base_engine 1, engine_router 20 (+ i motivi di `EngineRouter.plan`, mostrati in "Engine selezionato/pianificato"), audio_processor 47.
+Le righe con parti variabili a concatenazione/ternario sono chiavi a mano (`er_vram_freed_suffix`, `er_language_suffix`...). `verify_i18n_identity.py`: tutti identici, 0 differenti.
+Non convertiti volutamente: barre `Demucs: [` e righe `Workers:`/`VRAM`/`Batch size` (gia' senza testo italiano), `❌ {line}` del figlio Canary.
+
+**Punti delicati**
+1. Rumore del filtro (`FILE_ONLY_RE`): le righe `Profilo:`, `VAD ... disponibile`, `BatchedInferencePipeline attivo / file unico`, `Chunking robusto`, `Caricamento audio` hanno ora la variante EN (chiavi `logm_noise_*`, test sulle righe reali in IT ed EN).
+2. Barre `Trascrizione: [` → `Transcription: [` (file_progress e log_filter bilingui dalla PR 1; test con le righe reali).
+3. `core/engines/canary_cli.py` (venv dedicato, protocollo `PROGRESS`/`LOAD_DONE`/`ERRORE:` letto da canary_engine) NON e' stato toccato: sono token di protocollo, non testo per l'utente; resta italiano `ERRORE: ...` mostrato come `❌ {line}`.
+4. I motivi di `plan()` e `LanguageNotAlignable` non vengono confrontati da nessuno (grep): solo mostrati.
+
+**Test**: `python -m pytest linux_tests -q` → 302 passed, 6 skipped. **Non verificato**: trascrizione/Demucs reali (GPU/modelli).
+
 ## 2026-10-23 · PR 4 — core/translator.py (`tl_*`) e core/llm_subtitle_translator/{engine,translator}.py (`le_*`, `lt_*`)
 
 **Fatto**: 84 punti in translator.py (76 `log(...)`, 7 eccezioni/`error_msg` mostrate all'utente, etichette dei contatori dell'audit), 7 in engine.py, 7 in llm translator.py (5 automatici + riga "Completato in..." con concatenazione, a mano).
