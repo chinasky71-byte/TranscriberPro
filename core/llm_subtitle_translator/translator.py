@@ -28,6 +28,7 @@ from . import postprocess
 from .postprocess import DASH_PREFIX
 from .prompt_builder import SubtitleUnit, build_mt_messages
 from .validator import blocking, validate
+from utils.translations import tr
 
 logger = setup_logger(__name__)
 
@@ -220,9 +221,7 @@ class SubtitleLLMTranslator:
                 # schermo ne esce UNA per file; le altre restano nel file di log e il numero
                 # totale compare nella riga "Completato in ...".
                 self._slow_events = getattr(self, "_slow_events", 0) + 1
-                msg = (f"  ⚠️ Generazione rallentata {ms_per_char / base:.1f}× "
-                       f"rispetto al ritmo migliore di questo file. Di solito "
-                       f"significa che un altro processo sta usando la GPU.")
+                msg = (tr('lt_generation_slowed_down_compared_to').format(ratio=ms_per_char / base))
                 if self._slow_events == 1:
                     self.log(msg)
                 else:
@@ -317,8 +316,7 @@ class SubtitleLLMTranslator:
             durata = f"{m}m {sec:02d}s" if m else f"{sec}s"
             from utils.events import emit as _tp_emit
             _tp_emit('bar', phase='translate', pct=100)
-            self.log(f"  ✅ Traduzione: [██████████] 100% "
-                     f"({totale}/{totale}) │ {durata}")
+            self.log(tr('lt_translation_100').format(total=totale, duration=durata))
             return
         pct = int(fatti * 100 / totale) if totale else 0
         pieni = pct // 10
@@ -332,8 +330,7 @@ class SubtitleLLMTranslator:
             coda = f" │ ~{m}m" if m else f" │ ~{int(manca)}s"
         from utils.events import emit as _tp_emit
         _tp_emit('bar', phase='translate', pct=pct, eta_s=eta_s)   # ETA del motore: la card la mostra uguale al log
-        self.log(f"  🌐 Traduzione: [{barra}] {pct:3d}% ({fatti}/{totale}) "
-                 f"│ batch:{self.batch_size}{coda}")
+        self.log(tr('lt_translation_batch').format(bar=barra, pct=pct, done=fatti, total=totale, batch_size=self.batch_size, tail=coda))
 
     def _record(self, issues) -> None:
         for issue in issues:
@@ -469,8 +466,7 @@ class SubtitleLLMTranslator:
             # (firma intermedia), poi anche il budget.
             if src != "en" and not getattr(self, "_warned_src_drop", False):
                 self._warned_src_drop = True
-                self.log(f"  ⚠️ Il motore non accetta src_lang: lingua "
-                         f"'{src}' ignorata, prompt con 'en'")
+                self.log(tr('lt_the_engine_does_not_accept').format(src=src))
             try:
                 return builder(unit.text, budget=unit.budget)
             except TypeError:
@@ -610,13 +606,11 @@ class SubtitleLLMTranslator:
 
         self._bar(total, total, t0, chiuso=True)
         if getattr(self, "_quiet_bar", False):
-            self.log(f"  Recupero senza mascheramento: {total} blocchi in "
-                     f"{(time.time() - t0) / 60:.1f} min")
+            self.log(tr('lt_recovery_without_masking_blocks_in').format(total=total, minutes=(time.time() - t0) / 60))
         else:
             _slow_n = getattr(self, "_slow_events", 0)
-            self.log(f"  Completato in {(time.time() - t0) / 60:.1f} min | "
-                     f"batch {self.stats['batch']} | retry "
-                     f"{self.stats['retry_single']} | fallback "
-                     f"{self.stats['fallback_blocks']}"
-                     + (f" | rallentamenti {_slow_n}" if _slow_n > 1 else ""))
+            self.log(tr('lt_completed_in_min_batch_retry_fallback').format(
+                         minutes=(time.time() - t0) / 60, batch=self.stats['batch'],
+                         retry=self.stats['retry_single'], fallback=self.stats['fallback_blocks'])
+                     + (tr('lt_slowdowns_suffix').format(n=_slow_n) if _slow_n > 1 else ""))
         return results

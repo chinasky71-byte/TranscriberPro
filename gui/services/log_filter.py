@@ -38,7 +38,7 @@ FILE_ONLY_RE = re.compile("|".join([
     r"🛡️ Pipeline: ROBUST PATH", r"🛡️ Chunking robusto", r"📏 Overlap",
     r"🔗 Merge chunks", r"📂 Caricamento audio", r"🎬 Audio: ",
     r"\w+Engine unload completato",
-    r"Batch LLM \d+ → \d+", r"Recupero senza mascheramento",
+    r"Batch LLM \d+ → \d+", *[re.escape(t) for t in all_texts('logm_noise_recovery')],
     *[re.escape(t) for t in all_texts('logm_model_line')],
 ]))
 

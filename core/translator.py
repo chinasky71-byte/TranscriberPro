@@ -76,6 +76,7 @@ except ImportError:
 # non compariva mai fra i logger attivi nel file). setup_logger attacca
 # l'handler-file condiviso al NOME passato, logging.getLogger no.
 from utils.logger import setup_logger
+from utils.translations import tr
 logger = setup_logger(__name__)
 
 # --- MODIFICA v5.2: Importa get_config per caricare il token ---
@@ -577,13 +578,11 @@ class BaseTranslator(ABC):
         flagged = self._audit_untranslated(output_blocks, source_blocks, skip_ids)
         if counters:
             parts = " | ".join(f"{k}: {v}" for k, v in counters.items())
-            self.log(f"  Traduzione completata | {parts} | "
-                     f"lingua di partenza residua: {len(flagged)}")
+            self.log(tr('tl_translation_completed_residual_source_language').format(parts=parts, n=len(flagged)))
         if flagged:
             preview = ', '.join(str(i) for i in flagged[:15])
             more = f" (+{len(flagged) - 15} altri)" if len(flagged) > 15 else ""
-            self.log(f"  ⚠️ ATTENZIONE: {len(flagged)} blocchi risultano "
-                     f"ancora nella lingua di partenza: {preview}{more}")
+            self.log(tr('tl_warning_blocks_are_still_in').format(n=len(flagged), preview=preview, more=more))
         return flagged
 
     def _apply_glossary_posthoc(self, italian: str, source_en: str) -> str:
@@ -816,7 +815,7 @@ class BaseTranslator(ABC):
                     for d, t in zip(lines_payload, out)}
         except Exception as exc:
             logger.error(f"Serbatoio NLLB fallito: {exc}", exc_info=True)
-            self.log(f"  ⚠️ Serbatoio (NLLB) fallito: {exc}")
+            self.log(tr('tl_reservoir_nllb_failed').format(exc=exc))
             return {}
         finally:
             try:
@@ -860,11 +859,10 @@ class BaseTranslator(ABC):
                 model_path, n_gpu_layers = _get_cfg().get_fallback_translator_model(
                     getattr(self, 'llm_model_preference', None))
             except Exception as exc:
-                self.log(f"  ⚠️ Serbatoio non disponibile (config): {exc}")
+                self.log(tr('tl_reservoir_not_available_config').format(exc=exc))
                 return {}
             if not model_path or not Path(model_path).exists():
-                self.log("  ⚠️ Serbatoio non disponibile: nessun modello di "
-                         "ripiego configurato o percorso inesistente")
+                self.log(tr('tl_reservoir_not_available_no_fallback'))
                 return {}
 
         # Deduplica: gruppo = stesso testo normalizzato. Rappresentante = id
@@ -890,9 +888,7 @@ class BaseTranslator(ABC):
 
         # --- ramo NLLB fine-tuned: in processo, nessun subprocess ---------
         if engine_choice == 'nllb_ft':
-            self.log(f"  {len(lines_payload)} frasi distinte ({len(pending)} "
-                     f"blocchi) al serbatoio — scarico il modello primario e "
-                     f"carico NLLB fine-tuned")
+            self.log(tr('tl_distinct_sentences_blocks_to_the').format(n=len(lines_payload), n_2=len(pending)))
             try:
                 self.cleanup()
             except Exception as exc:
@@ -919,9 +915,7 @@ class BaseTranslator(ABC):
             env['PYTHONIOENCODING'] = 'utf-8'
             env['PYTHONUTF8'] = '1'
 
-            self.log(f"  {len(lines_payload)} frasi distinte ({len(pending)} "
-                     f"blocchi) al serbatoio — scarico il modello primario e "
-                     f"carico il ripiego")
+            self.log(tr('tl_distinct_sentences_blocks_to_the_2').format(n=len(lines_payload), n_2=len(pending)))
             try:
                 self.cleanup()
             except Exception as exc:
@@ -947,7 +941,7 @@ class BaseTranslator(ABC):
                     [sys.executable, "-m", "core.fallback_translate_cli",
                      str(args_path)], **popen_kwargs)
             except Exception as exc:
-                self.log(f"  ⚠️ Avvio serbatoio fallito: {exc}")
+                self.log(tr('tl_reservoir_start_failed').format(exc=exc))
                 return {}
 
             def _drain_stderr(stream):
@@ -972,8 +966,7 @@ class BaseTranslator(ABC):
             try:
                 return_code = proc.wait(timeout=self.RESERVOIR_TIMEOUT_S)
             except subprocess.TimeoutExpired:
-                self.log(f"  ⚠️ Serbatoio oltre "
-                         f"{self.RESERVOIR_TIMEOUT_S}s: lo termino")
+                self.log(tr('tl_reservoir_exceeded_s_terminating_it').format(RESERVOIR_TIMEOUT_S=self.RESERVOIR_TIMEOUT_S))
                 try:
                     proc.kill()
                     proc.wait(timeout=30)
@@ -982,7 +975,7 @@ class BaseTranslator(ABC):
                 return {}
 
             if return_code != 0 or not output_path.exists():
-                self.log(f"  ⚠️ Serbatoio fallito (exit {return_code})")
+                self.log(tr('tl_reservoir_failed_exit').format(return_code=return_code))
                 return {}
 
             raw = json.loads(output_path.read_text(encoding='utf-8'))
@@ -1163,8 +1156,7 @@ def _load_nllb_ft_model():
 
             if not model_path:
                 raise ValueError(
-                    "Path modello NLLB fine-tuned non configurata. "
-                    "Impostala in: Modelli → NLLB Fine-Tuned (Plex)"
+                    tr('tl_fine_tuned_nllb_model_path')
                 )
 
             try:
@@ -1524,10 +1516,7 @@ class NLLBTranslator(BaseTranslator):
                     and not getattr(self, '_slow_warned', False)):
                 self._slow_warned = True
                 self.log(
-                    f"  ⚠️ Traduzione rallentata {ms_per_token / base:.1f}× rispetto al "
-                    f"ritmo migliore di questo file ({ms_per_token:.1f} contro "
-                    f"{base:.1f} ms/token). Di solito significa che un altro processo "
-                    f"sta usando la GPU."
+                    tr('tl_translation_slowed_down_compared_to').format(ratio=ms_per_token / base, ms_per_token=ms_per_token, base=base)
                 )
         except Exception as exc:
             logger.debug(f"_check_throughput: {exc}")
@@ -1606,7 +1595,7 @@ class NLLBTranslator(BaseTranslator):
                 if self.batch_manager.current_batch_size > self.MIN_BATCH_SIZE or self.current_batch_size > self.MIN_BATCH_SIZE:
                     raise Exception("Out of Memory - Batch Size Ridotto")
                 else:
-                    self.log(f"   OPS! OOM critico con batch_size=1. Memoria GPU insufficiente.")
+                    self.log(tr('tl_oops_critical_oom_with_batch'))
                     raise Exception("Out of Memory - GPU Memoria Insufficiente")
             else:
                 raise
@@ -1641,19 +1630,18 @@ class NLLBTranslator(BaseTranslator):
             model_label = 'FT' if isinstance(self, NLLBFineTunedTranslator) else 'base'
             load_mode = 'fp16' if (self.use_gpu and torch.cuda.mem_get_info()[0] / 1024**3 >= 7.0) else '8-bit'
             num_beams = get_config().get_nllb_num_beams()
-            self.log(f"  🌐 Traduzione NLLB ({model_label}, {load_mode}): {src_lang} → {tgt_lang} | beams:{num_beams}")
+            self.log(tr('tl_nllb_translation_beams').format(model_label=model_label, load_mode=load_mode, src_lang=src_lang, tgt_lang=tgt_lang, num_beams=num_beams))
 
             if self._prepared_context:
                 # Non "attivo": ricevuto e ignorato di proposito. Vedi la nota
                 # in `_run_translation`.
-                self.log("  📖 Contesto dell'opera ricevuto — NLLB non lo usa "
-                         "(traduce segmento per segmento)")
+                self.log(tr('tl_work_context_received_nllb_does'))
 
             src_nllb = self._nllb_to_iso(src_lang)
             tgt_nllb = self._nllb_to_iso(tgt_lang)
 
             if not src_nllb or not tgt_nllb:
-                self.log(f"  ❌ Codice lingua non supportato: {src_lang} o {tgt_lang}")
+                self.log(tr('tl_unsupported_language_code_or').format(src_lang=src_lang, tgt_lang=tgt_lang))
                 return False
 
             parsed_subtitles, dash_flags = self._extract_dash_flags(
@@ -1677,12 +1665,12 @@ class NLLBTranslator(BaseTranslator):
             n_repaired = 0
 
             if total == 0:
-                self.log("  File SRT vuoto o parsing fallito")
+                self.log(tr('tl_srt_file_empty_or_parsing'))
                 with open(output_path, 'w', encoding='utf-8') as f:
                     f.write("")
                 return True
 
-            self.log(f"  📋 Trovati {total} sottotitoli da tradurre")
+            self.log(tr('tl_found_subtitles_to_translate').format(total=total))
 
             self.batch_manager.reset()
             self.current_batch_size = self.batch_manager.current_batch_size
@@ -1723,7 +1711,7 @@ class NLLBTranslator(BaseTranslator):
                         _eta_tr = EtaEstimator()
                     _eta_txt = _eta_tr.update(i / total)
                     _tp_emit('bar', phase='translate', pct=progress, eta_s=_eta_tr.eta_seconds())
-                    self.log(f"  🌐 Traduzione: [{bar}] {progress:3d}% ({i}/{total}) │ batch:{bs}{_eta_txt}")
+                    self.log(tr('tl_translation_batch').format(bar=bar, progress=progress, i=i, total=total, bs=bs, eta_txt=_eta_txt))
                     last_progress = progress
 
                 retries = 0
@@ -1787,7 +1775,7 @@ class NLLBTranslator(BaseTranslator):
                                         if can_queue:
                                             recovery_queue[index] = unit_original
                                         else:
-                                            self.log(f"   ATTENZIONE: Rilevata allucinazione per riga {index}. Mantengo originale.")
+                                            self.log(tr('tl_warning_hallucination_detected_for_line').format(index=index))
                                         unit_result = unit_original
                                     else:
                                         unit_result, unmask_ok, rip = self._unmask_tolerant(
@@ -1802,9 +1790,7 @@ class NLLBTranslator(BaseTranslator):
                                             if can_queue:
                                                 recovery_queue[index] = unit_original
                                             else:
-                                                self.log(f"   ATTENZIONE: placeholder di "
-                                                        f"mascheramento non riprodotto per "
-                                                        f"riga {index}. Mantengo originale.")
+                                                self.log(tr('tl_warning_masking_placeholder_not_reproduced').format(index=index))
                                             unit_result = unit_original
 
                                     translated_index += 1
@@ -1813,7 +1799,7 @@ class NLLBTranslator(BaseTranslator):
                                     if can_queue:
                                         recovery_queue[index] = unit_original
                                     else:
-                                        self.log(f"   ATTENZIONE: Nessun output NLLB per riga {index}. Mantengo originale.")
+                                        self.log(tr('tl_warning_no_nllb_output_for').format(index=index))
                                     unit_result = unit_original
 
                             partial_results.setdefault(batch_j, {})[line_idx] = unit_result
@@ -1840,7 +1826,7 @@ class NLLBTranslator(BaseTranslator):
                         retries += 1
 
                         if 'Out of Memory - Batch Size Ridotto' in str(e):
-                            self.log(f"   Retry #{retries}/{max_retries_per_batch} con batch size ridotto...")
+                            self.log(tr('tl_retry_with_reduced_batch_size').format(retries=retries, max_retries_per_batch=max_retries_per_batch))
                             self.current_batch_size = self.batch_manager.current_batch_size
                             batch = parsed_subtitles[i:i + self.current_batch_size]
                             (unit_specs, texts_to_translate, current_batch_placeholders,
@@ -1848,7 +1834,7 @@ class NLLBTranslator(BaseTranslator):
                                 batch, dash_flags)
 
                         elif 'Out of Memory - GPU Memoria Insufficiente' in str(e):
-                            self.log(f" ERRORE CRITICO: GPU memoria insufficiente. Batch saltato.")
+                            self.log(tr('tl_critical_error_insufficient_gpu_memory'))
                             for item in batch:
                                 translated_subtitles.append(item)
                             is_first_batch = False
@@ -1857,7 +1843,7 @@ class NLLBTranslator(BaseTranslator):
                             break
 
                         else:
-                            self.log(f" Errore sconosciuto nel batch ({str(e)[:100]}). Batch saltato.")
+                            self.log(tr('tl_unknown_error_in_the_batch').format(error=str(e)[:100]))
                             for item in batch:
                                 translated_subtitles.append(item)
                             is_first_batch = False
@@ -1866,7 +1852,7 @@ class NLLBTranslator(BaseTranslator):
                             break
 
                 if not batch_success and not batch_emitted:
-                    self.log(f" Batch fallito dopo {max_retries_per_batch} tentativi. Mantengo originali.")
+                    self.log(tr('tl_batch_failed_after_attempts_keeping').format(max_retries_per_batch=max_retries_per_batch))
                     for item in batch:
                         translated_subtitles.append(item)
                     is_first_batch = False
@@ -1877,7 +1863,7 @@ class NLLBTranslator(BaseTranslator):
             time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
             from utils.events import emit as _tp_emit
             _tp_emit('bar', phase='translate', pct=100)
-            self.log(f"  ✅ Traduzione: [██████████] 100% ({total}/{total}) │ {time_str}")
+            self.log(tr('tl_translation_100').format(total=total, time_str=time_str))
 
             self.batch_manager.log_summary()
 
@@ -1889,8 +1875,7 @@ class NLLBTranslator(BaseTranslator):
             n_l2 = n_l3 = 0
             confirmed_identical: Dict[int, str] = {}
             if recovery_queue:
-                self.log(f"  {len(recovery_queue)} blocchi da recuperare — "
-                         f"ritento senza mascheramento")
+                self.log(tr('tl_blocks_to_recover_retrying_without').format(n=len(recovery_queue)))
                 try:
                     idx_list = list(recovery_queue.keys())
                     raw_results = self._run_translation(
@@ -1921,9 +1906,7 @@ class NLLBTranslator(BaseTranslator):
                     n_l2 += 1
 
                 if confirmed_identical:
-                    self.log(f"  {len(confirmed_identical)} blocchi confermati "
-                             f"identici alla lingua di partenza da due tentativi "
-                             f"indipendenti — non vanno al serbatoio")
+                    self.log(tr('tl_blocks_confirmed_identical_to_the').format(n=len(confirmed_identical)))
 
             # ------------------------------------------------------------
             # L3 — serbatoio, un solo swap di modello per ciò che resta.
@@ -1931,9 +1914,7 @@ class NLLBTranslator(BaseTranslator):
             if recovery_queue:
                 total_for_alarm = max(1, total)
                 if len(recovery_queue) > total_for_alarm * 0.10:
-                    self.log(f"  ⚠️ ATTENZIONE: {len(recovery_queue)}/{total_for_alarm} "
-                             f"blocchi al serbatoio (oltre il 10%) — più "
-                             f"probabile un guasto sistemico che blocchi isolati")
+                    self.log(tr('tl_warning_blocks_to_the_reservoir').format(n=len(recovery_queue), total_for_alarm=total_for_alarm))
                 for i, text in self._reservoir_translate(dict(recovery_queue)).items():
                     pos = pos_by_index.get(i)
                     if pos is not None:
@@ -1945,8 +1926,7 @@ class NLLBTranslator(BaseTranslator):
             # L4 — ciò che resta in `recovery_queue` è già rimasto invariato
             # (inglese) in `translated_subtitles`: si segnala ad alta voce.
             for i in recovery_queue:
-                self.log(f"   ⚠️ ATTENZIONE: blocco {i} non tradotto, "
-                         f"resta nella lingua di partenza: «{recovery_queue[i][:60]}»")
+                self.log(tr('tl_warning_block_not_translated_stays').format(i=i, text=recovery_queue[i][:60]))
 
             srt_content = self._generate_srt(translated_subtitles, dash_flags)
             with open(output_path, 'w', encoding='utf-8') as f:
@@ -1955,14 +1935,14 @@ class NLLBTranslator(BaseTranslator):
             self._log_audit(
                 {idx: text for idx, _, _, text in translated_subtitles},
                 originals_by_index,
-                counters={"riparati L1": n_repaired, "recuperati L2": n_l2,
-                         "serbatoio L3": n_l3,
-                         "identici confermati": len(confirmed_identical)})
+                counters={tr('tl_counter_repaired_l1'): n_repaired, tr('tl_counter_recovered_l2'): n_l2,
+                         tr('tl_counter_reservoir_l3'): n_l3,
+                         tr('tl_counter_confirmed_identical'): len(confirmed_identical)})
 
             return True
             
         except Exception as e:
-            error_msg = f" ❌ Errore traduzione file {output_path.name}: {e}"
+            error_msg = tr('tl_file_translation_error').format(name=output_path.name, e=e)
             self.log(error_msg)
             logger.error(error_msg, exc_info=True)
             return False
@@ -1980,7 +1960,7 @@ class NLLBTranslator(BaseTranslator):
             self.tokenizer = None
             self.device = None
             _unload_nllb_singleton()
-            self.log("  ✅ Modello NLLB scaricato dalla VRAM")
+            self.log(tr('tl_nllb_model_unloaded_from_vram'))
         except Exception as e:
             logger.error(f"Errore durante cleanup NLLB: {e}")
             logger.error(f" ❌ Errore durante cleanup GPU: {e}")
@@ -2195,9 +2175,9 @@ class LLMSubtitleTranslator(BaseTranslator):
         if not p:
             return None
         if not os.path.isdir(p):
-            self.log(f"  adattatore non trovato, uso il modello base: {p}")
+            self.log(tr('tl_adapter_not_found_using_the').format(p=p))
             return None
-        self.log(f"  adattatore LoRA: {os.path.basename(p.rstrip(os.sep))}")
+        self.log(tr('tl_lora_adapter').format(basename=os.path.basename(p.rstrip(os.sep))))
         return p
 
     def _configured_model_path(self):
@@ -2216,7 +2196,7 @@ class LLMSubtitleTranslator(BaseTranslator):
         if not p:
             return None
         if not os.path.isdir(p):
-            self.log(f"  cartella modello non trovata, uso il default: {p}")
+            self.log(tr('tl_model_folder_not_found_using').format(p=p))
             return None
         return p
 
@@ -2258,22 +2238,21 @@ class LLMSubtitleTranslator(BaseTranslator):
             src = self._lang_to_iso(src_lang)
             tgt = self._lang_to_iso(tgt_lang)
             if not src or not tgt:
-                self.log(f" Codice lingua non supportato: {src_lang}/{tgt_lang}")
+                self.log(tr('tl_unsupported_language_code').format(src_lang=src_lang, tgt_lang=tgt_lang))
                 return False
             if tgt != 'it':
-                self.log(f" Questo motore produce solo italiano, non '{tgt}'")
+                self.log(tr('tl_this_engine_only_produces_italian').format(tgt=tgt))
                 return False
 
             subtitles = self._parse_srt(input_path)
             total = len(subtitles)
             if total == 0:
-                self.log("  File SRT vuoto o parsing fallito")
+                self.log(tr('tl_srt_file_empty_or_parsing'))
                 output_path.write_text("", encoding='utf-8')
                 return True
 
-            self.log(f" Adattamento sottotitoli {src} → {tgt} "
-                     f"({self._model_key})")
-            self.log(f"  Trovati {total} sottotitoli")
+            self.log(tr('tl_subtitle_adaptation').format(src=src, tgt=tgt, model_key=self._model_key))
+            self.log(tr('tl_found_subtitles').format(total=total))
 
             # I placeholder proteggono le note musicali dal modello, e allo
             # stesso modo i termini di glossario (resa italiana fissa).
@@ -2317,10 +2296,9 @@ class LLMSubtitleTranslator(BaseTranslator):
             _richiesta = getattr(self, 'source_label', self.SOURCE_LABEL)
             label = self._resolve_source_label(src, _richiesta)
             if _richiesta not in (None, 'auto') and label != _richiesta:
-                self.log(f"  ⚠️ Etichetta lingua sorgente '{_richiesta}' non "
-                         f"valida: uso '{label}'")
+                self.log(tr('tl_invalid_source_language_label_using').format(requested=_richiesta, label=label))
             if label != 'en':
-                self.log(f"  Lingua sorgente nel prompt: {label}")
+                self.log(tr('tl_source_language_in_the_prompt').format(label=label))
             translator = SubtitleLLMTranslator(
                 engine=engine,
                 fallback=None,   # il ripiego passa dalle fasi B/C sotto
@@ -2368,8 +2346,7 @@ class LLMSubtitleTranslator(BaseTranslator):
             n_l2 = 0
             confirmed_identical: Dict[int, str] = {}
             if pending:
-                self.log(f"  {len(pending)} blocchi da recuperare — "
-                         f"ritento senza mascheramento")
+                self.log(tr('tl_blocks_to_recover_retrying_without').format(n=len(pending)))
                 unit_by_id = {u.id: u for u in units}
                 retry_units = [
                     SubtitleUnit(
@@ -2434,9 +2411,7 @@ class LLMSubtitleTranslator(BaseTranslator):
                     n_l2 += 1
 
                 if confirmed_identical:
-                    self.log(f"  {len(confirmed_identical)} blocchi confermati "
-                             f"identici alla lingua di partenza da due tentativi "
-                             f"indipendenti — non vanno al serbatoio")
+                    self.log(tr('tl_blocks_confirmed_identical_to_the').format(n=len(confirmed_identical)))
 
             # ------------------------------------------------------------
             # FASE C — L3: serbatoio, un solo swap di modello per tutto ciò
@@ -2446,11 +2421,7 @@ class LLMSubtitleTranslator(BaseTranslator):
             if pending:
                 total_units = max(1, len(units))
                 if len(pending) > total_units * 0.10:
-                    self.log(f"  ⚠️ ATTENZIONE: {len(pending)}/{total_units} "
-                             f"blocchi al serbatoio (oltre il 10%) — più "
-                             f"probabile un guasto sistemico (glossario, "
-                             f"lingua sorgente, modello degenerato) che "
-                             f"blocchi isolati")
+                    self.log(tr('tl_warning_blocks_to_the_reservoir_2').format(n=len(pending), total_units=total_units))
                 for idx, text in self._reservoir_translate(dict(pending)).items():
                     resolved[idx] = text
                     del pending[idx]
@@ -2464,8 +2435,7 @@ class LLMSubtitleTranslator(BaseTranslator):
             # su file, vedi il fix del logger sopra).
             # ------------------------------------------------------------
             for idx in pending:
-                self.log(f"   ⚠️ ATTENZIONE: blocco {idx} non tradotto, "
-                         f"resta nella lingua di partenza: «{originals[idx][:60]}»")
+                self.log(tr('tl_warning_block_not_translated_stays_2').format(idx=idx, text=originals[idx][:60]))
                 resolved[idx] = originals[idx]
 
             output = []
@@ -2478,20 +2448,20 @@ class LLMSubtitleTranslator(BaseTranslator):
 
             output_path.write_text(self._generate_srt(output),
                                    encoding='utf-8')
-            self.log(f"  Sottotitoli scritti: {output_path.name}")
+            self.log(tr('tl_subtitles_written').format(name=output_path.name))
 
             self._log_audit(
                 {i: t for i, _, _, t in output}, originals,
                 skip_ids=passthrough.keys(),
-                counters={"riparati L1": n_repaired, "recuperati L2": n_l2,
-                         "serbatoio L3": n_l3,
-                         "identici confermati": len(confirmed_identical)})
+                counters={tr('tl_counter_repaired_l1'): n_repaired, tr('tl_counter_recovered_l2'): n_l2,
+                         tr('tl_counter_reservoir_l3'): n_l3,
+                         tr('tl_counter_confirmed_identical'): len(confirmed_identical)})
 
             return True
 
         except Exception as exc:
             logger.error(f"Errore nella traduzione LLM: {exc}", exc_info=True)
-            self.log(f"  Errore: {exc}")
+            self.log(tr('tl_error').format(exc=exc))
             return False
 
     def cleanup(self):
@@ -2570,13 +2540,13 @@ class ClaudeTranslator(BaseTranslator):
         super().__init__(log_callback, context)
         
         if not ANTHROPIC_AVAILABLE:
-            raise ImportError("Libreria 'anthropic' non disponibile. Installare con: pip install anthropic")
+            raise ImportError(tr('tl_library_anthropic_not_available_install'))
         
         if api_key is None:
             api_key = self._load_api_key()
         
         if not api_key:
-            raise ValueError("API key Claude non trovata. Configurare in Settings.")
+            raise ValueError(tr('tl_claude_api_key_not_found'))
         
         self.client = Anthropic(api_key=api_key)
         self.api_key = api_key
@@ -2584,7 +2554,7 @@ class ClaudeTranslator(BaseTranslator):
         self.total_tokens_input = 0
         self.total_tokens_output = 0
         
-        self.log(f"Claude API Translator inizializzato (Modello: {self.MODEL})")
+        self.log(tr('tl_claude_api_translator_initialized_model').format(MODEL=self.MODEL))
     
     def _load_api_key(self) -> Optional[str]:
         try:
@@ -2747,14 +2717,14 @@ OUTPUT: Return ONLY numbered translations (1., 2., 3., etc.). Nothing else. No q
                 # Valida che la risposta sia una traduzione e non domande
                 if not self._is_valid_translation(response_text):
                     if attempt < self.MAX_RETRIES - 1:
-                        self.log(f"   ⚠️ Claude ha fatto domande invece di tradurre, riprovo con prompt più chiaro...")
+                        self.log(tr('tl_claude_asked_questions_instead_of'))
                         # Prompt ancora più aggressivo per il retry
                         prompt = self._create_aggressive_translation_prompt(subtitles_batch, tgt_lang, context)
                         time.sleep(self.RETRY_DELAY_BASE)
                         continue
                     else:
                         # Ultimo tentativo fallito, usa sottotitoli originali come fallback
-                        self.log(f"   ⚠️ Claude continua a fare domande, uso sottotitoli originali per questo batch")
+                        self.log(tr('tl_claude_keeps_asking_questions_using'))
                         return subtitles_batch
                 
                 return self._parse_claude_response(response_text, len(subtitles_batch))
@@ -2762,7 +2732,7 @@ OUTPUT: Return ONLY numbered translations (1., 2., 3., etc.). Nothing else. No q
             except RateLimitError:
                 if attempt < self.MAX_RETRIES - 1:
                     delay = self.RETRY_DELAY_BASE * (2 ** attempt)
-                    self.log(f"⏳ Rate limit API, attesa {delay}s...")
+                    self.log(tr('tl_api_rate_limit_waiting_s').format(delay=delay))
                     time.sleep(delay)
                 else:
                     raise
@@ -2773,7 +2743,7 @@ OUTPUT: Return ONLY numbered translations (1., 2., 3., etc.). Nothing else. No q
                 else:
                     raise
         
-        raise RuntimeError(f"Traduzione fallita dopo {self.MAX_RETRIES} tentativi")
+        raise RuntimeError(tr('tl_translation_failed_after_attempts').format(MAX_RETRIES=self.MAX_RETRIES))
     
     def translate_file(self, input_path: Path, output_path: Path, 
                       src_lang: str, tgt_lang: str, context: Optional[str] = None) -> bool:
@@ -2790,17 +2760,17 @@ OUTPUT: Return ONLY numbered translations (1., 2., 3., etc.). Nothing else. No q
             total = len(subtitles)
             
             if total == 0:
-                self.log(f"⚠️ File vuoto: {input_path.name}")
+                self.log(tr('tl_empty_file').format(name=input_path.name))
                 return False
             
             src_lang_name = self._get_language_name(src_lang)
             tgt_lang_name = self._get_language_name(tgt_lang)
             translation_context = context if context else self.context
             
-            self.log(f"📝 Traduzione: {input_path.name}")
-            self.log(f"   {src_lang_name} → {tgt_lang_name} | Sottotitoli: {total}")
+            self.log(tr('tl_translation').format(name=input_path.name))
+            self.log(tr('tl_subtitles').format(src_lang_name=src_lang_name, tgt_lang_name=tgt_lang_name, total=total))
             if translation_context:
-                self.log(f"   Contesto TMDB: ✓")
+                self.log(tr('tl_tmdb_context'))
             
             self.total_api_calls = 0
             self.total_tokens_input = 0
@@ -2824,7 +2794,7 @@ OUTPUT: Return ONLY numbered translations (1., 2., 3., etc.). Nothing else. No q
                         _eta_tr = EtaEstimator()
                     _eta_txt = _eta_tr.update(i / total)
                     _tp_emit('bar', phase='translate', pct=progress, eta_s=_eta_tr.eta_seconds())
-                    self.log(f"   Progresso: {progress}% ({i}/{total}){_eta_txt}")
+                    self.log(tr('tl_progress').format(progress=progress, i=i, total=total, eta_txt=_eta_txt))
                     last_progress = progress
 
                 try:
@@ -2838,30 +2808,30 @@ OUTPUT: Return ONLY numbered translations (1., 2., 3., etc.). Nothing else. No q
                     
                 except Exception as e:
                     logger.error(f"Errore batch {i}-{batch_end}: {e}")
-                    self.log(f"⚠️ Errore batch, uso originale")
+                    self.log(tr('tl_batch_error_using_the_original'))
                     translated_subtitles.extend(batch)
                 
                 i = batch_end
 
             from utils.events import emit as _tp_emit
             _tp_emit('bar', phase='translate', pct=100)
-            self.log(f"   Progresso: 100% ({total}/{total})")
+            self.log(tr('tl_progress_100').format(total=total))
             srt_content = self._generate_srt(translated_subtitles, dash_flags)
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(srt_content)
 
-            self.log(f"✅ Completato: {output_path.name}")
-            self.log(f"   API calls: {self.total_api_calls} | Tokens: {self.total_tokens_input:,} in, {self.total_tokens_output:,} out")
+            self.log(tr('tl_completed').format(name=output_path.name))
+            self.log(tr('tl_api_calls_tokens_in_out').format(total_api_calls=self.total_api_calls, total_tokens_input=self.total_tokens_input, total_tokens_output=self.total_tokens_output))
             
             return True
             
         except Exception as e:
-            self.log(f"❌ Errore: {e}")
+            self.log(tr('tl_error_2').format(e=e))
             logger.error(f"Errore traduzione: {e}", exc_info=True)
             return False
     
     def cleanup(self):
-        self.log(f"📊 Sessione Claude: {self.total_api_calls} calls, {self.total_tokens_input:,} + {self.total_tokens_output:,} tokens")
+        self.log(tr('tl_claude_session_calls_tokens').format(total_api_calls=self.total_api_calls, total_tokens_input=self.total_tokens_input, total_tokens_output=self.total_tokens_output))
 
 
 # ============================================================================
@@ -2918,7 +2888,7 @@ class NLLBFineTunedTranslator(NLLBTranslator):
             self.device = None
             self.batch_manager = None
             _unload_nllb_ft_singleton()
-            self.log("  ✅ Modello NLLB fine-tuned scaricato dalla VRAM")
+            self.log(tr('tl_fine_tuned_nllb_model_unloaded'))
         except Exception as e:
             logger.error(f"Errore durante cleanup NLLB FT: {e}")
 
@@ -2950,17 +2920,17 @@ class OpenAITranslator(BaseTranslator):
     def __init__(self, api_key=None, model=None, log_callback=None, context=None):
         super().__init__(log_callback, context)
         if not OPENAI_AVAILABLE:
-            raise ImportError("Libreria 'openai' non disponibile. Installare con: pip install openai")
+            raise ImportError(tr('tl_library_openai_not_available_install'))
         if api_key is None:
             api_key = self._load_api_key()
         if not api_key:
-            raise ValueError("OpenAI API key non trovata. Configurare in Settings.")
+            raise ValueError(tr('tl_openai_api_key_not_found'))
         self.client = OpenAIClient(api_key=api_key)
         self.model = model or self._load_model()
         self.total_calls = 0
         self.total_tokens_in = 0
         self.total_tokens_out = 0
-        self.log(f"OpenAI Translator inizializzato (Modello: {self.model})")
+        self.log(tr('tl_openai_translator_initialized_model').format(model=self.model))
 
     def _load_api_key(self):
         try:
@@ -3057,7 +3027,7 @@ Provide translations as a numbered list matching the input format exactly. DO NO
             except OpenAIRateLimitError:
                 if attempt < self.MAX_RETRIES - 1:
                     delay = self.RETRY_DELAY_BASE * (2 ** attempt)
-                    self.log(f"\u23f3 Rate limit API, attesa {delay}s...")
+                    self.log(tr('tl_api_rate_limit_waiting_s').format(delay=delay))
                     time.sleep(delay)
                 else:
                     raise
@@ -3067,7 +3037,7 @@ Provide translations as a numbered list matching the input format exactly. DO NO
                 else:
                     raise
 
-        raise RuntimeError(f"Traduzione fallita dopo {self.MAX_RETRIES} tentativi")
+        raise RuntimeError(tr('tl_translation_failed_after_attempts').format(MAX_RETRIES=self.MAX_RETRIES))
 
     def translate_file(self, input_path: Path, output_path: Path,
                        src_lang: str, tgt_lang: str, context: Optional[str] = None) -> bool:
@@ -3083,17 +3053,17 @@ Provide translations as a numbered list matching the input format exactly. DO NO
             total = len(subtitles)
 
             if total == 0:
-                self.log(f"\u26a0\ufe0f File vuoto: {input_path.name}")
+                self.log(tr('tl_empty_file').format(name=input_path.name))
                 return False
 
             src_lang_name = self._get_language_name(src_lang)
             tgt_lang_name = self._get_language_name(tgt_lang)
             translation_context = context if context else self.context
 
-            self.log(f"\U0001f4dd Traduzione: {input_path.name}")
-            self.log(f"   {src_lang_name} \u2192 {tgt_lang_name} | Sottotitoli: {total}")
+            self.log(tr('tl_translation').format(name=input_path.name))
+            self.log(tr('tl_subtitles').format(src_lang_name=src_lang_name, tgt_lang_name=tgt_lang_name, total=total))
             if translation_context:
-                self.log(f"   Contesto TMDB: \u2713")
+                self.log(tr('tl_tmdb_context'))
 
             self.total_calls = 0
             self.total_tokens_in = 0
@@ -3117,7 +3087,7 @@ Provide translations as a numbered list matching the input format exactly. DO NO
                         _eta_tr = EtaEstimator()
                     _eta_txt = _eta_tr.update(i / total)
                     _tp_emit('bar', phase='translate', pct=progress, eta_s=_eta_tr.eta_seconds())
-                    self.log(f"   Progresso: {progress}% ({i}/{total}){_eta_txt}")
+                    self.log(tr('tl_progress').format(progress=progress, i=i, total=total, eta_txt=_eta_txt))
                     last_progress = progress
 
                 try:
@@ -3129,30 +3099,30 @@ Provide translations as a numbered list matching the input format exactly. DO NO
                         translated_subtitles.append((idx, start, end, translated_text))
                 except Exception as e:
                     logger.error(f"Errore batch {i}-{batch_end}: {e}")
-                    self.log(f"\u26a0\ufe0f Errore batch, uso originale")
+                    self.log(tr('tl_batch_error_using_the_original'))
                     translated_subtitles.extend(batch)
 
                 i = batch_end
 
             from utils.events import emit as _tp_emit
             _tp_emit('bar', phase='translate', pct=100)
-            self.log(f"   Progresso: 100% ({total}/{total})")
+            self.log(tr('tl_progress_100').format(total=total))
             srt_content = self._generate_srt(translated_subtitles, dash_flags)
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(srt_content)
 
-            self.log(f"\u2705 Completato: {output_path.name}")
-            self.log(f"   API calls: {self.total_calls} | Tokens: {self.total_tokens_in:,} in, {self.total_tokens_out:,} out")
+            self.log(tr('tl_completed').format(name=output_path.name))
+            self.log(tr('tl_api_calls_tokens_in_out_2').format(total_calls=self.total_calls, total_tokens_in=self.total_tokens_in, total_tokens_out=self.total_tokens_out))
 
             return True
 
         except Exception as e:
-            self.log(f"\u274c Errore: {e}")
+            self.log(tr('tl_error_2').format(e=e))
             logger.error(f"Errore traduzione OpenAI: {e}", exc_info=True)
             return False
 
     def cleanup(self):
-        self.log(f"\U0001f4ca Sessione OpenAI: {self.total_calls} calls, {self.total_tokens_in:,} + {self.total_tokens_out:,} tokens")
+        self.log(tr('tl_openai_session_calls_tokens').format(total_calls=self.total_calls, total_tokens_in=self.total_tokens_in, total_tokens_out=self.total_tokens_out))
 
 
 # ============================================================================
