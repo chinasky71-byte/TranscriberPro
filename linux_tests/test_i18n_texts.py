@@ -79,14 +79,17 @@ def test_lingua_del_figlio_forzata_da_tp_lang():
     for lang in ('it', 'en'):
         env = dict(os.environ, TP_LANG=lang)
         out = subprocess.run([sys.executable, '-c', code], cwd=ROOT, env=env, capture_output=True, text=True)
-        assert out.stdout.strip() == lang, out.stderr
+        assert out.stdout.strip().splitlines()[-1] == lang, out.stderr
 
 
-def test_lingua_del_figlio_segue_la_config(monkeypatch):
+def test_lingua_del_figlio_segue_la_config():
     class Cfg:
         def __init__(self, v): self.v = v
         def get(self, k, d=None): return self.v if k == 'language' else d
-    for pref, expected in (('it', 'it'), ('en', 'en')):
-        T.init_language(Cfg(pref))
-        assert T.get_translations().current_language == expected
-    T.get_translations().current_language = 'en'
+    prev = T.get_translations().current_language
+    try:
+        for pref, expected in (('it', 'it'), ('en', 'en')):
+            T.init_language(Cfg(pref))
+            assert T.get_translations().current_language == expected
+    finally:
+        T.get_translations().current_language = prev

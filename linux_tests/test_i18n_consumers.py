@@ -18,10 +18,8 @@ BAR = '█' * 4 + '░' * 6
 
 
 @pytest.mark.parametrize('lang', ['it', 'en'])
-@pytest.mark.parametrize('key,expected', [
-    ('logm_bar_translation', 'Translation: ['), ('logm_bar_transcription', 'Transcription: ['),
-    ('logm_bar_gender', 'Gender correction: ['), ('logm_progress', 'Progress:')])
-def test_log_filter_barre_in_entrambe_le_lingue(lang, key, expected):
+@pytest.mark.parametrize('key', ['logm_bar_translation', 'logm_bar_transcription', 'logm_bar_gender', 'logm_progress'])
+def test_log_filter_barre_in_entrambe_le_lingue(lang, key):
     line = f"  {TX[lang][key]}{BAR}] 40% (4/10)"
     d = LogFilter().decide(line)
     assert d.action == 'progress' and d.progress_key == TX[lang][key]
@@ -87,7 +85,7 @@ def test_ocr_fallito_torna_al_percorso_audio(lang):
     assert 'ocr_extract' not in fp.possible and 'asr' in fp.possible
 
 
-def test_marcatori_tutti_distinti_tra_lingue_e_non_vuoti():
+def test_marcatori_non_vuoti():
     for k in TX['en']:
         if k.startswith('logm_'):
             assert all(t.strip() for t in all_texts(k)), k
