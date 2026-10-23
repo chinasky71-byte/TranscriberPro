@@ -124,6 +124,9 @@ class SyncBatchWorker(QThread):
 
         project_root = Path(__file__).resolve().parent.parent
         env = os.environ.copy()
+        # RDNA2: HSA_OVERRIDE_GFX_VERSION=10.3.0 solo per il figlio, solo se rilevata e se l'utente non l'ha gia' impostata
+        from utils.gpu_detect import apply_subprocess_env
+        apply_subprocess_env(env)
         env['PYTHONIOENCODING'] = 'utf-8'      # NON PYTHONUTF8 (vedi ProcessingWorker: cambia il default dei nipoti)
         env['TP_SUBPROCESS'] = '1'
         env['TQDM_DISABLE'] = '1'

@@ -411,6 +411,9 @@ class ProcessingWorker(QThread):
 
         project_root = Path(__file__).resolve().parent.parent
         env = os.environ.copy()
+        # RDNA2: HSA_OVERRIDE_GFX_VERSION=10.3.0 solo per il figlio, solo se rilevata e se l'utente non l'ha gia' impostata
+        from utils.gpu_detect import apply_subprocess_env
+        apply_subprocess_env(env)
         # PYTHONIOENCODING forza gli std stream del child a UTF-8 (per emoji/accenti
         # nei messaggi). NON impostiamo PYTHONUTF8=1: attiverebbe la UTF-8 mode
         # globale, cambiando il default encoding delle subprocess ANNIDATE (ffmpeg,

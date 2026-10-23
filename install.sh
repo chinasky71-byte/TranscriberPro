@@ -14,7 +14,8 @@
 #                 cuda   come senza opzione        cpu     come --no-gpu
 #                 vulkan torch su CPU + llama-cpp-python Vulkan (glossario su GPU AMD/Intel, serve il driver Vulkan; la
 #                        trascrizione e la traduzione restano su CPU)
-#                 auto   sceglie con `utils/gpu_detect.py --backend` (cuda, vulkan o cpu; se rileva solo ROCm usa vulkan)
+#                 auto   sceglie con `utils/gpu_detect.py --backend` (cuda, vulkan o cpu; se rileva solo ROCm usa vulkan e, per una GPU AMD,
+#                        indica la famiglia: RDNA3/4 e CDNA -> suggerisce rocm; RDNA2 -> spiega l'override HSA e bf16 lento; RDNA1 e precedenti -> vulkan/cpu)
 #                 rocm   Linux + GPU AMD con ROCm 7.0: torch/torchaudio +rocm7.0 (requirements-rocm.txt), ctranslate2 ROCm (release
 #                        OpenNMT/CTranslate2), whisperx --no-deps, llama-cpp-python Vulkan. NON PROVATO SU HARDWARE AMD. Non installa ROCm
 #                        di sistema: controlla /dev/kfd, gruppi render/video e driver amdgpu e dice cosa fare. Python 3.11 o 3.12.
@@ -33,7 +34,7 @@ for a in "$@"; do
     --with-models) WITHMODELS=1 ;;
     --qwen-size=*) QWENSIZE="${a#--qwen-size=}" ;;
     --gpu-backend=*) GPUBACKEND="${a#--gpu-backend=}" ;;
-    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
     *) echo "Opzione sconosciuta: $a"; exit 2 ;;
   esac
 done
@@ -50,12 +51,33 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 # --gpu-backend: senza l'opzione non cambia nulla. 'cpu' = --no-gpu; 'vulkan' = ruote CPU di torch + llama Vulkan (NOGPU=1 e LLAMA_IDX=vulkan).
 case "$GPUBACKEND" in ''|auto|cuda|vulkan|rocm|cpu) ;; *) echo "[KO] --gpu-backend deve essere auto, cuda, vulkan, rocm o cpu"; exit 2 ;; esac
+# Famiglia AMD (RDNA1..4, CDNA) dal rilevamento: solo informazioni e consigli, mai una scelta automatica di ROCm.
+amd_hint() {   # $1 = auto | rocm
+  local out fam gfx path ovr
+  out="$(python3 "$ROOT/utils/gpu_detect.py" --amd 2>/dev/null)"
+  fam="$(printf '%s\n' "$out" | sed -n 's/^amd_family=//p')"; gfx="$(printf '%s\n' "$out" | sed -n 's/^gfx=//p')"
+  path="$(printf '%s\n' "$out" | sed -n 's/^path=//p')"; ovr="$(printf '%s\n' "$out" | sed -n 's/^hsa_override_gfx_version=//p')"
+  [ -n "$path" ] || return 0
+  ok "GPU AMD: famiglia ${fam:-sconosciuta}${gfx:+ ($gfx)}"
+  case "$path" in
+    rocm)
+      if [ "$1" = "auto" ]; then warn "Scheda $fam: ROCm e' adatto, ma 'auto' non lo attiva da solo (non provato su hardware). Per usarlo: ./install.sh --gpu-backend=rocm"; fi ;;
+    rocm_override)
+      warn "Scheda $fam ($gfx): ROCm non la supporta ufficialmente. L'app imposta HSA_OVERRIDE_GFX_VERSION=$ovr solo per i propri processi (mai se l'hai gia' impostata tu)."
+      warn "bf16 su RDNA2 non ha accelerazione hardware: Qwen3-ASR e TranslateGemma saranno lenti."
+      if [ "$1" = "auto" ]; then warn "'auto' non attiva ROCm da solo. Per usarlo: ./install.sh --gpu-backend=rocm"; fi ;;
+    vulkan_cpu)
+      if [ "$1" = "rocm" ]; then warn "Scheda ${fam:-AMD}${gfx:+ ($gfx)}: ROCm non e' utilizzabile qui (famiglia troppo vecchia per ROCm 7, oppure ROCm non parte). Meglio --gpu-backend=vulkan (glossario su GPU) oppure --gpu-backend=cpu."
+      else warn "Scheda ${fam:-AMD}${gfx:+ ($gfx)}: ROCm non e' utilizzabile (troppo vecchia per ROCm 7, oppure ROCm non parte). Propongo vulkan (glossario su GPU, il resto su CPU) o cpu: --gpu-backend=vulkan | --gpu-backend=cpu."; fi ;;
+  esac
+}
 if [ "$GPUBACKEND" = "auto" ]; then
   if [ "$NOGPU" = "1" ]; then GPUBACKEND=cpu
   else
     GPUBACKEND="$(python3 "$ROOT/utils/gpu_detect.py" --backend 2>/dev/null | head -1)"
     case "$GPUBACKEND" in cuda|rocm|vulkan|cpu) ;; *) GPUBACKEND=cpu ;; esac
     echo "  gpu_detect: backend consigliato = $GPUBACKEND"
+    amd_hint auto
     [ "$GPUBACKEND" = "rocm" ] && { echo "  [!!]  Rilevato ROCm: 'auto' non lo sceglie perche' non e' ancora provato su hardware; uso vulkan (glossario su GPU, il resto su CPU). Per ROCm: --gpu-backend=rocm"; GPUBACKEND=vulkan; }
   fi
 fi
@@ -81,6 +103,7 @@ fi
 
 if [ "$ROCM" = "1" ]; then
   warn "Backend ROCm (NON PROVATO su hardware AMD): torch/ctranslate2 su GPU con ROCm 7.0, llama-cpp-python su Vulkan."
+  amd_hint rocm
   if [ -e /dev/kfd ]; then
     if [ -r /dev/kfd ] && [ -w /dev/kfd ]; then ok "/dev/kfd accessibile"
     else bad "/dev/kfd esiste ma non e' accessibile a $(id -un): aggiungi l'utente ai gruppi render e video (sudo usermod -aG render,video \$USER) e rifai il login"; MISSING+=("kfd-access"); fi
