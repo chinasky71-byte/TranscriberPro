@@ -3,6 +3,15 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.25 — 2026-10-23 — Interfaccia tradotta (fase A): circa 120 testi che erano solo in italiano
+
+- Library Scanner (tooltip, messaggi di conversione ASS/SSA, Superpower, OCR, righe di log), finestra Traduzione (modelli, chiavi API e token, correzione del genere), Impostazioni generali,
+  Cronologia, stati della coda (riga e riquadro anteprima), "Pronto"/"In elaborazione", "Anteprima"/"Diagnostica" e righe di log della finestra principale passano da `tr()` con inglese e italiano.
+  Il pulsante "Cancel" della finestra Traduzione diventa "Annulla" in italiano.
+- Test nuovi: chiavi EN/IT in parita' e con gli stessi segnaposto, ogni `tr('chiave')` del codice esiste, nessun nuovo testo italiano scritto direttamente nei widget di `gui/`.
+- Strumenti di sola lettura `scripts_manutenzione/scan_i18n.py` e `scan_i18n_literals.py` per cercare i testi non tradotti.
+- Restano in italiano le righe di log emesse dalla pipeline (fase B).
+
 ## 1.34.24 — 2026-10-23 — Nomi delle lingue e schede della coda tradotti
 
 - I nomi delle lingue dei sottotitoli (menu tasto destro e scheda "Opzioni job") e le schede "Coda di processamento" / "Cronologia" seguono la lingua dell'interfaccia (inglese se il sistema non e' in italiano).

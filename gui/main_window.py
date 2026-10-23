@@ -90,11 +90,10 @@ class MainWindow(QMainWindow):
         self._fix_info_strip_height()
 
         self.log_message(tr('app_started'))
-        self.log_message(f"🎨 TMDB Client: {'✅ Attivo' if self.tmdb_client.api_key else '❌ Disattivo'}")
+        self.log_message(tr('mw_tmdb_client').format(state=tr('mw_state_on') if self.tmdb_client.api_key else tr('mw_state_off')))
 
-        self.log_message(
-            f"⚙️ Motore di trascrizione: "
-            f"{ENGINE_MODE_LABELS.get(self.config.get_transcription_engine_mode(), 'Auto')}")
+        self.log_message(tr('mw_engine_log').format(
+            engine=ENGINE_MODE_LABELS.get(self.config.get_transcription_engine_mode(), 'Auto')))
 
         self.resource_monitor.start_monitoring()
     
@@ -235,7 +234,7 @@ class MainWindow(QMainWindow):
         self._status_dot_anim_group.addAnimation(fade_in)
         self._status_dot_anim_group.setLoopCount(-1)
 
-        self._status_label = QLabel("Pronto")
+        self._status_label = QLabel(tr('mw_status_ready'))
         self._status_label.setObjectName("titleBarStatusLabel")
 
         status_lay.addWidget(self._status_dot)
@@ -412,7 +411,7 @@ class MainWindow(QMainWindow):
         self.library_scanner_card.addHeaderWidget(self.library_scanner.status_dot)
         self.library_scanner_card.addHeaderWidget(self.library_scanner.refresh_btn)
         # Propaga stato connessione come summary del card
-        self.library_scanner_card.setSummary("Inattivo")
+        self.library_scanner_card.setSummary(tr('mw_scanner_idle'))
         self.library_scanner.status_changed.connect(self.library_scanner_card.setSummary)
         scanner_open = self.settings_service.scanner_card_open()
         self.library_scanner_card.setExpanded(scanner_open, animated=False)
@@ -497,7 +496,7 @@ class MainWindow(QMainWindow):
         hlay = QHBoxLayout(preview_header)
         hlay.setContentsMargins(14, 10, 14, 8)
         hlay.setSpacing(8)
-        hdr_title = QLabel("Anteprima")
+        hdr_title = QLabel(tr('mw_preview'))
         hdr_title.setObjectName("panelTitle")
         hlay.addWidget(hdr_title)
         self.preview_filename_pill = ElideLabel()
@@ -631,7 +630,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.log_text, stretch=1)
 
         # Diagnostic footer
-        diag_title = QLabel("Diagnostica")
+        diag_title = QLabel(tr('mw_diagnostics'))
         diag_title.setObjectName("sectionTitle")
         layout.addWidget(diag_title)
 
@@ -1158,17 +1157,17 @@ class MainWindow(QMainWindow):
             return
         self.settings_service.set_last_input_folder(folder)
         if not self.queue_service.scan_folder(folder, VIDEO_EXTENSIONS):
-            self.log_message("⚠️ Scansione cartella già in corso, attendi il completamento.")
+            self.log_message(tr('mw_scan_busy'))
 
     def _on_scan_started(self, folder: str):
-        self.log_message(f"🔍 Scansione cartella in corso: {folder}")
+        self.log_message(tr('mw_scan_running').format(folder=folder))
 
     def _on_scan_finished(self, count: int):
         self.update_remaining_files_label()
         self._update_filter_badges()
         if self.file_list.count() > 0:
             self.file_list.setCurrentRow(self.file_list.count() - 1)
-        self.log_message(f"✅ Scansione cartella completata: {count} file video trovati.")
+        self.log_message(tr('mw_scan_done').format(count=count))
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls(): event.acceptProposedAction()
@@ -1202,9 +1201,7 @@ class MainWindow(QMainWindow):
         if verdict is StartVerdict.EMPTY:
             return
         if verdict is StartVerdict.OCR:
-            QMessageBox.warning(self, "Avvio bloccato",
-                                "Una conversione OCR è in corso.\n"
-                                "Attendere il completamento prima di avviare la trascrizione.")
+            QMessageBox.warning(self, tr('mw_start_blocked_title'), tr('mw_start_blocked_ocr'))
             return
         if verdict is StartVerdict.GLOSSARY:
             QMessageBox.warning(self, tr('tools_glossary'),
@@ -1458,14 +1455,14 @@ class MainWindow(QMainWindow):
 
     def _set_status_processing(self):
         set_role(self._status_dot, 'dot', 'accent')
-        self._status_label.setText("In elaborazione")
+        self._status_label.setText(tr('mw_status_processing'))
         self._status_dot_anim_group.start()
 
     def _set_status_idle(self):
         self._status_dot_anim_group.stop()
         self._status_dot_effect.setOpacity(1.0)
         set_role(self._status_dot, 'dot', 'success')
-        self._status_label.setText("Pronto")
+        self._status_label.setText(tr('mw_status_ready'))
 
     # ------------------------------------------------------------------
     # Overlay / stats / diagnostic helpers
@@ -1511,10 +1508,10 @@ class MainWindow(QMainWindow):
         self.preview_filename_pill.setVisible(True)
 
         status_map = {
-            'queued':     'In coda',
-            'processing': '⟳ Elaborazione',
-            'completed':  '✅ Completato',
-            'failed':     '❌ Fallito',
+            'queued':     tr('mw_st_queued'),
+            'processing': tr('mw_st_processing'),
+            'completed':  tr('mw_st_completed'),
+            'failed':     tr('mw_st_failed'),
         }
         _lang = data.get('ov_lang')
         self._overlay_lang_pill.setText(f"→ {(_lang or self.config.get_target_language()).upper()}")

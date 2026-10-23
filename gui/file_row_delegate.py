@@ -15,15 +15,17 @@ from PyQt6.QtCore import Qt, QSize, QRect
 from PyQt6.QtGui import QColor, QBrush, QFont, QPainter
 
 from gui.design_tokens import T
+from utils.translations import tr
 
 
 STATUS_COLORS = dict(T.STATUS_COLORS)
 
+# chiavi di traduzione (tr() al momento del disegno: segue la lingua dell'interfaccia)
 STATUS_LABELS = {
-    'queued':     'in coda',
-    'processing': 'elaborazione…',
-    'completed':  'completato',
-    'failed':     'errore',
+    'queued':     'dl_queued',
+    'processing': 'dl_processing',
+    'completed':  'dl_completed',
+    'failed':     'dl_failed',
 }
 
 ROW_HEIGHT = 44
@@ -86,7 +88,7 @@ class FileRowDelegate(QStyledItemDelegate):
         meta_parts = []
         if size:
             meta_parts.append(size)
-        meta_parts.append(STATUS_LABELS.get(status, status))
+        meta_parts.append(tr(STATUS_LABELS[status]) if status in STATUS_LABELS else status)
         if status == 'processing' and progress > 0:
             meta_parts.append(f'{progress}%')
         meta = ' · '.join(meta_parts)
