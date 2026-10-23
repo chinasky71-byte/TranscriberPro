@@ -3,6 +3,15 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.21 — 2026-10-23 — Opzioni specifiche per file nella coda (tasto destro) e selezione multipla
+
+- **Menu tasto destro sulla coda:** per i file in attesa si possono cambiare, solo per quel file, lingua dei sottotitoli, motore di traduzione (NLLB fine-tuned / TranslateGemma), correzione
+  del genere, "Muxa nel video" e upload OpenSubtitles (ogni voce: Predefinito / valore). "Ripristina i predefiniti" azzera le eccezioni. Sulla riga compare una sigla (es. `ENG · TG · ⚧`);
+  la lingua scelta si vede anche nel riquadro dell'anteprima. Per i job OCR in attesa: revisione mirata o automatica per file.
+- **Selezione multipla** (Ctrl/Maiusc) nella lista: le opzioni e "Rimuovi dalla coda" (Canc) valgono per tutti i file selezionati; il riordino per trascinamento resta per una riga alla volta.
+- **Come funziona:** le eccezioni non vengono mai scritte in `config.json`; il worker le prende insieme al file (sotto lo stesso lock della coda) e il processo figlio le applica come
+  sovrapposizione in memoria (`Config.set_overlay`). Un file gia' preso, finito o rimosso non si modifica; riaccodare un file riparte pulito. Logica in `utils/job_overrides.py` (14 test).
+
 ## 1.34.20 — 2026-10-23 — Scheda video rilevata in primo piano
 
 - **Etichetta GPU** sulla riga delle schede, centrata sotto la pill di stato: modello della scheda rilevata, **verde per NVIDIA, rosso per AMD**, oppure "CPU only" (grigio) se non c'e' una GPU compatibile

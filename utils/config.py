@@ -473,9 +473,17 @@ class Config:
                 except Exception:
                     pass
 
+    def set_overlay(self, overlay) -> None:
+        """Sovrapposizione IN MEMORIA (eccezioni per file, vedi utils/job_overrides.py): get() la legge per prima; save() scrive
+        sempre solo `self.settings`, quindi la sovrapposizione non finisce mai su disco. Vuota/None = nessuna."""
+        self._overlay = dict(overlay) if overlay else {}
+
     def get(self, key: str, default=None) -> Any:
         """Ottieni valore configurazione"""
         fallback = default if default is not None else self.DEFAULTS.get(key)
+        _ov = getattr(self, '_overlay', None)
+        if _ov and key in _ov:
+            return _ov[key]
         value = self.settings.get(key, fallback)
         if isinstance(value, str) and key != 'library_scanner_path_map' and is_foreign_windows_path(value):
             return fallback  # config copiata da Windows: il percorso con lettera di unita' qui non esiste

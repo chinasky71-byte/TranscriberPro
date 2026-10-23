@@ -77,8 +77,12 @@ class PlanOptions:
     mux: bool = False                # "Muxa nel video"
 
     @classmethod
-    def from_config(cls, config, target_language: str = 'ita') -> 'PlanOptions':
+    def from_config(cls, config, target_language: str = 'ita', overrides=None) -> 'PlanOptions':
+        ov = overrides or {}
+
         def _get(key, default=False):
+            if key in ov:
+                return bool(ov[key])            # eccezione per file (utils/job_overrides.py)
             try:
                 return bool(config.get(key, default))
             except Exception:

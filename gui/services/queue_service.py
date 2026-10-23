@@ -71,6 +71,7 @@ class QueueService(QObject):
     job_added = pyqtSignal(object)                 # JobRecord: la vista crea e accoda la riga
     jobs_cleared = pyqtSignal()                    # la vista svuota la lista
     job_removed = pyqtSignal(str)                  # path: la vista toglie quella riga dalla lista
+    job_overrides_changed = pyqtSignal(object)     # lista di path: la vista aggiorna l'etichetta delle eccezioni
     job_changed = pyqtSignal(str, object)          # (path, JobRecord con stato/avanzamento nuovi): job OCR
     job_size_ready = pyqtSignal(str, str)          # (path, dimensione leggibile)
     queue_reordered = pyqtSignal()
@@ -96,6 +97,9 @@ class QueueService(QObject):
         # INVARIANTE v3.5: creati una volta sola, mai riassegnati
         self.processing_queue: List[str] = []
         self.queue_mutex = QMutex()
+        # eccezioni per file {path: {chiave: valore}} (utils/job_overrides.py): stesso mutex e stessa vita di processing_queue;
+        # il worker le toglie nello stesso istante in cui prende il file (get_and_remove_next_file)
+        self.job_overrides: Dict[str, dict] = {}
         self.is_processing = False
         self.glossary_active = False
         self.sync_active = False
@@ -173,6 +177,7 @@ class QueueService(QObject):
                     continue
                 if f not in self.processing_queue and not self.is_active(f):
                     self.processing_queue.append(f)
+                    self.job_overrides.pop(f, None)
                     records.append(JobRecord.new(f, sizes.get(f, '')))
                     added.append(f)
         for rec in records:
@@ -187,6 +192,7 @@ class QueueService(QObject):
             if path in self.processing_queue or self.is_active(path):
                 return False
             self.processing_queue.append(path)
+            self.job_overrides.pop(path, None)
             rec = JobRecord.new(path, size)
         self.job_added.emit(rec)
         self.remaining_changed.emit(self.remaining())
@@ -275,12 +281,44 @@ class QueueService(QObject):
             if path not in self.processing_queue:
                 return False
             self.processing_queue.remove(path)
+            self.job_overrides.pop(path, None)
         note = getattr(self.worker, 'note_removed', None) if self.is_processing else None
         if note is not None:
             note()
         self.job_removed.emit(path)
         self.remaining_changed.emit(self.remaining())
         return True
+
+    # ------------------------------------------------------------------ eccezioni per file
+    def set_overrides(self, paths: List[str], key: str, value) -> List[str]:
+        """Imposta (value valido) o toglie (value None) UNA eccezione sui file ancora in attesa nella coda del worker. Restituisce i path
+        modificati; quelli gia' presi dal worker, finiti o non della coda sono saltati. Sotto lock: il worker non puo' prendere il file a meta'."""
+        from utils.job_overrides import clean_value
+        self._check_thread()
+        if value is not None and clean_value(key, value) is None:
+            return []
+        changed: List[str] = []
+        with QMutexLocker(self.queue_mutex):
+            for p in paths:
+                if p not in self.processing_queue:
+                    continue
+                cur = dict(self.job_overrides.get(p, {}))
+                if value is None:
+                    cur.pop(key, None)
+                else:
+                    cur[key] = value
+                if cur:
+                    self.job_overrides[p] = cur
+                else:
+                    self.job_overrides.pop(p, None)
+                changed.append(p)
+        if changed:
+            self.job_overrides_changed.emit(list(changed))
+        return changed
+
+    def overrides_of(self, path: str) -> dict:
+        with QMutexLocker(self.queue_mutex):
+            return dict(self.job_overrides.get(path, {}))
 
     def clear(self) -> bool:
         """Svuota coda e lista. Rifiutato (False) se l'elaborazione e' in corso."""
@@ -289,6 +327,7 @@ class QueueService(QObject):
             return False
         with QMutexLocker(self.queue_mutex):
             self.processing_queue.clear()
+            self.job_overrides.clear()
         self.jobs_cleared.emit()
         return True
 
@@ -316,6 +355,10 @@ class QueueService(QObject):
         self._check_thread()
         self.is_processing = True
         w = self.worker_factory(self.processing_queue, self.queue_mutex)
+        try:
+            w.job_overrides = self.job_overrides        # stesso dizionario, stesso mutex (i worker finti dei test lo ignorano)
+        except Exception:
+            pass
         self.worker = w
         w.progress.connect(self.progress_changed)
         w.log_message.connect(self.log_line)

@@ -160,6 +160,8 @@ class LibraryScannerWidget(QFrame):
         self.videos_data = []
         self._api_workers = []          # _ApiCallWorker attivi (no GC finché girano)
         self._ocr_deferred_queue = []   # job OCR in attesa che la pipeline principale si liberi
+        self._ocr_mode_override = {}    # {path: 'review' | 'auto'}: scelta per file dal menu della coda (solo job differiti)
+        self._ocr_strategy_used = None  # strategia del job OCR in corso (il writeback usa la stessa)
         if hasattr(main_window, 'processing_done'):
             main_window.processing_done.connect(self._drain_deferred_ocr)
 
@@ -736,7 +738,23 @@ class LibraryScannerWidget(QFrame):
     # OCR PGS → SRT
     # ========================================================================
 
-    def _start_bitmap_ocr(self, windows_path: str, kind: str, force_auto: bool = False):
+    def is_deferred_ocr(self, path: str) -> bool:
+        return any(t[0] == path for t in self._ocr_deferred_queue)
+
+    def set_deferred_ocr_mode(self, paths, mode):
+        """Revisione per file dei job OCR ancora in attesa: mode 'review' | 'auto' | None (= predefinita). Restituisce i path cambiati."""
+        changed = []
+        for p in paths:
+            if not self.is_deferred_ocr(p):
+                continue
+            if mode in ('review', 'auto'):
+                self._ocr_mode_override[p] = mode
+            else:
+                self._ocr_mode_override.pop(p, None)
+            changed.append(p)
+        return changed
+
+    def _start_bitmap_ocr(self, windows_path: str, kind: str, force_auto: bool = False, strategy_override: str = None):
         """
         Avvia la conversione OCR dei sottotitoli bitmap del file indicato.
         kind: 'pgs' | 'vobsub'. force_auto=True forza la strategia automatica
@@ -762,6 +780,9 @@ class LibraryScannerWidget(QFrame):
 
         config = get_config()
         strategy = STRATEGY_AUTO if force_auto else config.get(CFG_STRATEGY, DEFAULT_STRATEGY)
+        if strategy_override in ('review', 'auto'):
+            strategy = strategy_override
+        self._ocr_strategy_used = strategy
 
         self._ocr_video_path = windows_path
         self._ocr_kind = kind
@@ -832,7 +853,7 @@ class LibraryScannerWidget(QFrame):
         from gui.ocr_worker import OcrWorker
         from core.pgs_types import CFG_STRATEGY, DEFAULT_STRATEGY
         config = get_config()
-        strategy = config.get(CFG_STRATEGY, DEFAULT_STRATEGY)
+        strategy = getattr(self, '_ocr_strategy_used', None) or config.get(CFG_STRATEGY, DEFAULT_STRATEGY)
         self._log(f"Scrittura SRT: {self._ocr_name}")
         self._ocr_worker = OcrWorker(
             to_local(self._ocr_video_path, self._path_rules()), config, strategy, mode="writeback",
@@ -1054,7 +1075,7 @@ class LibraryScannerWidget(QFrame):
         if getattr(self.main_window, 'is_processing', False):
             return  # pipeline ripartita (sicurezza)
         windows_path, kind, force_auto = self._ocr_deferred_queue.pop(0)
-        self._start_bitmap_ocr(windows_path, kind, force_auto)
+        self._start_bitmap_ocr(windows_path, kind, force_auto, self._ocr_mode_override.pop(windows_path, None))
 
     def _create_row_button(self, row: int, already_queued: bool) -> QPushButton:
         btn = QPushButton("✓" if already_queued else "")

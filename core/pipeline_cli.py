@@ -89,6 +89,18 @@ def main(argv: list) -> int:
         _emit("ERRORE CLI: video_path obbligatorio")
         return 2
 
+    # Eccezioni per file alle opzioni job: sovrapposizione IN MEMORIA sulla configurazione (mai scritta su disco).
+    # Senza la chiave 'overrides' (code headless, versioni precedenti) non cambia nulla.
+    try:
+        from utils.job_overrides import clean as _clean_ov
+        _ov = _clean_ov(args.get('overrides'))
+        if _ov:
+            from utils.config import get_config as _gc
+            _gc().set_overlay(_ov)
+            _emit(f"ℹ️ Opzioni specifiche di questo file: {_ov}")
+    except Exception as e:
+        _emit(f"WARN CLI: eccezioni per file ignorate: {e}")
+
     # Import LAZY: il costo di torch/moduli ML si paga solo qui, non al check args.
     try:
         from core.pipeline import ProcessingPipeline

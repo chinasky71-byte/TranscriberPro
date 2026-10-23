@@ -100,6 +100,13 @@ class FileRowDelegate(QStyledItemDelegate):
         painter.drawText(meta_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                          meta)
 
+        # Eccezioni di QUESTO file alle opzioni predefinite (etichetta breve, utils/job_overrides.py), a destra sulla riga meta
+        ov = data.get('ov')
+        if ov:
+            painter.setPen(QColor(T.accent))
+            ov_text = painter.fontMetrics().elidedText(ov, Qt.TextElideMode.ElideRight, max(40, text_w // 2))
+            painter.drawText(meta_rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, ov_text)
+
         # --- Progress bar inline (4px, fondo riga) se status='processing' -
         if status == 'processing' and progress > 0:
             bar_y = y + h - 4
