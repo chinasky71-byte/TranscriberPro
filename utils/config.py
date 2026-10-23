@@ -207,6 +207,14 @@ class Config:
         # puntare a un merge diverso (es. una nuova promozione) senza
         # toccare il codice, stesso schema di 'nllb_finetuned_model_path'.
         'llm_translator_model_path': '',
+        # Percorso GGUF del traduttore (TranslateGemma quantizzato, llama.cpp) per le schede da 8-12 GB e per AMD/Vulkan.
+        # SPENTO finche' il banco di qualita' non lo promuove (docs/HANDOFF_LOG_GGUF_TRANSLATOR.md): con False il
+        # comportamento e' quello di sempre. Le altre chiavi contano solo con il flag acceso.
+        'llm_translator_gguf_enabled': False,
+        'llm_translator_gguf_dir': '',          # vuoto = models/translategemma-12b-gguf
+        'llm_translator_gguf_quant': 'auto',    # auto = la migliore che entra; oppure Q4_K_M | Q3_K_M | IQ3_M
+        'llm_translator_gguf_parallel': 4,      # sequenze decodificate insieme (KV cache = parallel x 512 token)
+        'llm_translator_nf4_min_free_gb': 10.5,  # VRAM libera minima per NF4 (provvisorio: vedi translator_path_select)
         
         # NLLB model
         'nllb_model_path': '',  # Vuoto usa default HuggingFace
