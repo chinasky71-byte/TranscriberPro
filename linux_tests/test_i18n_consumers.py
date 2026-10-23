@@ -189,3 +189,25 @@ def test_barre_traduzione_reali_muovono_log_e_avanzamento(lang, key, args):
 def test_riga_recupero_senza_mascheramento_e_rumore(lang):
     line = TX[lang]['lt_recovery_without_masking_blocks_in'].format(total=3, minutes=0.5)
     assert LogFilter().decide(line).action == 'drop_noise'
+
+
+MARKER_IN_LINES.update({
+    'logm_noise_profile': ['fw_profile', 'fw_profile_beam', 'fw_profile_beam_workers'],
+    'logm_noise_vad_available': ['fw_vad_voice_activity_detection_available'],
+    'logm_noise_batched_active': ['fw_batchedinferencepipeline_active_batch_size'],
+    'logm_noise_batched_single': ['fw_batchedinferencepipeline_single_file_s_batch'],
+    'logm_noise_robust_chunking': ['ap_robust_chunking_chunks_of_min'],
+    'logm_noise_loading_audio': ['ap_loading_audio'],
+})
+
+
+@pytest.mark.parametrize('lang', ['it', 'en'])
+@pytest.mark.parametrize('key,args', [
+    ('fw_profile', dict(profile_name='x')),
+    ('fw_vad_voice_activity_detection_available', {}),
+    ('fw_batchedinferencepipeline_active_batch_size', dict(batch_size_for_transcription=8)),
+    ('ap_robust_chunking_chunks_of_min', dict(num_chunks=3, minutes=1.5)),
+    ('ap_loading_audio', {}),
+])
+def test_righe_di_rumore_del_motore_restano_fuori_dallo_schermo(lang, key, args):
+    assert LogFilter().decide(TX[lang][key].format(**args)).action == 'drop_noise'
