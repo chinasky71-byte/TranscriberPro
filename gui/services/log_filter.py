@@ -18,8 +18,12 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
+from utils.translations import all_texts
+
 # Righe che la pipeline aggiorna sul posto (barre di avanzamento / stato).
-UPDATABLE_PATTERNS = ["Progresso:", "Demucs: [", "Traduzione: [", "Trascrizione: [", "Warm-up: [", "Correzione genere: [", "⚙️ OCR"]
+# Le righe arrivano dal processo figlio in IT o EN: ogni barra e' riconosciuta in entrambe le lingue (all_texts).
+UPDATABLE_PATTERNS = [*all_texts('logm_progress'), "Demucs: [", *all_texts('logm_bar_translation'),
+                      *all_texts('logm_bar_transcription'), "Warm-up: [", *all_texts('logm_bar_gender'), "⚙️ OCR"]
 
 # Righe che NON compaiono a schermo (rumore di fondo): restano nel file di log, perche'
 # la pipeline le scrive anche con logger.info (v. core/pipeline.py::_log e engines/base_engine.py::log).
@@ -35,13 +39,13 @@ FILE_ONLY_RE = re.compile("|".join([
     r"🔗 Merge chunks", r"📂 Caricamento audio", r"🎬 Audio: ",
     r"\w+Engine unload completato",
     r"Batch LLM \d+ → \d+", r"Recupero senza mascheramento",
-    r"Modello trascrizione:",
+    *[re.escape(t) for t in all_texts('logm_model_line')],
 ]))
 
 # In modalita' compatta passano solo le righe che contengono uno di questi marcatori.
 COMPACT_KEEP_MARKERS = ['✅', '⚙️', '🎉', '❌', '➕', '🎬', '📥']
 
-MODEL_LINE_MARKER = 'Modello trascrizione:'
+MODEL_LINE_MARKERS = all_texts('logm_model_line')
 
 _PCT_RE = re.compile(r'\d+\s*%')
 
@@ -93,11 +97,12 @@ class LogFilter:
 
     @staticmethod
     def model_name_of(message: str) -> Optional[str]:
-        """Nome del modello in 'Modello trascrizione: X', None se assente o vuoto."""
-        if MODEL_LINE_MARKER not in message:
-            return None
-        name = message.split(MODEL_LINE_MARKER, 1)[1].strip()
-        return name or None
+        """Nome del modello in 'Modello trascrizione: X' / 'Transcription model: X', None se assente o vuoto."""
+        for marker in MODEL_LINE_MARKERS:
+            if marker in message:
+                name = message.split(marker, 1)[1].strip()
+                return name or None
+        return None
 
     def decide(self, message: str, compact: bool = False, hide_progress: bool = False) -> LogDecision:
         """`hide_progress`: la card "Pipeline in corso" e' visibile e mostra gia' le barre, quindi le righe di barra

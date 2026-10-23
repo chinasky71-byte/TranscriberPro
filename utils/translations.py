@@ -643,6 +643,25 @@ class Translations:
             'glossary_no_terms_approved': 'No term is checked for approval.',
             'glossary_save_error':       'Save failed: {error}',
             'glossary_save_success':     '{n} term(s) saved to {path}',
+
+            # ── marcatori di log letti da altro codice (vedi all_texts) ──
+            'logm_progress': 'Progress:',
+            'logm_bar_translation': 'Translation: [',
+            'logm_bar_transcription': 'Transcription: [',
+            'logm_bar_gender': 'Gender correction: [',
+            'logm_model_line': 'Transcription model:',
+            'logm_audio_extracted': 'Audio extracted. Language:',
+            'logm_embedded_found': 'Embedded subtitles found (',
+            'logm_ocr_analysis': 'Bitmap analysis',
+            'logm_ocr_translation': 'Translation',
+            'logm_ocr_failed': 'Bitmap OCR failed',
+            'logm_ocr_error': 'Bitmap OCR error',
+            'logm_srt_written': 'Italian SRT written',
+            'logm_ocr_done': 'Bitmap OCR completed',
+            'logm_kw_translation': 'translation',
+            'logm_kw_skip_translation': 'skipping translation',
+            'logm_kw_original_lang': 'original language',
+            'logm_kw_skipped': 'skipped',
         },
 
         # ── ITALIANO ──────────────────────────────────────────────────────────
@@ -1272,6 +1291,25 @@ class Translations:
             'glossary_no_terms_approved': 'Nessun termine spuntato per l\'approvazione.',
             'glossary_save_error':       'Salvataggio fallito: {error}',
             'glossary_save_success':     '{n} termine/i salvato/i in {path}',
+
+            # ── marcatori di log letti da altro codice (vedi all_texts) ──
+            'logm_progress': 'Progresso:',
+            'logm_bar_translation': 'Traduzione: [',
+            'logm_bar_transcription': 'Trascrizione: [',
+            'logm_bar_gender': 'Correzione genere: [',
+            'logm_model_line': 'Modello trascrizione:',
+            'logm_audio_extracted': 'Audio estratto. Lingua:',
+            'logm_embedded_found': 'Sottotitoli embedded trovati (',
+            'logm_ocr_analysis': 'Analisi bitmap',
+            'logm_ocr_translation': 'Traduzione',
+            'logm_ocr_failed': 'OCR bitmap non riuscito',
+            'logm_ocr_error': 'Errore OCR bitmap',
+            'logm_srt_written': 'SRT italiano scritto',
+            'logm_ocr_done': 'OCR bitmap completato',
+            'logm_kw_translation': 'traduzione',
+            'logm_kw_skip_translation': 'salto traduzione',
+            'logm_kw_original_lang': 'lingua originale',
+            'logm_kw_skipped': 'saltata',
         },
     }
 
@@ -1352,3 +1390,34 @@ def init_language(config) -> None:
     else:
         # 'auto': rileva con QLocale (ora disponibile perché QApplication esiste)
         _translations.current_language = _translations._detect_language()
+
+
+def all_texts(key: str) -> tuple:
+    """Il testo di `key` in TUTTE le lingue (senza duplicati, IT e EN).
+
+    Per i consumatori che riconoscono una riga di log dal suo testo (filtro del log, avanzamento del file):
+    la riga arriva dal processo figlio nella lingua del figlio, che puo' essere diversa da quella della
+    GUI, quindi il confronto deve valere per entrambe."""
+    out = []
+    for lang in ('it', 'en'):
+        v = Translations.TEXTS.get(lang, {}).get(key)
+        if v is not None and v not in out:
+            out.append(v)
+    return tuple(out)
+
+
+def init_language_headless() -> None:
+    """Lingua dei log nei processi figli (core/*_cli.py, queue_runner): senza Qt, mai solleva.
+
+    Stessa regola della GUI (config 'language': auto|it|en, poi lingua di sistema), cosi' GUI e figlio
+    scrivono nella stessa lingua anche quando l'utente la imposta a mano. La variabile TP_LANG ('it'|'en')
+    ha la precedenza (prove e riesecuzioni)."""
+    try:
+        forced = os.environ.get('TP_LANG', '').strip().lower()
+        if forced in ('it', 'en'):
+            _translations.set_language(forced)
+            return
+        from utils.config import get_config
+        init_language(get_config())
+    except Exception:
+        pass
