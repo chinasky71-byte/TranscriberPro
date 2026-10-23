@@ -6,6 +6,11 @@ Aggiorna questo file a ogni fase, in cima i più recenti. Formato per voce: data
 
 ---
 
+## 2026-10-23 — Risposte del proprietario (sessione locale)
+- **F6, torch per AMD:** APPROVATO `torch==2.10.0+rocm7.0` (con ctranslate2 ROCm 4.8.x) per il percorso AMD. Il percorso NVIDIA resta invariato. Restano da decidere (non ancora risposti): scheda AMD disponibile, ripiego cu126 con `--no-gpu`, ramo Python 3.12.
+
+---
+
 ## 2026-10-23 — F6: pin ROCm, ramo `rocm` dell'installer, smoke test (branch `linux-amd/f6-rocm`, da master)
 File: nuovi `requirements-rocm.txt`, `scripts_manutenzione/amd_smoke_test.py`, `linux_tests/test_amd_rocm_f6.py`; modificato `install.sh`. `requirements.txt` e il percorso NVIDIA **non toccati**.
 - **Scostamento dal piano (importante):** il piano prevedeva `torch==2.8.0+rocm6.4`. La ruota ctranslate2 ROCm 4.8.3 (release OpenNMT/CTranslate2, asset `rocm-python-wheels-Linux.zip`; 4.8.3 è la più recente, cp39..cp314) è costruita contro **ROCm 7** (`NEEDED libamdhip64.so.7, libhipblas.so.3, libhiprand.so.1`, non incluse nella ruota). Con torch 2.8+rocm6.4 `import ctranslate2` fallisce (`libhipblas.so.3 not found`). Con **`torch==2.10.0+rocm7.0`** (indice `whl/rocm7.0`, cp311/cp312) importato PRIMA di ctranslate2 (l'app lo fa già) l'import riesce; `torchcodec` resta 0.10.0 (è la serie di torch 2.10, uguale a requirements.txt). Il piano diceva 4.6.0 per NVIDIA: qui è la 4.8.x ROCm, differenza voluta.
