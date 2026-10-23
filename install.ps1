@@ -23,6 +23,9 @@
 .PARAMETER Yes                  Non chiede conferme (assume si').
 .PARAMETER SkipVerify           Salta il controllo finale.
 .PARAMETER QwenSize             Con -WithModels: Qwen2.5 da scaricare. auto = 14B con GPU da 12 GB o piu', 7B con GPU piu' piccola o senza GPU.
+.PARAMETER GpuBackend         Senza il parametro: comportamento di sempre (ruota CUDA di llama-cpp-python). cuda = come senza; cpu = come -NoGpu;
+                          vulkan = torch su CPU + llama-cpp-python Vulkan (glossario su GPU AMD/Intel; trascrizione e traduzione su CPU);
+                          auto = sceglie con utils\gpu_detect.py --backend (cuda, vulkan o cpu); rocm = non disponibile su Windows (fase F8).
 .PARAMETER NoGpu                 PC senza GPU NVIDIA: il driver non e' richiesto e il controllo finale salta i test CUDA (l'app gira ~10 volte piu' lenta).
 .PARAMETER VenvRoot             Cartella dove creare i venv (default: la cartella del progetto). Serve per prove.
 .PARAMETER PythonExe            Percorso di un python.exe 3.11 (default: cerca "py -3.11" o "python").
@@ -44,6 +47,7 @@ param(
     [switch]$Yes,
     [switch]$SkipVerify,
     [switch]$NoGpu,
+    [ValidateSet('', 'auto', 'cuda', 'vulkan', 'rocm', 'cpu')][string]$GpuBackend = '',
     [ValidateSet('auto', '7b', '14b')][string]$QwenSize = 'auto',
     [string]$VenvRoot = '',
     [string]$PythonExe = ''
@@ -109,6 +113,30 @@ if ($PythonExe) {
 if ($Py) { Write-Ok "Python 3.11: $Py" } else {
     Write-Bad 'Python 3.11 non trovato (serve ESATTAMENTE la 3.11: le ruote di torch/ctranslate2 sono per cp311).'
     Add-Problem 'Python 3.11' $true 'winget install Python.Python.3.11' 'Python.Python.3.11'
+}
+
+# -GpuBackend: senza il parametro non cambia nulla. 'cpu' = -NoGpu; 'vulkan' = ruote CPU di torch + llama Vulkan ($NoGpu e $LlamaIdx).
+$LlamaIdx = 'cpu'
+if ($GpuBackend -eq 'auto') {
+    if ($NoGpu) { $GpuBackend = 'cpu' }
+    elseif ($Py) {
+        $gb = ''
+        try { $gb = ((& $Py (Join-Path $Root 'utils\gpu_detect.py') --backend 2>$null) | Select-Object -First 1) } catch { }
+        if ($gb) { $gb = "$gb".Trim() }
+        if ($gb -notin @('cuda', 'rocm', 'vulkan', 'cpu')) { $gb = 'cpu' }
+        Write-Host "  gpu_detect: backend consigliato = $gb"
+        if ($gb -eq 'rocm') { Write-Warn 'ROCm non e'' disponibile su Windows (fase F8): uso vulkan (glossario su GPU, il resto su CPU).'; $gb = 'vulkan' }
+        $GpuBackend = $gb
+    } else { Write-Warn '-GpuBackend auto: Python 3.11 non trovato, impossibile rilevare la GPU; si procede come senza il parametro.'; $GpuBackend = '' }
+}
+if ($GpuBackend -eq 'rocm') { Fail '-GpuBackend rocm non e'' disponibile su Windows (fase F8 del piano Linux/AMD, rinviata).' }
+if ($GpuBackend -and $NoGpu -and $GpuBackend -ne 'cpu') { Fail "-NoGpu equivale a -GpuBackend cpu: non si combina con -GpuBackend $GpuBackend" }
+if ($GpuBackend -eq 'cpu') { $NoGpu = $true }
+if ($GpuBackend -eq 'vulkan') {
+    $NoGpu = $true; $LlamaIdx = 'vulkan'
+    Write-Warn 'Backend Vulkan: llama-cpp-python usera'' la GPU (solo il glossario); trascrizione e traduzione girano su CPU.'
+    if (Test-Path (Join-Path $env:windir 'System32\vulkan-1.dll')) { Write-Ok 'Loader Vulkan (vulkan-1.dll) presente' }
+    else { Write-Bad 'vulkan-1.dll non trovata: aggiorna il driver della scheda video.'; Add-Problem 'Driver Vulkan' $true 'Aggiorna il driver della scheda video (AMD/Intel/NVIDIA)' $null }
 }
 
 # Driver NVIDIA / GPU
@@ -290,9 +318,15 @@ function Ensure-Venv($dirName, $reqFile, $label) {
         $llamaVer = $null
         foreach ($ln in (Get-Content $req)) { if ($ln -match '^\s*llama[-_]cpp[-_]python==([0-9.]+)') { $llamaVer = $Matches[1] } }
         if ($llamaVer) {
-            Write-Host "  llama-cpp-python $llamaVer (ruota CPU, senza GPU)"
-            & $vpy -m pip install --force-reinstall --no-deps --only-binary=:all: --index-url https://abetlen.github.io/llama-cpp-python/whl/cpu "llama_cpp_python==$llamaVer" | Out-Host
-            if ($LASTEXITCODE -ne 0) { Write-Warn 'Ruota CPU di llama-cpp-python non installata: si prosegue con quella di requirements.txt (senza driver NVIDIA non carichera'').' }
+            Write-Host "  llama-cpp-python $llamaVer (ruota $LlamaIdx, senza GPU NVIDIA)"
+            & $vpy -m pip install --force-reinstall --no-deps --only-binary=:all: --index-url "https://abetlen.github.io/llama-cpp-python/whl/$LlamaIdx" "llama_cpp_python==$llamaVer" | Out-Host
+            if ($LASTEXITCODE -eq 0) {
+                # letto da utils\llm_model_select.py: solo 'vulkan' cambia la scelta del modello
+                Set-Content -Path (Join-Path $venv 'llama_backend.txt') -Value $LlamaIdx -Encoding ASCII
+            } else {
+                Remove-Item (Join-Path $venv 'llama_backend.txt') -ErrorAction SilentlyContinue
+                Write-Warn "Ruota $LlamaIdx di llama-cpp-python non installata: si prosegue con quella di requirements.txt (senza driver NVIDIA non carichera')."
+            }
         } else { Write-Warn 'Versione di llama_cpp_python non letta da requirements.txt (formato inatteso): ruota CPU non installata.' }
         # torch/torchaudio CPU (~250 MB invece di ~2,9 GB della ruota +cu126). Si installano PRIMA e si tolgono dal file dei requisiti
         # usato da pip, altrimenti pip le rimpiazzerebbe con le +cu126 dei pin.
@@ -309,6 +343,18 @@ function Ensure-Venv($dirName, $reqFile, $label) {
                 Get-Content (Join-Path $Root $reqFile) | Where-Object { $_ -notmatch '^\s*(torch|torchaudio)==' } | Set-Content -Path $req -Encoding ASCII
             } else { Write-Warn 'Ruote CPU di torch non installate: si prosegue con quelle di requirements.txt (+cu126, ~2,9 GB).' }
         } else { Write-Warn 'Versioni di torch/torchaudio non lette da requirements.txt (formato inatteso): ruote CPU non installate.' }
+    }
+    if ((-not $NoGpu) -and $dirName -eq 'venv' -and (Test-Path (Join-Path $venv 'llama_backend.txt'))) {
+        # venv riusato con la ruota CPU/Vulkan di llama (esecuzione precedente con -NoGpu / -GpuBackend): pip la riterrebbe valida
+        # (stessa versione), quindi si rimette la ruota CUDA dei requisiti. Senza marcatore non si tocca nulla.
+        $llamaVer = $null
+        foreach ($ln in (Get-Content $req)) { if ($ln -match '^\s*llama[-_]cpp[-_]python==([0-9.]+)') { $llamaVer = $Matches[1] } }
+        if ($llamaVer) {
+            Write-Host "  llama-cpp-python ${llamaVer}: ripristino la ruota CUDA (il venv aveva un'altra ruota)"
+            & $vpy -m pip install --force-reinstall --no-deps --only-binary=:all: --index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 "llama_cpp_python==$llamaVer" | Out-Host
+            if ($LASTEXITCODE -eq 0) { Remove-Item (Join-Path $venv 'llama_backend.txt') -ErrorAction SilentlyContinue }
+            else { Write-Warn 'Ruota CUDA di llama-cpp-python non reinstallata: il venv conserva quella di prima.' }
+        }
     }
     Write-Host "  pip install -r $reqFile  (puo' richiedere diversi minuti e alcuni GB di download)"
     & $vpy -m pip install -r $req | Out-Host

@@ -8,12 +8,18 @@
 #   opzioni: --no-gpu (ruote CPU di torch e llama-cpp-python, ~250 MB invece di ~3 GB) --yes (nessuna domanda)
 #            --with-models  scarica da Hugging Face il Qwen2.5 (glossario/serbatoio) e il NLLB fine-tuned (molti GB)
 #            --qwen-size=auto|7b|14b  (auto = 14B con GPU da 12 GB o piu', 7B con GPU piu' piccola o --no-gpu)
+#            --gpu-backend=auto|cuda|vulkan|rocm|cpu  (senza l'opzione: comportamento di sempre = ruota CUDA di llama-cpp-python)
+#                 cuda   come senza opzione        cpu     come --no-gpu
+#                 vulkan torch su CPU + llama-cpp-python Vulkan (glossario su GPU AMD/Intel, serve il driver Vulkan; la
+#                        trascrizione e la traduzione restano su CPU)
+#                 auto   sceglie con `utils/gpu_detect.py --backend` (cuda, vulkan o cpu; se rileva solo ROCm usa vulkan)
+#                 rocm   non ancora disponibile (fase F6)
 #
 # Non copia ne' scrive mai credenziali. Non va lanciato come root (il venv deve essere dell'utente).
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CHECK=0; SYSDEPS=0; NOGPU=0; YES=0; WITHMODELS=0; QWENSIZE=auto
+CHECK=0; SYSDEPS=0; NOGPU=0; YES=0; WITHMODELS=0; QWENSIZE=auto; GPUBACKEND=""; LLAMA_IDX=cpu
 for a in "$@"; do
   case "$a" in
     --check) CHECK=1 ;;
@@ -22,7 +28,8 @@ for a in "$@"; do
     --yes) YES=1 ;;
     --with-models) WITHMODELS=1 ;;
     --qwen-size=*) QWENSIZE="${a#--qwen-size=}" ;;
-    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+    --gpu-backend=*) GPUBACKEND="${a#--gpu-backend=}" ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "Opzione sconosciuta: $a"; exit 2 ;;
   esac
 done
@@ -37,6 +44,24 @@ bad()  { printf '  [KO]  %s\n' "$*"; }
 ask()  { [ "$YES" = "1" ] && return 0; read -r -p "$1 [s/N] " r; case "$r" in s|S|si|SI|y|Y|yes) return 0 ;; *) return 1 ;; esac; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# --gpu-backend: senza l'opzione non cambia nulla. 'cpu' = --no-gpu; 'vulkan' = ruote CPU di torch + llama Vulkan (NOGPU=1 e LLAMA_IDX=vulkan).
+case "$GPUBACKEND" in ''|auto|cuda|vulkan|rocm|cpu) ;; *) echo "[KO] --gpu-backend deve essere auto, cuda, vulkan, rocm o cpu"; exit 2 ;; esac
+if [ "$GPUBACKEND" = "auto" ]; then
+  if [ "$NOGPU" = "1" ]; then GPUBACKEND=cpu
+  else
+    GPUBACKEND="$(python3 "$ROOT/utils/gpu_detect.py" --backend 2>/dev/null | head -1)"
+    case "$GPUBACKEND" in cuda|rocm|vulkan|cpu) ;; *) GPUBACKEND=cpu ;; esac
+    echo "  gpu_detect: backend consigliato = $GPUBACKEND"
+    [ "$GPUBACKEND" = "rocm" ] && { echo "  [!!]  ROCm non e' ancora supportato dall'installer (fase F6): uso vulkan (glossario su GPU, il resto su CPU)."; GPUBACKEND=vulkan; }
+  fi
+fi
+if [ "$GPUBACKEND" = "rocm" ]; then echo "[KO] --gpu-backend=rocm non e' ancora disponibile (fase F6 del piano Linux/AMD)."; exit 2; fi
+if [ -n "$GPUBACKEND" ] && [ "$NOGPU" = "1" ] && [ "$GPUBACKEND" != "cpu" ]; then echo "[KO] --no-gpu equivale a --gpu-backend=cpu: non si combina con --gpu-backend=$GPUBACKEND"; exit 2; fi
+case "$GPUBACKEND" in
+  cpu) NOGPU=1 ;;
+  vulkan) NOGPU=1; LLAMA_IDX=vulkan ;;
+esac
+
 MISSING=()
 
 echo; echo "== Prerequisiti"
@@ -50,7 +75,12 @@ else
   bad "Python 3.11 (o 3.12) non trovato"; MISSING+=("python")
 fi
 
-if [ "$NOGPU" = "1" ]; then warn "Modalita' senza GPU (--no-gpu): l'app gira solo su CPU, ~10 volte piu' lenta."
+if [ "$LLAMA_IDX" = "vulkan" ]; then
+  warn "Backend Vulkan: llama-cpp-python usera' la GPU (solo il glossario); trascrizione e traduzione girano su CPU, ~10 volte piu' lente."
+  if { have ldconfig && ldconfig -p 2>/dev/null | grep -q 'libvulkan\.so\.1'; } || [ -e /usr/lib/x86_64-linux-gnu/libvulkan.so.1 ] || [ -e /usr/lib64/libvulkan.so.1 ] || [ -e /usr/lib/libvulkan.so.1 ]; then
+    ok "Loader Vulkan (libvulkan.so.1) presente"
+  else bad "libvulkan.so.1 non trovata (pacchetto del loader Vulkan e driver Mesa)"; MISSING+=("vulkan"); fi
+elif [ "$NOGPU" = "1" ]; then warn "Modalita' senza GPU (--no-gpu): l'app gira solo su CPU, ~10 volte piu' lenta."
 elif have nvidia-smi && nvidia-smi >/dev/null 2>&1; then ok "GPU NVIDIA: $(nvidia-smi --query-gpu=name,driver_version --format=csv,noheader | head -1)"
 else warn "nvidia-smi non disponibile: senza driver NVIDIA usa --no-gpu."; fi
 
@@ -66,26 +96,31 @@ need=15; [ "$NOGPU" = "1" ] && need=6
 
 # gestore pacchetti e nomi (ogni distribuzione chiama i pacchetti in modo diverso). I pacchetti Python si aggiungono solo se servono:
 # se Python 3.11/3.12 c'e' gia' non si tocca; se manca solo il modulo venv si prende quello della versione trovata.
-PM=""; PKGS=""; PYPKG=""; PYVER=""
+PM=""; PKGS=""; PYPKG=""; PYVER=""; VKPKG=""
 [ -n "$PY" ] && PYVER="$("$PY" -c 'import sys;print("%d.%d" % sys.version_info[:2])')"
 case " ${MISSING[*]:-} " in
   *" python "*) NEED_PY=all ;;
   *" python-venv "*) NEED_PY=venv ;;
   *) NEED_PY="" ;;
 esac
+case " ${MISSING[*]:-} " in *" vulkan "*) VKFLAG=1 ;; *) VKFLAG=0 ;; esac
 if have apt-get; then PM="apt"
+  [ "$VKFLAG" = "1" ] && VKPKG="libvulkan1 mesa-vulkan-drivers"
   [ "$NEED_PY" = "all" ] && PYPKG="python3 python3-venv"      # versione della distribuzione (deve essere 3.11 o 3.12)
   [ "$NEED_PY" = "venv" ] && PYPKG="python${PYVER}-venv"
-  PKGS="$PYPKG ffmpeg mkvtoolnix tesseract-ocr tesseract-ocr-ita tesseract-ocr-eng libxcb-cursor0 libxkbcommon-x11-0 libegl1 libfontconfig1"
+  PKGS="$PYPKG ffmpeg mkvtoolnix tesseract-ocr tesseract-ocr-ita tesseract-ocr-eng libxcb-cursor0 libxkbcommon-x11-0 libegl1 libfontconfig1 $VKPKG"
 elif have dnf; then PM="dnf"
+  [ "$VKFLAG" = "1" ] && VKPKG="vulkan-loader mesa-vulkan-drivers"
   [ -n "$NEED_PY" ] && PYPKG="python3.11"
-  PKGS="$PYPKG ffmpeg-free mkvtoolnix tesseract tesseract-langpack-ita tesseract-langpack-eng xcb-util-cursor libxkbcommon-x11 mesa-libEGL fontconfig"
+  PKGS="$PYPKG ffmpeg-free mkvtoolnix tesseract tesseract-langpack-ita tesseract-langpack-eng xcb-util-cursor libxkbcommon-x11 mesa-libEGL fontconfig $VKPKG"
 elif have pacman; then PM="pacman"
-  PKGS="ffmpeg mkvtoolnix-cli tesseract tesseract-data-ita tesseract-data-eng xcb-util-cursor libxkbcommon-x11 libglvnd fontconfig"
+  [ "$VKFLAG" = "1" ] && VKPKG="vulkan-icd-loader vulkan-radeon vulkan-intel"
+  PKGS="ffmpeg mkvtoolnix-cli tesseract tesseract-data-ita tesseract-data-eng xcb-util-cursor libxkbcommon-x11 libglvnd fontconfig $VKPKG"
   [ "$NEED_PY" = "all" ] && warn "Arch: il pacchetto 'python' e' 3.13+, non supportato: serve python 3.11 (AUR 'python311') o 3.12, oppure pyenv/uv."
 elif have zypper; then PM="zypper"
+  [ "$VKFLAG" = "1" ] && VKPKG="libvulkan1 libvulkan_radeon libvulkan_intel"
   [ -n "$NEED_PY" ] && PYPKG="python311"
-  PKGS="$PYPKG ffmpeg mkvtoolnix tesseract-ocr tesseract-ocr-traineddata-italian tesseract-ocr-traineddata-english libxcb-cursor0 libxkbcommon-x11-0 libEGL1 fontconfig"
+  PKGS="$PYPKG ffmpeg mkvtoolnix tesseract-ocr tesseract-ocr-traineddata-italian tesseract-ocr-traineddata-english libxcb-cursor0 libxkbcommon-x11-0 libEGL1 fontconfig $VKPKG"
 fi
 
 if [ "${#MISSING[@]}" -gt 0 ]; then
@@ -121,15 +156,30 @@ VPY="$VENV/bin/python"
 "$VPY" -m pip install --upgrade pip >/dev/null 2>&1
 
 REQ="$ROOT/requirements.txt"
+if [ "$NOGPU" = "0" ] && [ -f "$VENV/llama_backend.txt" ]; then
+  # venv riusato che aveva la ruota CPU/Vulkan di llama (installata da una esecuzione precedente con --no-gpu / --gpu-backend):
+  # pip la riterrebbe valida (stessa versione), quindi si rimette la ruota CUDA dei requisiti. Senza marcatore non si tocca nulla.
+  LV="$(sed -n 's/^[[:space:]]*llama[-_]cpp[-_]python==\([0-9.]*\).*/\1/Ip' "$ROOT/requirements.txt" | head -1)"
+  if [ -n "$LV" ]; then
+    echo "  llama-cpp-python $LV: ripristino la ruota CUDA (il venv aveva la ruota $(cat "$VENV/llama_backend.txt"))"
+    if "$VPY" -m pip install --force-reinstall --no-deps --only-binary=:all: --index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 "llama_cpp_python==$LV"; then
+      rm -f "$VENV/llama_backend.txt"
+    else warn "Ruota CUDA di llama-cpp-python non reinstallata: il venv conserva quella di prima."; fi
+  fi
+fi
 if [ "$NOGPU" = "1" ]; then
   # ruote CPU: llama-cpp-python (stessa versione del pin) e torch/torchaudio, tolte dal file usato da pip
   LV="$(sed -n 's/^[[:space:]]*llama[-_]cpp[-_]python==\([0-9.]*\).*/\1/Ip' "$ROOT/requirements.txt" | head -1)"
   TV="$(sed -n 's/^[[:space:]]*torch==\([0-9.]*\).*/\1/p' "$ROOT/requirements.txt" | head -1)"
   AV="$(sed -n 's/^[[:space:]]*torchaudio==\([0-9.]*\).*/\1/p' "$ROOT/requirements.txt" | head -1)"
   if [ -n "$LV" ]; then
-    echo "  llama-cpp-python $LV (ruota CPU)"
-    "$VPY" -m pip install --force-reinstall --no-deps --only-binary=:all: --index-url https://abetlen.github.io/llama-cpp-python/whl/cpu "llama_cpp_python==$LV" \
-      || warn "Ruota CPU di llama-cpp-python non installata: si prosegue con quella di requirements.txt."
+    echo "  llama-cpp-python $LV (ruota $LLAMA_IDX)"
+    if "$VPY" -m pip install --force-reinstall --no-deps --only-binary=:all: --index-url "https://abetlen.github.io/llama-cpp-python/whl/$LLAMA_IDX" "llama_cpp_python==$LV"; then
+      echo "$LLAMA_IDX" > "$VENV/llama_backend.txt"     # letto da utils/llm_model_select.py: solo 'vulkan' cambia la scelta del modello
+    else
+      rm -f "$VENV/llama_backend.txt"
+      warn "Ruota $LLAMA_IDX di llama-cpp-python non installata: si prosegue con quella di requirements.txt."
+    fi
   fi
   if [ -n "$TV" ] && [ -n "$AV" ]; then
     echo "  torch $TV / torchaudio $AV (ruote CPU)"

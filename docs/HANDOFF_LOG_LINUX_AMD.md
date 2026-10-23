@@ -1,10 +1,22 @@
 # Registro del lavoro Linux / AMD
 
-**Prossimo passo:** F4e (Library Scanner con server finto), poi F6. F5 (Vulkan) è sul branch `linux-amd/f5-vulkan` (PR impilata su questa).
+**Prossimo passo:** chiudere la verifica del ritorno al default di F5 (vedi voce F5), poi F4e (Library Scanner con server finto), poi F6. F5 (Vulkan) è sul branch `linux-amd/f5-vulkan` (PR impilata su questa).
 
 Aggiorna questo file a ogni fase, in cima i più recenti. Formato per voce: data, fase, cosa è stato fatto, comandi e risultati dei test, PR/commit, cosa **non** è verificato, domande aperte per il proprietario.
 
 ---
+
+## 2026-10-23 — F5: Vulkan per llama.cpp (branch `linux-amd/f5-vulkan`, impilato su `linux-amd/f4a-install-sh`)
+File cambiati: `install.sh`, `install.ps1`, `utils/llm_model_select.py`, `glossary_engine/glossary_qwen_gpu_cli.py`, nuovo `linux_tests/test_llama_backend.py`.
+- **Installer:** `--gpu-backend=auto|cuda|vulkan|rocm|cpu` (Windows `-GpuBackend`). Senza opzione: comportamento di sempre. `auto` solo su richiesta. `cpu` = `--no-gpu`; `vulkan` = torch CPU + ruota Vulkan di llama-cpp-python 0.3.34 (+ controllo del loader Vulkan e pacchetti suggeriti); `rocm` rifiutato (F6 su Linux, F8 su Windows). Combinare `--no-gpu` con `vulkan` è un errore.
+- **Marcatore** `venv/llama_backend.txt` (cpu|vulkan), scritto dall'installer; `utils/llm_model_select.detect_vram_mib()` lo legge (senza importare llama_cpp): **solo `vulkan`** passa a `backend='vulkan'`; assente o altro testo = `cuda` come oggi. Con un venv riusato che ha il marcatore, l'esecuzione di default rimette la ruota CUDA e toglie il marcatore.
+- **Glossario GPU:** `_free_vram_mb()` usa ancora `nvidia-smi` per primo; ripiego su `gpu_detect` (`vram_free_mib`) solo se non risponde.
+- **Test:** `python -m pytest linux_tests -q` → **114 passed** (28 nuovi: marcatore, NVIDIA invariata, AMD con/senza marcatore, ripiego del glossario).
+- **Prove nella VM (Ubuntu 24.04, lavapipe, senza GPU reale):** `mesa-vulkan-drivers` → `vulkaninfo` vede llvmpipe; ruota Vulkan installata; **llama.cpp ignora i dispositivi di tipo CPU** salvo `GGML_VK_VISIBLE_DEVICES=0` (solo aiuto di prova, non nel codice del prodotto). Con quella variabile: `llama_supports_gpu_offload()` True, Qwen2.5-0.5B Q4_K_M, 25/25 layer su Vulkan0, 8 token generati. `./install.sh --gpu-backend=vulkan --yes` sul venv esistente → exit 0, marcatore `vulkan`, selfcheck senza KO. L'app, senza GPU reale, non conta VRAM (gpu_detect esclude llvmpipe): corretto.
+- **In corso al momento della scrittura:** ritorno al default (`./install.sh --yes`) sullo stesso venv: ha avviato il ripristino della ruota CUDA (log: "ripristino la ruota CUDA"); esito finale da annotare qui.
+- **Non verificato:** `install.ps1` (nessun PowerShell nella VM, solo rilettura del diff: le righe NVIDIA di default sono invariate); qualsiasi GPU AMD/Intel reale (prestazioni, driver Mesa/AMDVLK); la ruota CUDA di llama senza GPU NVIDIA; Python 3.12.
+- **Domande per il proprietario:** (1) con marcatore `cpu` e GPU NVIDIA presente, la scelta del modello resta quella storica (backend cuda): va bene? (2) provare `-GpuBackend vulkan` su un PC Windows con GPU AMD/Intel quando possibile.
+
 
 ## 2026-10-23 — F4 (parziale): prova reale su Ubuntu 24.04 (VM cloud, senza GPU)
 Branch `linux-amd/f4a-install-sh`. Nessun file di codice modificato finora (solo questo registro).
