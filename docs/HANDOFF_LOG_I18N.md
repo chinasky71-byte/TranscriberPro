@@ -3,6 +3,19 @@
 Piu' recenti in alto. Regole: testo italiano identico carattere per carattere; consumatori che leggono il testo
 riconoscono IT ed EN; mai tradurre `logger.*` (restano in italiano per gli sviluppatori).
 
+## 2026-10-23 · PR 4 — core/translator.py (`tl_*`) e core/llm_subtitle_translator/{engine,translator}.py (`le_*`, `lt_*`)
+
+**Fatto**: 84 punti in translator.py (76 `log(...)`, 7 eccezioni/`error_msg` mostrate all'utente, etichette dei contatori dell'audit), 7 in engine.py, 7 in llm translator.py (5 automatici + riga "Completato in..." con concatenazione, a mano).
+`verify_i18n_identity.py`: 76 + 7 + 5 identici, 0 differenti. Non convertiti volutamente: `[Serbatoio] {line}` (testo del figlio), `log(msg)` del batch manager (inoltra solo righe "Warm-up", vedi PR adaptive_batch_manager), i prompt dell'LLM (non sono log).
+
+**Punti delicati**
+1. Barre `Traduzione: [` / `Progresso:`: EN `Translation: [` / `Progress:` (test: log_filter e FileProgress con le righe reali di tl_* e lt_*).
+2. `Recupero senza mascheramento` e' rumore del filtro (`FILE_ONLY_RE`): aggiunta la variante EN (`logm_noise_recovery`).
+3. I contatori dell'audit ("riparati L1" ecc.) sono chiavi di dizionario mostrate: ora `tr(...)`, solo mostrati.
+4. `error_msg` (riga ~1965) arriva anche a `logger.error` (lingua dell'interfaccia nel file di log, come in pipeline.py); `msg` di "Generazione rallentata" idem.
+
+**Test**: `python -m pytest linux_tests -q` → 292 passed, 6 skipped. **Non verificato**: traduzione reale (NLLB/LLM/API) in cloud.
+
 ## 2026-10-23 · PR 3 — core/subtitle_synchronizer.py (67 chiavi `sy_*`) e core/timing_aligner.py (2 chiavi `ta_*`)
 
 **Fatto**: 73 messaggi `_log` del sincronizzatore (69 automatici + 4 ternari a mano, chiavi `sy_embedded_*`/`sy_no_non_italian_*`) + nota "finestra" e riga di sintesi dell'allineatore. `verify_i18n_identity.py`: 69 + 1 identici, 0 differenti.
