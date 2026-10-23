@@ -3,6 +3,11 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.24 — 2026-10-23 — Nomi delle lingue e schede della coda tradotti
+
+- I nomi delle lingue dei sottotitoli (menu tasto destro e scheda "Opzioni job") e le schede "Coda di processamento" / "Cronologia" seguono la lingua dell'interfaccia (inglese se il sistema non e' in italiano).
+  Test di parita' delle chiavi EN/IT e del menu in inglese.
+
 ## 1.34.23 — 2026-10-23 — "Forza trascrizione da audio" tra le opzioni per file
 
 - Il menu tasto destro della coda ha anche **Forza trascrizione da audio** (Predefinito / Si' / No): per quel file ignora i sottotitoli gia' presenti nel video e trascrive l'audio.
