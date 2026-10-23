@@ -13,13 +13,15 @@
 #                 vulkan torch su CPU + llama-cpp-python Vulkan (glossario su GPU AMD/Intel, serve il driver Vulkan; la
 #                        trascrizione e la traduzione restano su CPU)
 #                 auto   sceglie con `utils/gpu_detect.py --backend` (cuda, vulkan o cpu; se rileva solo ROCm usa vulkan)
-#                 rocm   non ancora disponibile (fase F6)
+#                 rocm   Linux + GPU AMD con ROCm 7.0: torch/torchaudio +rocm7.0 (requirements-rocm.txt), ctranslate2 ROCm (release
+#                        OpenNMT/CTranslate2), whisperx --no-deps, llama-cpp-python Vulkan. NON PROVATO SU HARDWARE AMD. Non installa ROCm
+#                        di sistema: controlla /dev/kfd, gruppi render/video e driver amdgpu e dice cosa fare. Python 3.11 o 3.12.
 #
 # Non copia ne' scrive mai credenziali. Non va lanciato come root (il venv deve essere dell'utente).
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CHECK=0; SYSDEPS=0; NOGPU=0; YES=0; WITHMODELS=0; QWENSIZE=auto; GPUBACKEND=""; LLAMA_IDX=cpu
+CHECK=0; SYSDEPS=0; NOGPU=0; YES=0; WITHMODELS=0; QWENSIZE=auto; GPUBACKEND=""; LLAMA_IDX=cpu; ROCM=0
 for a in "$@"; do
   case "$a" in
     --check) CHECK=1 ;;
@@ -52,14 +54,14 @@ if [ "$GPUBACKEND" = "auto" ]; then
     GPUBACKEND="$(python3 "$ROOT/utils/gpu_detect.py" --backend 2>/dev/null | head -1)"
     case "$GPUBACKEND" in cuda|rocm|vulkan|cpu) ;; *) GPUBACKEND=cpu ;; esac
     echo "  gpu_detect: backend consigliato = $GPUBACKEND"
-    [ "$GPUBACKEND" = "rocm" ] && { echo "  [!!]  ROCm non e' ancora supportato dall'installer (fase F6): uso vulkan (glossario su GPU, il resto su CPU)."; GPUBACKEND=vulkan; }
+    [ "$GPUBACKEND" = "rocm" ] && { echo "  [!!]  Rilevato ROCm: 'auto' non lo sceglie perche' non e' ancora provato su hardware; uso vulkan (glossario su GPU, il resto su CPU). Per ROCm: --gpu-backend=rocm"; GPUBACKEND=vulkan; }
   fi
 fi
-if [ "$GPUBACKEND" = "rocm" ]; then echo "[KO] --gpu-backend=rocm non e' ancora disponibile (fase F6 del piano Linux/AMD)."; exit 2; fi
 if [ -n "$GPUBACKEND" ] && [ "$NOGPU" = "1" ] && [ "$GPUBACKEND" != "cpu" ]; then echo "[KO] --no-gpu equivale a --gpu-backend=cpu: non si combina con --gpu-backend=$GPUBACKEND"; exit 2; fi
 case "$GPUBACKEND" in
   cpu) NOGPU=1 ;;
   vulkan) NOGPU=1; LLAMA_IDX=vulkan ;;
+  rocm) ROCM=1; LLAMA_IDX=vulkan ;;     # torch/ctranslate2 su ROCm; llama resta Vulkan (ruota ROCm di llama non prevista)
 esac
 
 MISSING=()
@@ -75,7 +77,21 @@ else
   bad "Python 3.11 (o 3.12) non trovato"; MISSING+=("python")
 fi
 
-if [ "$LLAMA_IDX" = "vulkan" ]; then
+if [ "$ROCM" = "1" ]; then
+  warn "Backend ROCm (NON PROVATO su hardware AMD): torch/ctranslate2 su GPU con ROCm 7.0, llama-cpp-python su Vulkan."
+  if [ -e /dev/kfd ]; then
+    if [ -r /dev/kfd ] && [ -w /dev/kfd ]; then ok "/dev/kfd accessibile"
+    else bad "/dev/kfd esiste ma non e' accessibile a $(id -un): aggiungi l'utente ai gruppi render e video (sudo usermod -aG render,video \$USER) e rifai il login"; MISSING+=("kfd-access"); fi
+  else bad "/dev/kfd assente: serve il driver amdgpu del kernel con supporto compute (kernel recente o pacchetto amdgpu-dkms di AMD)"; MISSING+=("kfd"); fi
+  for g in render video; do
+    if id -nG 2>/dev/null | tr ' ' '\n' | grep -qx "$g"; then ok "utente nel gruppo $g"; else warn "utente non nel gruppo $g (sudo usermod -aG $g \$USER, poi nuovo login)"; fi
+  done
+  if [ -d /sys/module/amdgpu ] || (have lsmod && lsmod 2>/dev/null | grep -q '^amdgpu'); then ok "driver amdgpu caricato"; else warn "driver amdgpu non visibile (lsmod)"; fi
+  have rocminfo && ok "rocminfo presente (ROCm di sistema: non obbligatorio, le ruote di torch portano il loro runtime)" || warn "rocminfo assente: non e' un problema, ROCm di sistema non serve"
+  if { have ldconfig && ldconfig -p 2>/dev/null | grep -q 'libvulkan\.so\.1'; } || [ -e /usr/lib/x86_64-linux-gnu/libvulkan.so.1 ] || [ -e /usr/lib64/libvulkan.so.1 ] || [ -e /usr/lib/libvulkan.so.1 ]; then
+    ok "Loader Vulkan (libvulkan.so.1) presente"
+  else bad "libvulkan.so.1 non trovata (serve per llama-cpp-python Vulkan)"; MISSING+=("vulkan"); fi
+elif [ "$LLAMA_IDX" = "vulkan" ]; then
   warn "Backend Vulkan: llama-cpp-python usera' la GPU (solo il glossario); trascrizione e traduzione girano su CPU, ~10 volte piu' lente."
   if { have ldconfig && ldconfig -p 2>/dev/null | grep -q 'libvulkan\.so\.1'; } || [ -e /usr/lib/x86_64-linux-gnu/libvulkan.so.1 ] || [ -e /usr/lib64/libvulkan.so.1 ] || [ -e /usr/lib/libvulkan.so.1 ]; then
     ok "Loader Vulkan (libvulkan.so.1) presente"
@@ -91,7 +107,7 @@ if have tesseract; then
 else bad "Tesseract non trovato"; MISSING+=("tesseract"); fi
 have mkvextract && ok "MKVToolNix: $(command -v mkvextract)" || warn "MKVToolNix non trovato (serve solo per i sottotitoli VOBSUB)"
 free_gb="$(df -Pk "$ROOT" | awk 'NR==2{printf "%d", $4/1048576}')"
-need=15; [ "$NOGPU" = "1" ] && need=6
+need=15; [ "$NOGPU" = "1" ] && need=6; [ "$ROCM" = "1" ] && need=20
 [ "${free_gb:-0}" -ge "$need" ] && ok "Spazio libero: ${free_gb} GB (servono ~${need})" || { bad "Spazio libero ${free_gb} GB, ne servono ~${need}"; MISSING+=("disco"); }
 
 # gestore pacchetti e nomi (ogni distribuzione chiama i pacchetti in modo diverso). I pacchetti Python si aggiungono solo se servono:
@@ -156,7 +172,7 @@ VPY="$VENV/bin/python"
 "$VPY" -m pip install --upgrade pip >/dev/null 2>&1
 
 REQ="$ROOT/requirements.txt"
-if [ "$NOGPU" = "0" ] && [ -f "$VENV/llama_backend.txt" ]; then
+if [ "$NOGPU" = "0" ] && [ "$ROCM" = "0" ] && [ -f "$VENV/llama_backend.txt" ]; then
   # venv riusato che aveva la ruota CPU/Vulkan di llama (installata da una esecuzione precedente con --no-gpu / --gpu-backend):
   # pip la riterrebbe valida (stessa versione), quindi si rimette la ruota CUDA dei requisiti. Senza marcatore non si tocca nulla.
   LV="$(sed -n 's/^[[:space:]]*llama[-_]cpp[-_]python==\([0-9.]*\).*/\1/Ip' "$ROOT/requirements.txt" | head -1)"
@@ -167,7 +183,7 @@ if [ "$NOGPU" = "0" ] && [ -f "$VENV/llama_backend.txt" ]; then
     else warn "Ruota CUDA di llama-cpp-python non reinstallata: il venv conserva quella di prima."; fi
   fi
 fi
-if [ "$NOGPU" = "1" ]; then
+if [ "$NOGPU" = "1" ] || [ "$ROCM" = "1" ]; then
   # ruote CPU: llama-cpp-python (stessa versione del pin) e torch/torchaudio, tolte dal file usato da pip
   LV="$(sed -n 's/^[[:space:]]*llama[-_]cpp[-_]python==\([0-9.]*\).*/\1/Ip' "$ROOT/requirements.txt" | head -1)"
   TV="$(sed -n 's/^[[:space:]]*torch==\([0-9.]*\).*/\1/p' "$ROOT/requirements.txt" | head -1)"
@@ -181,7 +197,7 @@ if [ "$NOGPU" = "1" ]; then
       warn "Ruota $LLAMA_IDX di llama-cpp-python non installata: si prosegue con quella di requirements.txt."
     fi
   fi
-  if [ -n "$TV" ] && [ -n "$AV" ]; then
+  if [ "$NOGPU" = "1" ] && [ -n "$TV" ] && [ -n "$AV" ]; then
     echo "  torch $TV / torchaudio $AV (ruote CPU)"
     if "$VPY" -m pip install --only-binary=:all: --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple "torch==$TV" "torchaudio==$AV"; then
       REQ="$(mktemp /tmp/tp_requirements_nogpu.XXXXXX)"; trap 'rm -f "$REQ"' EXIT
@@ -189,8 +205,33 @@ if [ "$NOGPU" = "1" ]; then
     else warn "Ruote CPU di torch non installate: si prosegue con quelle di requirements.txt (+cu126, ~3 GB)."; fi
   fi
 fi
-echo "  pip install -r requirements.txt  (puo' richiedere diversi minuti e alcuni GB di download)"
+if [ "$ROCM" = "1" ]; then
+  # ctranslate2 ROCm: non e' su PyPI, sta nella release di OpenNMT/CTranslate2 (rocm-python-wheels-Linux.zip). Va installato PRIMA, cosi' pip
+  # considera soddisfatta la dipendenza di faster-whisper e non scarica la ruota CUDA di PyPI.
+  PYTAG="cp$("$VPY" -c 'import sys;print("%d%d" % sys.version_info[:2])')"
+  CT2DIR="$(mktemp -d /tmp/tp_ct2rocm.XXXXXX)"; trap 'rm -rf "$CT2DIR"' EXIT
+  echo "  ctranslate2 ROCm (release piu' recente di OpenNMT/CTranslate2, ruota $PYTAG)"
+  if curl -fsSL --retry 3 -o "$CT2DIR/w.zip" "https://github.com/OpenNMT/CTranslate2/releases/latest/download/rocm-python-wheels-Linux.zip" \
+     && "$VPY" - "$CT2DIR" "$PYTAG" <<'PYEOF'
+import sys, zipfile, glob, os
+d, tag = sys.argv[1], sys.argv[2]
+z = zipfile.ZipFile(d + '/w.zip')
+names = [n for n in z.namelist() if n.endswith('.whl') and ('-%s-%s-' % (tag, tag)) in os.path.basename(n) and 'manylinux' in n]
+if not names: sys.exit('nessuna ruota ctranslate2 ROCm per ' + tag)
+open(d + '/path.txt', 'w').write(z.extract(names[0], d))
+PYEOF
+  then
+    "$VPY" -m pip install --no-deps "$(cat "$CT2DIR/path.txt")" || { bad "installazione ctranslate2 ROCm fallita"; exit 1; }
+  else bad "ctranslate2 ROCm non scaricata/estratta: Whisper non usera' la GPU AMD. Scarica a mano rocm-python-wheels-Linux.zip da github.com/OpenNMT/CTranslate2/releases"; exit 1; fi
+  REQ="$ROOT/requirements-rocm.txt"
+fi
+echo "  pip install -r $(basename "$REQ")  (puo' richiedere diversi minuti e alcuni GB di download)"
 "$VPY" -m pip install -r "$REQ" || { bad "pip install fallito (vedi l'errore sopra; rilancia dopo averlo risolto)"; exit 1; }
+if [ "$ROCM" = "1" ]; then
+  # whisperx senza dipendenze (l'app lo usa solo in core/aligner.py; le sue dipendenze sono gia' in requirements-rocm.txt)
+  WV="$(sed -n 's/^[[:space:]]*whisperx==\([0-9.]*\).*/\1/p' "$ROOT/requirements.txt" | head -1)"
+  "$VPY" -m pip install --no-deps "whisperx==$WV" || warn "whisperx $WV non installato: l'allineamento parola per parola non funzionera'."
+fi
 ok "ambiente principale pronto"
 
 if [ "$WITHMODELS" = "1" ]; then
