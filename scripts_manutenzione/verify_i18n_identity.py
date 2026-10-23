@@ -116,9 +116,7 @@ def main():
         print(f"ATTENZIONE: chiamate di log diverse (base {len(old_calls)}, ora {len(new_calls)})")
     for o, nw in zip(old_calls, new_calls):
         oa, na = o.args[0], nw.args[0]
-        is_tr = isinstance(na, ast.Call) and (
-            getattr(na.func, 'id', '') == 'tr' or (isinstance(na.func, ast.Attribute) and isinstance(na.func.value, ast.Call)
-                                                   and getattr(na.func.value.func, 'id', '') == 'tr'))
+        is_tr = any(isinstance(x, ast.Call) and getattr(x.func, 'id', '') == 'tr' for x in ast.walk(na))
         if not is_tr:
             unchanged += 1
             continue

@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
+from utils.translations import tr
 
 DT = 0.05  # risoluzione delle maschere (s)
 FPS_RATIOS = (1.0, 25 / 23.976, 23.976 / 25, 24 / 23.976, 23.976 / 24, 25 / 24, 24 / 25)
@@ -150,7 +151,7 @@ def align(ext_intervals: Sequence[Interval], ref_intervals: Sequence[Interval], 
     _, scale, offset, g, coarse = best
     notes = []
     if float(np.max(np.abs(coarse))) >= piece_span - 2 * coarse_step:
-        notes.append("offset a tratti al limite della finestra: possibile allineamento incompleto")
+        notes.append(tr('ta_piecewise_offset_at_the_window'))
     fine_span = float(np.max(np.abs(coarse))) + 2.0
     per, _ = _piecewise(g, ref_mask, fine_span, piece_step, switch_cost, order_tol, center=coarse, band=1.0)
     cs = np.concatenate([[0.0], np.cumsum(ref_mask)]) * DT
@@ -167,6 +168,5 @@ def align(ext_intervals: Sequence[Interval], ref_intervals: Sequence[Interval], 
     res = AlignResult(new, scale, offset, [float(x) for x in per], changes + 1, cov, float(np.mean(cov)),
                       int(sum(c < 0.2 for c in cov)), density=density, lift=lift, notes=notes)
     if log:
-        log(f"  Allineamento globale: scala {scale:.5f}, offset {offset:+.2f} s; tratti con offset diverso: {res.n_pieces}; "
-            f"copertura media del parlato {res.mean_coverage:.0%} (a caso: {res.density:.0%}, indice {res.lift:.2f}); battute con poca copertura: {res.low_coverage}/{len(ext)}.")
+        log(tr('ta_global_alignment_scale_offset_s').format(scale=scale, offset=offset, n_pieces=res.n_pieces, mean_coverage=res.mean_coverage, density=res.density, lift=res.lift, low_coverage=res.low_coverage, n=len(ext)))
     return res
