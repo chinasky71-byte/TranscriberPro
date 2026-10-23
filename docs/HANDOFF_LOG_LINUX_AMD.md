@@ -1,6 +1,6 @@
 # Registro del lavoro Linux / AMD
 
-**Prossimo passo:** completare F4a (`./install.sh --no-gpu --yes`) e poi F4d/F4e, F5, F6: **bloccati dalla policy di rete della VM cloud**, che permette solo PyPI (vedi voce del 2026-10-23, F4). Serve consentire `download.pytorch.org`, `abetlen.github.io`, `huggingface.co`, `github.com` (e `objects.githubusercontent.com`) nell'ambiente, oppure fornire le ruote in altro modo.
+**Prossimo passo:** F4e (Library Scanner con server finto), poi F6. F5 (Vulkan) è sul branch `linux-amd/f5-vulkan` (PR impilata su questa).
 
 Aggiorna questo file a ogni fase, in cima i più recenti. Formato per voce: data, fase, cosa è stato fatto, comandi e risultati dei test, PR/commit, cosa **non** è verificato, domande aperte per il proprietario.
 
@@ -14,12 +14,9 @@ Branch `linux-amd/f4a-install-sh`. Nessun file di codice modificato finora (solo
   - `bash -n install.sh` OK; `--check` da root rifiuta correttamente (rc=2); da utente non root gira, trova Python 3.11.17 e ffmpeg, segnala Tesseract mancante (rc=2) e stampa il comando apt.
   - I pacchetti apt del comando suggerito esistono su Ubuntu 24.04 (serve `apt-get update` su VM fresca); installati senza errori. Il comando contiene un doppio spazio dopo `-y` (PYPKG vuoto): innocuo.
   - `./install.sh --no-gpu --yes`: creazione del venv OK; **tutti i download pip falliti per la rete della VM** (403 dal proxy per `download.pytorch.org`, `abetlen.github.io`, `huggingface.co`; passa solo PyPI). **Non completata, non verificata.** Osservazione: se le ruote CPU falliscono lo script prosegue con `requirements.txt` (+cu126, ~3 GB) senza chiedere.
-- **Non verificato:** `install.sh --no-gpu` fino in fondo, selfcheck su Linux, F4d, F4e, F5, F6 (richiedono torch, llama-cpp e/o Hugging Face/GitHub).
-- **Domande per il proprietario:** (1) si può ampliare la policy di rete dell'ambiente cloud agli host sopra? (2) in `--no-gpu`, se la ruota CPU fallisce lo script deve fermarsi invece di ripiegare su cu126?
+- **Rete sbloccata** dal proprietario (accesso completo): rilancio completo di F4a e F4d.
+- **F4a completata:** `./install.sh --no-gpu --yes` (utente non root, venv nuovo, ruote CPU di torch 2.8.0+cpu e llama-cpp-python 0.3.34) → **exit 0**, selfcheck `RISULTATO: tutto il necessario funziona`, nessun KO. L'avviso `ERROR: pip's dependency resolver...` nel log è **cosmetico**: viene dall'installazione della ruota CPU di llama con `--no-deps` prima delle sue dipendenze, che arrivano dopo con `requirements.txt`.
+- **F4d completata:** `QT_QPA_PLATFORM=offscreen`, `HOME` temporaneo, `main.py` con `QApplication.exec` sostituito da un ciclo di 3 s → `MainWindow` visibile in 6,7 s, tema `theme.qss.tpl` (32775 caratteri), 2 font caricati; solo due avvisi attesi (venv NLP/spaCy assente, chiave TMDB assente), nessuna eccezione.
+- **Limiti di queste prove:** la VM aveva **già Python 3.11** (3.11.17); su un Ubuntu 24.04 standard `install.sh` sceglierebbe la 3.12, ramo **non verificato** (né a runtime). Fedora/dnf/pacman/zypper **non provati**. F4e (Library Scanner) non fatta. Nessuna GPU.
+- **Domande per il proprietario:** (1) con `--no-gpu`, se la ruota CPU di torch fallisce lo script ripiega su cu126 (~3 GB) senza chiedere: deve fermarsi? (2) accettare il ramo Python 3.12 come "provato solo in installazione"?
 
-
-## 2026-10-23 — Punto di partenza (sessione locale di Claude Code)
-- Versione dell'app: 1.34.17 (`65cab33`). Fasi F0-F3 e il rilevamento GPU sono completati e pubblicati (tabella nel documento di consegna, sezione 2).
-- Test portabili: `python -m pytest linux_tests -q` → 86 passed su Windows (anche in un venv con sole pytest, psutil, requests, pillow). Mai eseguiti su Linux.
-- Non verificato su hardware reale: `install.sh`, `run.sh`, `gpu_detect` con sysfs/lspci/vulkaninfo reali, qualunque componente su GPU AMD/Intel.
-- Domande aperte per il proprietario: nessuna.
