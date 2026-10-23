@@ -152,3 +152,6 @@ docker_headless/
 
 # gui/theme.qss: generato da theme.qss.tpl (contiene percorsi assoluti locali)
 gui/theme.qss
+
+# Eccezione: i test portabili per Linux (linux_tests/) vanno nel repository
+!linux_tests/test_*.py
