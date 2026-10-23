@@ -60,6 +60,21 @@ def _emit(event: dict) -> None:
         pass  # padre morto (pipe rotta): nessuno legge piu', niente da fare
 
 
+def _free_vram_from_gpu_detect():
+    """Ripiego senza nvidia-smi (GPU AMD/Intel con la ruota Vulkan di llama): VRAM libera della GPU piu' grande secondo
+    utils/gpu_detect. Il modulo si carica dal file (solo libreria standard): in questo processo `import utils` non serve."""
+    import importlib.util
+    path = Path(__file__).resolve().parent.parent / 'utils' / 'gpu_detect.py'
+    spec = importlib.util.spec_from_file_location('tp_gpu_detect', path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules['tp_gpu_detect'] = mod      # i dataclass del modulo lo cercano in sys.modules
+    spec.loader.exec_module(mod)
+    gpus = [g for g in mod.detect_gpus().gpus if g.vram_mib and g.vram_free_mib is not None]
+    if not gpus:
+        return None
+    return int(max(gpus, key=lambda g: g.vram_mib).vram_free_mib)
+
+
 def _free_vram_mb():
     try:
         out = subprocess.check_output(
@@ -67,6 +82,11 @@ def _free_vram_mb():
             text=True, timeout=5, stderr=subprocess.DEVNULL,
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         return int(out.strip().splitlines()[0])
+    except Exception:
+        pass
+    # nvidia-smi e' la fonte storica e resta la prima (valore invariato per NVIDIA); gpu_detect solo se non risponde
+    try:
+        return _free_vram_from_gpu_detect()
     except Exception:
         return None
 

@@ -36,19 +36,34 @@ PREFERENCES = ('auto', 'fast', 'quality')
 FAST_MODE_ENABLED = False
 
 
-def detect_vram_mib() -> Optional[int]:
-    """VRAM totale (MiB) della GPU NVIDIA piu' grande con driver funzionante (gpu_detect.usable_vram_mib con
-    backend='cuda', vedi il commento sotto); None se nessuna GPU CUDA, errore o timeout. Con nvidia-smi che risponde e'
-    lo stesso valore di sempre: il massimo di `nvidia-smi --query-gpu=memory.total`. Unica differenza voluta: se
-    nvidia-smi risponde ma riporta [N/A] per memory.total, si usa la VRAM del registro di Windows / sysfs della stessa
-    GPU, quindi il valore puo' essere noto dove prima era None. Le GPU AMD/Intel NON contano (None)."""
+# Marcatore scritto dall'installer (install.sh/install.ps1) quando installa una ruota di llama-cpp-python diversa da quella
+# CUDA dei requirements: venv/llama_backend.txt (dentro il venv principale, quello che esegue il glossario: sparisce con
+# lui e resta legato alla ruota installata). Regola unica: SOLO il contenuto 'vulkan' cambia il comportamento; file
+# assente, illeggibile, 'cpu', 'cuda' o qualunque altro testo -> backend 'cuda', cioe' esattamente il comportamento storico.
+LLAMA_BACKEND_MARKER = Path(__file__).resolve().parent.parent / 'venv' / 'llama_backend.txt'
+
+
+def llama_backend_marker(path=None) -> str:
+    """'vulkan' se l'installer ha messo la ruota Vulkan di llama-cpp-python, altrimenti 'cuda' (default storico)."""
+    try:
+        txt = Path(path or LLAMA_BACKEND_MARKER).read_text(encoding='utf-8', errors='replace').strip().lower()
+    except Exception:
+        return 'cuda'
+    return 'vulkan' if txt == 'vulkan' else 'cuda'
+
+
+def detect_vram_mib(marker_path=None) -> Optional[int]:
+    """VRAM totale (MiB) della GPU piu' grande che il llama-cpp-python INSTALLATO puo' usare (gpu_detect.usable_vram_mib);
+    None se nessuna, errore o timeout.
+    - Default (nessun marcatore, o ruota CUDA/CPU): backend='cuda', come sempre: il massimo di
+      `nvidia-smi --query-gpu=memory.total`. Unica differenza voluta: se nvidia-smi risponde ma riporta [N/A] per
+      memory.total, si usa la VRAM del registro di Windows / sysfs della stessa GPU. Le GPU AMD/Intel NON contano (None):
+      con una ruota CUDA/CPU girerebbero comunque su CPU (14B con n_gpu_layers=-1 = piu' lento e il doppio della RAM).
+    - Marcatore 'vulkan': backend='vulkan', conta la VRAM dedicata delle GPU con un driver Vulkan reale (le GPU software,
+      llvmpipe/lavapipe, sono escluse da gpu_detect). Non si importa llama_cpp: si legge solo il marcatore."""
     try:
         from .gpu_detect import detect_gpus, usable_vram_mib
-        # backend='cuda' (decisione del 22/10): il llama-cpp-python installato e' la ruota CUDA o la CPU; finche' non esiste una
-        # ruota Vulkan/HIP supportata dall'installer, contare la VRAM di una GPU AMD/Intel sceglierebbe il 14B con n_gpu_layers=-1
-        # su un llama che gira comunque su CPU (piu' lento, il doppio della RAM). Quando arrivera' il backend Vulkan/ROCm si
-        # passa a usable_vram_mib(rep) (backend consigliato).
-        return usable_vram_mib(detect_gpus(), backend='cuda')
+        return usable_vram_mib(detect_gpus(), backend=llama_backend_marker(marker_path))
     except Exception:
         return None
 
