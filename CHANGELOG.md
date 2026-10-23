@@ -3,6 +3,14 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.26 — 2026-10-23 — Interfaccia tradotta (fase B): righe di log della pipeline in inglese o italiano
+
+- Le righe di log emesse da pipeline, traduttori, sincronizzazione, motori di trascrizione, genere, diarizzazione, OCR e coda headless (circa 800 testi in `core/` e `utils/`) seguono la lingua dell'interfaccia.
+  Il testo italiano e' identico carattere per carattere (verificato con `scripts_manutenzione/verify_i18n_identity.py`).
+- I consumatori che leggevano le righe dal testo (filtro del log, avanzamento, sincronizzazione) riconoscono italiano e inglese.
+- I processi figli leggono la lingua con `init_language_headless` (variabile `TP_LANG`, poi config, poi locale di sistema).
+- Lavoro svolto dalla sessione cloud (PR #8-#13); registro in `docs/HANDOFF_LOG_I18N.md`. Restano in italiano i CLI che girano in ambienti virtuali senza `utils` (glossario, selettore genere, Canary).
+
 ## 1.34.25 — 2026-10-23 — Interfaccia tradotta (fase A): circa 120 testi che erano solo in italiano
 
 - Library Scanner (tooltip, messaggi di conversione ASS/SSA, Superpower, OCR, righe di log), finestra Traduzione (modelli, chiavi API e token, correzione del genere), Impostazioni generali,
