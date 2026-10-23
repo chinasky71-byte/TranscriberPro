@@ -325,7 +325,7 @@ function Ensure-Venv($dirName, $reqFile, $label) {
                 Set-Content -Path (Join-Path $venv 'llama_backend.txt') -Value $LlamaIdx -Encoding ASCII
             } else {
                 Remove-Item (Join-Path $venv 'llama_backend.txt') -ErrorAction SilentlyContinue
-                Write-Warn "Ruota $LlamaIdx di llama-cpp-python non installata: si prosegue con quella di requirements.txt (senza driver NVIDIA non carichera')."
+                Fail "Download della ruota $LlamaIdx di llama-cpp-python fallito (rete o sito irraggiungibile). Mi fermo: proseguire installerebbe la ruota CUDA, inutile senza GPU NVIDIA. Controlla la connessione e rilancia."
             }
         } else { Write-Warn 'Versione di llama_cpp_python non letta da requirements.txt (formato inatteso): ruota CPU non installata.' }
         # torch/torchaudio CPU (~250 MB invece di ~2,9 GB della ruota +cu126). Si installano PRIMA e si tolgono dal file dei requisiti
@@ -341,7 +341,7 @@ function Ensure-Venv($dirName, $reqFile, $label) {
             if ($LASTEXITCODE -eq 0) {
                 $req = Join-Path $env:TEMP 'tp_requirements_nogpu.txt'
                 Get-Content (Join-Path $Root $reqFile) | Where-Object { $_ -notmatch '^\s*(torch|torchaudio)==' } | Set-Content -Path $req -Encoding ASCII
-            } else { Write-Warn 'Ruote CPU di torch non installate: si prosegue con quelle di requirements.txt (+cu126, ~2,9 GB).' }
+            } else { Fail 'Download delle ruote CPU di torch fallito (rete o download.pytorch.org irraggiungibile). Mi fermo: proseguire installerebbe torch CUDA (+cu126, ~2,9 GB), inutile senza GPU NVIDIA. Controlla la connessione e rilancia con -NoGpu.' }
         } else { Write-Warn 'Versioni di torch/torchaudio non lette da requirements.txt (formato inatteso): ruote CPU non installate.' }
     }
     if ((-not $NoGpu) -and $dirName -eq 'venv' -and (Test-Path (Join-Path $venv 'llama_backend.txt'))) {

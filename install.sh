@@ -227,6 +227,9 @@ if [ "$NOGPU" = "1" ] || [ "$ROCM" = "1" ]; then
       echo "$LLAMA_IDX" > "$VENV/llama_backend.txt"     # letto da utils/llm_model_select.py: solo 'vulkan' cambia la scelta del modello
     else
       rm -f "$VENV/llama_backend.txt"
+      if [ "$NOGPU" = "1" ]; then
+        bad "Download della ruota $LLAMA_IDX di llama-cpp-python fallito (rete o sito irraggiungibile). Mi fermo: proseguire installerebbe la ruota CUDA, inutile senza GPU NVIDIA. Controlla la connessione e rilancia ./install.sh"; exit 1
+      fi
       warn "Ruota $LLAMA_IDX di llama-cpp-python non installata: si prosegue con quella di requirements.txt."
     fi
   fi
@@ -235,7 +238,9 @@ if [ "$NOGPU" = "1" ] || [ "$ROCM" = "1" ]; then
     if "$VPY" -m pip install --only-binary=:all: --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple "torch==$TV" "torchaudio==$AV"; then
       REQ="$(mktemp /tmp/tp_requirements_nogpu.XXXXXX)"; trap 'rm -f "$REQ"' EXIT
       grep -Ev '^[[:space:]]*(torch|torchaudio)==' "$ROOT/requirements.txt" > "$REQ"
-    else warn "Ruote CPU di torch non installate: si prosegue con quelle di requirements.txt (+cu126, ~3 GB)."; fi
+    else
+      bad "Download delle ruote CPU di torch fallito (rete o download.pytorch.org irraggiungibile). Mi fermo: proseguire installerebbe torch CUDA (+cu126, ~3 GB), inutile senza GPU NVIDIA. Controlla la connessione e rilancia ./install.sh --no-gpu"; exit 1
+    fi
   fi
 fi
 if [ "$ROCM" = "1" ]; then

@@ -3,6 +3,13 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.19 — 2026-10-23 — Installer: con --no-gpu / -NoGpu un download CPU fallito ferma l'installazione; Linux/AMD (lavoro del cloud)
+
+- **Installer (`install.sh`, `install.ps1`):** con `--no-gpu` / `-NoGpu`, se il download delle ruote CPU di torch o di llama-cpp-python fallisce, lo script si ferma con un messaggio chiaro
+  invece di ripiegare sulle ruote CUDA di `requirements.txt` (~3 GB inutili senza GPU NVIDIA). Basta rilanciare dopo aver controllato la rete.
+- **Linux/AMD (sessione cloud, gia' in master):** `install.sh --system-deps` si rilancia da solo dopo i pacchetti di sistema (anti-ciclo); `--gpu-backend=vulkan|rocm`;
+  `requirements-rocm.txt` (torch 2.10+rocm7.0), `scripts_manutenzione/amd_smoke_test.py`; Python 3.12 provato su Ubuntu 24.04. Dettagli in `docs/HANDOFF_LOG_LINUX_AMD.md`.
+
 ## 1.34.18 — 2026-10-23 — Rimozione di un file dalla coda anche durante l'elaborazione; niente doppioni del file in lavorazione
 
 - **Rimuovi dalla coda:** tasto Canc o menu contestuale ("Rimuovi dalla coda") sulla riga selezionata, anche mentre la coda lavora. Vale per i file ancora in attesa; quello in
