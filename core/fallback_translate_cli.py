@@ -285,4 +285,11 @@ if __name__ == '__main__':
     except Exception:
         pass
 
+    # Lingua dei log: stessa regola della GUI (config 'language'), senza Qt.
+    try:
+        from utils.translations import init_language_headless as _tp_init_lang
+        _tp_init_lang()
+    except Exception:
+        pass
+
     sys.exit(main(sys.argv))
