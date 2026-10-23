@@ -67,8 +67,8 @@ def main():
     if is_win:
         add('sistema', 'Python', sys.version_info[:2] == (3, 11), platform.python_version() + ' (serve 3.11)')
         add('sistema', 'Windows', True, platform.platform(), True)
-    else:   # Linux/macOS: 3.11 provato dall'autore; 3.12 ha tutte le ruote ma non e' verificato a runtime
-        add('sistema', 'Python', sys.version_info[:2] in ((3, 11), (3, 12)), platform.python_version() + ' (serve 3.11, o 3.12 non verificato)')
+    else:   # Linux/macOS: 3.11 provato dall'autore; 3.12 provato il 23/10/2026 su Ubuntu 24.04 (installazione, selfcheck, test, avvio offscreen; no GPU)
+        add('sistema', 'Python', sys.version_info[:2] in ((3, 11), (3, 12)), platform.python_version() + ' (serve 3.11 o 3.12)')
         add('sistema', platform.system(), True, platform.platform(), True)
 
     # ordine dell'app (main.py): onnxruntime prima di PyQt6
