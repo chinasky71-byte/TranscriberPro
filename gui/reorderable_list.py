@@ -38,6 +38,8 @@ class ReorderableFileList(QListWidget):
         item = self.currentItem()
         if item is None or not self.can_move(item):
             return
+        if len(self.selectedItems()) > 1:
+            return          # selezione multipla: il riordino per trascinamento vale solo per una riga alla volta
         index = self.indexFromItem(item)
         mime: Optional[QMimeData] = self.model().mimeData([index])
         if mime is None:

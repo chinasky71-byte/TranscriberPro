@@ -218,6 +218,8 @@ class ProcessingWorker(QThread):
         
         self.is_cancelled = False
         self._current_proc = None     # subprocess pipeline_cli in corso (isolamento)
+        self.job_overrides = {}       # {path: eccezioni}: dizionario di QueueService (stesso mutex); vuoto se il worker e' usato da solo
+        self._current_overrides = {}  # eccezioni del file in lavorazione, prese insieme al file
 
         # Contatori per statistiche
         self.completed_files = 0
@@ -254,6 +256,7 @@ class ProcessingWorker(QThread):
                 # ✅ ATOMICO: Prendi E rimuovi in una sola operazione
                 file_path = self.processing_queue[0]
                 self.processing_queue.pop(0)
+                self._current_overrides = dict(self.job_overrides.pop(file_path, None) or {})   # nello stesso lock: nessuna modifica a meta'
                 return file_path
             return None
     
@@ -378,14 +381,16 @@ class ProcessingWorker(QThread):
         filename = Path(video_path).name
 
         from utils.config import get_config
-        target_language = get_config().get_target_language()
+        from utils.job_overrides import clean as _clean_ov
+        overrides = _clean_ov(getattr(self, '_current_overrides', None))
+        target_language = overrides.get('target_language') or get_config().get_target_language()
         # Avanzamento del file: fasi pesate per durata reale + barra interna di fase (gui/file_progress.py).
         from gui.file_progress import FileProgress
         _file_progress = FileProgress(target_language)
         # Anteprima dei passi (Log Sintetico): gira SEMPRE, cosi' spuntando la casella a meta' file lo stato e' gia' vero.
         from gui.services.step_plan import StepTracker, PlanOptions
         try:
-            _steps = StepTracker(video_path, PlanOptions.from_config(get_config(), target_language))
+            _steps = StepTracker(video_path, PlanOptions.from_config(get_config(), target_language, overrides))
             self.file_steps.emit(video_path, _steps.snapshot())
         except Exception:
             _steps = None
@@ -405,6 +410,7 @@ class ProcessingWorker(QThread):
         args_path.write_text(json.dumps({
             "video_path": video_path,
             "target_language": target_language,
+            "overrides": overrides,
             "files_processed": files_done,
             "result_path": str(result_path),
         }, ensure_ascii=False), encoding='utf-8')

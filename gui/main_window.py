@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QFileDialog, QMessageBox, QCheckBox, QLabel, QListWidgetItem,
                              QFrame, QToolButton, QSizePolicy, QLayout, QDialog,
                              QComboBox, QSplitter, QMenu, QTabBar, QStackedWidget,
-                             QGraphicsOpacityEffect)
+                             QGraphicsOpacityEffect, QAbstractItemView)
 from PyQt6.QtCore import (Qt, QTimer, QSize, QEvent,
                           QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup,
                           pyqtSignal)
@@ -370,6 +370,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.segmented_filter)
 
         self.file_list = ReorderableFileList()
+        self.file_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)   # Ctrl/Maiusc: opzioni e rimozione su piu' file
         self.file_list.setObjectName("fileList")
         self.file_list.can_move = self._can_reorder_item
         self.file_list.apply_order = self._apply_queue_order
@@ -840,6 +841,7 @@ class MainWindow(QMainWindow):
         qs.job_added.connect(self._on_job_added)
         qs.jobs_cleared.connect(self._on_jobs_cleared)
         qs.job_removed.connect(self._on_job_removed)
+        qs.job_overrides_changed.connect(self._on_job_overrides_changed)
         qs.job_changed.connect(self._on_job_changed)
         qs.job_size_ready.connect(self._on_size_ready)
         qs.remaining_changed.connect(self._on_remaining_changed)
@@ -914,6 +916,99 @@ class MainWindow(QMainWindow):
                 self.log_message(tr('remove_refused_log').format(name=rec.filename))
         return removed
 
+    def _selected_waiting(self):
+        """(percorsi dei file normali in attesa, percorsi dei job OCR differiti in attesa) tra le righe selezionate."""
+        normal, ocr = [], []
+        scanner = getattr(self, 'library_scanner', None)
+        for it in self.file_list.selectedItems():
+            if it.isHidden():
+                continue
+            rec = JobRecord.from_item_data(it.data(Qt.ItemDataRole.UserRole))
+            if self.queue_service.can_reorder(rec):
+                normal.append(rec.path)
+            elif rec.is_ocr and rec.status == 'queued' and scanner is not None and scanner.is_deferred_ocr(rec.path):
+                ocr.append(rec.path)
+        return normal, ocr
+
+    def _apply_override(self, paths, key, value):
+        """Eccezione per file (value None = torna al predefinito) sui file in attesa selezionati."""
+        done = self.queue_service.set_overrides(paths, key, value)
+        skipped = len(paths) - len(done)
+        if skipped > 0:
+            self.log_message(tr('job_ov_skipped_log').format(n=skipped))
+
+    def _apply_ocr_mode(self, paths, mode):
+        scanner = getattr(self, 'library_scanner', None)
+        changed = scanner.set_deferred_ocr_mode(paths, mode) if scanner is not None else []
+        label = {'review': tr('job_ov_ocr_targeted_short'), 'auto': tr('job_ov_ocr_auto_short')}.get(mode, '')
+        for p in changed:
+            self._set_item_badge(p, label, ocr=True)
+        if len(changed) < len(paths):
+            self.log_message(tr('job_ov_skipped_log').format(n=len(paths) - len(changed)))
+
+    def _find_waiting_item(self, path, ocr=False):
+        """La riga IN ATTESA con quel percorso e del tipo giusto (OCR o trascrizione): lo stesso video puo' comparire piu' volte
+        (file gia' finito riaccodato, job OCR e trascrizione dello stesso video) e l'etichetta va sulla riga viva."""
+        for i in range(self.file_list.count()):
+            it = self.file_list.item(i)
+            rec = JobRecord.from_item_data(it.data(Qt.ItemDataRole.UserRole))
+            if rec.path == path and rec.status == 'queued' and rec.is_ocr == ocr:
+                return it
+        return None
+
+    def _set_item_badge(self, path, text, lang=None, ocr=False):
+        item = self._find_waiting_item(path, ocr)
+        if item is None:
+            return
+        data = item.data(Qt.ItemDataRole.UserRole) or {}
+        if text:
+            data['ov'] = text
+        else:
+            data.pop('ov', None)
+        if lang:
+            data['ov_lang'] = lang          # il worker toglie le eccezioni dal servizio quando prende il file: la lingua resta sulla riga
+        else:
+            data.pop('ov_lang', None)
+        item.setData(Qt.ItemDataRole.UserRole, data)
+        self.file_list.viewport().update()
+
+    def _on_job_overrides_changed(self, paths):
+        from utils.job_overrides import label
+        for p in paths:
+            ov = self.queue_service.overrides_of(p)
+            self._set_item_badge(p, label(ov), ov.get('target_language'))
+        self._update_overlay()
+
+    def _add_override_menus(self, menu, paths):
+        """Sottomenu delle eccezioni per i file normali in attesa. La voce spuntata e' quella comune a tutta la selezione."""
+        from utils import job_overrides as JO
+        from gui.job_options_card import SUBTITLE_LANGUAGES
+        cur = [self.queue_service.overrides_of(p) for p in paths]
+
+        def common(key):
+            vals = {c.get(key) for c in cur}
+            return next(iter(vals)) if len(vals) == 1 else '__misto__'
+
+        def sub(title, key, entries):
+            m = menu.addMenu(title)
+            state = common(key)
+            for text, value in [(tr('job_ov_default'), None)] + entries:
+                a = m.addAction(text)
+                a.setCheckable(True)
+                a.setChecked(state == value)
+                a.triggered.connect(lambda _=False, k=key, v=value: self._apply_override(paths, k, v))
+
+        sub(tr('job_ov_lang'), JO.TARGET_LANGUAGE, [(n, c) for n, c in SUBTITLE_LANGUAGES if c in JO.LANGUAGES])
+        sub(tr('job_ov_translation'), JO.TRANSLATION, [(tr('job_ov_nllb'), 'nllb_finetuned'), (tr('job_ov_tg'), 'llm')])
+        yes_no = [(tr('job_ov_yes'), True), (tr('job_ov_no'), False)]
+        sub(tr('job_ov_gender'), JO.GENDER, yes_no)
+        sub(tr('job_ov_mux'), JO.MUX, yes_no)
+        sub(tr('job_ov_upload'), JO.UPLOAD, yes_no)
+        menu.addSeparator()
+        reset = menu.addAction(tr('job_ov_reset'))
+        reset.setEnabled(any(cur))
+        reset.triggered.connect(lambda _=False: [self._apply_override(paths, k, None) for k in JO.ALL_KEYS])
+
     def _on_file_list_menu(self, pos):
         from PyQt6.QtWidgets import QMenu
         item = self.file_list.itemAt(pos)
@@ -921,6 +1016,17 @@ class MainWindow(QMainWindow):
             self.file_list.clearSelection()
             item.setSelected(True)
         menu = QMenu(self.file_list)
+        normal, ocr = self._selected_waiting() if item is not None else ([], [])     # clic su area vuota: nessuna eccezione
+        if normal and not ocr:
+            self._add_override_menus(menu, normal)
+            menu.addSeparator()
+        elif ocr and not normal:
+            scanner = self.library_scanner
+            m = menu.addMenu(tr('job_ov_ocr_review'))
+            for text, mode in ((tr('job_ov_default'), None), (tr('job_ov_ocr_targeted'), 'review'), (tr('job_ov_ocr_auto'), 'auto')):
+                a = m.addAction(text)
+                a.triggered.connect(lambda _=False, mo=mode, p=list(ocr): self._apply_ocr_mode(p, mo))
+            menu.addSeparator()
         act = menu.addAction(tr('remove_from_queue'))
         paths = [JobRecord.from_item_data(it.data(Qt.ItemDataRole.UserRole)).path for it in self._removable_items()]
         act.setEnabled(item is not None and bool(paths))      # clic su area vuota: niente da togliere
@@ -1406,7 +1512,8 @@ class MainWindow(QMainWindow):
             'completed':  '✅ Completato',
             'failed':     '❌ Fallito',
         }
-        self._overlay_lang_pill.setText(f"→ {self.config.get_target_language().upper()}")
+        _lang = data.get('ov_lang')
+        self._overlay_lang_pill.setText(f"→ {(_lang or self.config.get_target_language()).upper()}")
         self._overlay_status_pill.setText(status_map.get(status, status))
         self._overlay_lang_pill.setVisible(True)
         self._overlay_status_pill.setVisible(True)
