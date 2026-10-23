@@ -40,7 +40,7 @@ from gui.services.job_model import JobRecord, is_reorderable
 from gui.services.metadata_service import MetadataService
 from gui.services.queue_service import QueueService, StartVerdict, VIDEO_EXTENSIONS
 from gui.services.settings_service import SettingsService
-from gui.job_options_card import JobOptionsCard
+from gui.services.job_options_service import JobOptionsService, defaults_summary
 from gui.pipeline_steps_widget import PipelineStepsWidget
 from gui.file_row_delegate import FileRowDelegate
 from gui.reorderable_list import ReorderableFileList
@@ -335,13 +335,19 @@ class MainWindow(QMainWindow):
         self._diag_traduttore._val.setText(after.translation_model)
         self._refresh_engine_tiles()
 
-        # Sync checkbox upload OS (può essere cambiato dal settings dialog)
-        self.opensubtitles_checkbox.blockSignals(True)
-        self.opensubtitles_checkbox.setChecked(after.upload_enabled)
-        self.opensubtitles_checkbox.blockSignals(False)
+        self._refresh_defaults_summary()        # lingua, upload, mux, genere o motore possono essere cambiati dalle Impostazioni
+        self._update_overlay()                  # la pill della lingua
 
         for line in self.settings_service.diff_messages(before, after):
             self.log_message(line)
+
+    def _refresh_defaults_summary(self):
+        try:
+            text = tr('job_defaults_label').format(summary=defaults_summary(self.config))
+            self.defaults_btn.setText(text)
+            self.defaults_btn.setToolTip(f"{text} - {tr('job_defaults_tip')}")     # testo completo anche se il pannello e' stretto
+        except Exception:
+            self.defaults_btn.setText('')
 
     def _on_splitter_moved(self, *_args):
         try:
@@ -413,15 +419,6 @@ class MainWindow(QMainWindow):
         buttons_layout.addWidget(self.clear_btn)
         layout.addLayout(buttons_layout)
         
-        # Job Options Card (collassabile, raggruppa lang/os/gender/shutdown)
-        self.job_options_card = JobOptionsCard()
-        # Alias attributi pubblici per non rompere le API esterne
-        self.target_lang_combo = self.job_options_card.target_lang_combo
-        self.opensubtitles_checkbox = self.job_options_card.opensubtitles_checkbox
-        self.gender_correction_checkbox = self.job_options_card.gender_correction_checkbox
-        self.shutdown_checkbox = self.job_options_card.shutdown_checkbox
-        layout.addWidget(self.job_options_card)
-
         # Library Scanner Widget (avvolto in CollapsibleCard)
         self.library_scanner = LibraryScannerWidget(main_window=self)
         self.library_scanner_card = CollapsibleCard(title=tr('library_scanner_title'))
@@ -463,6 +460,28 @@ class MainWindow(QMainWindow):
         control_layout.addWidget(self.start_btn)
         control_layout.addWidget(self.stop_btn)
         layout.addLayout(control_layout)
+
+        # Riga dei predefiniti: riepilogo (un clic apre la scheda "Opzioni job" delle Impostazioni) e spegnimento a fine coda
+        # (riguarda tutta la coda, non il singolo file: per questo resta qui).
+        self.defaults_btn = QPushButton()
+        self.defaults_btn.setObjectName("defaultsSummary")
+        self.defaults_btn.setFlat(True)
+        self.defaults_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.defaults_btn.setToolTip(tr('job_defaults_tip'))
+        self.defaults_btn.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.defaults_btn.clicked.connect(lambda _=False: self.open_settings_dialog('jobs'))
+        self.shutdown_checkbox = QCheckBox(tr('shutdown_checkbox'))
+        self.shutdown_checkbox.setObjectName("modernCheckbox")
+        self.shutdown_checkbox.setToolTip(tr('shutdown_tip'))
+        self.shutdown_checkbox.setChecked(JobOptionsService(self.config).load().shutdown_after)
+        self.shutdown_checkbox.stateChanged.connect(
+            lambda state: JobOptionsService(self.config).set_shutdown_after(state == Qt.CheckState.Checked.value))
+        defaults_row = QHBoxLayout()
+        defaults_row.setSpacing(10)
+        defaults_row.addWidget(self.defaults_btn, 1)
+        defaults_row.addWidget(self.shutdown_checkbox)
+        layout.addLayout(defaults_row)
+        self._refresh_defaults_summary()
         
         self.progress_bar = QProgressBar()
         self.progress_bar.setObjectName("modernProgress")
@@ -1552,9 +1571,8 @@ class MainWindow(QMainWindow):
         self._update_filter_badges()
         self.poster_label.setText("🎬\n\n" + tr('no_preview'))
 
-    # Le 4 funzioni on_*_changed (shutdown/os/gender/target_language) sono ora
-    # gestite dentro JobOptionsCard, che persiste i valori in config alla
-    # variazione. Rimosse da MainWindow per evitare duplicazione.
+    # I valori predefiniti (lingua, upload, mux, genere) sono nella scheda "Opzioni job" delle Impostazioni
+    # (gui/job_options_card.py::JobOptionsPanel), che li scrive subito in config.json.
 
     def on_compact_log_changed(self, state):
         self.compact_log_enabled = state == Qt.CheckState.Checked.value

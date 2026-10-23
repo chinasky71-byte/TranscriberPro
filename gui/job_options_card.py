@@ -1,24 +1,20 @@
 """
-Job Options Card
+Opzioni job PREDEFINITE
 File: gui/job_options_card.py
 
-CollapsibleCard che raggruppa le opzioni per-job del pannello sinistro:
-target language, upload OpenSubtitles, gender correction, shutdown post-job.
-
-Il summary nell'header riflette lo stato corrente in modo compatto:
-"ITA · ↗ OS · ⚧ · ⏻"
-
-Introdotto in Fase 3 del GUI revamp per ridurre densita' del pannello sinistro.
+Pannello della scheda "Opzioni job" delle Impostazioni: lingua dei sottotitoli, upload OpenSubtitles, muxing, correzione del genere.
+Sono i valori di partenza di ogni file; per un file solo si cambiano dal menu tasto destro della coda (eccezioni per file).
+Ogni cambio scrive subito in config.json (il processo figlio lo rilegge a ogni file). Lo spegnimento a fine coda
+sta nel pannello principale accanto ad Avvia (riguarda tutta la coda, non il singolo file).
 """
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QCheckBox, QComboBox, QLabel, QSizePolicy,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QCheckBox, QComboBox, QLabel, QPushButton, QSizePolicy,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from utils.config import get_config
 from utils.translations import tr
-from gui.collapsible_card import CollapsibleCard
 from gui.services.job_options_service import JobOptionsService
 
 
@@ -41,113 +37,97 @@ SUBTITLE_LANGUAGES = [
 ]
 
 
-class JobOptionsCard(CollapsibleCard):
-    """Card per le opzioni di processing condivise da tutti i file in coda."""
+class JobOptionsPanel(QWidget):
+    """Valori predefiniti delle opzioni job. `go_to_tab(tab_id)`: apre un'altra scheda delle Impostazioni (motore di traduzione, OCR)."""
 
     summary_changed = pyqtSignal(str)
 
-    def __init__(self, parent=None):
-        super().__init__(title=tr('job_options_title'), parent=parent)
+    def __init__(self, parent=None, go_to_tab=None):
+        super().__init__(parent)
         self.config = get_config()
         self.options = JobOptionsService(self.config)
-
-        body = self._build_options_body()
-        self.setBody(body)
-
-        # Stato iniziale (chiuso/aperto da config)
-        opened = self.options.card_open()
-        self.setExpanded(opened, animated=False)
-        self.toggled.connect(self._on_toggled)
-
+        self._go_to_tab = go_to_tab
+        self._build()
         self._refresh_summary()
 
     # ------------------------------------------------------------------
-    # UI
-    # ------------------------------------------------------------------
-
-    def _build_options_body(self) -> QWidget:
-        body = QWidget()
-        body.setMinimumWidth(0)  # non vincola la larghezza minima del pannello sinistro
-        layout = QVBoxLayout(body)
+    def _build(self):
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(10)
         opts = self.options.load()
 
-        # --- Target language ------------------------------------------
-        lang_row = QHBoxLayout()
-        lang_row.setSpacing(6)
-        lang_label = QLabel(tr('srt_language_label'))
+        intro = QLabel(tr('job_defaults_intro'))
+        intro.setWordWrap(True)
+        intro.setObjectName("mutedLabel")
+        layout.addWidget(intro)
 
+        # --- Lingua dei sottotitoli -----------------------------------
+        lang_row = QHBoxLayout()
+        lang_row.setSpacing(8)
+        lang_row.addWidget(QLabel(tr('srt_language_label')))
         self.target_lang_combo = QComboBox()
-        self.target_lang_combo.setMinimumWidth(0)  # "Cinese Semplificato" altrimenti fissa la larghezza
-        current_lang = opts.target_language
+        self.target_lang_combo.setMinimumWidth(0)
         for display_name, code in SUBTITLE_LANGUAGES:
             self.target_lang_combo.addItem(display_name, code)
-        idx = next(
-            (i for i, (_, c) in enumerate(SUBTITLE_LANGUAGES) if c == current_lang),
-            0,
-        )
-        self.target_lang_combo.setCurrentIndex(idx)
+        self.target_lang_combo.setCurrentIndex(
+            next((i for i, (_, c) in enumerate(SUBTITLE_LANGUAGES) if c == opts.target_language), 0))
         self.target_lang_combo.currentIndexChanged.connect(self._on_lang_changed)
-
-        lang_row.addWidget(lang_label)
         lang_row.addWidget(self.target_lang_combo)
         lang_row.addStretch()
         layout.addLayout(lang_row)
 
-        # --- Upload OpenSubtitles -------------------------------------
+        # --- Caselle ---------------------------------------------------
         self.opensubtitles_checkbox = QCheckBox(tr('upload_opensubtitles'))
-        self.opensubtitles_checkbox.setObjectName("modernCheckbox")
-        self.opensubtitles_checkbox.setChecked(opts.opensubtitles_upload)
-        self.opensubtitles_checkbox.stateChanged.connect(self._on_os_changed)
-
-        # --- Muxa il sottotitolo creato nel video ---------------------
         self.mux_checkbox = QCheckBox(tr('mux_into_video_checkbox'))
-        self.mux_checkbox.setObjectName("modernCheckbox")
         self.mux_checkbox.setToolTip(tr('mux_into_video_tip'))
-        self.mux_checkbox.setChecked(opts.mux_into_video)
-        self.mux_checkbox.stateChanged.connect(self._on_mux_changed)
-
-        # Le 4 caselle sono disposte in una griglia 2x2 (vedi sotto); politica orizzontale Ignored:
-        # il testo non impone una larghezza minima al pannello.
-
-        # --- Gender correction ----------------------------------------
         self.gender_correction_checkbox = QCheckBox(tr('gender_correction_checkbox'))
-        self.gender_correction_checkbox.setObjectName("modernCheckbox")
-        self.gender_correction_checkbox.setChecked(opts.gender_correction)
-        self.gender_correction_checkbox.stateChanged.connect(self._on_gender_changed)
-
-        # --- Shutdown after processing --------------------------------
-        self.shutdown_checkbox = QCheckBox(tr('shutdown_checkbox'))
-        self.shutdown_checkbox.setObjectName("modernCheckbox")
-        self.shutdown_checkbox.setChecked(opts.shutdown_after)
-        self.shutdown_checkbox.stateChanged.connect(self._on_shutdown_changed)
         self.gender_correction_checkbox.setToolTip(tr('gender_correction_tip'))
-        self.shutdown_checkbox.setToolTip(tr('shutdown_tip'))
+        for cb, val, slot in ((self.opensubtitles_checkbox, opts.opensubtitles_upload, self._on_os_changed),
+                              (self.mux_checkbox, opts.mux_into_video, self._on_mux_changed),
+                              (self.gender_correction_checkbox, opts.gender_correction, self._on_gender_changed)):
+            cb.setObjectName("modernCheckbox")
+            cb.setChecked(val)
+            cb.stateChanged.connect(slot)
+            layout.addWidget(cb)
 
-        # Genere avanzato e Spegni sulla stessa riga (come Upload/Muxa)
-        # Griglia 2x2 a colonne di pari larghezza: le caselle di ogni colonna restano allineate.
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(12)
-        grid.setVerticalSpacing(4)
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(1, 1)
-        for r, row in enumerate(((self.opensubtitles_checkbox, self.mux_checkbox),
-                                 (self.gender_correction_checkbox, self.shutdown_checkbox))):
-            for c, cb in enumerate(row):
-                cb.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-                grid.addWidget(cb, r, c)
-        layout.addLayout(grid)
+        # --- Impostazioni che vivono in altre schede -------------------
+        self.engine_label = QLabel()
+        self.ocr_label = QLabel()
+        for lbl, tab, text_key in ((self.engine_label, 'translation', 'job_defaults_change_engine'),
+                                   (self.ocr_label, 'ocr', 'job_defaults_change_ocr')):
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            row.addWidget(lbl, 1)
+            btn = QPushButton(tr(text_key))
+            btn.setObjectName("primaryButton")
+            btn.clicked.connect(lambda _=False, t=tab: self._go_to_tab and self._go_to_tab(t))
+            btn.setEnabled(self._go_to_tab is not None)
+            row.addWidget(btn)
+            layout.addLayout(row)
+        layout.addStretch(1)
+        self._refresh_other_labels()
 
-        return body
+    def _refresh_other_labels(self):
+        from gui.services.job_options_service import engine_short, ocr_review_label
+        self.engine_label.setText(tr('job_defaults_engine').format(engine=engine_short(self.config)))
+        self.ocr_label.setText(tr('job_defaults_ocr').format(mode=ocr_review_label(self.config)))
+
+    def showEvent(self, event):
+        """Rilegge i valori dal config: altre schede (OpenSubtitles, Traduzione) possono averli cambiati mentre questa era aperta."""
+        super().showEvent(event)
+        o = self.options.load()
+        for cb, val in ((self.opensubtitles_checkbox, o.opensubtitles_upload), (self.mux_checkbox, o.mux_into_video),
+                        (self.gender_correction_checkbox, o.gender_correction)):
+            cb.blockSignals(True)
+            cb.setChecked(val)
+            cb.blockSignals(False)
+        self._refresh_other_labels()
+        self._refresh_summary()
 
     # ------------------------------------------------------------------
-    # Persistenza + summary
-    # ------------------------------------------------------------------
-
     def _on_lang_changed(self, index: int):
-        code = self.target_lang_combo.itemData(index)
-        self.options.set_target_language(code)
+        self.options.set_target_language(self.target_lang_combo.itemData(index))
         self._refresh_summary()
 
     def _on_os_changed(self, state):
@@ -162,20 +142,7 @@ class JobOptionsCard(CollapsibleCard):
         self.options.set_gender_correction(state == Qt.CheckState.Checked.value)
         self._refresh_summary()
 
-    def _on_shutdown_changed(self, state):
-        self.options.set_shutdown_after(state == Qt.CheckState.Checked.value)
-        self._refresh_summary()
-
-    def _on_toggled(self, opened: bool):
-        self.options.set_card_open(opened)
-
     def _refresh_summary(self):
-        text = JobOptionsService.summary_text(
-            self.target_lang_combo.currentData(),
-            self.opensubtitles_checkbox.isChecked(),
-            self.mux_checkbox.isChecked(),
-            self.gender_correction_checkbox.isChecked(),
-            self.shutdown_checkbox.isChecked(),
-        )
-        self.setSummary(text)
-        self.summary_changed.emit(text)
+        self.summary_changed.emit(JobOptionsService.summary_text(
+            self.target_lang_combo.currentData(), self.opensubtitles_checkbox.isChecked(),
+            self.mux_checkbox.isChecked(), self.gender_correction_checkbox.isChecked(), False))

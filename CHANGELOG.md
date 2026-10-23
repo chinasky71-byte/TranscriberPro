@@ -3,6 +3,14 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.22 — 2026-10-23 — Opzioni job predefinite nelle Impostazioni; piu' spazio a coda e Library Scanner
+
+- **Scheda "Opzioni job" nelle Impostazioni:** lingua dei sottotitoli, upload OpenSubtitles, "Muxa nel video" e genere avanzato (con righe che rimandano alle schede Traduzione e OCR per motore e revisione).
+  Sono i valori di partenza di ogni file; per un file solo si usa il menu tasto destro della coda. Ogni modifica va subito in `config.json`. Le schede Traduzione e OpenSubtitles si riallineano
+  quando le riapri.
+- **Pannello principale:** la card "Opzioni job" non c'e' piu' (coda e Library Scanner guadagnano lo spazio). Sotto Avvia/Ferma c'e' una riga "Predefiniti: ITA · ↗ OS · NLLB" (un clic apre la scheda)
+  e la casella "Spegni al termine", che riguarda tutta la coda.
+
 ## 1.34.21 — 2026-10-23 — Opzioni specifiche per file nella coda (tasto destro) e selezione multipla
 
 - **Menu tasto destro sulla coda:** per i file in attesa si possono cambiare, solo per quel file, lingua dei sottotitoli, motore di traduzione (NLLB fine-tuned / TranslateGemma), correzione
