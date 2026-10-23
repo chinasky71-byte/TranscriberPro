@@ -3,6 +3,16 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.18 — 2026-10-23 — Rimozione di un file dalla coda anche durante l'elaborazione; niente doppioni del file in lavorazione
+
+- **Rimuovi dalla coda:** tasto Canc o menu contestuale ("Rimuovi dalla coda") sulla riga selezionata, anche mentre la coda lavora. Vale per i file ancora in attesa; quello in
+  elaborazione o gia' finito resta (il log dice di usare Stop). Il menu agisce sulle righe selezionate all'apertura. La percentuale e l'intestazione "File N/totale" si
+  riallineano al nuovo totale (`ProcessingWorker.note_removed`), cosi' la barra arriva al 100%.
+- **Bug corretto:** lo stesso file si poteva riaccodare mentre era in lavorazione (il worker lo toglie dalla lista d'attesa appena lo prende) e veniva rifatto da capo,
+  sovrascrivendo il risultato. Ora `QueueService.is_active()` vede le righe 'in attesa' e 'in lavorazione' dello stesso percorso (confronto normalizzato: `/` e `\` sono lo
+  stesso file) in tutti i punti da cui si aggiunge: Aggiungi file/cartella, trascinamento e Library Scanner. I job OCR dello stesso video non contano, e un file completato si puo'
+  ancora riaccodare.
+
 ## 1.34.17 — 2026-10-22 — Rilevamento GPU multi-vendor (Windows e Linux)
 
 - **`utils/gpu_detect.py`** (nuovo, solo libreria standard, non inizializza mai CUDA): rileva le GPU NVIDIA, AMD e Intel con piu' fonti e ripiego —

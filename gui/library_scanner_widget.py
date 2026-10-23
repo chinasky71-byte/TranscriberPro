@@ -1168,6 +1168,9 @@ class LibraryScannerWidget(QFrame):
         with QMutexLocker(self.main_window.queue_mutex):
             for path in paths:
                 path = to_local(path, pmap)   # percorso del server -> file di questo computer (identita' con mappa vuota)
+                qs = getattr(self.main_window, 'queue_service', None)
+                if qs is not None and path and qs.is_active(path):
+                    continue                  # gia' in coda o in lavorazione: il file in corso non e' piu' in processing_queue
                 if path and path not in self.main_window.processing_queue:
                     self.main_window.processing_queue.append(path)
                     self.main_window.file_list.addItem(self.main_window._make_file_item(path))
