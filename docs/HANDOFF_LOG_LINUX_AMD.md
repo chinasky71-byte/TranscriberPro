@@ -1,10 +1,18 @@
 # Registro del lavoro Linux / AMD
 
-**Prossimo passo:** F4e (Library Scanner con server finto), poi F6. F5 (Vulkan) è sul branch `linux-amd/f5-vulkan` (PR impilata su questa).
+**Prossimo passo:** F6 (insieme di pin ROCm e smoke test). F4 (PR #1) e F5 (PR #2) sono in master; F4e sul branch `linux-amd/f4e-library-scanner`.
 
 Aggiorna questo file a ogni fase, in cima i più recenti. Formato per voce: data, fase, cosa è stato fatto, comandi e risultati dei test, PR/commit, cosa **non** è verificato, domande aperte per il proprietario.
 
 ---
+
+## 2026-10-23 — F4e: Library Scanner con server finto (branch `linux-amd/f4e-library-scanner`, da master)
+File cambiati: solo il nuovo `linux_tests/test_library_scanner_fake_server.py` e questo registro. **Nessuna modifica al codice del prodotto**: `utils/path_map.py` e il campo "Cartelle montate" funzionano come scritti.
+- **Server finto:** `http.server` locale in un thread (`/api/stats`, `/api/videos`, `/api/subtitles/list`, `POST /api/videos/notify-subtitle`, chiave `X-API-Key` verificata, 401 se errata). Percorsi UNC (`\\\\srv...\\film\\...`) restituiti come `windows_path`.
+- **Con PyQt6 6.x offscreen (HOME temporaneo, Ubuntu 24.04):** `LibraryScannerWorker` legge video e statistiche; chiave errata → errore "401"; server spento → "non raggiungibile"; `GeneralSettingsWidget` mostra "Cartelle montate" (fuori da Windows), salva la mappa (non scartata dal filtro dei percorsi Windows di `Config`), la rilegge alla riapertura, e "Testa connessione" contro il server finto dà "Connesso"; `LibraryScannerWidget._import_paths` mette in coda `/mnt/film/Heat (1995)/Heat.mkv` (niente doppioni) e `notify_subtitle_created` invia al server il percorso UNC originale.
+- **Test:** `python -m pytest linux_tests -q` → **120 passed** (6 nuovi). Le prove con Qt si **saltano** se PyQt6 o `libEGL` mancano (le due senza Qt girano comunque). Per eseguirle: `pip install PyQt6` e, su Ubuntu, `apt install libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3`.
+- **Non verificato:** il widget completo con la tabella dei video (bottoni, OCR, "Superpower", conversione ASS) e `main_window` reale; un vero server Library Scanner; montaggi SMB/NFS reali (il test usa percorsi `/mnt/...` solo come stringhe); macOS. Su Windows il campo non compare e la mappa è vuota (comportamento invariato, coperto dal test).
+- **Domande per il proprietario:** nessuna nuova.
 
 ## 2026-10-23 — F5: Vulkan per llama.cpp (branch `linux-amd/f5-vulkan`, impilato su `linux-amd/f4a-install-sh`)
 File cambiati: `install.sh`, `install.ps1`, `utils/llm_model_select.py`, `glossary_engine/glossary_qwen_gpu_cli.py`, nuovo `linux_tests/test_llama_backend.py`.
