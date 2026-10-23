@@ -2200,6 +2200,47 @@ class LLMSubtitleTranslator(BaseTranslator):
             return None
         return p
 
+    def _acquire_engine(self):
+        """Il motore LLM per questo file. Con `llm_translator_gguf_enabled` spento (default) e' ESATTAMENTE la
+        chiamata storica a `get_engine`; acceso, decide `path_router` (bf16 / NF4 / GGUF / None = NLLB-FT)."""
+        gguf = False
+        try:
+            gguf = bool(get_config and get_config().get('llm_translator_gguf_enabled', False))
+        except Exception:
+            gguf = False
+        if not gguf:
+            return self._get_engine(self._model_key, self.log_callback,
+                                    adapter=self._adapter,
+                                    model_path=self._model_path)
+        from core.llm_subtitle_translator import path_router
+        return path_router.acquire_engine(
+            self._model_key, self.log_callback, self._adapter, self._model_path,
+            get_engine_fn=self._get_engine, cfg_get=get_config().get, log=self.log)
+
+    def _translate_via_nllb_ft(self, input_path, output_path, src_lang, tgt_lang,
+                               context, glossary) -> bool:
+        """Ripiego dichiarato del percorso GGUF: traduce tutto il file con NLLB fine-tuned (o NLLB base se il
+        fine-tuned non e' utilizzabile), come fa `get_translator('nllb_finetuned')`."""
+        try:
+            try:
+                nllb = NLLBFineTunedTranslator(self.log_callback, self.context, self.glossary)
+            except Exception as exc:
+                logger.error(f"NLLB fine-tuned non disponibile: {exc}")
+                self.log(tr('gg_nllb_ft_unavailable').format(exc=exc))
+                nllb = NLLBTranslator(self.log_callback, self.context, self.glossary)
+            try:
+                return nllb.translate_file(input_path, output_path, src_lang, tgt_lang,
+                                           context, glossary)
+            finally:
+                try:
+                    nllb.cleanup()
+                except Exception as exc:
+                    logger.debug(f"cleanup NLLB di ripiego: {exc}")
+        except Exception as exc:
+            logger.error(f"Errore nel ripiego NLLB: {exc}", exc_info=True)
+            self.log(tr('tl_error').format(exc=exc))
+            return False
+
     def _lang_to_iso(self, lang_code: str) -> Optional[str]:
         result = self.LANGUAGE_CODES.get(lang_code.lower())
         if result is None:
@@ -2284,9 +2325,13 @@ class LLMSubtitleTranslator(BaseTranslator):
                     is_dialogue='\n' in masked,
                 ))
 
-            engine = self._get_engine(self._model_key, self.log_callback,
-                                      adapter=self._adapter,
-                                      model_path=self._model_path)
+            engine = self._acquire_engine()
+            if engine is None:
+                # Percorso GGUF acceso e nessun percorso LLM praticabile su questa scheda: il motivo e' gia'
+                # nel log. NLLB fine-tuned traduce il file intero, nessun blocco resta inglese.
+                return self._translate_via_nllb_ft(input_path, output_path,
+                                                   src_lang, tgt_lang,
+                                                   context, glossary)
             self._engine = engine
 
             # Lingua sorgente dichiarata nel prompt: 'en' di default (come
@@ -2469,7 +2514,15 @@ class LLMSubtitleTranslator(BaseTranslator):
         try:
             from core.llm_subtitle_translator.engine import unload_engine
             self._engine = None
-            unload_engine()
+            try:
+                unload_engine()
+            finally:
+                # Il motore GGUF esiste solo se il percorso GGUF e' stato acceso; il modulo si importa soltanto in
+                # quel caso (con il flag spento questo blocco non cambia nulla). Scarico indipendente dal primo.
+                import sys
+                _gguf = sys.modules.get('core.llm_subtitle_translator.gguf_engine')
+                if _gguf is not None:
+                    _gguf.unload_gguf_engine()
         except Exception as exc:
             logger.error(f"Errore durante cleanup: {exc}")
 
