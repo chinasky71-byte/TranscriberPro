@@ -18,23 +18,13 @@ from utils.translations import tr
 from gui.services.job_options_service import JobOptionsService
 
 
-# Lingue sottotitoli supportate (riprese da main_window per compatibilita').
-SUBTITLE_LANGUAGES = [
-    ("Italiano",             "ita"),
-    ("Inglese",              "eng"),
-    ("Francese",             "fra"),
-    ("Spagnolo",             "spa"),
-    ("Tedesco",              "deu"),
-    ("Portoghese",           "por"),
-    ("Russo",                "rus"),
-    ("Giapponese",           "jpn"),
-    ("Cinese Semplificato",  "zho"),
-    ("Arabo",                "ara"),
-    ("Coreano",              "kor"),
-    ("Olandese",             "nld"),
-    ("Polacco",              "pol"),
-    ("Turco",                "tur"),
-]
+# Lingue sottotitoli supportate: i nomi si traducono con la lingua dell'interfaccia.
+SUBTITLE_LANGUAGE_CODES = ("ita", "eng", "fra", "spa", "deu", "por", "rus", "jpn", "zho", "ara", "kor", "nld", "pol", "tur")
+
+
+def subtitle_languages():
+    """[(nome nella lingua dell'interfaccia, codice)] nell'ordine dell'elenco (chiavi lang_name_<codice>)."""
+    return [(tr(f'lang_name_{c}'), c) for c in SUBTITLE_LANGUAGE_CODES]
 
 
 class JobOptionsPanel(QWidget):
@@ -68,10 +58,11 @@ class JobOptionsPanel(QWidget):
         lang_row.addWidget(QLabel(tr('srt_language_label')))
         self.target_lang_combo = QComboBox()
         self.target_lang_combo.setMinimumWidth(0)
-        for display_name, code in SUBTITLE_LANGUAGES:
+        langs = subtitle_languages()
+        for display_name, code in langs:
             self.target_lang_combo.addItem(display_name, code)
         self.target_lang_combo.setCurrentIndex(
-            next((i for i, (_, c) in enumerate(SUBTITLE_LANGUAGES) if c == opts.target_language), 0))
+            next((i for i, (_, c) in enumerate(langs) if c == opts.target_language), 0))
         self.target_lang_combo.currentIndexChanged.connect(self._on_lang_changed)
         lang_row.addWidget(self.target_lang_combo)
         lang_row.addStretch()

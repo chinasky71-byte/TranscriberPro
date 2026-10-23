@@ -55,22 +55,6 @@ from utils.translations import tr
 # Log setup
 logger = setup_logger()
 
-SUBTITLE_LANGUAGES = [
-    ("Italiano",             "ita"),
-    ("Inglese",              "eng"),
-    ("Francese",             "fra"),
-    ("Spagnolo",             "spa"),
-    ("Tedesco",              "deu"),
-    ("Portoghese",           "por"),
-    ("Russo",                "rus"),
-    ("Giapponese",           "jpn"),
-    ("Cinese Semplificato",  "zho"),
-    ("Arabo",                "ara"),
-    ("Coreano",              "kor"),
-    ("Olandese",             "nld"),
-    ("Polacco",              "pol"),
-    ("Turco",                "tur"),
-]
 
 
 class MainWindow(QMainWindow):
@@ -1001,7 +985,7 @@ class MainWindow(QMainWindow):
     def _add_override_menus(self, menu, paths):
         """Sottomenu delle eccezioni per i file normali in attesa. La voce spuntata e' quella comune a tutta la selezione."""
         from utils import job_overrides as JO
-        from gui.job_options_card import SUBTITLE_LANGUAGES
+        from gui.job_options_card import subtitle_languages
         cur = [self.queue_service.overrides_of(p) for p in paths]
 
         def common(key):
@@ -1017,7 +1001,7 @@ class MainWindow(QMainWindow):
                 a.setChecked(state == value)
                 a.triggered.connect(lambda _=False, k=key, v=value: self._apply_override(paths, k, v))
 
-        sub(tr('job_ov_lang'), JO.TARGET_LANGUAGE, [(n, c) for n, c in SUBTITLE_LANGUAGES if c in JO.LANGUAGES])
+        sub(tr('job_ov_lang'), JO.TARGET_LANGUAGE, [(n, c) for n, c in subtitle_languages() if c in JO.LANGUAGES])
         sub(tr('job_ov_translation'), JO.TRANSLATION, [(tr('job_ov_nllb'), 'nllb_finetuned'), (tr('job_ov_tg'), 'llm')])
         yes_no = [(tr('job_ov_yes'), True), (tr('job_ov_no'), False)]
         sub(tr('force_audio_title'), JO.FORCE_AUDIO, yes_no)
@@ -1387,8 +1371,8 @@ class MainWindow(QMainWindow):
     def _create_tab_bar(self) -> QTabBar:
         bar = QTabBar()
         bar.setObjectName("mainTabBar")
-        bar.addTab(svg_icon('list', 15, T.fg_2), "Coda di processamento")
-        bar.addTab(svg_icon('history', 15, T.fg_2), "Cronologia")
+        bar.addTab(svg_icon('list', 15, T.fg_2), tr('tab_queue'))
+        bar.addTab(svg_icon('history', 15, T.fg_2), tr('tab_history'))
         bar.setExpanding(False)
         return bar
 
@@ -1464,12 +1448,12 @@ class MainWindow(QMainWindow):
 
     def _update_history_badge(self):
         n = self.history_widget.total_count()
-        self.main_tab_bar.setTabText(1, f"Cronologia  ({n})" if n else "Cronologia")
+        self.main_tab_bar.setTabText(1, f"{tr('tab_history')}  ({n})" if n else tr('tab_history'))
 
     def _update_tab_badge(self):
         counts = self.queue_service.counts()
         active = counts['queued'] + counts['processing']
-        label = f"Coda di processamento  ({active})" if active else "Coda di processamento"
+        label = f"{tr('tab_queue')}  ({active})" if active else tr('tab_queue')
         self.main_tab_bar.setTabText(0, label)
 
     def _set_status_processing(self):
