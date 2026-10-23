@@ -409,7 +409,7 @@ class AudioProcessor:
                 def gen():
                     for k, item in enumerate(items, 1):
                         if self._cancelled:
-                            raise InterruptedError("Demucs annullato")
+                            raise InterruptedError(tr('ap_demucs_cancelled'))
                         yield item
                         _report(k, len(items))      # eseguito quando il ciclo ha finito il segmento
                 return gen()
@@ -455,7 +455,7 @@ class AudioProcessor:
             # Processa ogni chunk
             for i in range(num_chunks):
                 if self._cancelled:
-                    raise InterruptedError("Demucs annullato")
+                    raise InterruptedError(tr('ap_demucs_cancelled'))
                 chunk_num = i + 1
 
                 # Calcola range con overlap
@@ -837,7 +837,7 @@ class AudioProcessor:
             
             try:
                 if self._cancelled:
-                    raise InterruptedError("Operazione annullata")
+                    raise InterruptedError(tr('ap_operation_cancelled'))
 
                 # Estrai chunk con FFmpeg
                 cmd = [
@@ -863,7 +863,7 @@ class AudioProcessor:
                 _rc = self._active_proc.returncode
                 self._active_proc = None
                 if self._cancelled:
-                    raise InterruptedError("Operazione annullata")
+                    raise InterruptedError(tr('ap_operation_cancelled'))
 
                 if _rc == 0 and chunk_path.exists():
                     chunk_files.append((chunk_path, start_time, end_time))

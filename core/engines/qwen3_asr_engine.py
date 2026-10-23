@@ -488,7 +488,7 @@ class Qwen3AsrEngine(TranscriptionEngine):
         # Troppi fallimenti = engine inaffidabile su questo file → fallback
         if total_chunks > 0 and failed_chunks > total_chunks * 0.5:
             raise RuntimeError(
-                f"Qwen3: {failed_chunks}/{total_chunks} chunk falliti — fallback")
+                tr('qw_qwen3_chunks_failed_fallback').format(failed_chunks=failed_chunks, total_chunks=total_chunks))
 
         self._last_segments = all_segments
 

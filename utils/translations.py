@@ -1110,6 +1110,25 @@ class Translations:
 
             # ── log pipeline: audio_processor ──
             'ap_unknown': 'unknown',
+
+            # ── log pipeline: canary_engine.py ──
+            'ca_canaryengine_only_supports_english_requested': 'CanaryEngine only supports English (requested: {language})',
+            'ca_canary_subprocess_spawn_failed': 'Canary subprocess spawn failed: {e}',
+            'ca_canary_subprocess_failed_exit_code': 'Canary subprocess failed (exit code {return_code})',
+            'ca_canary_cli': 'Canary CLI: {error}',
+
+            # ── log pipeline: qwen3_asr_engine.py ──
+            'qw_qwen3_chunks_failed_fallback': 'Qwen3: {failed_chunks}/{total_chunks} chunks failed — fallback',
+
+            # ── log pipeline: faster_whisper_engine.py ──
+            'fw_model_bin_missing_in': 'model.bin missing in {path}',
+
+            # ── log pipeline: audio_processor.py ──
+            'ap_demucs_cancelled': 'Demucs cancelled',
+            'ap_operation_cancelled': 'Operation cancelled',
+
+            # ── log pipeline: canary_engine ──
+            'ca_unknown_error': 'unknown error',
         },
 
         # ── ITALIANO ──────────────────────────────────────────────────────────
@@ -2206,6 +2225,25 @@ class Translations:
 
             # ── log pipeline: audio_processor ──
             'ap_unknown': 'sconosciuto',
+
+            # ── log pipeline: canary_engine.py ──
+            'ca_canaryengine_only_supports_english_requested': "CanaryEngine supporta solo l'inglese (richiesto: {language})",
+            'ca_canary_subprocess_spawn_failed': 'Spawn subprocess Canary fallito: {e}',
+            'ca_canary_subprocess_failed_exit_code': 'Subprocess Canary fallito (exit code {return_code})',
+            'ca_canary_cli': 'Canary CLI: {error}',
+
+            # ── log pipeline: qwen3_asr_engine.py ──
+            'qw_qwen3_chunks_failed_fallback': 'Qwen3: {failed_chunks}/{total_chunks} chunk falliti — fallback',
+
+            # ── log pipeline: faster_whisper_engine.py ──
+            'fw_model_bin_missing_in': 'model.bin assente in {path}',
+
+            # ── log pipeline: audio_processor.py ──
+            'ap_demucs_cancelled': 'Demucs annullato',
+            'ap_operation_cancelled': 'Operazione annullata',
+
+            # ── log pipeline: canary_engine ──
+            'ca_unknown_error': 'errore sconosciuto',
         },
     }
 

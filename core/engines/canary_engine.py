@@ -198,7 +198,7 @@ class CanaryEngine(TranscriptionEngine):
         from core.transcriber import save_srt_file
 
         if language not in (None, 'en', 'eng'):
-            raise RuntimeError(f"CanaryEngine supporta solo l'inglese (richiesto: {language})")
+            raise RuntimeError(tr('ca_canaryengine_only_supports_english_requested').format(language=language))
 
         canary_python = find_canary_python()
         if canary_python is None:
@@ -254,7 +254,7 @@ class CanaryEngine(TranscriptionEngine):
                 bufsize=1,
             )
         except Exception as e:
-            raise RuntimeError(f"Spawn subprocess Canary fallito: {e}")
+            raise RuntimeError(tr('ca_canary_subprocess_spawn_failed').format(e=e))
 
         self._proc = proc
 
@@ -310,11 +310,11 @@ class CanaryEngine(TranscriptionEngine):
         if self._cancelled:
             return False, None
         if return_code != 0 or not out_path.exists():
-            raise RuntimeError(f"Subprocess Canary fallito (exit code {return_code})")
+            raise RuntimeError(tr('ca_canary_subprocess_failed_exit_code').format(return_code=return_code))
 
         result = json.loads(out_path.read_text(encoding='utf-8'))
         if not result.get('ok'):
-            raise RuntimeError(f"Canary CLI: {result.get('error', 'errore sconosciuto')}")
+            raise RuntimeError(tr('ca_canary_cli').format(error=result.get('error', tr('ca_unknown_error'))))
 
         texts = [c.get('text', '') for c in result.get('chunks', [])]
         # I testi si appaiano ai chunk per POSIZIONE (zip più sotto, che tronca

@@ -145,7 +145,7 @@ class FasterWhisperEngine(TranscriptionEngine):
             root = snapshot_download(repo_id, **kw)
         path = Path(root) / sub
         if not (path / 'model.bin').exists():
-            raise FileNotFoundError(f"model.bin assente in {path}")
+            raise FileNotFoundError(tr('fw_model_bin_missing_in').format(path=path))
         return str(path)
 
     # ------------------------------------------------------------------

@@ -13,7 +13,8 @@ Non convertiti volutamente: barre `Demucs: [` e righe `Workers:`/`VRAM`/`Batch s
 1. Rumore del filtro (`FILE_ONLY_RE`): le righe `Profilo:`, `VAD ... disponibile`, `BatchedInferencePipeline attivo / file unico`, `Chunking robusto`, `Caricamento audio` hanno ora la variante EN (chiavi `logm_noise_*`, test sulle righe reali in IT ed EN).
 2. Barre `Trascrizione: [` → `Transcription: [` (file_progress e log_filter bilingui dalla PR 1; test con le righe reali).
 3. `core/engines/canary_cli.py` (venv dedicato, protocollo `PROGRESS`/`LOAD_DONE`/`ERRORE:` letto da canary_engine) NON e' stato toccato: sono token di protocollo, non testo per l'utente; resta italiano `ERRORE: ...` mostrato come `❌ {line}`.
-4. I motivi di `plan()` e `LanguageNotAlignable` non vengono confrontati da nessuno (grep): solo mostrati.
+4. Dopo la revisione: convertite anche le eccezioni con testo italiano che arrivano all'utente via `Errore ...: {e}` (canary_engine 4, qwen3 1, faster_whisper 1, audio_processor 4 `InterruptedError`: nessuno le confronta, grep su `annullat`). `canary_cli.py` (venv dedicato) e i `logger.debug` restano italiani.
+5. I motivi di `plan()` e `LanguageNotAlignable` non vengono confrontati da nessuno (grep): solo mostrati.
 
 **Test**: `python -m pytest linux_tests -q` → 302 passed, 6 skipped. **Non verificato**: trascrizione/Demucs reali (GPU/modelli).
 
