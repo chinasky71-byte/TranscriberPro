@@ -31,7 +31,7 @@ from PyQt6.QtCore import (QCoreApplication, QMutex, QMutexLocker, QObject, QThre
                           pyqtSignal)
 
 from gui.services.formatting import EN_DASH, format_elapsed, format_eta
-from gui.services.job_model import JobRecord, JobStatus, is_reorderable
+from gui.services.job_model import JobRecord, JobStatus, KIND_OCR, is_reorderable
 from gui.workers import FileSizeWorker, FolderScanWorker, ProcessingWorker
 from utils.logger import setup_logger
 
@@ -70,6 +70,7 @@ class QueueService(QObject):
     # --- verso la vista ---
     job_added = pyqtSignal(object)                 # JobRecord: la vista crea e accoda la riga
     jobs_cleared = pyqtSignal()                    # la vista svuota la lista
+    job_removed = pyqtSignal(str)                  # path: la vista toglie quella riga dalla lista
     job_changed = pyqtSignal(str, object)          # (path, JobRecord con stato/avanzamento nuovi): job OCR
     job_size_ready = pyqtSignal(str, str)          # (path, dimensione leggibile)
     queue_reordered = pyqtSignal()
@@ -145,6 +146,19 @@ class QueueService(QObject):
     def can_reorder(record: JobRecord) -> bool:
         return is_reorderable(record.status, record.kind)
 
+    def is_active(self, path: str) -> bool:
+        """True se esiste una riga con QUESTO path ancora da fare o in lavorazione. Il file in lavorazione e' gia' uscito da
+        `processing_queue` (il worker lo toglie quando lo prende): senza questo controllo lo stesso file si poteva riaccodare
+        durante l'elaborazione e veniva rifatto da capo, sovrascrivendo il risultato."""
+        key = os.path.normcase(os.path.normpath(path))     # '/' e '\\' (Aggiungi file/cartella/trascinamento) sono lo stesso file
+        for d in self.jobs_provider():
+            if not d or d.get('kind') == KIND_OCR:         # i job OCR hanno il path del video ma non sono una trascrizione
+                continue
+            if (os.path.normcase(os.path.normpath(d.get('path', ''))) == key
+                    and d.get('status', JobStatus.QUEUED) in (JobStatus.QUEUED, JobStatus.PROCESSING)):
+                return True
+        return False
+
     # ------------------------------------------------------------------ aggiunta
     def enqueue(self, paths, sizes: Optional[Dict[str, str]] = None, only_files: bool = False) -> List[str]:
         """Accoda i path non gia' in coda (nessun doppione, nemmeno nella stessa chiamata).
@@ -157,7 +171,7 @@ class QueueService(QObject):
             for f in paths:
                 if only_files and not Path(f).is_file():
                     continue
-                if f not in self.processing_queue:
+                if f not in self.processing_queue and not self.is_active(f):
                     self.processing_queue.append(f)
                     records.append(JobRecord.new(f, sizes.get(f, '')))
                     added.append(f)
@@ -170,7 +184,7 @@ class QueueService(QObject):
         """Un file trovato dalla scansione di una cartella (stessa regola: niente doppioni)."""
         self._check_thread()
         with QMutexLocker(self.queue_mutex):
-            if path in self.processing_queue:
+            if path in self.processing_queue or self.is_active(path):
                 return False
             self.processing_queue.append(path)
             rec = JobRecord.new(path, size)
@@ -250,6 +264,22 @@ class QueueService(QObject):
             # in place: il worker tiene un riferimento alla stessa lista
             self.processing_queue[:] = ordered
         self.queue_reordered.emit()
+        return True
+
+    def remove(self, path: str) -> bool:
+        """Toglie dalla coda UN file ancora in attesa, anche mentre la coda e' in elaborazione. False se il file non e' in
+        `processing_queue`: gia' preso dal worker (in lavorazione: per fermarlo c'e' Stop), gia' finito o non della coda.
+        La lista si modifica IN PLACE sotto il lock (il worker ne tiene un riferimento); i segnali dopo il rilascio."""
+        self._check_thread()
+        with QMutexLocker(self.queue_mutex):
+            if path not in self.processing_queue:
+                return False
+            self.processing_queue.remove(path)
+        note = getattr(self.worker, 'note_removed', None) if self.is_processing else None
+        if note is not None:
+            note()
+        self.job_removed.emit(path)
+        self.remaining_changed.emit(self.remaining())
         return True
 
     def clear(self) -> bool:

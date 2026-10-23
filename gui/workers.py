@@ -224,6 +224,11 @@ class ProcessingWorker(QThread):
         self.failed_files = 0
         self.total_files_at_start = 0
     
+    def note_removed(self, n: int = 1):
+        """Un file ancora in attesa e' stato tolto dalla coda mentre il worker lavora: il totale usato per la percentuale e per
+        l'intestazione 'File N/totale' scende di n (altrimenti la barra non arriva piu' al 100%)."""
+        self.total_files_at_start = max(1, self.total_files_at_start - n)
+
     def get_total_files(self) -> int:
         """
         Ottiene totale file in coda in modo thread-safe

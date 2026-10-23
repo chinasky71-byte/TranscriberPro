@@ -372,6 +372,13 @@ class MainWindow(QMainWindow):
         self.file_list.apply_order = self._apply_queue_order
         self.file_list.setItemDelegate(FileRowDelegate(self.file_list))
         self.file_list.itemSelectionChanged.connect(self.on_file_selected)
+        # Rimozione dalla coda anche durante l'elaborazione: tasto Canc e menu contestuale (solo righe ancora in attesa)
+        from PyQt6.QtGui import QKeySequence, QShortcut
+        self._remove_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Delete), self.file_list)
+        self._remove_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+        self._remove_shortcut.activated.connect(self.remove_selected_from_queue)
+        self.file_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.file_list.customContextMenuRequested.connect(self._on_file_list_menu)
         # Il testo è già eliso dal delegato: la scrollbar orizzontale non serve
         # e nasconderla evita jitter da apparizione/scomparsa nel layout.
         self.file_list.setHorizontalScrollBarPolicy(
@@ -829,6 +836,7 @@ class MainWindow(QMainWindow):
         qs = self.queue_service
         qs.job_added.connect(self._on_job_added)
         qs.jobs_cleared.connect(self._on_jobs_cleared)
+        qs.job_removed.connect(self._on_job_removed)
         qs.job_changed.connect(self._on_job_changed)
         qs.job_size_ready.connect(self._on_size_ready)
         qs.remaining_changed.connect(self._on_remaining_changed)
@@ -866,6 +874,55 @@ class MainWindow(QMainWindow):
 
     def _on_jobs_cleared(self):
         self.file_list.clear()
+
+    def _on_job_removed(self, path: str):
+        """Toglie dalla lista la riga con QUESTO path (corrispondenza esatta: mai quella di un altro file omonimo)."""
+        for i in range(self.file_list.count()):
+            data = self.file_list.item(i).data(Qt.ItemDataRole.UserRole) or {}
+            if data.get('path') == path:
+                self.file_list.takeItem(i)
+                break
+        self._update_overlay()
+        self.update_remaining_files_label()
+        self._update_filter_badges()
+        self._update_log_stats()                 # tessera 'In coda'
+
+    def _removable_items(self):
+        """Le righe selezionate che si possono togliere: in attesa e destinate al worker (non in corso, non finite, non OCR)."""
+        return [it for it in self.file_list.selectedItems() if not it.isHidden()
+                and self.queue_service.can_reorder(JobRecord.from_item_data(it.data(Qt.ItemDataRole.UserRole)))]
+
+    def remove_selected_from_queue(self, paths=None) -> int:
+        """Toglie dalla coda le righe selezionate ancora in attesa (anche durante l'elaborazione). Le altre (in lavorazione
+        o gia' finite) restano e lo si scrive nel log. Restituisce quante ne ha tolte."""
+        removed = 0
+        if paths is None:                          # `paths`: righe catturate all'apertura del menu (la selezione puo' spostarsi)
+            paths = [JobRecord.from_item_data(it.data(Qt.ItemDataRole.UserRole)).path
+                     for it in self.file_list.selectedItems() if not it.isHidden()]
+        for path in paths:
+            item = next((self.file_list.item(i) for i in range(self.file_list.count())
+                         if (self.file_list.item(i).data(Qt.ItemDataRole.UserRole) or {}).get('path') == path), None)
+            if item is None:
+                continue
+            rec = JobRecord.from_item_data(item.data(Qt.ItemDataRole.UserRole))
+            if self.queue_service.can_reorder(rec) and self.queue_service.remove(rec.path):
+                removed += 1
+            else:
+                self.log_message(tr('remove_refused_log').format(name=rec.filename))
+        return removed
+
+    def _on_file_list_menu(self, pos):
+        from PyQt6.QtWidgets import QMenu
+        item = self.file_list.itemAt(pos)
+        if item is not None and not item.isSelected():
+            self.file_list.clearSelection()
+            item.setSelected(True)
+        menu = QMenu(self.file_list)
+        act = menu.addAction(tr('remove_from_queue'))
+        paths = [JobRecord.from_item_data(it.data(Qt.ItemDataRole.UserRole)).path for it in self._removable_items()]
+        act.setEnabled(item is not None and bool(paths))      # clic su area vuota: niente da togliere
+        act.triggered.connect(lambda _=False, p=paths: self.remove_selected_from_queue(p))
+        menu.exec(self.file_list.viewport().mapToGlobal(pos))
 
     @staticmethod
     def _transition_item(item, transition):
