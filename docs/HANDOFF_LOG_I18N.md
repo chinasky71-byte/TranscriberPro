@@ -3,6 +3,22 @@
 Piu' recenti in alto. Regole: testo italiano identico carattere per carattere; consumatori che leggono il testo
 riconoscono IT ed EN; mai tradurre `logger.*` (restano in italiano per gli sviluppatori).
 
+## 2026-10-23 · PR 2 — core/pipeline.py (117 chiavi `pl_*`, 126 punti)
+
+**Fatto**: 113 chiamate `_log(...)` convertite + 13 messaggi fuori da `_log` diretto (eccezioni mostrate in `Errore critico pipeline: {e}`,
+`error_msg`, nome del passo di `_video_unchanged`, `what` di mux/upload). Strumenti: `scripts_manutenzione/i18n_convert.py` (estrae il modello IT
+dall'AST, riscrive il sorgente in `tr('chiave').format(nome=espressione)` senza toccare altro) e
+`scripts_manutenzione/verify_i18n_identity.py` (valuta vecchio e nuovo con valori finti: 113 identici, 0 differenti).
+Non convertiti volutamente: separatori `'='*80` (nessun testo) e `   [Gender] {line}` (riga del figlio, nessun testo proprio).
+
+**Punti delicati**: i passi `N.` restano numerati (letti per numero). Le parole chiave dei passi 1b/6/6.5 sono bilingui (test con le righe reali in IT ed EN:
+`pl_1b_*` contiene "traduzione"/"translation" solo nel ramo con traduzione; `pl_6_*` "Salto traduzione"/"Skipping translation"; 6.5 "saltata"/"skipped").
+`error_msg` (riga 445) va anche a `logger.error`: nel file di log comparira' nella lingua dell'interfaccia (unico caso in cui un logger riceve testo tradotto).
+Le eccezioni `raise Exception("...")` convertite sono mostrate solo via `Errore critico pipeline: {e}`; nessun codice confronta quei testi (grep).
+Da fare nelle PR dei file corrispondenti: `plan_reason` di `engine_router.EngineRouter.plan` (testo italiano mostrato in "Engine pianificato").
+
+**Test**: `python -m pytest linux_tests -q` → 282 passed, 6 skipped. **Non verificato**: esecuzione reale della pipeline (manca torch/GPU in cloud).
+
 ## 2026-10-23 · PR 1 — infrastruttura (lingua nel figlio, consumatori bilingue, test)
 
 **Fatto**
