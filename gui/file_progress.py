@@ -24,6 +24,8 @@ Regole che evitano regressioni (v. memoria sottotitoli/avanzamento):
 import re
 from typing import Dict, Optional, Set
 
+from utils.translations import all_texts
+
 # Fasi nell'ordine canonico di esecuzione.
 _ORDER = ['setup', 'ocr_extract', 'ocr_read', 'ocr_translate', 'extract', 'demucs', 'asr', 'clean',
           'translate', 'gender', 'final']
@@ -37,12 +39,13 @@ _BASE_WEIGHTS: Dict[str, float] = {
 _ASR_BY_ENGINE = (('qwen3', 6.0), ('canary', 2.5))
 
 # Chiave della barra interna accettata da ogni fase.
+# Le righe arrivano dal figlio in IT o EN: i marcatori valgono in entrambe le lingue (utils.translations.all_texts).
 _INNER_KEYS = {
     'demucs': ('Demucs: [',),
-    'asr': ('Trascrizione: [',),
-    'translate': ('Traduzione: [', 'Progresso:'),
-    'ocr_translate': ('Traduzione: [', 'Progresso:'),
-    'gender': ('Correzione genere: [',),
+    'asr': all_texts('logm_bar_transcription'),
+    'translate': (*all_texts('logm_bar_translation'), *all_texts('logm_progress')),
+    'ocr_translate': (*all_texts('logm_bar_translation'), *all_texts('logm_progress')),
+    'gender': all_texts('logm_bar_gender'),
 }
 
 _LANG3_TO_2 = {'ita': 'it', 'eng': 'en', 'fra': 'fr', 'fre': 'fr', 'deu': 'de', 'ger': 'de', 'spa': 'es',
@@ -56,8 +59,20 @@ _PHASE_BAR = {p: g for g, ps in _BAR_PHASES.items() for p in ps}
 
 _STEP_RE = re.compile(r'^\s*(\d+(?:\.\d+)?[a-z]?)\.\s+(\S.*)$')
 _PCT_RE = re.compile(r'(\d+)\s*%')
-_AUDIO_LANG_RE = re.compile(r'Audio estratto\. Lingua:\s*([A-Za-z]+)')
-_EMBEDDED_RE = re.compile(r'Sottotitoli embedded trovati \(([A-Za-z]+)\)')
+def _alt(key: str) -> str:
+    return '(?:' + '|'.join(re.escape(t) for t in all_texts(key)) + ')'
+
+
+_AUDIO_LANG_RE = re.compile(_alt('logm_audio_extracted') + r'\s*([A-Za-z]+)')
+_EMBEDDED_RE = re.compile(_alt('logm_embedded_found') + r'([A-Za-z]+)\)')
+_OCR_ANALYSIS_RE = re.compile(r'OCR\W+' + _alt('logm_ocr_analysis'))
+_OCR_TRANSLATION_RE = re.compile(r'OCR\W+' + _alt('logm_ocr_translation'))
+_OCR_LEAVE_KEYS = (*all_texts('logm_ocr_failed'), *all_texts('logm_ocr_error'))
+_OCR_DONE_KEYS = (*all_texts('logm_srt_written'), *all_texts('logm_ocr_done'))
+
+
+def _has_kw(low: str, key: str) -> bool:
+    return any(k in low for k in all_texts(key))
 
 
 def _lang2(code: str) -> str:
@@ -212,16 +227,16 @@ class FileProgress:
 
         # ramo OCR (nessuna percentuale nelle righe di stato)
         if 'ocr_extract' in self.possible:
-            if re.search(r'OCR\W+Analisi bitmap', line):
+            if _OCR_ANALYSIS_RE.search(line):
                 self._enter('ocr_read')
                 return
-            if re.search(r'OCR\W+Traduzione', line):
+            if _OCR_TRANSLATION_RE.search(line):
                 self._enter('ocr_translate')     # anche se non prevista: bitmap dichiarato italiano ma straniero
                 return
-            if 'OCR bitmap non riuscito' in line or 'Errore OCR bitmap' in line:
+            if any(k in line for k in _OCR_LEAVE_KEYS):
                 self._leave_ocr()               # la pipeline ripiega su testo/audio
                 return
-            if 'SRT italiano scritto' in line or 'OCR bitmap completato' in line:
+            if any(k in line for k in _OCR_DONE_KEYS):
                 self._enter('final')
                 return
 
@@ -243,7 +258,7 @@ class FileProgress:
         elif num == '1b':
             # ramo OCR: nessuna trascrizione audio; la traduzione c'e' solo se il testo la dichiara
             self.possible = {'setup', 'ocr_extract', 'ocr_read', 'final'}
-            if 'traduzione' in low:
+            if _has_kw(low, 'logm_kw_translation'):
                 self.possible.add('ocr_translate')
             self._enter('ocr_extract')
         elif num == '2':
@@ -261,12 +276,12 @@ class FileProgress:
         elif num == '5':
             self._enter('clean')
         elif num == '6':
-            if 'salto traduzione' in low or 'lingua originale' in low:
+            if _has_kw(low, 'logm_kw_skip_translation') or _has_kw(low, 'logm_kw_original_lang'):
                 self._drop('translate', 'gender')
             else:
                 self._enter('translate')
         elif num == '6.5':
-            if 'saltata' in low:
+            if _has_kw(low, 'logm_kw_skipped'):
                 self._drop('gender')
             else:
                 self._enter('gender')

@@ -144,4 +144,11 @@ if __name__ == '__main__':
     if str(_project_root) not in sys.path:
         sys.path.insert(0, str(_project_root))
 
+    # Lingua dei log: stessa regola della GUI (config 'language'), senza Qt.
+    try:
+        from utils.translations import init_language_headless as _tp_init_lang
+        _tp_init_lang()
+    except Exception:
+        pass
+
     sys.exit(main(sys.argv))

@@ -11,9 +11,10 @@ import re
 
 from PyQt6.QtGui import QTextCursor
 
+from gui.services.log_filter import UPDATABLE_PATTERNS
+
 # Stesse chiavi di LogFilter.UPDATABLE_PATTERNS (gui/services/log_filter.py), la logica del log principale.
-PROGRESS_PATTERNS = ["Progresso:", "Demucs: [", "Traduzione: [", "Trascrizione: [", "Warm-up: [",
-                     "Correzione genere: [", "⚙️ OCR"]
+PROGRESS_PATTERNS = UPDATABLE_PATTERNS
 _SCAN_BLOCKS = 40
 
 

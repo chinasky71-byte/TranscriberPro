@@ -104,4 +104,11 @@ if __name__ == '__main__':
         sys.path.insert(0, str(_project_root))
     from core.pipeline_cli import _suppress_subprocess_windows
     _suppress_subprocess_windows()
+    # Lingua dei log: stessa regola della GUI (config 'language'), senza Qt.
+    try:
+        from utils.translations import init_language_headless as _tp_init_lang
+        _tp_init_lang()
+    except Exception:
+        pass
+
     sys.exit(main(sys.argv))
