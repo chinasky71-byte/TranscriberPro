@@ -409,7 +409,7 @@ def main(argv=None) -> int:
         for idx, video in enumerate(files):
             status.start_file(idx)
             if not video.exists():
-                status.end_file(idx, False, error='file non trovato')
+                status.end_file(idx, False, error=tr('qr_file_not_found'))
                 continue
             print(f'[{idx + 1}/{len(files)}] {video.name}', flush=True)
             try:
@@ -424,20 +424,20 @@ def main(argv=None) -> int:
             print(f"    {'OK' if res['ok'] else tr('qr_status_failed')} ({status.files[idx]['seconds']} s)", flush=True)
             if not res['ok'] and args.notify and not first_error_notified:
                 first_error_notified = True
-                notify('Transcriber Pro: errore', f'Fallito: {video.name}')
+                notify(tr('qr_transcriber_pro_error'), tr('qr_failed').format(name=video.name))
     except KeyboardInterrupt:
         state = 'cancelled'
         print(tr('qr_interrupted'), flush=True)
         if idx is not None and status.files[idx]['status'] == 'processing':
-            status.end_file(idx, False, error='interrotto', status='cancelled')
+            status.end_file(idx, False, error=tr('qr_interrupted_2'), status='cancelled')
     finally:
         status.finish(state)
         lock.release()
     snap = status.snapshot()
     print(tr('qr_done_ok_failed_cancelled_out').format(completed=snap['completed'], failed=snap['failed'], cancelled=snap['cancelled'], total=snap['total']), flush=True)
     if args.notify:
-        notify('Transcriber Pro: coda terminata',
-               f"{snap['completed']} completati, {snap['failed']} falliti su {snap['total']}.")
+        notify(tr('qr_transcriber_pro_queue_finished'),
+               tr('qr_completed_failed_out_of').format(completed=snap['completed'], failed=snap['failed'], total=snap['total']))
     if state == 'cancelled':
         return 130
     return 0 if snap['failed'] == 0 else 2

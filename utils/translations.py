@@ -1360,6 +1360,20 @@ class Translations:
             # ── log pipeline: profile_dialog.py ──
             'pd_select_the_optimal_profile_for': 'Select the optimal profile for your use case.',
             'pd_transcription_profiles': '⚙️ Transcription Profiles',
+
+            # ── log pipeline: queue_runner.py ──
+            'qr_transcriber_pro_queue_finished': 'Transcriber Pro: queue finished',
+            'qr_completed_failed_out_of': '{completed} completed, {failed} failed out of {total}.',
+            'qr_transcriber_pro_error': 'Transcriber Pro: error',
+            'qr_failed': 'Failed: {name}',
+            'qr_file_not_found': 'file not found',
+            'qr_interrupted_2': 'interrupted',
+
+            # ── log pipeline: env_check_cli.py ──
+            'ec_authentication_error_invalid_huggingface_token': 'Authentication error. Invalid HuggingFace token.',
+
+            # ── log pipeline: sync_cli.py ──
+            'sc_import_failed': 'import failed: {e}',
         },
 
         # ── ITALIANO ──────────────────────────────────────────────────────────
@@ -2706,6 +2720,20 @@ class Translations:
             # ── log pipeline: profile_dialog.py ──
             'pd_select_the_optimal_profile_for': "Seleziona il profilo ottimale per il tuo caso d'uso.",
             'pd_transcription_profiles': '⚙️ Profili di Trascrizione',
+
+            # ── log pipeline: queue_runner.py ──
+            'qr_transcriber_pro_queue_finished': 'Transcriber Pro: coda terminata',
+            'qr_completed_failed_out_of': '{completed} completati, {failed} falliti su {total}.',
+            'qr_transcriber_pro_error': 'Transcriber Pro: errore',
+            'qr_failed': 'Fallito: {name}',
+            'qr_file_not_found': 'file non trovato',
+            'qr_interrupted_2': 'interrotto',
+
+            # ── log pipeline: env_check_cli.py ──
+            'ec_authentication_error_invalid_huggingface_token': 'Errore autenticazione. Token HuggingFace non valido.',
+
+            # ── log pipeline: sync_cli.py ──
+            'sc_import_failed': 'import fallito: {e}',
         },
     }
 

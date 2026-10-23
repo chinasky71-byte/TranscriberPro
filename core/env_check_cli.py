@@ -124,7 +124,7 @@ def llm_download() -> int:
     except Exception as e:
         err = str(e)
         if "GatedRepo" in err or "401" in err:
-            err = "Errore autenticazione. Token HuggingFace non valido."
+            err = tr('ec_authentication_error_invalid_huggingface_token')
         _emit(tr('ec_error').format(err=err))
         traceback.print_exc(file=sys.stderr)
         return 1

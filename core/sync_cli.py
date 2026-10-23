@@ -67,7 +67,7 @@ def main(argv: list) -> int:
     except Exception as e:
         _emit(tr('sc_error_cli_subtitlesynchronizer_import_failed').format(e=e))
         traceback.print_exc(file=sys.stderr)
-        _write_result(result_path, {"success": False, "output_path": None, "error": f"import fallito: {e}"})
+        _write_result(result_path, {"success": False, "output_path": None, "error": tr('sc_import_failed').format(e=e)})
         return 1
 
     sync = None

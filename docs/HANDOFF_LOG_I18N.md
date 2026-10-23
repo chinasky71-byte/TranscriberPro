@@ -7,6 +7,8 @@ riconoscono IT ed EN; mai tradurre `logger.*` (restano in italiano per gli svilu
 
 **Fatto**: gender_corrector (18), gender_corrector_v2 (11), gender_corrector_cli (11), gender_rewriter (2), speaker_gender (4), diarizer (12), punctuation_restorer (5+1), aligner (5), pgs_ocr (12+5), vobsub_ocr (12+6), ocr_auto (8), bitmap_ocr_common (1), env_check_cli (15), fallback_translate_cli (12), pipeline_cli (9), sync_cli (9), utils/adaptive_batch_manager (7), utils/opensubtitles_ai_translator (13), opensubtitles_rest_uploader (1), subtitle_formatter (7), queue_runner (7), utils/profile_dialog (2 etichette). `verify_i18n_identity.py`: 0 differenti (un falso positivo in subtitle_formatter:116, indirizzi diversi dei generatori finti, controllato a mano).
 
+**Residui chiusi dopo la revisione**: queue_runner (notifiche Windows di coda e stati `file non trovato`/`interrotto`/`Fallito: ...` salvati nel JSON di stato, solo a video), env_check_cli (errore token HuggingFace), sync_cli (`import fallito` in result.json). Aggiunto test che lancia i CLI come sottoprocesso con TP_LANG=it/en.
+
 **Punti delicati**
 1. Il filtro del rumore ha ora la variante EN anche per `AdaptiveBatchManager avviato` (`logm_noise_abm_started`); barre `Correzione genere: [` / `⚙️ OCR — Analisi bitmap` / `OCR — Traduzione` / `SRT italiano scritto` provate con le righe reali in IT ed EN (`test_i18n_consumers.py`).
 2. **Venv dedicati**: `core/glossary_builder_cli.py` (venv_glossary) non ha le dipendenze di `utils` (importare `utils.translations` esegue `utils/__init__`): lasciato in italiano (3 messaggi `{"ev":"error","msg":...}`), voce nell'elenco ammesso di `test_i18n_scan.py`. Idem `core/gender_selector_cli.py` (venv NLP) e `core/engines/canary_cli.py`: non toccati.
