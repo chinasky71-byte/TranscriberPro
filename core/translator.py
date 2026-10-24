@@ -2201,11 +2201,11 @@ class LLMSubtitleTranslator(BaseTranslator):
         return p
 
     def _acquire_engine(self):
-        """Il motore LLM per questo file. Con `llm_translator_gguf_enabled` spento (default) e' ESATTAMENTE la
-        chiamata storica a `get_engine`; acceso, decide `path_router` (bf16 / NF4 / GGUF / None = NLLB-FT)."""
+        """Il motore LLM per questo file. Con `llm_translator_gguf_enabled` spento e' ESATTAMENTE la chiamata storica a
+        `get_engine`; acceso (default dal 24/10), decide `path_router` (bf16 / NF4 / GGUF / None = NLLB-FT)."""
         gguf = False
         try:
-            gguf = bool(get_config and get_config().get('llm_translator_gguf_enabled', False))
+            gguf = bool(get_config and get_config().get('llm_translator_gguf_enabled', True))
         except Exception:
             gguf = False
         if not gguf:

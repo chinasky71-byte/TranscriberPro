@@ -211,9 +211,9 @@ def test_router_schede_grandi_percorso_storico_con_gli_stessi_argomenti(router_e
 
 
 @pytest.mark.parametrize('free', [11.0, 10.6, 15.0])
-def test_router_12_20_gib_regola_storica_per_default(router_env, free):
-    """Default (gguf_before_nf4 spento, anche con il flag GGUF acceso): sulle schede 10,5-20 GiB resta NF4 come oggi."""
-    e = router_env.acquire(('cuda', free, True), adapter=None, model_path='/m')
+def test_router_12_20_gib_regola_storica_con_gguf_before_nf4_spento(router_env, free):
+    """gguf_before_nf4 = False (opzione per forzare NF4), anche con il flag GGUF acceso: sulle schede 10,5-20 GiB resta NF4 come prima."""
+    e = router_env.acquire(('cuda', free, True), adapter=None, model_path='/m', cfg_over={'llm_translator_gguf_before_nf4': False})
     assert e is router_env.legacy
     assert ('legacy', 'translategemma-12b', None, '/m') in router_env.calls
     assert not any(c[0] == 'gguf' for c in router_env.calls)
@@ -221,6 +221,10 @@ def test_router_12_20_gib_regola_storica_per_default(router_env, free):
 
 @pytest.mark.parametrize('free', [11.0, 10.6, 15.0])
 def test_router_12_20_gib_con_gguf_before_nf4_acceso_usa_il_gguf_q4(router_env, free):
+    # il default e' acceso: senza override e con il valore esplicito True il risultato e' lo stesso
+    e = router_env.acquire(('cuda', free, True), adapter=None, model_path='/m')
+    assert e is router_env.gguf
+    router_env.calls.clear()
     e = router_env.acquire(('cuda', free, True), adapter=None, model_path='/m', cfg_over={'llm_translator_gguf_before_nf4': True})
     assert e is router_env.gguf
     assert ('gguf', 'translategemma-12b-it-finale-Q4_K_M.gguf', 'Q4_K_M', 4) in router_env.calls
@@ -425,8 +429,24 @@ def _translator(t, monkeypatch, **cfg):
     return tr_
 
 
+def test_flag_acceso_di_default_passa_dal_router(translator_module, monkeypatch):
+    """Default dal 24/10: senza la chiave in config il traduttore passa dal router (opzione a False = percorso storico)."""
+    assert Config_default('llm_translator_gguf_enabled') is True and Config_default('llm_translator_gguf_before_nf4') is True
+    tr_ = _translator(translator_module, monkeypatch, llm_translator_model_path='')
+    called = mock.Mock(return_value='dal-router')
+    monkeypatch.setattr(pr, 'acquire_engine', called)
+    assert tr_._acquire_engine() == 'dal-router'
+    called.assert_called_once()
+    tr_._get_engine.assert_not_called()
+
+
+def Config_default(key):
+    from utils.config import Config
+    return Config.DEFAULTS[key]
+
+
 def test_flag_spento_e_la_chiamata_storica_e_il_router_non_viene_importato(translator_module, monkeypatch):
-    for flag in ({}, {'llm_translator_gguf_enabled': False}):
+    for flag in ({'llm_translator_gguf_enabled': False},):
         for m in ('core.llm_subtitle_translator.path_router', 'core.llm_subtitle_translator.gguf_engine'):
             monkeypatch.delitem(sys.modules, m, raising=False)
         tr_ = _translator(translator_module, monkeypatch, llm_translator_model_path='', **flag)
