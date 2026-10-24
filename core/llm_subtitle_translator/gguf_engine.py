@@ -441,19 +441,28 @@ _gguf_engine: Optional[GGUFEngine] = None
 def get_gguf_engine(gguf_path: str, quant: str,
                     model_key: str = DEFAULT_MODEL_KEY,
                     log_callback: Optional[Callable] = None,
-                    n_parallel: int = 4, ctx_per_seq: int = 512) -> GGUFEngine:
-    """Restituisce il motore GGUF per questo file e questi parametri, caricandolo se serve."""
+                    n_parallel: int = 4, ctx_per_seq: int = 512, in_process: bool = False) -> GGUFEngine:
+    """Restituisce il motore GGUF per questo file e questi parametri, caricandolo se serve.
+
+    Di norma e' un `GGUFSubprocessEngine` (processo di lavoro pulito: su Windows `llama_cpp` importato dopo `utils`/PyQt6
+    manda in crash `llama_supports_gpu_offload`). `in_process=True` carica in questo processo: solo per chi sa che
+    `llama_cpp` e' il primo import nativo (il processo di lavoro stesso, il banco) e per i test."""
     global _gguf_engine
     with _gguf_lock:
         if _gguf_engine is not None and (
                 _gguf_engine.gguf_path != str(gguf_path)
                 or _gguf_engine.n_parallel != max(1, int(n_parallel))
                 or _gguf_engine.ctx_per_seq != max(64, int(ctx_per_seq))
-                or _gguf_engine.model_key != model_key):
+                or _gguf_engine.model_key != model_key
+                or (type(_gguf_engine) is GGUFEngine) != in_process):
             _gguf_engine.unload()
             _gguf_engine = None
         if _gguf_engine is None:
-            _gguf_engine = GGUFEngine(gguf_path, quant, model_key, log_callback, n_parallel, ctx_per_seq)
+            if in_process:
+                _gguf_engine = GGUFEngine(gguf_path, quant, model_key, log_callback, n_parallel, ctx_per_seq)
+            else:
+                from .gguf_subprocess import GGUFSubprocessEngine
+                _gguf_engine = GGUFSubprocessEngine(gguf_path, quant, model_key, log_callback, n_parallel, ctx_per_seq)
         elif log_callback:
             _gguf_engine.log_callback = log_callback
         try:

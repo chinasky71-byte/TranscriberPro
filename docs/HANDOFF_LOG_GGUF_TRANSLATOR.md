@@ -7,6 +7,17 @@ dietro `llm_translator_gguf_enabled` (default **False**) finche' il banco di qua
 Regole di flusso: una PR per fase; implementa, prova, revisione critica separata in sola lettura, correggi. Niente toccato:
 APP_VERSION, CHANGELOG, README, requirements*, pin (ctranslate2 4.6.0, llama-cpp-python 0.3.34), percorso NVIDIA.
 
+## 2026-10-24 · Motore GGUF in sottoprocesso pulito (proposta della sessione locale; PR in attesa di OK, NON unita)
+
+**Difetto**: `llama_supports_gpu_offload()` va in access violation su Windows (RTX 3060, llama-cpp-python 0.3.34) se `llama_cpp` e' importato DOPO `utils` (PyQt6), anche dopo `llama_backend_init()`. Nel processo figlio della pipeline `utils` e' gia' caricato: il percorso in-process non e' praticabile su Windows.
+
+**Fatto**: `core/llm_subtitle_translator/gguf_worker.py` (script lanciato direct, `llama_cpp` PRIMO import nativo; stdout reale deviato sull'stderr, protocollo su un duplicato privato) e `gguf_subprocess.py` (`GGUFSubprocessEngine`, sottoclasse di `GGUFEngine`: stessa interfaccia, stesso prompt, il modello resta caricato fra i file). `get_gguf_engine` restituisce il proxy di default (`in_process=True` per il worker, il banco e i test). Con il flag spento nulla cambia: il modulo si importa solo da `get_gguf_engine`.
+Robustezza (dalla revisione): id di richiesta e scarto delle risposte arretrate, righe non JSON ignorate, lettura da thread con tempi massimi (carico 900 s, blocco 600 s: larghi, servono solo a non bloccare la coda), `unload()` durante un `generate()` chiude il worker dopo 3 s, un solo riavvio dopo la morte del worker, lingua dell'app passata al worker, errori `UnknownLanguageError` conservati.
+
+**Test**: suite `linux_tests` 415 passed, 17 skipped; con GGUF Gemma3 270M e Qwen: 80 passed. Provato su Linux CPU: il sottoprocesso da lo stesso testo del motore in-process, riparte dopo `unload`, l'errore `n_gpu_layers != 0` su ruota senza GPU arriva come errore; ordine di import (llama_cpp prima di utils) verificato con uno spy su `meta_path`; worker finto per rumore sul canale, timeout, annullo concorrente, morti ripetute, serializzazione.
+
+**Non verificato**: **che il crash Windows sparisca** (dipende dalla tesi "primo import nativo", dato della sessione locale); `dup2` su Windows con DLL che scrivono sull'handle standard, `CREATE_NO_WINDOW`, `TemporaryFile` come stderr su Windows; `torch/lib` sul PATH nel worker; eseguibile congelato PyInstaller (il worker usa `sys.executable` e lo script: non partirebbe da un exe); il percorso con `n_gpu_layers != 0` e GPU vera; il worker crea un secondo file di log in `~/.transcriberpro/logs`; stderr del worker non limitato in dimensione.
+
 ## 2026-10-24 · Correzione dal banco locale (sessione locale, v1.34.28)
 
 - **Bug trovato su Windows** (ruota llama-cpp-python 0.3.34 con backend dinamici): `GGUFEngine.load()` chiamava `llama_supports_gpu_offload()` prima di qualunque `Llama()` e andava in
