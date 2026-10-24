@@ -17,9 +17,12 @@ Regole (con il percorso GGUF acceso; con il flag spento il router non passa di q
   3. backend cuda/rocm/vulkan, almeno un GGUF presente che ENTRA    -> gguf:<quant migliore che entra>
   4. backend cuda e VRAM libera >= nf4_min_free_gb (con gguf_before_nf4 acceso: nessun GGUF utilizzabile) -> nf4
   5. altrimenti                                                      -> nllb
-`gguf_before_nf4` (default acceso, vedi DEFAULT_GGUF_BEFORE_NF4): dopo il banco di qualita' di fase 3 il GGUF e' preferito a NF4
-anche sulle schede da 12-20 GiB (qualita' non inferiore con margine 3 punti, ~14 volte piu' veloce). Spento = regola storica
-(NF4 prima del GGUF), provata uguale al motore storico per VRAM libera >= 10,5 GiB.
+`gguf_before_nf4` (default SPENTO, vedi DEFAULT_GGUF_BEFORE_NF4): spento = regola storica (NF4 prima del GGUF), provata uguale al
+motore storico per VRAM libera >= 10,5 GiB; e' anche l'opzione per FORZARE NF4 senza una nuova versione. Acceso = il GGUF e'
+preferito a NF4 sulle schede da 10-20 GiB (nel banco di fase 3 Q4_K_M e' non inferiore a NF4 con margine 3 punti e ~14 volte
+piu' veloce): l'accensione di default richiede l'ok esplicito del proprietario (glossario misurato, prova reale su Windows).
+Con la scelta automatica si considerano solo Q4_K_M (>= gguf_min_free_gib['Q4_K_M'], 10 GiB) e IQ3_M (>= 7,5 GiB): Q3_K_M,
+piu' grande e non migliore di IQ3_M nel banco, resta selezionabile solo chiedendola per nome.
 "Entra" = pesi del GGUF + ingombro di esecuzione (KV cache + buffer di calcolo) <= VRAM libera. Niente offload parziale:
 un modello a meta' su GPU e meta' su CPU e' piu' lento di NLLB e non e' stato misurato.
 
@@ -29,15 +32,22 @@ e (pesi + KV 0,75 GiB) e' 0,78 / 0,76 / 0,63 GiB: COMPUTE_BUFFER_GIB lo copre. I
 restano scelte (non misure). Una sola scheda e un solo driver: su 8 GB nessuna misura diretta.
 """
 from dataclasses import dataclass
-from typing import Iterable, Optional
+from typing import Iterable, Mapping, Optional
 
 BF16 = 'bf16'
 NF4 = 'nf4'
 GGUF = 'gguf'
 NLLB = 'nllb'
 
-# Ordine di preferenza (qualita' decrescente, ingombro decrescente). Con quant='auto' si prende la prima che entra.
+# Quantizzazioni riconosciute (nomi dei file GGUF e `quant` forzata) e quelle della scelta automatica, in ordine di preferenza
+# (qualita' decrescente, ingombro decrescente): con quant='auto' si prende la prima che entra.
 QUANT_PREFERENCE = ('Q4_K_M', 'Q3_K_M', 'IQ3_M')
+AUTO_QUANTS = ('Q4_K_M', 'IQ3_M')
+
+# Soglie minime di VRAM LIBERA (GiB) per quantizzazione, scelte dal proprietario in linea di principio partendo dal picco misurato
+# (Q4_K_M +8,33 GiB, IQ3_M +6,65 GiB): sono un pavimento; vale il maggiore fra questo e l'ingombro stimato (che cresce con
+# n_parallel). Configurabili. Una RTX 3060 da 12 GB con il desktop ha ~11,3 GiB liberi: cade su Q4_K_M.
+DEFAULT_GGUF_MIN_FREE_GIB = {'Q4_K_M': 10.0, 'IQ3_M': 7.5}
 
 # Dimensione dei pesi (GiB) per quantizzazione: MISURATA sui file veri del 12B (fase 2, `verify`).
 QUANT_WEIGHTS_GIB = {'Q4_K_M': 6.80, 'Q3_K_M': 5.60, 'IQ3_M': 5.27}
@@ -56,7 +66,7 @@ SAFETY_MARGIN_GIB = 0.4
 # 12 finirebbe sempre sul GGUF cambiando il comportamento di oggi, dove funziona in NF4.
 DEFAULT_NF4_MIN_FREE_GIB = 10.5
 DEFAULT_BF16_MIN_FREE_GIB = 20.0     # = ModelSpec.bf16_min_free_gb del motore storico
-DEFAULT_GGUF_BEFORE_NF4 = True
+DEFAULT_GGUF_BEFORE_NF4 = False
 
 # Sequenze parallele del motore GGUF e contesto per sequenza (prompt ~150 token + risposta max 160).
 DEFAULT_N_PARALLEL = 4
@@ -97,6 +107,7 @@ def choose_translator_path(free_gib: Optional[float], backend: str, *,
                            bf16_min_free_gib: float = DEFAULT_BF16_MIN_FREE_GIB,
                            nf4_min_free_gib: float = DEFAULT_NF4_MIN_FREE_GIB,
                            gguf_before_nf4: bool = DEFAULT_GGUF_BEFORE_NF4,
+                           gguf_min_free_gib: Optional[Mapping[str, float]] = None,
                            n_parallel: int = DEFAULT_N_PARALLEL,
                            ctx_per_seq: int = DEFAULT_CTX_PER_SEQ) -> PathChoice:
     """Percorso da usare. `free_gib` None o <= 0 (VRAM sconosciuta/nessuna GPU) -> nllb.
@@ -115,9 +126,14 @@ def choose_translator_path(free_gib: Optional[float], backend: str, *,
     if nf4_fits and not gguf_before_nf4:
         return PathChoice(NF4, reason='vram_nf4')
 
+    floors = DEFAULT_GGUF_MIN_FREE_GIB if gguf_min_free_gib is None else gguf_min_free_gib
+
+    def required(q):
+        return max(gguf_need_gib(q, n_parallel, ctx_per_seq), floors.get(q, 0.0))
+
     wanted = normalize_quant(quant)
     present = {normalize_quant(q) for q in gguf_available}
-    candidates = [q for q in QUANT_PREFERENCE if q in present]
+    candidates = [q for q in AUTO_QUANTS if q in present]
     if wanted != 'auto':
         if wanted not in QUANT_WEIGHTS_GIB:
             return PathChoice(NLLB, reason='quant_unknown')
@@ -125,10 +141,10 @@ def choose_translator_path(free_gib: Optional[float], backend: str, *,
     if not candidates:
         return PathChoice(NF4, reason='vram_nf4') if nf4_fits else PathChoice(NLLB, reason='gguf_missing')
     for q in candidates:
-        need = gguf_need_gib(q, n_parallel, ctx_per_seq)
+        need = required(q)
         if need <= free_gib:
             return PathChoice(GGUF, quant=q, reason='vram_gguf', need_gib=need)
     if nf4_fits:
         return PathChoice(NF4, reason='vram_nf4')        # nessun GGUF entra ma NF4 si': e' la strada storica
     return PathChoice(NLLB, reason='vram_too_low',
-                      need_gib=min(gguf_need_gib(q, n_parallel, ctx_per_seq) for q in candidates))
+                      need_gib=min(required(q) for q in candidates))
