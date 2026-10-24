@@ -109,6 +109,9 @@ def _config_values(cfg_get: Callable) -> dict:
         n_parallel=max(1, num("llm_translator_gguf_parallel", sel.DEFAULT_N_PARALLEL, int)),
         nf4_min=num("llm_translator_nf4_min_free_gb", sel.DEFAULT_NF4_MIN_FREE_GIB, float),
         gguf_before_nf4=bool(cfg_get("llm_translator_gguf_before_nf4", sel.DEFAULT_GGUF_BEFORE_NF4)),
+        gguf_min_free={q: num(key, default, float) for q, (key, default) in (
+            ("Q4_K_M", ("llm_translator_gguf_q4_min_free_gb", sel.DEFAULT_GGUF_MIN_FREE_GIB["Q4_K_M"])),
+            ("IQ3_M", ("llm_translator_gguf_iq3_min_free_gb", sel.DEFAULT_GGUF_MIN_FREE_GIB["IQ3_M"])))},
     )
 
 
@@ -168,7 +171,8 @@ def _acquire(model_key, log_callback, adapter, legacy, cfg_get, log, inputs):
 
     choice = sel.choose_translator_path(
         free, backend, gguf_available=available.keys(), quant=cfg["quant"],
-        nf4_min_free_gib=cfg["nf4_min"], n_parallel=cfg["n_parallel"], gguf_before_nf4=cfg["gguf_before_nf4"])
+        nf4_min_free_gib=cfg["nf4_min"], n_parallel=cfg["n_parallel"], gguf_before_nf4=cfg["gguf_before_nf4"],
+        gguf_min_free_gib=cfg["gguf_min_free"])
     if gguf_note and choice.kind in (sel.GGUF, sel.NLLB):
         log(tr(gguf_note))        # solo se il GGUF serviva davvero a questa scheda
     log(tr('gg_path_chosen').format(path=choice.label, free_gb=free or 0.0, backend=backend))
@@ -188,7 +192,11 @@ def _acquire(model_key, log_callback, adapter, legacy, cfg_get, log, inputs):
             logger.warning(f"Caricamento GGUF fallito: {exc}", exc_info=True)
             log(tr('gg_load_failed').format(exc=exc))
             load_failed = True
-            # Qui la VRAM non regge bf16/NF4 (altrimenti non si sarebbe scelto il GGUF): NLLB-FT.
+            if backend == 'cuda' and free and free >= cfg["nf4_min"]:
+                # NF4 e' il ripiego automatico se il GGUF non si carica e la scheda lo regge (gguf_before_nf4 acceso)
+                log(tr('gg_load_failed_nf4'))
+                return legacy()
+            # Altrimenti la VRAM non regge bf16/NF4 (non si sarebbe scelto il GGUF): NLLB-FT.
 
     reason = tr('gg_reason_load_failed') if load_failed else _reason_text(choice, free, cfg)
     log(tr('gg_using_nllb').format(reason=reason))
