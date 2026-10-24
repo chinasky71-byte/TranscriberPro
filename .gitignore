@@ -155,3 +155,6 @@ gui/theme.qss
 
 # Eccezione: i test portabili per Linux (linux_tests/) vanno nel repository
 !linux_tests/test_*.py
+
+# Sottotitoli generati dall'app quando si prova il video di Prova_AMD
+Prova_AMD/*.srt
