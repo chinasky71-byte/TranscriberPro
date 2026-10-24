@@ -55,7 +55,9 @@ def _tr_literals(dirs):
             except Exception:
                 continue
             for n in ast.walk(tree):
-                if (isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in ('tr', 'get_text')
+                f = n.func if isinstance(n, ast.Call) else None
+                name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else None
+                if (name in ('tr', '_tr', 'get_text')
                         and n.args and isinstance(n.args[0], ast.Constant) and isinstance(n.args[0].value, str)):
                     found.append((str(path.relative_to(ROOT)), n.lineno, n.args[0].value))
     return found
@@ -65,6 +67,22 @@ def _tr_literals(dirs):
 def test_ogni_chiave_tr_letterale_esiste_in_en(folder):
     missing = [f for f in _tr_literals([folder]) if f[2] not in EN]
     assert missing == []
+
+
+@pytest.mark.parametrize('folder', ['core', 'utils', 'gui'])
+def test_ogni_chiave_tr_o__tr_letterale_esiste_in_en_e_it_con_gli_stessi_segnaposto(folder):
+    """Anche le funzioni di appoggio `_tr(...)` (es. utils/gguf_download.py): nella 1.34.30 un file di traduzioni piu' vecchio
+    ha cancellato 34 chiavi e nessun test se ne e' accorto perche' guardava solo `tr(...)`. Le chiavi costruite a runtime
+    (concatenazioni) non si vedono qui: vanno coperte dal test del loro modulo."""
+    lits = _tr_literals([folder])
+    assert lits, 'nessuna chiamata trovata: il test non vede piu\' il codice'
+    missing = [f for f in lits if f[2] not in EN or f[2] not in IT]
+    assert missing == []
+    assert [f for f in lits if _fields(EN[f[2]]) != _fields(IT[f[2]])] == []
+
+
+def test_il_test_vede_le_chiamate__tr():
+    assert any(f[0].endswith('gguf_download.py') for f in _tr_literals(['utils']))
 
 
 def test_all_texts_ritorna_entrambe_le_lingue():
