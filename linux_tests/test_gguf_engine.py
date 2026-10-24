@@ -202,12 +202,27 @@ def test_router_8gb_usa_il_gguf(router_env):
     assert any('gguf:Q3_K_M' in m for m in router_env.logs)
 
 
-@pytest.mark.parametrize('free,backend', [(24.0, 'cuda'), (11.0, 'cuda'), (10.6, 'cuda'), (48.0, 'rocm')])
+@pytest.mark.parametrize('free,backend', [(24.0, 'cuda'), (48.0, 'rocm')])
 def test_router_schede_grandi_percorso_storico_con_gli_stessi_argomenti(router_env, free, backend):
     e = router_env.acquire((backend, free, True), adapter=None, model_path='/m')
     assert e is router_env.legacy
     assert ('legacy', 'translategemma-12b', None, '/m') in router_env.calls
     assert not any(c[0] == 'gguf' for c in router_env.calls)
+
+
+@pytest.mark.parametrize('free', [11.0, 10.6, 15.0])
+def test_router_12_20_gib_regola_storica_se_gguf_before_nf4_spento(router_env, free):
+    e = router_env.acquire(('cuda', free, True), adapter=None, model_path='/m', cfg_over={'llm_translator_gguf_before_nf4': False})
+    assert e is router_env.legacy
+    assert ('legacy', 'translategemma-12b', None, '/m') in router_env.calls
+    assert not any(c[0] == 'gguf' for c in router_env.calls)
+
+
+@pytest.mark.parametrize('free', [11.0, 10.6, 15.0])
+def test_router_12_20_gib_default_usa_il_gguf_q4(router_env, free):
+    e = router_env.acquire(('cuda', free, True), adapter=None, model_path='/m')
+    assert e is router_env.gguf
+    assert ('gguf', 'translategemma-12b-it-finale-Q4_K_M.gguf', 'Q4_K_M', 4) in router_env.calls
 
 
 def test_router_sotto_8gb_nllb_con_motivo_a_schermo(router_env):

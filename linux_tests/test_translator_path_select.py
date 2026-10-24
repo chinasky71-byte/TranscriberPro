@@ -29,31 +29,61 @@ def test_soglia_bf16_uguale_a_quella_del_motore_storico():
 
 
 @pytest.mark.parametrize('with_gguf', [True, False])
-def test_dalle_schede_da_12gb_in_su_il_percorso_e_quello_di_oggi(with_gguf):
-    """Il GGUF non cambia mai cio' che oggi gira: da 10,5 GiB liberi in su, su NVIDIA, e' bf16/NF4 come nel motore storico."""
+def test_con_gguf_before_nf4_spento_il_percorso_e_quello_di_oggi(with_gguf):
+    """Regola storica (config llm_translator_gguf_before_nf4 = False): da 10,5 GiB liberi in su, su NVIDIA, e' bf16/NF4 come nel
+    motore storico, anche con i GGUF presenti."""
     avail = ALL if with_gguf else ()
     for tenth in range(105, 481):                         # 10,5 ... 48,0 GiB
         free = tenth / 10
-        assert pick(free, 'cuda', avail).kind == legacy_kind(free), free
+        assert pick(free, 'cuda', avail, gguf_before_nf4=False).kind == legacy_kind(free), free
 
 
-def test_scheda_da_12gb_reale_resta_su_nf4():
-    # 12 GB = 12,0 GiB totali: con il desktop acceso ne restano 10,6-11,6 liberi. Con soglia 12 finirebbe sul GGUF.
+def test_default_gguf_preferito_a_nf4_fra_10_5_e_20_gib_e_bf16_oltre():
+    """Dopo il banco di fase 3 (PROPOSTA, da confermare): 12-20 GiB -> Q4_K_M; da 20 GiB bf16 come oggi."""
+    assert sel.DEFAULT_GGUF_BEFORE_NF4 is True
+    for free in (10.6, 11.0, 11.4, 11.9, 15.0, 19.99):
+        c = pick(free)
+        assert (c.kind, c.quant) == (sel.GGUF, 'Q4_K_M'), free
+    for tenth in range(200, 481):
+        assert pick(tenth / 10).kind == sel.BF16
+
+
+def test_default_senza_gguf_utilizzabile_ripiega_su_nf4_come_oggi():
+    for free in (10.5, 11.0, 15.0, 19.99):
+        c = pick(free, avail=())
+        assert (c.kind, c.reason) == (sel.NF4, 'vram_nf4'), free
+    assert pick(10.4, avail=()).kind == sel.NLLB                                    # sotto la soglia NF4 e senza GGUF
+    assert pick(11.0, avail=('Q4_K_M',), quant='IQ3_M').kind == sel.NF4          # quant richiesta assente: NF4, non NLLB
+    assert pick(9.0, avail=('Q4_K_M',), n_parallel=64).kind == sel.NLLB          # nessun GGUF entra e NF4 no
+
+
+def test_scheda_da_12gb_reale_storica_su_nf4_nuova_su_q4():
+    # 12 GB = 12,0 GiB totali: con il desktop acceso ne restano 10,6-11,6 liberi.
     for free in (10.6, 11.0, 11.4, 11.9):
-        assert pick(free).kind == sel.NF4
+        assert pick(free, gguf_before_nf4=False).kind == sel.NF4
+        assert pick(free).quant == 'Q4_K_M'
 
 
 @pytest.mark.parametrize('free,exp', [(19.99, sel.NF4), (20.0, sel.BF16), (10.5, sel.NF4)])
-def test_confini_bf16_nf4(free, exp):
-    assert pick(free).kind == exp
+def test_confini_bf16_nf4_storici(free, exp):
+    assert pick(free, gguf_before_nf4=False).kind == exp
+
+
+def test_pesi_e_ingombri_misurati_dal_banco():
+    """Picco misurato (oltre la base) a 4 sequenze: 8.528 / 7.277 / 6.807 MiB. Il modello deve stare sopra il picco misurato."""
+    assert sel.QUANT_WEIGHTS_GIB == {'Q4_K_M': 6.80, 'Q3_K_M': 5.60, 'IQ3_M': 5.27}
+    for q, mib in (('Q4_K_M', 8528), ('Q3_K_M', 7277), ('IQ3_M', 6807)):
+        stima = sel.gguf_need_gib(q, 4) - sel.SAFETY_MARGIN_GIB
+        assert mib / 1024 <= stima <= mib / 1024 + 0.2, (q, stima)      # sopra il misurato, di poco
 
 
 def test_8gb_va_su_gguf_con_la_migliore_che_entra():
     # scheda da 8 GB: ~7,0-7,6 GiB liberi
     c = pick(7.6)
-    assert c.kind == sel.GGUF and c.quant == 'Q3_K_M'            # Q4_K_M (7,3 + ingombro) non entra
-    c = pick(7.1)
+    assert c.kind == sel.GGUF and c.quant == 'Q3_K_M'            # Q4_K_M (8,75 GiB con l'ingombro) non entra
+    c = pick(7.3)
     assert (c.kind, c.quant) == (sel.GGUF, 'IQ3_M')
+    assert pick(7.1).kind == sel.NLLB                             # IQ3_M ne chiede 7,22: una scheda da 8 GB molto occupata non entra
     assert pick(10.0).quant == 'Q4_K_M'                           # 10 GiB: entra la migliore
 
 
@@ -101,8 +131,8 @@ def test_rocm_bf16_se_entra_mai_nf4():
 
 
 def test_soglie_configurabili():
-    assert pick(11.0, nf4_min_free_gib=12.0).kind == sel.GGUF
-    assert pick(11.0, nf4_min_free_gib=11.0).kind == sel.NF4
+    assert pick(11.0, nf4_min_free_gib=12.0, gguf_before_nf4=False).kind == sel.GGUF
+    assert pick(11.0, nf4_min_free_gib=11.0, gguf_before_nf4=False).kind == sel.NF4
     assert pick(15.0, bf16_min_free_gib=14.0).kind == sel.BF16
 
 
