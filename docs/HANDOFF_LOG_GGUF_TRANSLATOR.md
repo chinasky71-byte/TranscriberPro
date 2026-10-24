@@ -7,6 +7,20 @@ dietro `llm_translator_gguf_enabled` (default **False**) finche' il banco di qua
 Regole di flusso: una PR per fase; implementa, prova, revisione critica separata in sola lettura, correggi. Niente toccato:
 APP_VERSION, CHANGELOG, README, requirements*, pin (ctranslate2 4.6.0, llama-cpp-python 0.3.34), percorso NVIDIA.
 
+## 2026-10-24 · Percorso GGUF ACCESO di default (decisione scritta di Franz)
+
+**Decisione**: dopo il banco (Q4_K_M non inferiore a NF4 con margine 3 punti su 900 righe giudicate alla cieca) e la prova reale su Windows (sottoprocesso pulito: crash sparito, VRAM liberata; pipeline completa in 82 s con Q4_K_M contro 237 s con NF4), i default diventano `llm_translator_gguf_enabled = True` e `llm_translator_gguf_before_nf4 = True` (`utils/config.py` DEFAULTS, `DEFAULT_GGUF_BEFORE_NF4` in `utils/translator_path_select.py`, il default letto in `core/translator.py`; `path_router.py` legge `sel.DEFAULT_GGUF_BEFORE_NF4`). Soglie e quant invariate: Q4_K_M da 10,0 GiB liberi, IQ3_M da 7,5, bf16 da 20 GiB come prima.
+
+**Cosa cambia per l'utente** (con i file GGUF presenti in `models/translategemma-12b-gguf/`): 10,5-20 GiB liberi -> Q4_K_M al posto di NF4; 7,5-10,5 GiB -> IQ3_M; da 20 GiB bf16 come oggi. **Senza i file GGUF** (finche' l'installer non li scarica): da 10,5 GiB in su NVIDIA resta NF4/bf16 come oggi; sotto 10,5 GiB, su ROCm/Vulkan senza ruota GPU e senza GPU si va a NLLB fine-tuned **dichiarato nel log** (prima il motore storico ci provava lo stesso con NF4/CPU). Ripiego automatico: GGUF mancante, che non entra o che non si carica -> NF4 (se la scheda lo regge) o NLLB-FT, con messaggio in log; uno Stop dell'utente non ripiega su nulla.
+
+**Come tornare indietro, senza una nuova versione**: `llm_translator_gguf_before_nf4 = False` forza NF4 (regola storica, provata uguale al motore storico) e `llm_translator_gguf_enabled = False` ripristina esattamente il percorso di prima (il router non viene nemmeno importato). Entrambe nel file di config dell'utente.
+
+**Config gia' salvate**: `Config.load` salva i default mancanti alla prima apertura, quindi chi ha usato la v1.34.27 o successive ha **gia' le due chiavi a `False` nel suo file**: il nuovo default vale solo per installazioni nuove o file senza le chiavi. Nessuna migrazione nascosta (decisione di Franz: il proprietario e' stato aggiornato a mano). Per accendere il percorso su una config esistente basta mettere le due chiavi a `true` (o cancellarle dal file: alla prossima apertura ricevono il default).
+
+**Test**: i test che assumevano il default spento ora passano i valori ESPLICITI (spento = percorso storico, acceso = nuovo) e ci sono test sui nuovi default (`DEFAULTS`, `DEFAULT_GGUF_BEFORE_NF4`, traduttore senza chiave -> router).
+
+**Non verificato**: lo Stop dalla GUI e il ripiego NF4 dopo uno Stop restano da provare a mano nell'app; nessuna misura su schede da 8-10 GB, AMD/Vulkan; il glossario con episodio vero e' la prova locale di Franz.
+
 ## 2026-10-24 · Obiettivo 2: soglie del selettore con i dati del banco
 
 **Cambiato (`utils/translator_path_select.py`, `path_router.py`, config)**

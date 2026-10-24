@@ -1,7 +1,7 @@
 """
 Instradamento del traduttore LLM: transformers (bf16 / NF4), GGUF o NLLB-FT
 ============================================================================
-Si arriva qui SOLO con `llm_translator_gguf_enabled` acceso (vedi `LLMSubtitleTranslator._acquire_engine`): con il flag
+Si arriva qui con `llm_translator_gguf_enabled` acceso (default dal 24/10, vedi `LLMSubtitleTranslator._acquire_engine`): con il flag
 spento il traduttore chiama `get_engine` come ha sempre fatto e questo modulo non viene nemmeno importato.
 
 Qui si leggono i fatti (backend, VRAM libera, GGUF presenti, ruota di llama-cpp-python) e si passano alla funzione

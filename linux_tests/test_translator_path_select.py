@@ -28,16 +28,22 @@ def test_soglia_bf16_uguale_a_quella_del_motore_storico():
     assert sel.DEFAULT_BF16_MIN_FREE_GIB == MODEL_SPECS['translategemma-12b'].bf16_min_free_gb
 
 
+def test_default_acceso_dal_24_ottobre():
+    """Default deciso dal proprietario dopo banco e prova reale su Windows: Q4_K_M davanti a NF4. Le opzioni a False tornano al
+    percorso storico (test sotto, con i valori ESPLICITI)."""
+    assert sel.DEFAULT_GGUF_BEFORE_NF4 is True
+    assert pick(11.3).quant == 'Q4_K_M'                                # una RTX 3060 da 12 GB con il desktop
+    assert pick(11.3) == pick(11.3, gguf_before_nf4=True)
+
+
 @pytest.mark.parametrize('with_gguf', [True, False])
-def test_default_il_percorso_e_quello_di_oggi(with_gguf):
-    """Default (gguf_before_nf4 spento): da 10,5 GiB liberi in su, su NVIDIA, e' bf16/NF4 come nel motore storico, anche con i
-    GGUF presenti. E' anche l'opzione che FORZA NF4: esplicita deve dare lo stesso risultato."""
-    assert sel.DEFAULT_GGUF_BEFORE_NF4 is False
+def test_con_gguf_before_nf4_spento_il_percorso_e_quello_di_oggi(with_gguf):
+    """gguf_before_nf4=False (opzione per forzare NF4): da 10,5 GiB liberi in su, su NVIDIA, e' bf16/NF4 come nel motore storico,
+    anche con i GGUF presenti."""
     avail = ALL if with_gguf else ()
     for tenth in range(105, 481):                         # 10,5 ... 48,0 GiB
         free = tenth / 10
-        assert pick(free, 'cuda', avail).kind == legacy_kind(free), free
-        assert pick(free, 'cuda', avail, gguf_before_nf4=False) == pick(free, 'cuda', avail)
+        assert pick(free, 'cuda', avail, gguf_before_nf4=False).kind == legacy_kind(free), free
 
 
 def test_gguf_before_nf4_acceso_preferisce_q4_fra_10_e_20_gib_e_bf16_oltre():
@@ -59,16 +65,21 @@ def test_gguf_before_nf4_acceso_senza_gguf_utilizzabile_ripiega_su_nf4():
     assert pick(9.0, avail=('Q4_K_M',), n_parallel=64, **kw).kind == sel.NLLB        # nessun GGUF entra e NF4 no
 
 
-def test_scheda_da_12gb_reale_di_default_nf4_con_opzione_q4():
+def test_scheda_da_12gb_reale_q4_di_default_nf4_con_opzione_spenta():
     # RTX 3060 12 GB con il desktop: ~11,3 GiB liberi (10,6-11,6 in generale)
     for free in (10.6, 11.0, 11.3, 11.4, 11.9):
-        assert pick(free).kind == sel.NF4
-        assert pick(free, gguf_before_nf4=True).quant == 'Q4_K_M'
+        assert pick(free).quant == 'Q4_K_M'
+        assert pick(free, gguf_before_nf4=False).kind == sel.NF4
 
 
 @pytest.mark.parametrize('free,exp', [(19.99, sel.NF4), (20.0, sel.BF16), (10.5, sel.NF4)])
 def test_confini_bf16_nf4_storici(free, exp):
-    assert pick(free).kind == exp
+    assert pick(free, gguf_before_nf4=False).kind == exp
+
+
+@pytest.mark.parametrize('free', [20.0, 24.0, 48.0])
+def test_da_20_gib_bf16_con_qualsiasi_opzione(free):
+    assert pick(free).kind == pick(free, gguf_before_nf4=False).kind == sel.BF16
 
 
 def test_pesi_e_ingombri_misurati_dal_banco():
@@ -94,7 +105,8 @@ def test_8gb_va_su_gguf_con_la_migliore_che_entra():
     assert pick(7.5).quant == 'IQ3_M' and pick(9.9).quant == 'IQ3_M'
     assert pick(7.49).kind == sel.NLLB                            # sotto 7,5 GiB liberi (scheda da 8 GB molto occupata): NLLB
     assert pick(10.0).quant == 'Q4_K_M'                           # 10 GiB: entra la migliore (NF4 parte da 10,5)
-    assert pick(10.4).quant == 'Q4_K_M' and pick(10.5).kind == sel.NF4
+    assert pick(10.4).quant == 'Q4_K_M' and pick(10.5, gguf_before_nf4=False).kind == sel.NF4
+    assert pick(10.5).quant == 'Q4_K_M'                           # con il default acceso Q4_K_M passa davanti a NF4
 
 
 def test_sotto_8gb_nllb_con_motivo():
@@ -142,8 +154,8 @@ def test_rocm_bf16_se_entra_mai_nf4():
 
 
 def test_soglie_configurabili():
-    assert pick(11.0, nf4_min_free_gib=12.0).kind == sel.GGUF
-    assert pick(11.0, nf4_min_free_gib=11.0).kind == sel.NF4
+    assert pick(11.0, nf4_min_free_gib=12.0, gguf_before_nf4=False).kind == sel.GGUF
+    assert pick(11.0, nf4_min_free_gib=11.0, gguf_before_nf4=False).kind == sel.NF4
     assert pick(15.0, bf16_min_free_gib=14.0).kind == sel.BF16
 
 
