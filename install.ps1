@@ -22,6 +22,11 @@
 .PARAMETER All                  Equivale a -WithNlp -WithCanary -WithGlossary -WithModels -InstallSystemDeps.
 .PARAMETER Yes                  Non chiede conferme (assume si').
 .PARAMETER SkipVerify           Salta il controllo finale.
+.PARAMETER Gguf                 TranslateGemma-12B GGUF da Hugging Face (5-7 GB, anonimo, riprendibile, SHA-256) in models\translategemma-12b-gguf\.
+                          auto = per VRAM con le soglie del selettore (utils\translator_path_select.py): Q4_K_M (12-20 GB), IQ3_M (8-12 GB), nulla sotto gli 8 GB,
+                          senza GPU adatta o da 20 GB in su; q3 solo se la chiedi; none = niente. Senza il parametro: auto se c'e' -WithModels, altrimenti nulla.
+                          Chiede conferma (-Yes la salta). Scarica i file e basta: il percorso GGUF dell'app resta SPENTO.
+.PARAMETER GgufDir              Cartella di destinazione dei GGUF (default: models\translategemma-12b-gguf, quella che l'app scansiona).
 .PARAMETER QwenSize             Con -WithModels: Qwen2.5 da scaricare. auto = 14B con GPU da 12 GB o piu', 7B con GPU piu' piccola o senza GPU.
 .PARAMETER GpuBackend         Senza il parametro: comportamento di sempre (ruota CUDA di llama-cpp-python). cuda = come senza; cpu = come -NoGpu;
                           vulkan = torch su CPU + llama-cpp-python Vulkan (glossario su GPU AMD/Intel; trascrizione e traduzione su CPU);
@@ -48,6 +53,8 @@ param(
     [switch]$SkipVerify,
     [switch]$NoGpu,
     [ValidateSet('', 'auto', 'cuda', 'vulkan', 'rocm', 'cpu')][string]$GpuBackend = '',
+    [ValidateSet('', 'auto', 'q4', 'iq3', 'q3', 'none')][string]$Gguf = '',
+    [string]$GgufDir = '',
     [ValidateSet('auto', '7b', '14b')][string]$QwenSize = 'auto',
     [string]$VenvRoot = '',
     [string]$PythonExe = ''
@@ -405,10 +412,24 @@ print('modelli scaricati')
         if ($LASTEXITCODE -ne 0) { Write-Warn 'Download modelli non completato: rilancia install.ps1 -WithModels (riprende da dove si e'' fermato).' }
         Remove-Item $tmp -ErrorAction SilentlyContinue
     }
-    Write-Warn 'TranslateGemma fine-tuned (models\translategemma-...): non e'' su un hub, va copiato a mano dal PC di origine.'
     Write-Host '  Poi, nelle Impostazioni dell''app, seleziona il percorso di NLLB fine-tuned -> NLLB_Tranined. Il Qwen in models\ (14B o 7B)'
     Write-Host '  lo sceglie l''app da sola in base alla VRAM (glossario e serbatoio), se non imposti un percorso a mano.'
     Write-Host '  Whisper large-v3, Qwen3-ASR, Demucs e pyannote si scaricano da soli al primo uso (pyannote richiede il token HF).'
+}
+
+# ------------------------------------------------------------------ TranslateGemma GGUF
+# Con -WithModels vale auto; -Gguf none lo esclude. Mai senza dirlo: mostra file e dimensione e chiede conferma (-Yes la salta).
+$gg = $Gguf
+if (-not $gg) { $gg = if ($WithModels) { 'auto' } else { 'none' } }
+if ($gg -ne 'none') {
+    Write-Head 'TranslateGemma GGUF (Hugging Face)'
+    $gargs = @('--gguf', $gg)
+    if ($Yes) { $gargs += '--yes' }
+    # -NoGpu vero (ruote CPU): niente GPU, niente GGUF. Con vulkan $NoGpu vale solo per torch: llama usa la GPU e il GGUF serve.
+    if ($NoGpu -and $LlamaIdx -ne 'vulkan') { $gargs += '--no-gpu' }
+    if ($GgufDir) { $gargs += @('--dest', $GgufDir) }
+    & $MainPy (Join-Path $Root 'utils\gguf_download.py') @gargs | Out-Host
+    if ($LASTEXITCODE -ne 0) { Write-Warn "Download dei GGUF non completato: rilancia install.ps1 -Gguf $gg (riprende da dove si e' fermato)." }
 }
 
 # ------------------------------------------------------------------ controllo finale
