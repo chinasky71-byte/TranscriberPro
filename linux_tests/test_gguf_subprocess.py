@@ -189,6 +189,7 @@ for line in sys.stdin:
         if mode == 'hang':
             time.sleep(60)
         if mode == 'die':
+            sys.stderr.write('boom nativo'); sys.stderr.flush()
             sys.exit(3)
         if mode == 'noise':
             out({'ev': 'result', 'id': r['id'] - 1, 'outputs': ['arretrato']})
@@ -290,3 +291,95 @@ def test_conversazione_non_serializzabile_non_uccide_il_worker(fake_engine):
         assert e.generate([['a']]) == ['ok:1']
     finally:
         e.unload()
+
+
+# ------------------------------------------------------------------------------------------------ ciclo di vita e invarianti
+def test_statico_nel_worker_llama_cpp_precede_utils_pyqt_torch_core():
+    """AST: a livello di modulo il worker importa solo libreria standard; `main()` chiama `_prepare_llama()` (che importa
+    llama_cpp) PRIMA di qualunque import di core/utils/PyQt6/torch."""
+    import ast
+    tree = ast.parse(WORKER.read_text(encoding='utf-8'))
+    heavy = ('utils', 'PyQt6', 'torch', 'core', 'transformers', 'bitsandbytes', 'numpy')
+
+    def top(node):
+        if isinstance(node, ast.Import):
+            return [a.name.split('.')[0] for a in node.names]
+        if isinstance(node, ast.ImportFrom):
+            return [(node.module or '').split('.')[0]]
+        return []
+    module_level = [n for node in tree.body for n in top(node)]
+    assert not set(module_level) & set(heavy), module_level
+    funcs = {f.name: f for f in tree.body if isinstance(f, ast.FunctionDef)}
+    prep = [n for node in ast.walk(funcs['_prepare_llama']) for n in top(node)]
+    assert 'llama_cpp' in prep and not set(prep) & set(heavy)
+    main_nodes = sorted((n for n in ast.walk(funcs['main']) if isinstance(n, (ast.Import, ast.ImportFrom, ast.Call))),
+                        key=lambda n: (n.lineno, n.col_offset))
+    seq = []
+    for n in main_nodes:
+        if isinstance(n, ast.Call) and getattr(n.func, 'id', '') == '_prepare_llama':
+            seq.append('llama_cpp')
+        else:
+            seq.extend(x for x in top(n) if x in heavy)
+    assert seq and seq[0] == 'llama_cpp' and 'core' in seq and seq.index('llama_cpp') < seq.index('core'), seq
+
+
+def test_il_genitore_non_importa_mai_llama_cpp():
+    code = ("import sys\n"
+            "import core.llm_subtitle_translator.gguf_subprocess, core.llm_subtitle_translator.path_router\n"
+            "from core.llm_subtitle_translator import path_router as pr\n"
+            "pr.runtime_inputs(torch_cuda=False, torch_hip=False, marker='cpu')\n"
+            "assert 'llama_cpp' not in sys.modules, 'il genitore ha importato llama_cpp'\n")
+    p = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, cwd=str(ROOT), timeout=120)
+    assert p.returncode == 0, p.stderr[-800:]
+
+
+def test_worker_che_muore_durante_la_traduzione_non_blocca_ne_rompe_la_pipeline(fake_engine):
+    """Il traduttore a blocchi completa il file anche se il worker muore a meta': i blocchi mancanti vanno ai livelli
+    successivi (L2/L3 = NLLB/Qwen), la causa e' nel log dell'utente e dopo la morte ripetuta non si ricarica il 12B a ogni blocco."""
+    from core.llm_subtitle_translator.prompt_builder import SubtitleUnit
+    from core.llm_subtitle_translator.translator import SubtitleLLMTranslator
+    e = fake_engine('die')
+    units = [SubtitleUnit(id=i + 1, text=t, duration=2.0, is_dialogue=False) for i, t in enumerate(LINES)]
+    lt = SubtitleLLMTranslator(engine=e, fallback=None, batch_size=2, log_callback=e.logs.append)
+    try:
+        res = lt.translate(units)                         # nessuna eccezione
+        assert set(res) == {u.id for u in units} and all(not v for v in res.values())
+        assert any('boom nativo' in m for m in e.logs)
+    finally:
+        e.unload()
+
+
+def test_stop_dell_utente_unload_gguf_engine_uccide_il_figlio(fake_engine, monkeypatch, tmp_path):
+    monkeypatch.setattr(ge, '_gguf_engine', None)
+    fake_engine('ok')                                     # imposta WORKER_SCRIPT e la modalita'
+    eng = ge.get_gguf_engine(str(tmp_path / 'x-Q3_K_M.gguf'), 'Q3_K_M')
+    proc = eng._proc
+    assert proc is not None and proc.poll() is None
+    ge.unload_gguf_engine()
+    assert proc.poll() is not None and eng._proc is None
+
+
+@pytest.mark.skipif(not sys.platform.startswith('linux'), reason='controllo del pid con /proc')
+def test_morte_del_genitore_non_lascia_il_worker_orfano(tmp_path):
+    script = tmp_path / 'fakeworker.py'
+    script.write_text(FAKE, encoding='utf-8')
+    (tmp_path / 'mode.txt').write_text('ok', encoding='utf-8')
+    code = textwrap.dedent(f"""
+        import os, sys
+        sys.path.insert(0, {str(ROOT)!r})
+        from core.llm_subtitle_translator import gguf_subprocess as gs
+        gs.WORKER_SCRIPT = __import__('pathlib').Path({str(script)!r})
+        e = gs.GGUFSubprocessEngine('/x/y-Q3_K_M.gguf', 'Q3_K_M')
+        e.load()
+        print(e._proc.pid, flush=True)
+        os._exit(0)                                  # il genitore muore senza cleanup
+    """)
+    p = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, timeout=120)
+    pid = int(p.stdout.split()[-1])
+    for _ in range(50):
+        if not Path(f'/proc/{pid}').exists() or Path(f'/proc/{pid}/stat').read_text().split()[2] == 'Z':
+            break
+        time.sleep(0.1)
+    else:
+        os.kill(pid, 9)
+        pytest.fail('worker orfano dopo la morte del genitore')
