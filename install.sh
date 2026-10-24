@@ -9,6 +9,11 @@
 #                               senza l'opzione, con un terminale interattivo, chiede "Li installo ora con sudo?"
 #   opzioni: --no-gpu (ruote CPU di torch e llama-cpp-python, ~250 MB invece di ~3 GB) --yes (nessuna domanda)
 #            --with-models  scarica da Hugging Face il Qwen2.5 (glossario/serbatoio) e il NLLB fine-tuned (molti GB)
+#            --gguf=auto|q4|iq3|q3|none  TranslateGemma-12B GGUF da Hugging Face (5-7 GB, anonimo, riprendibile, SHA-256) in models/translategemma-12b-gguf/.
+#                 auto = per VRAM TOTALE con le stesse soglie del selettore (utils/translator_path_select.py): Q4_K_M per le schede medie, IQ3_M per quelle da ~8 GB,
+#                 nulla se la VRAM e' troppo poca, se basta il bf16 (cuda/rocm) o senza GPU; su Vulkan, dove il bf16 non esiste, si scarica anche con molta VRAM; q3 solo se la chiedi. Senza l'opzione: auto se c'e' --with-models, altrimenti nulla.
+#                 Chiede conferma (--yes la salta). Scarica i file e basta: non cambia nessuna impostazione dell'app.
+#            --gguf-dir=PATH  cartella di destinazione (default: models/translategemma-12b-gguf, quella che l'app scansiona)
 #            --qwen-size=auto|7b|14b  (auto = 14B con GPU da 12 GB o piu', 7B con GPU piu' piccola o --no-gpu)
 #            --gpu-backend=auto|cuda|vulkan|rocm|cpu  (senza l'opzione: comportamento di sempre = ruota CUDA di llama-cpp-python)
 #                 cuda   come senza opzione        cpu     come --no-gpu
@@ -24,7 +29,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CHECK=0; SYSDEPS=0; NOGPU=0; YES=0; WITHMODELS=0; QWENSIZE=auto; GPUBACKEND=""; LLAMA_IDX=cpu; ROCM=0
+CHECK=0; SYSDEPS=0; NOGPU=0; YES=0; WITHMODELS=0; QWENSIZE=auto; GPUBACKEND=""; LLAMA_IDX=cpu; ROCM=0; GGUF=""; GGUFDIR=""
 for a in "$@"; do
   case "$a" in
     --check) CHECK=1 ;;
@@ -32,9 +37,11 @@ for a in "$@"; do
     --no-gpu) NOGPU=1 ;;
     --yes) YES=1 ;;
     --with-models) WITHMODELS=1 ;;
+    --gguf=*) GGUF="${a#--gguf=}" ;;
+    --gguf-dir=*) GGUFDIR="${a#--gguf-dir=}" ;;
     --qwen-size=*) QWENSIZE="${a#--qwen-size=}" ;;
     --gpu-backend=*) GPUBACKEND="${a#--gpu-backend=}" ;;
-    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
     *) echo "Opzione sconosciuta: $a"; exit 2 ;;
   esac
 done
@@ -49,6 +56,7 @@ bad()  { printf '  [KO]  %s\n' "$*"; }
 ask()  { [ "$YES" = "1" ] && return 0; read -r -p "$1 [s/N] " r; case "$r" in s|S|si|SI|y|Y|yes) return 0 ;; *) return 1 ;; esac; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
+case "$GGUF" in ''|auto|q4|iq3|q3|none) ;; *) echo "[KO] --gguf deve essere auto, q4, iq3, q3 o none"; exit 2 ;; esac
 # --gpu-backend: senza l'opzione non cambia nulla. 'cpu' = --no-gpu; 'vulkan' = ruote CPU di torch + llama Vulkan (NOGPU=1 e LLAMA_IDX=vulkan).
 case "$GPUBACKEND" in ''|auto|cuda|vulkan|rocm|cpu) ;; *) echo "[KO] --gpu-backend deve essere auto, cuda, vulkan, rocm o cpu"; exit 2 ;; esac
 # Famiglia AMD (RDNA1..4, CDNA) dal rilevamento: solo informazioni e consigli, mai una scelta automatica di ROCm.
@@ -326,7 +334,19 @@ snapshot_download('Chinasky71/nllb-200-3.3b-it-subtitles', local_dir=root + '/NL
 print('modelli scaricati')
 PYEOF
   fi
-  warn "TranslateGemma fine-tuned (models/translategemma-...): non e' su un hub, va copiato a mano. Il Qwen in models/ lo sceglie l'app da sola in base alla VRAM."
+  warn "Il Qwen in models/ lo sceglie l'app da sola in base alla VRAM. I GGUF di TranslateGemma: sezione qui sotto (--gguf)."
+fi
+
+# TranslateGemma GGUF: con --with-models vale auto; --gguf=none lo esclude. Mai senza dirlo: mostra file e dimensione e chiede conferma (--yes la salta).
+[ -z "$GGUF" ] && { [ "$WITHMODELS" = "1" ] && GGUF=auto || GGUF=none; }
+if [ "$GGUF" != "none" ]; then
+  echo; echo "== TranslateGemma GGUF (Hugging Face)"
+  GARGS=(--gguf "$GGUF")
+  [ "$YES" = "1" ] && GARGS+=(--yes)
+  # --no-gpu vero (ruote CPU): niente GPU, niente GGUF. Con vulkan/rocm NOGPU vale 1 solo per torch: llama usa la GPU e il GGUF serve.
+  [ "$NOGPU" = "1" ] && [ "$LLAMA_IDX" != "vulkan" ] && GARGS+=(--no-gpu)
+  [ -n "$GGUFDIR" ] && GARGS+=(--dest "$GGUFDIR")
+  "$VPY" "$ROOT/utils/gguf_download.py" "${GARGS[@]}" || warn "Download dei GGUF non completato: rilancia ./install.sh --gguf=$GGUF (riprende da dove si e' fermato)."
 fi
 
 echo; echo "== Controllo finale"

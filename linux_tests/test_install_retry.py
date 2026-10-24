@@ -168,3 +168,86 @@ def test_terminale_interattivo_risposta_no(env):
     e, log, _ = env
     _run_pty(e, 'n')
     assert not calls(log, 'apt-get')
+
+
+# ------------------------------------------------------------------ --gguf / --with-models (install.sh -> utils/gguf_download.py)
+VPY_STUB = '#!/bin/bash\necho "VPY $*" >> "$STUB_LOG"\ncase "$*" in *gguf_download*) exit "${GGUF_RC:-0}" ;; esac\nexit 0\n'
+PY_VENV_OK = '''#!/bin/bash
+case "$*" in
+  *"sys.version.split"*) echo 3.11.9 ;;
+  *"version_info"*) echo 3.11 ;;
+  *"-m venv"*) d="${@: -1}"; mkdir -p "$d/bin"; cp "$STUB_BIN/vpy_stub" "$d/bin/python"; chmod +x "$d/bin/python" ;;
+esac
+exit 0
+'''
+
+
+@pytest.fixture
+def full(env, tmp_path):
+    """Come `env`, ma il venv si crea (lo stub di python registra le chiamate) e tutto il resto riesce: si arriva alle sezioni dei modelli."""
+    e, log, _ = env
+    bindir = Path(e['STUB_BIN'])
+    for name, body in [('vpy_stub', VPY_STUB), ('python3.11', PY_VENV_OK)]:
+        (bindir / name).write_text(body)
+        (bindir / name).chmod(0o755)
+    for t in ('ffmpeg', 'ffprobe', 'tesseract'):
+        shutil.copy(bindir / 'stub_tool', bindir / t)
+    for t in ('mkdir', 'chmod'):
+        (bindir / t).symlink_to(shutil.which(t))
+    # il venv va dentro una copia della radice, per non sporcare il repository
+    root = tmp_path / 'proj'
+    shutil.copytree(ROOT, root, ignore=shutil.ignore_patterns('.git', 'venv', '__pycache__', 'models', 'NLLB_Tranined', 'Prova_AMD'), dirs_exist_ok=False)
+    return e, log, root
+
+
+def run_full(full, *args):
+    e, log, root = full
+    return subprocess.run(['bash', str(root / 'install.sh'), '--no-gpu', *args], env=e, stdin=subprocess.DEVNULL,
+                          capture_output=True, text=True, timeout=120), log
+
+
+def gguf_calls(log):
+    return [l for l in log.read_text().splitlines() if 'gguf_download.py' in l]
+
+
+def test_gguf_senza_opzioni_non_scarica_niente(full):
+    r, log = run_full(full)
+    assert gguf_calls(log) == [], r.stdout
+
+
+def test_with_models_implica_gguf_auto_e_con_no_gpu_lo_dice(full):
+    r, log = run_full(full, '--with-models', '--yes')
+    c = gguf_calls(log)
+    assert len(c) == 1 and c[0].endswith('--gguf auto --yes --no-gpu'), (c, r.stdout)       # --no-gpu vero: il downloader non scarica
+
+
+def test_gguf_none_esclude_anche_con_with_models(full):
+    r, log = run_full(full, '--with-models', '--yes', '--gguf=none')
+    assert gguf_calls(log) == []
+
+
+def test_gguf_esplicito_senza_with_models_e_cartella(full, tmp_path):
+    r, log = run_full(full, '--gguf=q4', '--gguf-dir=' + str(tmp_path / 'g'))
+    c = gguf_calls(log)
+    assert len(c) == 1 and ' --gguf q4 ' in c[0] and c[0].endswith('--no-gpu --dest ' + str(tmp_path / 'g')) and '--yes' not in c[0]
+
+
+def test_gguf_con_vulkan_non_passa_no_gpu(full):
+    e, log, root = full
+    r = subprocess.run(['bash', str(root / 'install.sh'), '--gpu-backend=vulkan', '--gguf=auto', '--yes'], env=e, stdin=subprocess.DEVNULL,
+                       capture_output=True, text=True, timeout=120)
+    c = gguf_calls(log)
+    assert len(c) == 1 and '--no-gpu' not in c[0], (c, r.stdout)       # su Vulkan llama usa la GPU: il GGUF serve
+
+
+def test_gguf_fallito_non_blocca_l_installazione(full):
+    e, log, root = full
+    e['GGUF_RC'] = '1'
+    r, _ = run_full(full, '--gguf=auto', '--yes')
+    assert r.returncode == 0 and 'Download dei GGUF non completato' in r.stdout and len(gguf_calls(log)) == 1
+
+
+def test_gguf_valore_errato(env):
+    e, _, _ = env
+    r = subprocess.run(['bash', str(ROOT / 'install.sh'), '--gguf=q9'], env=e, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
+    assert r.returncode == 2 and '--gguf deve essere' in r.stdout
