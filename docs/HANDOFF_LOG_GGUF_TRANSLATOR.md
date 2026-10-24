@@ -8,6 +8,9 @@ Regole di flusso: una PR per fase; implementa, prova, revisione critica separata
 APP_VERSION, CHANGELOG, README, requirements*, pin (ctranslate2 4.6.0, llama-cpp-python 0.3.34), percorso NVIDIA.
 
 ## 2026-10-24 · Percorso GGUF ACCESO di default (decisione scritta di Franz)
+- **Correzione dopo la revisione**: se nessun GGUF e' utilizzabile (file assenti, ruota senza GPU, adattatore LoRA) il router torna al percorso storico con un messaggio in log (`gg_missing_legacy` o la nota specifica): chi non ha ancora i GGUF non cambia. Con il flag spento a meta' coda il processo GGUF viene scaricato prima di NF4. Il default nella chiamata del traduttore legge `Config.DEFAULTS`.
+- **Regola import (v1.34.30)**: nessun modulo importato da `import utils` o da core/utils deve importare PyQt6, torch o onnxruntime a livello di modulo; test `linux_tests/test_import_pesanti.py`. Questa PR non tocca main.py ne' l'ordine degli import. NON verificabile senza avviare la finestra su Windows: l'avvio della GUI e l'ordine onnxruntime/PyQt6/llama_cpp reali.
+
 
 **Decisione**: dopo il banco (Q4_K_M non inferiore a NF4 con margine 3 punti su 900 righe giudicate alla cieca) e la prova reale su Windows (sottoprocesso pulito: crash sparito, VRAM liberata; pipeline completa in 82 s con Q4_K_M contro 237 s con NF4), i default diventano `llm_translator_gguf_enabled = True` e `llm_translator_gguf_before_nf4 = True` (`utils/config.py` DEFAULTS, `DEFAULT_GGUF_BEFORE_NF4` in `utils/translator_path_select.py`, il default letto in `core/translator.py`; `path_router.py` legge `sel.DEFAULT_GGUF_BEFORE_NF4`). Soglie e quant invariate: Q4_K_M da 10,0 GiB liberi, IQ3_M da 7,5, bf16 da 20 GiB come prima.
 
