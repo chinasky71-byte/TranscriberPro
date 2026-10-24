@@ -100,14 +100,25 @@ def _free_vram_gib_safe() -> float:
 def _config_values(cfg_get: Callable) -> dict:
     def num(key, default, cast):
         try:
-            return cast(cfg_get(key, default))
+            v = cast(cfg_get(key, default))
         except Exception:
             return default
+        return v if v == v and v not in (float('inf'), float('-inf')) and v > 0 else default     # niente NaN, infiniti, <= 0
+
+    def flag(key, default):
+        v = cfg_get(key, default)
+        if isinstance(v, str):
+            return v.strip().lower() in ('1', 'true', 'yes', 'si', 'on')
+        return bool(v)
     return dict(
         directory=(str(cfg_get("llm_translator_gguf_dir", "") or "").strip() or str(DEFAULT_GGUF_DIR)),
         quant=sel.normalize_quant(cfg_get("llm_translator_gguf_quant", "auto")),
         n_parallel=max(1, num("llm_translator_gguf_parallel", sel.DEFAULT_N_PARALLEL, int)),
         nf4_min=num("llm_translator_nf4_min_free_gb", sel.DEFAULT_NF4_MIN_FREE_GIB, float),
+        gguf_before_nf4=flag("llm_translator_gguf_before_nf4", sel.DEFAULT_GGUF_BEFORE_NF4),
+        gguf_min_free={q: num(key, default, float) for q, (key, default) in (
+            ("Q4_K_M", ("llm_translator_gguf_q4_min_free_gb", sel.DEFAULT_GGUF_MIN_FREE_GIB["Q4_K_M"])),
+            ("IQ3_M", ("llm_translator_gguf_iq3_min_free_gb", sel.DEFAULT_GGUF_MIN_FREE_GIB["IQ3_M"])))},
     )
 
 
@@ -167,7 +178,8 @@ def _acquire(model_key, log_callback, adapter, legacy, cfg_get, log, inputs):
 
     choice = sel.choose_translator_path(
         free, backend, gguf_available=available.keys(), quant=cfg["quant"],
-        nf4_min_free_gib=cfg["nf4_min"], n_parallel=cfg["n_parallel"])
+        nf4_min_free_gib=cfg["nf4_min"], n_parallel=cfg["n_parallel"], gguf_before_nf4=cfg["gguf_before_nf4"],
+        gguf_min_free_gib=cfg["gguf_min_free"])
     if gguf_note and choice.kind in (sel.GGUF, sel.NLLB):
         log(tr(gguf_note))        # solo se il GGUF serviva davvero a questa scheda
     log(tr('gg_path_chosen').format(path=choice.label, free_gb=free or 0.0, backend=backend))
@@ -183,11 +195,22 @@ def _acquire(model_key, log_callback, adapter, legacy, cfg_get, log, inputs):
             return ge.get_gguf_engine(
                 available[choice.quant], choice.quant, model_key, log_callback,
                 n_parallel=cfg["n_parallel"])
+        except ge.GGUFCancelled:
+            return None                 # Stop dell'utente: nessun ripiego (ne' NF4 ne' NLLB) e nessun messaggio di errore
         except Exception as exc:
             logger.warning(f"Caricamento GGUF fallito: {exc}", exc_info=True)
             log(tr('gg_load_failed').format(exc=exc))
             load_failed = True
-            # Qui la VRAM non regge bf16/NF4 (altrimenti non si sarebbe scelto il GGUF): NLLB-FT.
+            if backend == 'cuda' and free and free >= cfg["nf4_min"]:
+                # NF4 e' il ripiego automatico se il GGUF non si carica e la scheda lo regge: con gguf_before_nf4 spento il
+                # GGUF si sceglie solo sotto nf4_min, quindi qui ci si arriva solo con l'opzione accesa.
+                log(tr('gg_load_failed_nf4'))
+                try:
+                    return legacy()
+                except Exception as exc2:       # niente secondo giro di legacy() dal gestore del router
+                    logger.warning(f"Ripiego NF4 fallito: {exc2}", exc_info=True)
+                    log(tr('gg_load_failed').format(exc=exc2))
+            # Altrimenti la VRAM non regge bf16/NF4 (non si sarebbe scelto il GGUF): NLLB-FT.
 
     reason = tr('gg_reason_load_failed') if load_failed else _reason_text(choice, free, cfg)
     log(tr('gg_using_nllb').format(reason=reason))

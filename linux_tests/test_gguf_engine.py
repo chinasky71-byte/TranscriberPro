@@ -198,16 +198,32 @@ def test_router_8gb_usa_il_gguf(router_env):
     e = router_env.acquire(('cuda', 7.6, True))
     assert e is router_env.gguf
     assert ('unload_tf',) in router_env.calls
-    assert ('gguf', 'translategemma-12b-it-finale-Q3_K_M.gguf', 'Q3_K_M', 4) in router_env.calls
-    assert any('gguf:Q3_K_M' in m for m in router_env.logs)
+    assert ('gguf', 'translategemma-12b-it-finale-IQ3_M.gguf', 'IQ3_M', 4) in router_env.calls
+    assert any('gguf:IQ3_M' in m for m in router_env.logs)
 
 
-@pytest.mark.parametrize('free,backend', [(24.0, 'cuda'), (11.0, 'cuda'), (10.6, 'cuda'), (48.0, 'rocm')])
+@pytest.mark.parametrize('free,backend', [(24.0, 'cuda'), (48.0, 'rocm')])
 def test_router_schede_grandi_percorso_storico_con_gli_stessi_argomenti(router_env, free, backend):
     e = router_env.acquire((backend, free, True), adapter=None, model_path='/m')
     assert e is router_env.legacy
     assert ('legacy', 'translategemma-12b', None, '/m') in router_env.calls
     assert not any(c[0] == 'gguf' for c in router_env.calls)
+
+
+@pytest.mark.parametrize('free', [11.0, 10.6, 15.0])
+def test_router_12_20_gib_regola_storica_per_default(router_env, free):
+    """Default (gguf_before_nf4 spento, anche con il flag GGUF acceso): sulle schede 10,5-20 GiB resta NF4 come oggi."""
+    e = router_env.acquire(('cuda', free, True), adapter=None, model_path='/m')
+    assert e is router_env.legacy
+    assert ('legacy', 'translategemma-12b', None, '/m') in router_env.calls
+    assert not any(c[0] == 'gguf' for c in router_env.calls)
+
+
+@pytest.mark.parametrize('free', [11.0, 10.6, 15.0])
+def test_router_12_20_gib_con_gguf_before_nf4_acceso_usa_il_gguf_q4(router_env, free):
+    e = router_env.acquire(('cuda', free, True), adapter=None, model_path='/m', cfg_over={'llm_translator_gguf_before_nf4': True})
+    assert e is router_env.gguf
+    assert ('gguf', 'translategemma-12b-it-finale-Q4_K_M.gguf', 'Q4_K_M', 4) in router_env.calls
 
 
 def test_router_sotto_8gb_nllb_con_motivo_a_schermo(router_env):
@@ -229,6 +245,70 @@ def test_router_caricamento_gguf_fallito_ripiega_dichiarato(router_env):
     assert router_env.acquire(('cuda', 7.6, True)) is None
     text = '\n'.join(router_env.logs)
     assert 'VRAM esaurita' in text and 'NLLB' in text
+
+
+def test_router_caricamento_gguf_fallito_con_nf4_che_regge_ripiega_su_nf4(router_env):
+    def boom(*a, **k):
+        raise RuntimeError('VRAM esaurita')
+    router_env.monkeypatch.setattr(ge, 'get_gguf_engine', boom)
+    e = router_env.acquire(('cuda', 11.0, True), model_path='/m', cfg_over={'llm_translator_gguf_before_nf4': True})
+    assert e is router_env.legacy and ('legacy', 'translategemma-12b', None, '/m') in router_env.calls
+    text = '\n'.join(router_env.logs)
+    assert 'VRAM esaurita' in text and 'NF4' in text
+
+
+@pytest.mark.parametrize('backend,free', [('rocm', 12.0), ('vulkan', 12.0), ('cuda', 9.0)])
+def test_router_gguf_fallito_senza_nf4_possibile_nllb(router_env, backend, free):
+    def boom(*a, **k):
+        raise RuntimeError('VRAM esaurita')
+    router_env.monkeypatch.setattr(ge, 'get_gguf_engine', boom)
+    assert router_env.acquire((backend, free, True), cfg_over={'llm_translator_gguf_before_nf4': True}) is None
+    assert not any(c[0] == 'legacy' for c in router_env.calls)
+    assert 'NLLB' in '\n'.join(router_env.logs)
+
+
+def test_router_stop_durante_il_caricamento_non_ripiega_su_nf4(router_env):
+    def stopped(*a, **k):
+        raise ge.GGUFCancelled('stop')
+    router_env.monkeypatch.setattr(ge, 'get_gguf_engine', stopped)
+    assert router_env.acquire(('cuda', 11.0, True), cfg_over={'llm_translator_gguf_before_nf4': True}) is None
+    assert not any(c[0] == 'legacy' for c in router_env.calls)
+    assert not any('NLLB' in m or 'NF4' in m for m in router_env.logs)
+
+
+def test_router_ripiego_nf4_che_fallisce_va_a_nllb_senza_secondo_giro(router_env, tmp_path):
+    def boom(*a, **k):
+        raise RuntimeError('VRAM esaurita')
+    router_env.monkeypatch.setattr(ge, 'get_gguf_engine', boom)
+    n = []
+
+    def bad_legacy(*a, **k):
+        n.append(1)
+        raise RuntimeError('OOM NF4')
+    out = pr.acquire_engine('translategemma-12b', None, None, '/m', get_engine_fn=bad_legacy,
+                            cfg_get=lambda k, d=None: {'llm_translator_gguf_dir': str(tmp_path),
+                                                       'llm_translator_gguf_before_nf4': True}.get(k, d),
+                            log=router_env.logs.append, inputs=('cuda', 11.0, True))
+    assert out is None and len(n) == 1                      # una sola volta, poi NLLB dichiarato
+    assert 'OOM NF4' in '\n'.join(router_env.logs) and 'NLLB' in '\n'.join(router_env.logs)
+
+
+@pytest.mark.parametrize('val,exp', [('false', False), ('0', False), ('no', False), ('true', True), ('1', True), (True, True),
+                                     (False, False), ('', False)])
+def test_router_before_nf4_legge_anche_le_stringhe(val, exp):
+    assert pr._config_values(lambda k, d=None: val if k == 'llm_translator_gguf_before_nf4' else d)['gguf_before_nf4'] is exp
+
+
+@pytest.mark.parametrize('bad', [float('nan'), float('inf'), -1.0, 0, 'abc'])
+def test_router_soglie_non_valide_tornano_al_default(bad):
+    v = pr._config_values(lambda k, d=None: bad if k in ('llm_translator_nf4_min_free_gb', 'llm_translator_gguf_q4_min_free_gb') else d)
+    assert v['nf4_min'] == sel.DEFAULT_NF4_MIN_FREE_GIB and v['gguf_min_free']['Q4_K_M'] == sel.DEFAULT_GGUF_MIN_FREE_GIB['Q4_K_M']
+
+
+def test_router_soglie_gguf_configurabili(router_env):
+    assert router_env.acquire(('cuda', 7.6, True), cfg_over={'llm_translator_gguf_iq3_min_free_gb': 8.0}) is None
+    e = router_env.acquire(('cuda', 7.6, True), cfg_over={'llm_translator_gguf_iq3_min_free_gb': 7.0})
+    assert e is router_env.gguf
 
 
 def test_router_adattatore_lora_esclude_il_gguf(router_env):
@@ -289,7 +369,7 @@ GG_KEYS = ['gg_ready', 'gg_path_chosen', 'gg_adapter_blocks_gguf', 'gg_llama_mis
            'gg_load_failed', 'gg_using_nllb', 'gg_reason_no_gpu', 'gg_reason_gguf_missing',
            'gg_reason_quant_unknown', 'gg_reason_vram_too_low', 'gg_reason_load_failed', 'gg_router_error',
            'gg_nllb_ft_unavailable', 'gg_err_llama', 'gg_err_file_missing', 'gg_err_no_gpu_offload', 'gg_err_load',
-           'gg_err_arch', 'gg_err_no_context']
+           'gg_err_arch', 'gg_err_no_context', 'gg_load_failed_nf4']
 
 
 @pytest.mark.parametrize('key', GG_KEYS)
