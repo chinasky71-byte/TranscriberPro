@@ -102,6 +102,10 @@ def _template_error_base():
         return ValueError
 
 
+class GGUFCancelled(RuntimeError):
+    """Il motore GGUF e' stato fermato dall'utente (Stop): non e' un caricamento fallito e non si ripiega su altri motori."""
+
+
 class UnknownLanguageError(_template_error_base()):
     pass
 

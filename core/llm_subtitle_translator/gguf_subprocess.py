@@ -27,7 +27,7 @@ from utils.platform_compat import no_window_flags
 from utils.translations import get_translations, tr
 
 from .engine import DEFAULT_MODEL_KEY
-from .gguf_engine import EXPECTED_ARCH, GGUFEngine, UnknownLanguageError
+from .gguf_engine import EXPECTED_ARCH, GGUFCancelled, GGUFEngine, UnknownLanguageError
 
 logger = setup_logger(__name__)
 
@@ -117,7 +117,7 @@ class GGUFSubprocessEngine(GGUFEngine):
         """Chiude il worker e solleva RuntimeError con la coda dell'stderr (la causa nativa, se c'e')."""
         tail = self._kill()          # prima si uccide, poi si legge la coda dell'stderr (il figlio non scrive piu')
         if self._cancelled:
-            raise RuntimeError(tr('gg_err_worker_cancelled'))
+            raise GGUFCancelled(tr('gg_err_worker_cancelled'))
         self._failures += 1
         msg = why or tr('gg_err_worker_died').format(detail=tail or '-')
         self.log(msg)               # all'utente: chiaro, una volta (i blocchi dopo una morte ripetuta non lo ripetono)
@@ -207,7 +207,7 @@ class GGUFSubprocessEngine(GGUFEngine):
                  **overrides: Any) -> List[str]:
         with self._run_lock:
             if self._cancelled:
-                raise RuntimeError(tr('gg_err_worker_cancelled'))     # dopo uno Stop nessun riavvio del 12B
+                raise GGUFCancelled(tr('gg_err_worker_cancelled'))     # dopo uno Stop nessun riavvio del 12B
             proc = self._proc
             if proc is None or proc.poll() is not None:
                 if self._failures > MAX_RESTARTS:
