@@ -236,12 +236,25 @@ def test_rinomina_con_antivirus_che_trattiene_il_file(server, tmp_path, monkeypa
     assert go(server(), tmp_path) == 'downloaded' and n['n'] == 3
 
 
-def test_file_finale_diverso_non_si_tocca(server, tmp_path):
-    (tmp_path / NAME).write_bytes(b'il mio GGUF')
-    s = server()
+def test_file_finale_diverso_viene_sostituito_solo_a_download_verificato(server, tmp_path):
+    (tmp_path / NAME).write_bytes(b'versione precedente')
+    assert go(server(), tmp_path) == 'replaced'
+    assert (tmp_path / NAME).read_bytes() == DATA
+
+
+def test_file_finale_diverso_resta_se_il_download_fallisce(server, tmp_path):
+    (tmp_path / NAME).write_bytes(b'versione precedente')
     with pytest.raises(gd.DownloadError):
-        go(s, tmp_path)
-    assert (tmp_path / NAME).read_bytes() == b'il mio GGUF' and s.requests == []
+        go(server(corrupt=True), tmp_path, retries=1)
+    assert (tmp_path / NAME).read_bytes() == b'versione precedente'
+
+
+def test_manifesto_e_repository_in_un_solo_punto():
+    for f in ('install.sh', 'install.ps1'):
+        t = (ROOT / f).read_text(encoding='utf-8-sig')
+        assert 'translategemma-12b-it-subtitles-gguf' not in t and 'finale-Q4_K_M' not in t
+        for e in gd.MANIFEST.values():
+            assert e.sha256 not in t and str(e.size) not in t
 
 
 @pytest.mark.parametrize('code', [403, 404])
@@ -323,3 +336,14 @@ def test_cli_argomenti_errati():
 def test_l_installer_non_legge_ne_scrive_la_configurazione():
     src = (ROOT / 'utils' / 'gguf_download.py').read_text(encoding='utf-8')
     assert 'get_config' not in src and 'config.json' not in src and 'utils.config' not in src
+
+
+def test_tutte_le_chiavi_gd_esistono_in_en_e_it():
+    """`_tr` non e' `tr`: lo scanner delle chiavi non le vede, quindi qui. (Una modifica di translations.py le aveva perse in 1.34.30.)"""
+    from utils.translations import Translations as T
+    src = (ROOT / 'utils' / 'gguf_download.py').read_text(encoding='utf-8')
+    keys = set(re.findall(r"_tr\('(gd_[a-z_0-9]+)'", src)) | {'gd_none_' + w for w in ('none', 'no_gpu', 'bf16', 'vram_too_low')}
+    keys |= {'gd_present', 'gd_done', 'gd_replaced'}
+    keys.discard('gd_none_')
+    for lang in ('en', 'it'):
+        assert sorted(k for k in keys if k not in T.TEXTS[lang]) == []

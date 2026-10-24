@@ -9,7 +9,9 @@ Solo libreria standard piu' `utils` (il pacchetto importa psutil e altro): l'ins
     conferma (--yes la salta);
   - anonimo (nessun token), RIPRENDIBILE (file `.part` + intestazione Range), con controllo di dimensione e SHA-256
     sul valore del manifesto; il file finale compare solo con la rinomina atomica a controllo superato;
-  - un file gia' presente con lo stesso nome ma diverso dal manifesto NON viene toccato (puo' essere un GGUF dell'utente);
+  - si scarica solo se il file manca o il suo SHA-256 non coincide con quello atteso (aggiornamenti: il repository porta la versione nel nome,
+    es. `...-gguf-v2`); un file diverso viene sostituito con la rinomina atomica, solo a download verificato;
+  - nome file, byte, SHA-256 e repository stanno SOLO qui (MANIFEST, HF_REPO): install.sh e install.ps1 non ne hanno copie;
   - NON accende `llm_translator_gguf_enabled`: scrive solo i file.
 
 CLI:  python utils/gguf_download.py --gguf auto|q4|iq3|q3|none [--dest DIR] [--yes] [--no-gpu] [--dry-run]
@@ -138,14 +140,14 @@ def _open(url: str, start: int, timeout: float):
 
 def download_file(base_url: str, entry: GGUFFile, dest_dir: Path, *, retries: int = 4, timeout: float = 60.0,
                   progress: Optional[Callable[[int, int], None]] = None, sleep: Callable[[float], None] = time.sleep) -> str:
-    """Scarica `entry` in `dest_dir`. Restituisce 'present' (gia' valido) o 'downloaded'. Solleva DownloadError."""
+    """Scarica `entry` in `dest_dir`. Restituisce 'present' (gia' valido), 'downloaded' o 'replaced' (c'era un file diverso). Solleva DownloadError."""
     dest_dir.mkdir(parents=True, exist_ok=True)
     final = dest_dir / entry.name
     part = dest_dir / (entry.name + '.part')
-    if final.exists():
-        if final.stat().st_size == entry.size and _sha256_file(final) == entry.sha256:
-            return 'present'
-        raise DownloadError(_tr('gd_err_existing_differs', path=str(final)))
+    existed = final.exists()
+    if existed and final.stat().st_size == entry.size and _sha256_file(final) == entry.sha256:
+        return 'present'
+    # file mancante o con SHA-256 diverso dall'atteso (es. versione precedente): si scarica; la rinomina atomica lo sostituisce solo a download verificato
     free = shutil.disk_usage(dest_dir).free
     have = part.stat().st_size if part.exists() else 0
     if free < entry.size - have + DISK_MARGIN:
@@ -175,7 +177,7 @@ def download_file(base_url: str, entry: GGUFFile, dest_dir: Path, *, retries: in
     else:
         raise DownloadError(_tr('gd_err_failed', name=entry.name, err=last))
     _replace(part, final, sleep)           # rinomina atomica: il nome finale esiste solo se il file e' valido
-    return 'downloaded'
+    return 'replaced' if existed else 'downloaded'
 
 
 def _replace(src: Path, dst: Path, sleep) -> None:
@@ -284,6 +286,8 @@ def main(argv=None, *, detect=_detect, input_fn=input, is_tty: Optional[bool] = 
     entry = MANIFEST[quant]
     print(_tr('gd_plan', quant=quant, name=entry.name, size=_gib(entry.size), dest=str(dest)))
     print(_tr('gd_flag_off'))
+    if (dest / entry.name).exists():
+        print(_tr('gd_exists', name=entry.name))
     if a.dry_run:
         return 0
     if not a.yes:
@@ -299,7 +303,7 @@ def main(argv=None, *, detect=_detect, input_fn=input, is_tty: Optional[bool] = 
     except DownloadError as exc:
         print('  [KO]  ' + str(exc), flush=True)
         return 1
-    print(_tr('gd_present' if res == 'present' else 'gd_done', name=entry.name))
+    print(_tr({'present': 'gd_present', 'replaced': 'gd_replaced'}.get(res, 'gd_done'), name=entry.name))
     return 0
 
 
