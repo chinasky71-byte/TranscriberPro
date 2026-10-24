@@ -7,6 +7,24 @@ dietro `llm_translator_gguf_enabled` (default **False** fino al 24/10; ACCESO di
 Regole di flusso: una PR per fase; implementa, prova, revisione critica separata in sola lettura, correggi. Niente toccato:
 APP_VERSION, CHANGELOG, README, requirements*, pin (ctranslate2 4.6.0, llama-cpp-python 0.3.34), percorso NVIDIA.
 
+## 2026-10-24 · Prove su Windows (PC del proprietario) con il percorso GGUF acceso
+Ambiente: RTX 3060 12 GB, Windows 11, llama-cpp-python 0.3.34, master 63eed81 (v1.34.30) piu' l'installer; GUI reale, `llm_translator_gguf_enabled` e `llm_translator_gguf_before_nf4` = true, GGUF Q4_K_M in `models/translategemma-12b-gguf/`. Esiti riferiti dal proprietario.
+
+| Voce | Esito |
+|---|---|
+| Traduzione GGUF nella pipeline reale | VERIFICATO: `gguf:Q4_K_M` (VRAM libera 10,9 GB, cuda), modello pronto in 2-3 s, 46 sottotitoli in 10 s, 0 retry, 0 fallback, 0 righe in inglese; totale 72 s contro 192-237 s con NF4 |
+| Crash (access violation) all'import di llama_cpp | VERIFICATO corretto dal sottoprocesso pulito |
+| VRAM e processi | VERIFICATO: 9,0 GB col modello, 0,7 GB dopo lo scarico, nessun worker orfano |
+| Stop durante il caricamento | VERIFICATO: annullato in 2 s, nessun errore, nessun ripiego su NF4, VRAM libera |
+| Stop durante la traduzione (17%) | VERIFICATO: annullato in ~1 s, nessun ripiego su NF4, VRAM libera |
+| GGUF assente (file rinominato) | VERIFICATO: percorso `nf4`, 46 righe in 1 min 58 s, nessun errore |
+| Schede da 8-10 GB | NON verificato (nessuna disponibile) |
+| AMD / Vulkan | NON verificato |
+| Watchdog del genitore con worker realmente bloccato | NON verificato |
+| Download vero da Hugging Face dall'installer, e ripresa dopo interruzione di rete | NON verificato |
+
+Le condizioni del proprietario per Q4_K_M come default nella fascia 12-20 GB (crash corretto e verificato su Windows, ripiego NF4, reversibilita', bf16 invariato) risultano soddisfatte; la prova col glossario su un episodio vero non e' tra le voci riferite qui. Domande aperte: l'installer deve scaricare Q4_K_M anche sulle 12 GB senza chiedere? Come gestire gli aggiornamenti futuri dei GGUF? Vulkan con 20 GB o piu' deve scaricare Q4_K_M?
+
 ## 2026-10-24 · Percorso GGUF ACCESO di default (decisione scritta di Franz)
 - **Correzione dopo la revisione**: se nessun GGUF e' utilizzabile (file assenti, ruota senza GPU, adattatore LoRA) il router torna al percorso storico con un messaggio in log (`gg_missing_legacy` o la nota specifica): chi non ha ancora i GGUF non cambia. Con il flag spento a meta' coda il processo GGUF viene scaricato prima di NF4. Il default nella chiamata del traduttore legge `Config.DEFAULTS`.
 - **Regola import (v1.34.30)**: nessun modulo importato da `import utils` o da core/utils deve importare PyQt6, torch o onnxruntime a livello di modulo; test `linux_tests/test_import_pesanti.py`. Questa PR non tocca main.py ne' l'ordine degli import. NON verificabile senza avviare la finestra su Windows: l'avvio della GUI e l'ordine onnxruntime/PyQt6/llama_cpp reali.
