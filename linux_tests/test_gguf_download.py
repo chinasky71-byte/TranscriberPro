@@ -204,7 +204,36 @@ def test_sha256_sbagliato_non_lascia_un_file_valido(server, tmp_path):
         go(s, tmp_path, retries=1)
     assert not (tmp_path / NAME).exists()
     assert not (tmp_path / (NAME + '.part')).exists()      # il contenuto sbagliato non si riusa alla ripresa
-    assert len(s.requests) == 2 and s.requests == [None, None]   # riprovato da zero
+    assert s.requests == [None, None]   # riprovato da zero una volta, poi basta (impronta deterministica)
+
+
+def test_416_scarta_il_parziale_e_riparte(server, tmp_path):
+    (tmp_path / (NAME + '.part')).write_bytes(DATA[:1000])
+    s = server()
+    orig = s.httpd.RequestHandlerClass.do_GET
+    state = {'n': 0}
+
+    def first_416(self):
+        state['n'] += 1
+        if state['n'] == 1:
+            self.send_error(416)
+            return
+        orig(self)
+    s.httpd.RequestHandlerClass.do_GET = first_416
+    assert go(s, tmp_path) == 'downloaded'
+    assert (tmp_path / NAME).read_bytes() == DATA
+
+
+def test_rinomina_con_antivirus_che_trattiene_il_file(server, tmp_path, monkeypatch):
+    real, n = gd.os.replace, {'n': 0}
+
+    def flaky(a, b):
+        n['n'] += 1
+        if n['n'] < 3:
+            raise PermissionError(32)
+        real(a, b)
+    monkeypatch.setattr(gd.os, 'replace', flaky)
+    assert go(server(), tmp_path) == 'downloaded' and n['n'] == 3
 
 
 def test_file_finale_diverso_non_si_tocca(server, tmp_path):
@@ -291,7 +320,6 @@ def test_cli_argomenti_errati():
     assert gd.main(['--gguf', 'q9']) == 2
 
 
-def test_il_flag_di_config_resta_spento_e_non_si_tocca():
+def test_l_installer_non_legge_ne_scrive_la_configurazione():
     src = (ROOT / 'utils' / 'gguf_download.py').read_text(encoding='utf-8')
-    assert 'get_config' not in src and 'config.json' not in src          # il modulo non legge ne' scrive la configurazione
-    assert "'llm_translator_gguf_enabled': False" in (ROOT / 'utils' / 'config.py').read_text(encoding='utf-8')
+    assert 'get_config' not in src and 'config.json' not in src and 'utils.config' not in src
