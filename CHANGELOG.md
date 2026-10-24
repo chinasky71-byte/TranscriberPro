@@ -3,6 +3,13 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.27 — 2026-10-24 — TranslateGemma in GGUF per schede da 8-12 GB e AMD/Vulkan (codice pronto, SPENTO di default)
+
+- Nuovo percorso del traduttore LLM con pesi GGUF quantizzati (llama-cpp-python): selettore per VRAM e backend (`utils/translator_path_select.py`), motore (`core/llm_subtitle_translator/gguf_engine.py`),
+  router (`path_router.py`), strumenti di conversione e quantizzazione (`scripts_manutenzione/gguf_convert.py`, guida `docs/GGUF_CONVERSIONE.md`).
+- **Nessun effetto finche' il flag `llm_translator_gguf_enabled` resta spento** (default): bf16 e NF4 si comportano come prima. Il flag si accende solo dopo il banco di qualita' (non ancora eseguito).
+- Lavoro della sessione cloud (PR #14-#16); registro in `docs/HANDOFF_LOG_GGUF_TRANSLATOR.md`.
+
 ## 1.34.26 — 2026-10-23 — Interfaccia tradotta (fase B): righe di log della pipeline in inglese o italiano
 
 - Le righe di log emesse da pipeline, traduttori, sincronizzazione, motori di trascrizione, genere, diarizzazione, OCR e coda headless (circa 800 testi in `core/` e `utils/`) seguono la lingua dell'interfaccia.
