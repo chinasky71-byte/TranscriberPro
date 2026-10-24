@@ -211,9 +211,9 @@ def test_router_schede_grandi_percorso_storico_con_gli_stessi_argomenti(router_e
 
 
 @pytest.mark.parametrize('free', [11.0, 10.6, 15.0])
-def test_router_12_20_gib_regola_storica_per_default(router_env, free):
-    """Default (gguf_before_nf4 spento, anche con il flag GGUF acceso): sulle schede 10,5-20 GiB resta NF4 come oggi."""
-    e = router_env.acquire(('cuda', free, True), adapter=None, model_path='/m')
+def test_router_12_20_gib_regola_storica_con_gguf_before_nf4_spento(router_env, free):
+    """gguf_before_nf4 = False (opzione per forzare NF4), anche con il flag GGUF acceso: sulle schede 10,5-20 GiB resta NF4 come prima."""
+    e = router_env.acquire(('cuda', free, True), adapter=None, model_path='/m', cfg_over={'llm_translator_gguf_before_nf4': False})
     assert e is router_env.legacy
     assert ('legacy', 'translategemma-12b', None, '/m') in router_env.calls
     assert not any(c[0] == 'gguf' for c in router_env.calls)
@@ -221,6 +221,10 @@ def test_router_12_20_gib_regola_storica_per_default(router_env, free):
 
 @pytest.mark.parametrize('free', [11.0, 10.6, 15.0])
 def test_router_12_20_gib_con_gguf_before_nf4_acceso_usa_il_gguf_q4(router_env, free):
+    # il default e' acceso: senza override e con il valore esplicito True il risultato e' lo stesso
+    e = router_env.acquire(('cuda', free, True), adapter=None, model_path='/m')
+    assert e is router_env.gguf
+    router_env.calls.clear()
     e = router_env.acquire(('cuda', free, True), adapter=None, model_path='/m', cfg_over={'llm_translator_gguf_before_nf4': True})
     assert e is router_env.gguf
     assert ('gguf', 'translategemma-12b-it-finale-Q4_K_M.gguf', 'Q4_K_M', 4) in router_env.calls
@@ -233,9 +237,11 @@ def test_router_sotto_8gb_nllb_con_motivo_a_schermo(router_env):
     assert 'NLLB' in text and '5.0' in text
 
 
-def test_router_gguf_mancanti_nllb_non_nf4_che_non_regge(router_env, tmp_path):
+def test_router_gguf_mancanti_torna_al_percorso_storico(router_env, tmp_path):
+    # Nessun GGUF (installer non ancora aggiornato): nulla cambia rispetto a prima, e il log lo dice.
     e = router_env.acquire(('cuda', 9.0, True), cfg_over={'llm_translator_gguf_dir': str(tmp_path / 'vuota')})
-    assert e is None and 'GGUF' in '\n'.join(router_env.logs)
+    assert e is not None and 'GGUF' in '\n'.join(router_env.logs)
+    assert router_env.calls and router_env.calls[-1][0] == 'legacy'
 
 
 def test_router_caricamento_gguf_fallito_ripiega_dichiarato(router_env):
@@ -312,14 +318,16 @@ def test_router_soglie_gguf_configurabili(router_env):
 
 
 def test_router_adattatore_lora_esclude_il_gguf(router_env):
-    assert router_env.acquire(('cuda', 7.6, True), adapter='/lora') is None
+    assert router_env.acquire(('cuda', 7.6, True), adapter='/lora') is not None      # percorso storico, non GGUF
+    assert 'LoRA' in '\n'.join(router_env.logs) or 'adapter' in '\n'.join(router_env.logs).lower()
     assert not any(c[0] == 'gguf' for c in router_env.calls)
 
 
 def test_router_llama_senza_gpu_o_assente(router_env):
-    assert router_env.acquire(('cuda', 7.6, False)) is None
+    assert router_env.acquire(('cuda', 7.6, False)) is not None      # senza GGUF utilizzabile: percorso storico dichiarato
     router_env.monkeypatch.setattr(pr.importlib.util, 'find_spec', lambda name: None)
-    assert router_env.acquire(('cuda', 7.6, True)) is None
+    assert router_env.acquire(('cuda', 7.6, True)) is not None
+    assert not any(c[0] == 'gguf' for c in router_env.calls)
 
 
 def test_router_vulkan_amd_usa_il_gguf_senza_bitsandbytes(router_env):
@@ -369,7 +377,7 @@ GG_KEYS = ['gg_ready', 'gg_path_chosen', 'gg_adapter_blocks_gguf', 'gg_llama_mis
            'gg_load_failed', 'gg_using_nllb', 'gg_reason_no_gpu', 'gg_reason_gguf_missing',
            'gg_reason_quant_unknown', 'gg_reason_vram_too_low', 'gg_reason_load_failed', 'gg_router_error',
            'gg_nllb_ft_unavailable', 'gg_err_llama', 'gg_err_file_missing', 'gg_err_no_gpu_offload', 'gg_err_load',
-           'gg_err_arch', 'gg_err_no_context', 'gg_load_failed_nf4']
+           'gg_err_arch', 'gg_err_no_context', 'gg_load_failed_nf4', 'gg_missing_legacy']
 
 
 @pytest.mark.parametrize('key', GG_KEYS)
@@ -425,8 +433,24 @@ def _translator(t, monkeypatch, **cfg):
     return tr_
 
 
+def test_flag_acceso_di_default_passa_dal_router(translator_module, monkeypatch):
+    """Default dal 24/10: senza la chiave in config il traduttore passa dal router (opzione a False = percorso storico)."""
+    assert Config_default('llm_translator_gguf_enabled') is True and Config_default('llm_translator_gguf_before_nf4') is True
+    tr_ = _translator(translator_module, monkeypatch, llm_translator_model_path='')
+    called = mock.Mock(return_value='dal-router')
+    monkeypatch.setattr(pr, 'acquire_engine', called)
+    assert tr_._acquire_engine() == 'dal-router'
+    called.assert_called_once()
+    tr_._get_engine.assert_not_called()
+
+
+def Config_default(key):
+    from utils.config import Config
+    return Config.DEFAULTS[key]
+
+
 def test_flag_spento_e_la_chiamata_storica_e_il_router_non_viene_importato(translator_module, monkeypatch):
-    for flag in ({}, {'llm_translator_gguf_enabled': False}):
+    for flag in ({'llm_translator_gguf_enabled': False},):
         for m in ('core.llm_subtitle_translator.path_router', 'core.llm_subtitle_translator.gguf_engine'):
             monkeypatch.delitem(sys.modules, m, raising=False)
         tr_ = _translator(translator_module, monkeypatch, llm_translator_model_path='', **flag)

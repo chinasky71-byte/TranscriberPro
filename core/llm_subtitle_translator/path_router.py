@@ -1,7 +1,7 @@
 """
 Instradamento del traduttore LLM: transformers (bf16 / NF4), GGUF o NLLB-FT
 ============================================================================
-Si arriva qui SOLO con `llm_translator_gguf_enabled` acceso (vedi `LLMSubtitleTranslator._acquire_engine`): con il flag
+Si arriva qui con `llm_translator_gguf_enabled` acceso (default dal 24/10, vedi `LLMSubtitleTranslator._acquire_engine`): con il flag
 spento il traduttore chiama `get_engine` come ha sempre fatto e questo modulo non viene nemmeno importato.
 
 Qui si leggono i fatti (backend, VRAM libera, GGUF presenti, ruota di llama-cpp-python) e si passano alla funzione
@@ -211,6 +211,12 @@ def _acquire(model_key, log_callback, adapter, legacy, cfg_get, log, inputs):
                     logger.warning(f"Ripiego NF4 fallito: {exc2}", exc_info=True)
                     log(tr('gg_load_failed').format(exc=exc2))
             # Altrimenti la VRAM non regge bf16/NF4 (non si sarebbe scelto il GGUF): NLLB-FT.
+
+    if choice.reason == 'gguf_missing' and not load_failed:
+        # Nessun GGUF utilizzabile: chi non li ha ancora (installer non aggiornato) non deve peggiorare. Vale il percorso
+        # storico, che e' quello che questa scheda usava prima dell'accensione di default.
+        log(tr(gguf_note) if gguf_note else tr('gg_missing_legacy').format(dir=cfg["directory"]))
+        return legacy()
 
     reason = tr('gg_reason_load_failed') if load_failed else _reason_text(choice, free, cfg)
     log(tr('gg_using_nllb').format(reason=reason))

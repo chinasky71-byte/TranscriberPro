@@ -11,16 +11,16 @@ Percorsi possibili:
               e, su AMD/Vulkan, unica via senza bitsandbytes
   nllb        NLLB fine-tuned, ripiego dichiarato all'utente
 
-Regole (con il percorso GGUF acceso; con il flag spento il router non passa di qui e vale il motore storico):
+Regole (con il percorso GGUF acceso, che e' il default; con `llm_translator_gguf_enabled` spento il router non passa di qui e vale il motore storico):
   1. backend cuda o rocm e VRAM libera >= bf16_min_free_gb          -> bf16
   2. backend cuda, VRAM libera >= nf4_min_free_gb, e gguf_before_nf4 SPENTO -> nf4   (regola storica)
   3. backend cuda/rocm/vulkan, almeno un GGUF presente che ENTRA    -> gguf:<quant migliore che entra>
   4. backend cuda e VRAM libera >= nf4_min_free_gb (con gguf_before_nf4 acceso: nessun GGUF utilizzabile) -> nf4
   5. altrimenti                                                      -> nllb
-`gguf_before_nf4` (default SPENTO, vedi DEFAULT_GGUF_BEFORE_NF4): spento = regola storica (NF4 prima del GGUF), provata uguale al
-motore storico per VRAM libera >= 10,5 GiB; e' anche l'opzione per FORZARE NF4 senza una nuova versione. Acceso = il GGUF e'
-preferito a NF4 sulle schede da 10-20 GiB (nel banco di fase 3 Q4_K_M e' non inferiore a NF4 con margine 3 punti e ~14 volte
-piu' veloce): l'accensione di default richiede l'ok esplicito del proprietario (glossario misurato, prova reale su Windows).
+`gguf_before_nf4` (default ACCESO dal 24/10, vedi DEFAULT_GGUF_BEFORE_NF4): acceso = il GGUF e' preferito a NF4 sulle schede da
+10-20 GiB (nel banco di fase 3 Q4_K_M e' non inferiore a NF4 con margine 3 punti e ~14 volte piu' veloce; prova reale su Windows
+del proprietario) e NF4 resta il ripiego. Spento = regola storica (NF4 prima del GGUF), provata uguale al motore storico per VRAM
+libera >= 10,5 GiB; e' anche l'opzione per FORZARE NF4 senza una nuova versione.
 Con la scelta automatica si considerano solo Q4_K_M (>= gguf_min_free_gib['Q4_K_M'], 10 GiB) e IQ3_M (>= 7,5 GiB): Q3_K_M,
 piu' grande e non migliore di IQ3_M nel banco, resta selezionabile solo chiedendola per nome.
 "Entra" = pesi del GGUF + ingombro di esecuzione (KV cache + buffer di calcolo) <= VRAM libera. Niente offload parziale:
@@ -66,7 +66,7 @@ SAFETY_MARGIN_GIB = 0.4
 # 12 finirebbe sempre sul GGUF cambiando il comportamento di oggi, dove funziona in NF4.
 DEFAULT_NF4_MIN_FREE_GIB = 10.5
 DEFAULT_BF16_MIN_FREE_GIB = 20.0     # = ModelSpec.bf16_min_free_gb del motore storico
-DEFAULT_GGUF_BEFORE_NF4 = False
+DEFAULT_GGUF_BEFORE_NF4 = True       # acceso dal 24/10 su decisione del proprietario (vedi il registro); False = regola storica
 
 # Sequenze parallele del motore GGUF e contesto per sequenza (prompt ~150 token + risposta max 160).
 DEFAULT_N_PARALLEL = 4
