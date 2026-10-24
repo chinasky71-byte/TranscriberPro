@@ -347,3 +347,14 @@ def test_tutte_le_chiavi_gd_esistono_in_en_e_it():
     keys.discard('gd_none_')
     for lang in ('en', 'it'):
         assert sorted(k for k in keys if k not in T.TEXTS[lang]) == []
+
+
+def test_rinomina_sempre_negata_lascia_il_vecchio_file(server, tmp_path, monkeypatch):
+    (tmp_path / NAME).write_bytes(b'versione precedente')
+
+    def denied(a, b):
+        raise PermissionError(32)
+    monkeypatch.setattr(gd.os, 'replace', denied)
+    with pytest.raises(gd.DownloadError):
+        go(server(), tmp_path)
+    assert (tmp_path / NAME).read_bytes() == b'versione precedente'
