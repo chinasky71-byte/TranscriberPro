@@ -3,6 +3,15 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.31 — 2026-10-24 — TranslateGemma in GGUF ACCESO di default; installer che scarica i modelli
+
+- **Il traduttore LLM usa di default i pesi GGUF quantizzati** (`llm_translator_gguf_enabled` e `llm_translator_gguf_before_nf4` a `True`; le voci delle versioni 1.34.27-1.34.29 che dicono "spento di default" sono superate).
+  Sulle schede da 12 a 20 GB passa avanti Q4_K_M (soglia 10 GiB liberi), da 8 a 12 GB IQ3_M (7,5 GiB), sotto 7,5 GiB NLLB fine-tuned; da 20 GiB resta il modello intero. Con il file GGUF assente, non
+  adatto o non caricabile si torna in automatico a NF4 con un messaggio nel log; le due opzioni a `False` forzano il percorso storico. Provato su Windows (RTX 3060) nell'app: traduzione con GGUF (72 s contro 192 s
+  per un video di 2 minuti), Stop durante il caricamento e durante la traduzione, ripiego su NF4 con file assente.
+- **Installer:** `install.ps1` / `install.sh` scaricano da Hugging Face (`Chinasky71/translategemma-12b-it-subtitles-gguf`) il GGUF adatto alla scheda, con ripresa e controllo SHA-256.
+- Test che `import utils` non carica PyQt6/torch/onnxruntime (regressione della 1.34.30). Lavoro della sessione cloud (PR #19-#22).
+
 ## 1.34.30 — 2026-10-24 — Correzione urgente: l'app non si avviava su Windows
 
 - **Difetto (introdotto con la traduzione dell'interfaccia, fase B, 1.34.26):** `import utils` caricava `utils.translations`, che per rilevare la lingua importava PyQt6; su Windows PyQt6
