@@ -3,6 +3,16 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.29 — 2026-10-24 — Percorso GGUF in sottoprocesso pulito (risolto il crash su Windows); modelli GGUF su Hugging Face
+
+- **Il traduttore GGUF gira ora in un processo di lavoro separato** (`gguf_subprocess.py`, `gguf_worker.py`), con `llama_cpp` come primo import: su Windows, importato dopo `utils`/PyQt6, mandava in
+  access violation `llama_supports_gpu_offload()` (la correzione della 1.34.28 non bastava: la voce era imprecisa). Stesso schema del glossario con Qwen. Il worker si chiude con `unload()` e libera la VRAM
+  (provato su Windows con RTX 3060: 9,0 GB occupati col modello, 0,7 GB dopo lo scarico). Gestiti morte del worker (un riavvio), timeout, annullo dalla GUI e processo orfano.
+- **Banco di qualita'** (TranslateGemma-12B, 900 righe di *Deadpool 2* e *A Man Called Otto*, giudizio alla cieca): Q4_K_M, Q3_K_M e IQ3_M **non inferiori a NF4** con margine di 3 punti e circa 14 volte piu' veloci
+  (NF4 6,6% errori gravi; Q4_K_M 6,2%; IQ3_M 7,1%; Q3_K_M 7,4%). Il percorso GGUF resta **spento di default** (`llm_translator_gguf_enabled`).
+- **File GGUF pubblicati** su https://huggingface.co/Chinasky71/translategemma-12b-it-subtitles-gguf (licenza Gemma): l'installer li scarichera' in un lavoro successivo.
+- Lavoro della sessione cloud (PR #17) e prova locale su Windows; registro in `docs/HANDOFF_LOG_GGUF_TRANSLATOR.md`.
+
 ## 1.34.28 — 2026-10-24 — Percorso GGUF: corretto il crash su Windows prima del caricamento
 
 - `GGUFEngine.load()` chiamava `llama_supports_gpu_offload()` prima di creare un qualunque modello: sulle ruote Windows con backend caricati dinamicamente il registro dei backend e' ancora
