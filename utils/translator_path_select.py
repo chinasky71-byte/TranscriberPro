@@ -134,6 +134,10 @@ def choose_translator_path(free_gib: Optional[float], backend: str, *,
     wanted = normalize_quant(quant)
     present = {normalize_quant(q) for q in gguf_available}
     candidates = [q for q in AUTO_QUANTS if q in present]
+    if nf4_fits and wanted == 'auto':
+        # Fra 10,5 e 20 GiB il GGUF che sostituisce NF4 e' Q4_K_M (l'unico confrontato con NF4 nel banco): se non entra si
+        # ripiega su NF4, non su IQ3_M. IQ3_M resta per le schede dove NF4 non regge, o chiesto per nome.
+        candidates = [q for q in candidates if q == 'Q4_K_M']
     if wanted != 'auto':
         if wanted not in QUANT_WEIGHTS_GIB:
             return PathChoice(NLLB, reason='quant_unknown')

@@ -257,6 +257,54 @@ def test_router_caricamento_gguf_fallito_con_nf4_che_regge_ripiega_su_nf4(router
     assert 'VRAM esaurita' in text and 'NF4' in text
 
 
+@pytest.mark.parametrize('backend,free', [('rocm', 12.0), ('vulkan', 12.0), ('cuda', 9.0)])
+def test_router_gguf_fallito_senza_nf4_possibile_nllb(router_env, backend, free):
+    def boom(*a, **k):
+        raise RuntimeError('VRAM esaurita')
+    router_env.monkeypatch.setattr(ge, 'get_gguf_engine', boom)
+    assert router_env.acquire((backend, free, True), cfg_over={'llm_translator_gguf_before_nf4': True}) is None
+    assert not any(c[0] == 'legacy' for c in router_env.calls)
+    assert 'NLLB' in '\n'.join(router_env.logs)
+
+
+def test_router_stop_durante_il_caricamento_non_ripiega_su_nf4(router_env):
+    def stopped(*a, **k):
+        raise ge.GGUFCancelled('stop')
+    router_env.monkeypatch.setattr(ge, 'get_gguf_engine', stopped)
+    assert router_env.acquire(('cuda', 11.0, True), cfg_over={'llm_translator_gguf_before_nf4': True}) is None
+    assert not any(c[0] == 'legacy' for c in router_env.calls)
+    assert not any('NLLB' in m or 'NF4' in m for m in router_env.logs)
+
+
+def test_router_ripiego_nf4_che_fallisce_va_a_nllb_senza_secondo_giro(router_env, tmp_path):
+    def boom(*a, **k):
+        raise RuntimeError('VRAM esaurita')
+    router_env.monkeypatch.setattr(ge, 'get_gguf_engine', boom)
+    n = []
+
+    def bad_legacy(*a, **k):
+        n.append(1)
+        raise RuntimeError('OOM NF4')
+    out = pr.acquire_engine('translategemma-12b', None, None, '/m', get_engine_fn=bad_legacy,
+                            cfg_get=lambda k, d=None: {'llm_translator_gguf_dir': str(tmp_path),
+                                                       'llm_translator_gguf_before_nf4': True}.get(k, d),
+                            log=router_env.logs.append, inputs=('cuda', 11.0, True))
+    assert out is None and len(n) == 1                      # una sola volta, poi NLLB dichiarato
+    assert 'OOM NF4' in '\n'.join(router_env.logs) and 'NLLB' in '\n'.join(router_env.logs)
+
+
+@pytest.mark.parametrize('val,exp', [('false', False), ('0', False), ('no', False), ('true', True), ('1', True), (True, True),
+                                     (False, False), ('', False)])
+def test_router_before_nf4_legge_anche_le_stringhe(val, exp):
+    assert pr._config_values(lambda k, d=None: val if k == 'llm_translator_gguf_before_nf4' else d)['gguf_before_nf4'] is exp
+
+
+@pytest.mark.parametrize('bad', [float('nan'), float('inf'), -1.0, 0, 'abc'])
+def test_router_soglie_non_valide_tornano_al_default(bad):
+    v = pr._config_values(lambda k, d=None: bad if k in ('llm_translator_nf4_min_free_gb', 'llm_translator_gguf_q4_min_free_gb') else d)
+    assert v['nf4_min'] == sel.DEFAULT_NF4_MIN_FREE_GIB and v['gguf_min_free']['Q4_K_M'] == sel.DEFAULT_GGUF_MIN_FREE_GIB['Q4_K_M']
+
+
 def test_router_soglie_gguf_configurabili(router_env):
     assert router_env.acquire(('cuda', 7.6, True), cfg_over={'llm_translator_gguf_iq3_min_free_gb': 8.0}) is None
     e = router_env.acquire(('cuda', 7.6, True), cfg_over={'llm_translator_gguf_iq3_min_free_gb': 7.0})

@@ -164,3 +164,12 @@ def test_pavimenti_configurabili():
 def test_label():
     assert sel.PathChoice(sel.GGUF, 'IQ3_M').label == 'gguf:IQ3_M'
     assert sel.PathChoice(sel.NF4).label == 'nf4'
+
+
+def test_con_nf4_che_regge_il_gguf_che_lo_sostituisce_e_solo_q4():
+    """IQ3_M non e' mai stato confrontato con NF4: dove NF4 regge, se Q4_K_M non entra si ripiega su NF4, non su IQ3_M."""
+    c = pick(11.0, gguf_before_nf4=True, n_parallel=16)
+    assert c.kind == sel.NF4
+    assert pick(9.5, nf4_min_free_gib=9.0, gguf_before_nf4=True).kind == sel.NF4
+    assert pick(9.5, nf4_min_free_gib=9.0, gguf_before_nf4=True, quant='IQ3_M').quant == 'IQ3_M'     # chiesto per nome
+    assert pick(9.5, nf4_min_free_gib=10.5, gguf_before_nf4=True).quant == 'IQ3_M'                 # dove NF4 non regge
