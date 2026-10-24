@@ -986,7 +986,7 @@ class Translations:
             'gg_err_worker_cancelled': 'the GGUF worker process was stopped',
             'gg_err_not_serializable': 'the conversations cannot be sent to the GGUF worker process: {exc}',
             'gd_plan': '  GGUF TranslateGemma {quant}: {name} ({size}) -> {dest}',
-            'gd_flag_off': '  The files are only downloaded: the GGUF path stays OFF (llm_translator_gguf_enabled) until you turn it on in the app settings.',
+            'gd_flag_off': '  The installer only downloads the files: it does not change any app setting.',
             'gd_ask': 'Download this model?',
             'gd_need_yes': '  No terminal to ask for confirmation: nothing downloaded. Add --yes (-Yes on Windows) to confirm.',
             'gd_declined': '  GGUF download skipped.',
@@ -1002,6 +1002,7 @@ class Translations:
             'gd_err_failed': 'Download of {name} failed after several attempts: {err}. Run the installer again: it resumes where it stopped.',
             'gd_err_checksum': '{name}: the SHA-256 does not match the published one, partial file discarded.',
             'gd_err_size': '{name}: the download ended early ({got} of {want} bytes).',
+            'gd_err_rename': 'Cannot rename the finished download to {path} (file in use by another program, e.g. antivirus). Run the installer again: the file is already complete.',
 
             # ── log pipeline: translator.py ──
             'lt_generation_slowed_down_compared_to': '  ⚠️ Generation slowed down {ratio:.1f}× compared to the best pace of this file. Usually this means another process is using the GPU.',
@@ -2391,7 +2392,7 @@ class Translations:
             'gg_err_worker_cancelled': 'il processo di lavoro GGUF è stato fermato',
             'gg_err_not_serializable': 'le conversazioni non si possono inviare al processo di lavoro GGUF: {exc}',
             'gd_plan': '  GGUF TranslateGemma {quant}: {name} ({size}) -> {dest}',
-            'gd_flag_off': "  I scarico solo i file: il percorso GGUF resta SPENTO (llm_translator_gguf_enabled) finché non lo accendi dalle impostazioni dell'app.",
+            'gd_flag_off': '  L\'installer scarica solo i file: non cambia nessuna impostazione dell\'app.',
             'gd_ask': 'Scarico questo modello?',
             'gd_need_yes': '  Nessun terminale per chiedere conferma: non scarico nulla. Aggiungi --yes (-Yes su Windows) per confermare.',
             'gd_declined': '  Download del GGUF saltato.',
@@ -2407,6 +2408,7 @@ class Translations:
             'gd_err_failed': "Download di {name} non riuscito dopo più tentativi: {err}. Rilancia l'installer: riprende da dove si è fermato.",
             'gd_err_checksum': '{name}: lo SHA-256 non coincide con quello pubblicato, file parziale scartato.',
             'gd_err_size': '{name}: il download si è interrotto prima della fine ({got} di {want} byte).',
+            'gd_err_rename': 'Impossibile rinominare il download completato in {path} (file in uso da un altro programma, ad esempio l\'antivirus). Rilancia l\'installer: il file è già completo.',
 
             # ── log pipeline: translator.py ──
             'lt_generation_slowed_down_compared_to': '  ⚠️ Generazione rallentata {ratio:.1f}× rispetto al ritmo migliore di questo file. Di solito significa che un altro processo sta usando la GPU.',

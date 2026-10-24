@@ -10,9 +10,9 @@
 #   opzioni: --no-gpu (ruote CPU di torch e llama-cpp-python, ~250 MB invece di ~3 GB) --yes (nessuna domanda)
 #            --with-models  scarica da Hugging Face il Qwen2.5 (glossario/serbatoio) e il NLLB fine-tuned (molti GB)
 #            --gguf=auto|q4|iq3|q3|none  TranslateGemma-12B GGUF da Hugging Face (5-7 GB, anonimo, riprendibile, SHA-256) in models/translategemma-12b-gguf/.
-#                 auto = per VRAM con le soglie del selettore (utils/translator_path_select.py): Q4_K_M (12-20 GB), IQ3_M (8-12 GB), nulla sotto gli 8 GB,
-#                 senza GPU adatta o da 20 GB in su; q3 solo se la chiedi. Senza l'opzione: auto se c'e' --with-models, altrimenti nulla.
-#                 Chiede conferma (--yes la salta). Scarica i file e basta: il percorso GGUF dell'app resta SPENTO.
+#                 auto = per VRAM TOTALE con le stesse soglie del selettore (utils/translator_path_select.py): Q4_K_M per le schede medie, IQ3_M per quelle da ~8 GB,
+#                 nulla se la VRAM e' troppo poca, se basta il bf16 (cuda/rocm) o senza GPU; su Vulkan, dove il bf16 non esiste, si scarica anche con molta VRAM; q3 solo se la chiedi. Senza l'opzione: auto se c'e' --with-models, altrimenti nulla.
+#                 Chiede conferma (--yes la salta). Scarica i file e basta: non cambia nessuna impostazione dell'app.
 #            --gguf-dir=PATH  cartella di destinazione (default: models/translategemma-12b-gguf, quella che l'app scansiona)
 #            --qwen-size=auto|7b|14b  (auto = 14B con GPU da 12 GB o piu', 7B con GPU piu' piccola o --no-gpu)
 #            --gpu-backend=auto|cuda|vulkan|rocm|cpu  (senza l'opzione: comportamento di sempre = ruota CUDA di llama-cpp-python)

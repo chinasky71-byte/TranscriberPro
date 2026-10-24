@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """Download dei GGUF di TranslateGemma-12B dall'installer (install.sh / install.ps1).
 
-Solo libreria standard (gira anche col Python di sistema, prima che esista il venv). Regole:
+Solo libreria standard piu' `utils` (il pacchetto importa psutil e altro): l'installer lo lancia col Python del venv principale, dopo il pip install. Regole:
   - quale quantizzazione scaricare lo decide `utils.translator_path_select.choose_translator_path` (stesse soglie del router
-    a runtime: nessuna copia dei numeri qui). Da 20 GiB in su (bf16) o sotto la soglia di IQ3_M (NLLB-FT): nessun download.
+    a runtime: nessuna copia dei numeri qui). Con bf16 (cuda/rocm, VRAM sufficiente) o sotto la soglia di IQ3_M (NLLB-FT): nessun download.
+    Su Vulkan non esiste bf16: il GGUF e' l'unica via, quindi si scarica anche con molta VRAM.
   - mai senza dirlo: l'installer lo chiama solo se l'utente ha chiesto i modelli, mostra file e dimensione e chiede
     conferma (--yes la salta);
   - anonimo (nessun token), RIPRENDIBILE (file `.part` + intestazione Range), con controllo di dimensione e SHA-256
@@ -16,6 +17,7 @@ Codici di uscita: 0 = fatto o nulla da fare, 1 = download fallito, 2 = argomenti
 """
 import argparse
 import hashlib
+import http.client
 import os
 import shutil
 import sys
@@ -150,6 +152,7 @@ def download_file(base_url: str, entry: GGUFFile, dest_dir: Path, *, retries: in
         raise DownloadError(_tr('gd_err_disk', need=_gib(entry.size - have + DISK_MARGIN), free=_gib(free), path=str(dest_dir)))
     url = base_url.rstrip('/') + '/' + entry.name
     last = ''
+    bad = 0
     for attempt in range(retries + 1):
         if attempt:
             sleep(min(30.0, 2.0 ** attempt))
@@ -158,15 +161,33 @@ def download_file(base_url: str, entry: GGUFFile, dest_dir: Path, *, retries: in
             break
         except _BadChecksum as exc:        # contenuto sbagliato: il parziale non vale, si ricomincia da zero
             part.unlink(missing_ok=True)
+            bad += 1
             last = str(exc)
-        except (urllib.error.URLError, OSError, TimeoutError, ConnectionError) as exc:
-            if isinstance(exc, urllib.error.HTTPError) and exc.code in (401, 403, 404):
-                raise DownloadError(_tr('gd_err_http', code=exc.code, url=url))
+            if bad >= 2:                   # l'impronta e' deterministica: un terzo giro scaricherebbe altri GB per niente
+                raise DownloadError(last)
+        except (urllib.error.URLError, OSError, TimeoutError, ConnectionError, http.client.HTTPException) as exc:
+            if isinstance(exc, urllib.error.HTTPError):
+                if exc.code == 416:        # il parziale non e' compatibile col file del server: si riparte da zero
+                    part.unlink(missing_ok=True)
+                elif exc.code in (401, 403, 404):
+                    raise DownloadError(_tr('gd_err_http', code=exc.code, url=url))
             last = str(exc)
     else:
         raise DownloadError(_tr('gd_err_failed', name=entry.name, err=last))
-    os.replace(part, final)                # rinomina atomica: il nome finale esiste solo se il file e' valido
+    _replace(part, final, sleep)           # rinomina atomica: il nome finale esiste solo se il file e' valido
     return 'downloaded'
+
+
+def _replace(src: Path, dst: Path, sleep) -> None:
+    """os.replace con qualche ripetizione: su Windows un antivirus o l'indicizzatore possono tenere aperto per un attimo il .part appena chiuso."""
+    for i in range(5):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if i == 4:
+                raise DownloadError(_tr('gd_err_rename', path=str(dst)))
+            sleep(1.0 + i)
 
 
 def _fetch(url: str, entry: GGUFFile, part: Path, timeout: float, progress) -> None:
@@ -180,12 +201,13 @@ def _fetch(url: str, entry: GGUFFile, part: Path, timeout: float, progress) -> N
             return
         part.unlink()
         raise _BadChecksum(_tr('gd_err_checksum', name=entry.name))
+    if start:
+        _hash_prefix(part, h)               # prima di aprire la connessione: su un disco lento non la lascia ferma
     with _open(url, start, timeout) as r:
         code = getattr(r, 'status', None) or r.getcode()
         if start and code != 206:           # il server ignora Range: si riparte da capo
             start = 0
-        if start:
-            _hash_prefix(part, h)
+            h = hashlib.sha256()
         mode = 'ab' if start else 'wb'
         done = start
         with open(part, mode) as f:
@@ -198,6 +220,8 @@ def _fetch(url: str, entry: GGUFFile, part: Path, timeout: float, progress) -> N
                 done += len(b)
                 if progress:
                     progress(done, entry.size)
+            f.flush()
+            os.fsync(f.fileno())            # il contenuto e' su disco prima della rinomina
     if done != entry.size:
         raise OSError(_tr('gd_err_size', name=entry.name, got=done, want=entry.size))
     if h.hexdigest() != entry.sha256:
@@ -237,6 +261,11 @@ def main(argv=None, *, detect=_detect, input_fn=input, is_tty: Optional[bool] = 
     ap.add_argument('--no-gpu', action='store_true')
     ap.add_argument('--dry-run', action='store_true')
     ap.add_argument('--base-url', default=os.environ.get('TP_GGUF_BASE_URL', '') or DEFAULT_BASE_URL)
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors='replace')     # Windows con stdout in pipe: mai UnicodeEncodeError per un percorso con caratteri strani
+        except Exception:
+            pass
     try:
         a = ap.parse_args(argv)
     except SystemExit:
@@ -253,14 +282,14 @@ def main(argv=None, *, detect=_detect, input_fn=input, is_tty: Optional[bool] = 
         print('  ' + _tr('gd_none_' + why, vram=f'{vram:.1f}' if vram else '0', backend=backend))
         return 0
     entry = MANIFEST[quant]
-    print('  ' + _tr('gd_plan', quant=quant, name=entry.name, size=_gib(entry.size), dest=str(dest)))
-    print('  ' + _tr('gd_flag_off'))
+    print(_tr('gd_plan', quant=quant, name=entry.name, size=_gib(entry.size), dest=str(dest)))
+    print(_tr('gd_flag_off'))
     if a.dry_run:
         return 0
     if not a.yes:
         tty = sys.stdin.isatty() if is_tty is None else is_tty
         if not tty:
-            print('  ' + _tr('gd_need_yes'))
+            print(_tr('gd_need_yes'))
             return 0
         if input_fn(_tr('gd_ask') + ' [s/N] ').strip().lower() not in ('s', 'si', 'y', 'yes'):
             print('  ' + _tr('gd_declined'))
@@ -270,7 +299,7 @@ def main(argv=None, *, detect=_detect, input_fn=input, is_tty: Optional[bool] = 
     except DownloadError as exc:
         print('  [KO]  ' + str(exc), flush=True)
         return 1
-    print('  ' + _tr('gd_present' if res == 'present' else 'gd_done', name=entry.name))
+    print(_tr('gd_present' if res == 'present' else 'gd_done', name=entry.name))
     return 0
 
 
