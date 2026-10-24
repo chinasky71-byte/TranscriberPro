@@ -18,10 +18,12 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from utils.logger import setup_logger
+from utils.platform_compat import no_window_flags
 from utils.translations import get_translations, tr
 
 from .engine import DEFAULT_MODEL_KEY
@@ -50,8 +52,12 @@ class GGUFSubprocessEngine(GGUFEngine):
         self._lines: Optional[queue.Queue] = None
         self._ids = itertools.count(1)
         self._failures = 0          # morti consecutive del worker senza un generate riuscito in mezzo
+        self._cancelled = False     # chiusura forzata (Stop dell'utente): niente riavvii finche' un load() esplicito non lo azzera
 
     # -- processo ---------------------------------------------------------
+    class _NotSerializable(RuntimeError):
+        pass
+
     def _stderr_tail(self, n: int = 600) -> str:
         try:
             self._stderr.flush()
@@ -73,7 +79,10 @@ class GGUFSubprocessEngine(GGUFEngine):
 
     def _send(self, proc: subprocess.Popen, req: Dict[str, Any]) -> int:
         rid = next(self._ids)
-        data = json.dumps(dict(req, id=rid)) + '\n'      # prima la serializzazione: se fallisce non e' partito nulla
+        try:
+            data = json.dumps(dict(req, id=rid)) + '\n'  # prima la serializzazione: se fallisce non e' partito nulla
+        except (TypeError, ValueError) as exc:
+            raise self._NotSerializable(tr('gg_err_not_serializable').format(exc=exc)) from exc
         proc.stdin.write(data)
         proc.stdin.flush()
         return rid
@@ -81,9 +90,10 @@ class GGUFSubprocessEngine(GGUFEngine):
     def _recv(self, rid: int, timeout: float) -> Dict[str, Any]:
         """Evento finale della richiesta `rid` (i log vanno al log_callback). Il worker morto o in ritardo chiude tutto."""
         q = self._lines
+        end = time.monotonic() + timeout            # tetto assoluto: le righe di log non lo azzerano
         while True:
             try:
-                line = q.get(timeout=timeout) if q is not None else None
+                line = q.get(timeout=max(0.0, end - time.monotonic())) if q is not None else None
             except queue.Empty:
                 self._die(tr('gg_err_worker_timeout').format(s=int(timeout)))
             if line is None:
@@ -105,9 +115,10 @@ class GGUFSubprocessEngine(GGUFEngine):
 
     def _die(self, why: Optional[str]):
         """Chiude il worker e solleva RuntimeError con la coda dell'stderr (la causa nativa, se c'e')."""
-        tail = self._stderr_tail()
+        tail = self._kill()          # prima si uccide, poi si legge la coda dell'stderr (il figlio non scrive piu')
+        if self._cancelled:
+            raise RuntimeError(tr('gg_err_worker_cancelled'))
         self._failures += 1
-        self._kill()
         msg = why or tr('gg_err_worker_died').format(detail=tail or '-')
         self.log(msg)               # all'utente: chiaro, una volta (i blocchi dopo una morte ripetuta non lo ripetono)
         raise RuntimeError(msg)
@@ -118,16 +129,18 @@ class GGUFSubprocessEngine(GGUFEngine):
             raise UnknownLanguageError(ev.get('msg', ''))
         raise RuntimeError(ev.get('msg', ''))
 
-    def _kill(self) -> None:
+    def _kill(self) -> str:
+        """Chiude il figlio e restituisce la coda del suo stderr ('' se non c'e'). Idempotente."""
         proc, self._proc = self._proc, None
         q, self._lines = self._lines, None
         if proc is None:
-            return
+            return ''
         try:
             proc.kill()
             proc.wait(5)
         except Exception:
             pass
+        tail = self._stderr_tail()
         for f in (proc.stdin, proc.stdout):
             try:
                 f.close()
@@ -140,6 +153,13 @@ class GGUFSubprocessEngine(GGUFEngine):
         except Exception:
             pass
         self._stderr = None
+        return tail
+
+    def abort(self) -> None:
+        """Stop dell'utente: chiude il figlio SENZA aspettare locks (anche durante un caricamento o un generate) e vieta i
+        riavvii. Chi aspettava una risposta riceve un errore subito."""
+        self._cancelled = True
+        self._kill()
 
     def _start(self) -> None:
         self._kill()
@@ -147,8 +167,8 @@ class GGUFSubprocessEngine(GGUFEngine):
         try:
             proc = subprocess.Popen(
                 [sys.executable, str(WORKER_SCRIPT)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=self._stderr, text=True, encoding='ascii', bufsize=1, cwd=str(WORKER_SCRIPT.parents[2]),
-                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                stderr=self._stderr, text=True, encoding='ascii', errors='replace', bufsize=1, cwd=str(WORKER_SCRIPT.parents[2]),
+                creationflags=no_window_flags())
         except OSError as exc:
             raise RuntimeError(tr('gg_err_worker_start').format(exc=exc)) from exc
         self._proc, self._lines = proc, queue.Queue()
@@ -156,11 +176,17 @@ class GGUFSubprocessEngine(GGUFEngine):
         try:
             ev = self._recv(0, LOAD_TIMEOUT_S)          # 'ready' non porta id
             if ev.get('ev') != 'ready':
+                if ev.get('phase') == 'start':           # il figlio non e' partito: la causa e' anche nell'stderr
+                    tail = self._kill()
+                    raise RuntimeError(f"{ev.get('msg', '')} {tail}".strip())
                 self._raise(ev)
-            rid = self._send(proc, {'op': 'load', 'gguf_path': self.gguf_path, 'quant': self.quant,
+            try:
+                rid = self._send(proc, {'op': 'load', 'gguf_path': self.gguf_path, 'quant': self.quant,
                                     'model_key': self.model_key, 'n_parallel': self.n_parallel,
                                     'ctx_per_seq': self.ctx_per_seq, 'n_gpu_layers': self.n_gpu_layers,
                                     'lang': get_translations().current_language})
+            except (OSError, ValueError):                # il figlio e' morto dopo 'ready': la causa sta nell'stderr
+                self._die(None)
             ev = self._recv(rid, LOAD_TIMEOUT_S)
             if ev.get('ev') != 'loaded':
                 self._raise(ev)
@@ -174,12 +200,16 @@ class GGUFSubprocessEngine(GGUFEngine):
             if self._proc is not None and self._proc.poll() is None:
                 return
             self._failures = 0              # un load esplicito riparte da zero (il router lo chiama a ogni file)
+            self._cancelled = False
             self._start()
 
     def generate(self, conversations: List[List[Dict[str, Any]]], max_new_tokens: int = 512,
                  **overrides: Any) -> List[str]:
         with self._run_lock:
-            if self._proc is None or self._proc.poll() is not None:
+            if self._cancelled:
+                raise RuntimeError(tr('gg_err_worker_cancelled'))     # dopo uno Stop nessun riavvio del 12B
+            proc = self._proc
+            if proc is None or proc.poll() is not None:
                 if self._failures > MAX_RESTARTS:
                     # il worker e' morto di nuovo subito dopo il riavvio: niente ricaricamenti del 12B a ogni blocco
                     raise RuntimeError(tr('gg_err_worker_died').format(detail='-'))
@@ -188,9 +218,9 @@ class GGUFSubprocessEngine(GGUFEngine):
             try:
                 rid = self._send(proc, {'op': 'generate', 'conversations': conversations,
                                         'max_new_tokens': max_new_tokens})
-            except (TypeError, ValueError) as exc:        # non serializzabile: nulla e' partito, il worker e' intatto
-                raise RuntimeError(f'conversazioni non serializzabili: {exc}') from exc
-            except OSError:
+            except self._NotSerializable:                 # nulla e' partito, il worker e' intatto
+                raise
+            except (OSError, ValueError, AttributeError):
                 self._die(None)
             try:
                 ev = self._recv(rid, GENERATE_TIMEOUT_S)
@@ -206,13 +236,13 @@ class GGUFSubprocessEngine(GGUFEngine):
         # generate() in corso (annullo dalla GUI, cleanup): chiusura forzata, il lettore vede EOF ed esce con errore
         got = self._run_lock.acquire(timeout=UNLOAD_WAIT_S)
         if not got:
-            self._kill()
+            self.abort()
             self._run_lock.acquire()
         try:
             proc = self._proc
             if proc is None:
                 return
-            if not quiet:
+            if not quiet and proc.poll() is None:
                 self.log(tr('le_unloading_from_vram').format(label=self.spec.label))
             try:
                 self._send(proc, {'op': 'unload'})

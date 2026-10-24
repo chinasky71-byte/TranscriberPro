@@ -18,6 +18,10 @@ Robustezza (dalla revisione): id di richiesta e scarto delle risposte arretrate,
 
 **Test**: suite `linux_tests` con GGUF Gemma3 270M e Qwen su CPU (numeri nel PR). Provato su Linux CPU: il sottoprocesso da lo stesso testo del motore in-process, riparte dopo `unload`, l'errore `n_gpu_layers != 0` su ruota senza GPU arriva come errore; ordine di import (llama_cpp prima di utils) verificato con uno spy su `meta_path`; worker finto per rumore sul canale, timeout, annullo concorrente, morti ripetute, serializzazione.
 
+**Seconda revisione critica separata (nessun bloccante, 7 importanti corretti)**: Stop durante il caricamento (`unload_gguf_engine` chiude il figlio prima del lock di `get_gguf_engine`: `abort()`), nessun riavvio del 12B dopo uno Stop (`_cancelled`), figlio morto dopo `ready` (la causa arriva dall'stderr, non un broken pipe), rumore non ASCII sul canale (`errors='replace'`), `SetStdHandle` su Windows oltre a `dup2`, lettura dell'stderr dopo `kill`, watchdog nel figlio se il genitore muore anche senza EOF su stdin (`platform_compat.process_alive`); tetto assoluto ai tempi; messaggi nuovi con `tr()` EN/IT. Il lint di piattaforma imponeva di tenere `windll` in `utils/platform_compat.py` (`process_alive`, `point_stdout_handle_to_stderr`, `no_window_flags`).
+
+**Test**: `linux_tests` 427 passed, 17 skipped; con GGUF Gemma3 270M e Qwen su CPU: 437 passed, 7 skipped.
+
 **Non verificato**: l'access violation e' solo Windows: la prova reale la fa la sessione locale. **Che il crash Windows sparisca** (dipende dalla tesi "primo import nativo", dato della sessione locale); `dup2` su Windows con DLL che scrivono sull'handle standard, `CREATE_NO_WINDOW`, `TemporaryFile` come stderr su Windows; `torch/lib` sul PATH nel worker; eseguibile congelato PyInstaller (il worker usa `sys.executable` e lo script: non partirebbe da un exe); il percorso con `n_gpu_layers != 0` e GPU vera; il worker crea un secondo file di log in `~/.transcriberpro/logs`; stderr del worker non limitato in dimensione.
 
 ## 2026-10-24 · Risultati del banco di qualita' (sessione locale, RTX 3060 12 GB, Windows, 900 righe)

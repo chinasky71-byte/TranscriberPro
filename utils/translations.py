@@ -982,6 +982,8 @@ class Translations:
             'gg_err_worker_died': 'the GGUF worker process ended unexpectedly: {detail}',
             'gg_err_worker_start': 'cannot start the GGUF worker process: {exc}',
             'gg_err_worker_timeout': 'the GGUF worker process did not answer within {s} s and was closed',
+            'gg_err_worker_cancelled': 'the GGUF worker process was stopped',
+            'gg_err_not_serializable': 'the conversations cannot be sent to the GGUF worker process: {exc}',
 
             # ── log pipeline: translator.py ──
             'lt_generation_slowed_down_compared_to': '  ⚠️ Generation slowed down {ratio:.1f}× compared to the best pace of this file. Usually this means another process is using the GPU.',
@@ -2367,6 +2369,8 @@ class Translations:
             'gg_err_worker_died': 'il processo di lavoro GGUF si è interrotto: {detail}',
             'gg_err_worker_start': 'impossibile avviare il processo di lavoro GGUF: {exc}',
             'gg_err_worker_timeout': 'il processo di lavoro GGUF non ha risposto entro {s} s ed è stato chiuso',
+            'gg_err_worker_cancelled': 'il processo di lavoro GGUF è stato fermato',
+            'gg_err_not_serializable': 'le conversazioni non si possono inviare al processo di lavoro GGUF: {exc}',
 
             # ── log pipeline: translator.py ──
             'lt_generation_slowed_down_compared_to': '  ⚠️ Generazione rallentata {ratio:.1f}× rispetto al ritmo migliore di questo file. Di solito significa che un altro processo sta usando la GPU.',
