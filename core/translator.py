@@ -2205,10 +2205,16 @@ class LLMSubtitleTranslator(BaseTranslator):
         `get_engine`; acceso (default dal 24/10), decide `path_router` (bf16 / NF4 / GGUF / None = NLLB-FT)."""
         gguf = False
         try:
-            gguf = bool(get_config and get_config().get('llm_translator_gguf_enabled', True))
+            from utils.config import Config
+            gguf = bool(get_config and get_config().get('llm_translator_gguf_enabled',
+                                                      Config.DEFAULTS['llm_translator_gguf_enabled']))
         except Exception:
             gguf = False
         if not gguf:
+            import sys as _sys
+            gm = _sys.modules.get('core.llm_subtitle_translator.gguf_engine')
+            if gm is not None:
+                gm.unload_gguf_engine()     # flag spento a meta' coda: libera la VRAM del processo GGUF prima di NF4
             return self._get_engine(self._model_key, self.log_callback,
                                     adapter=self._adapter,
                                     model_path=self._model_path)
