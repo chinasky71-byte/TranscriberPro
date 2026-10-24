@@ -3,6 +3,12 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.28 — 2026-10-24 — Percorso GGUF: corretto il crash su Windows prima del caricamento
+
+- `GGUFEngine.load()` chiamava `llama_supports_gpu_offload()` prima di creare un qualunque modello: sulle ruote Windows con backend caricati dinamicamente il registro dei backend e' ancora
+  vuoto e la chiamata andava in access violation. Ora il motore chiama prima `llama_backend_init()` (idempotente, lo fa anche `Llama()` alla prima istanza). Emerso durante il banco di qualita' GGUF
+  sul PC dell'utente (RTX 3060, ruota llama-cpp-python 0.3.34); il percorso resta spento di default. Test nuovo in `linux_tests/test_gguf_engine.py`.
+
 ## 1.34.27 — 2026-10-24 — TranslateGemma in GGUF per schede da 8-12 GB e AMD/Vulkan (codice pronto, SPENTO di default)
 
 - Nuovo percorso del traduttore LLM con pesi GGUF quantizzati (llama-cpp-python): selettore per VRAM e backend (`utils/translator_path_select.py`), motore (`core/llm_subtitle_translator/gguf_engine.py`),

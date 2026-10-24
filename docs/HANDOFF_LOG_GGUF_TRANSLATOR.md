@@ -7,6 +7,16 @@ dietro `llm_translator_gguf_enabled` (default **False**) finche' il banco di qua
 Regole di flusso: una PR per fase; implementa, prova, revisione critica separata in sola lettura, correggi. Niente toccato:
 APP_VERSION, CHANGELOG, README, requirements*, pin (ctranslate2 4.6.0, llama-cpp-python 0.3.34), percorso NVIDIA.
 
+## 2026-10-24 · Correzione dal banco locale (sessione locale, v1.34.28)
+
+- **Bug trovato su Windows** (ruota llama-cpp-python 0.3.34 con backend dinamici): `GGUFEngine.load()` chiamava `llama_supports_gpu_offload()` prima di qualunque `Llama()` e andava in
+  `OSError: access violation reading 0x0`. Corretto chiamando prima `llama_backend_init()`; test aggiunto (`test_backend_inizializzato_prima_di_supports_gpu_offload`). I test in cloud non lo vedevano
+  perche' usano `n_gpu_layers=0` e girano su Linux: **aggiungi alla tua prova con GGUF reale anche un caso con `n_gpu_layers != 0`** e, se puoi, il controllo su Windows.
+- **Banco locale** (fuori repo): conversione e quantizzazioni riuscite sul 12B vero: bf16 23,5 GB (2 min), Q8_0 12,5 GB, Q4_K_M 6,80 GiB, Q3_K_M 5,60 GiB, IQ3_M 5,27 GiB (3 min in tutto),
+  imatrix su 400 coppie in 28 min su CPU, `verify` ok (gemma3, 626 tensori). Il banco di qualita' e' in corso; verdetto non ancora disponibile.
+- Strumento del banco: il controllo dei processi della GPU va ignorato su Windows (nvidia-smi elenca anche explorer, browser, ecc.): resta il controllo della memoria occupata. Il banco usa percorsi
+  assoluti per i pesi (quelli relativi vengono presi per un nome di repository HF).
+
 ## 2026-10-23 · Fase 3 — banco di qualita' (strumenti pronti, esecuzione in locale; PR di solo registro)
 
 **Fatto**: cartella `_banco_gguf_da_spostare/` (`bench_gguf.py`, `test_bench_gguf.py`, `README.md`), **non nel repository** (regola: i banchi restano fuori da GitHub); consegnata a Franz come allegato nel thread. Sottocomandi: `check`, `run`, `cieco`, `analizza`, `power`.

@@ -555,3 +555,26 @@ def test_generate_e_unload_si_escludono():
     t.join(3)
     u.join(3)
     assert order == ['generate', 'unload']
+
+
+def test_backend_inizializzato_prima_di_supports_gpu_offload(tmp_path, monkeypatch):
+    """Windows (backend caricati dinamicamente): llama_supports_gpu_offload() prima di qualunque Llama() va in access violation
+    se llama_backend_init() non e' stato chiamato. Il motore lo chiama PRIMA del controllo."""
+    import sys
+    import types
+    ordine = []
+    fake = types.ModuleType('llama_cpp')
+    fake.llama_backend_init = lambda: ordine.append('init')
+
+    def supports():
+        assert ordine == ['init'], 'llama_supports_gpu_offload chiamata prima di llama_backend_init'
+        ordine.append('supports')
+        return False                       # ruota solo-CPU: il motore deve rifiutare, non andare in crash
+    fake.llama_supports_gpu_offload = supports
+    monkeypatch.setitem(sys.modules, 'llama_cpp', fake)
+    f = tmp_path / 'x.gguf'
+    f.write_bytes(b'GGUF')
+    e = ge.GGUFEngine(str(f), 'Q4_K_M', n_gpu_layers=1)
+    with pytest.raises(RuntimeError):
+        e.load()
+    assert ordine == ['init', 'supports']
