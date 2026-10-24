@@ -94,7 +94,7 @@ def test_worker_il_protocollo_non_si_sporca_con_le_stampe_native(tmp_path):
     assert 'RUMORE' not in p.stdout and json.loads(p.stdout.splitlines()[0])['ev'] == 'ready' and 'RUMORE' in p.stderr
 
 
-def test_worker_che_muore_da_errore_chiaro_e_si_riavvia(tmp_path, monkeypatch):
+def test_worker_che_muore_da_errore_chiaro(tmp_path, monkeypatch):
     bad = tmp_path / 'worker.py'
     bad.write_text("import sys\nsys.stderr.write('boom nativo')\nsys.exit(3)\n", encoding='utf-8')
     monkeypatch.setattr(gs, 'WORKER_SCRIPT', bad)
@@ -176,14 +176,20 @@ import json, sys, os, time
 mode = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mode.txt')).read().strip()
 def out(ev): sys.stdout.write(json.dumps(ev) + '\\n'); sys.stdout.flush()
 out({'ev': 'ready'})
+if mode == 'dieafterready':
+    sys.stderr.write('boom nativo'); sys.stderr.flush()
+    sys.exit(4)
 for line in sys.stdin:
     r = json.loads(line)
     if r['op'] == 'unload':
         break
     if r['op'] == 'load':
         out({'ev': 'log', 'msg': 'lang=' + str(r.get('lang'))})
+        if mode == 'slowload':
+            time.sleep(60)
         if mode == 'noise':
-            sys.stdout.write('RUMORE NON JSON\\n'); out({'ev': 'result', 'id': 999, 'outputs': ['arretrato']})
+            sys.stdout.write('RUMORE NON JSON\\n'); sys.stdout.flush()
+            sys.stdout.buffer.write('RUMORE NON ASCII \\u00e8\\n'.encode('utf-8')); sys.stdout.buffer.flush(); out({'ev': 'result', 'id': 999, 'outputs': ['arretrato']})
         out({'ev': 'loaded', 'id': r['id']})
     elif r['op'] == 'generate':
         if mode == 'hang':
@@ -239,7 +245,7 @@ def test_worker_che_non_risponde_scade_e_viene_chiuso(fake_engine, monkeypatch):
         t0 = time.time()
         with pytest.raises(RuntimeError) as ex:
             e.generate([['a']])
-        assert time.time() - t0 < 10 and e._proc is None and '1' in str(ex.value)
+        assert time.time() - t0 < 10 and e._proc is None and ' 1 s' in str(ex.value)
     finally:
         e.unload()
 
@@ -324,6 +330,7 @@ def test_statico_nel_worker_llama_cpp_precede_utils_pyqt_torch_core():
 
 
 def test_il_genitore_non_importa_mai_llama_cpp():
+    pytest.importorskip('llama_cpp')          # senza la ruota il test passerebbe a vuoto
     code = ("import sys\n"
             "import core.llm_subtitle_translator.gguf_subprocess, core.llm_subtitle_translator.path_router\n"
             "from core.llm_subtitle_translator import path_router as pr\n"
@@ -334,8 +341,8 @@ def test_il_genitore_non_importa_mai_llama_cpp():
 
 
 def test_worker_che_muore_durante_la_traduzione_non_blocca_ne_rompe_la_pipeline(fake_engine):
-    """Il traduttore a blocchi completa il file anche se il worker muore a meta': i blocchi mancanti vanno ai livelli
-    successivi (L2/L3 = NLLB/Qwen), la causa e' nel log dell'utente e dopo la morte ripetuta non si ricarica il 12B a ogni blocco."""
+    """Il traduttore a blocchi completa il file anche se il worker muore: i blocchi restano vuoti (e' compito del chiamante, L2/L3,
+    recuperarli: qui `fallback=None`, quel passaggio NON e' provato), la causa e' nel log dell'utente."""
     from core.llm_subtitle_translator.prompt_builder import SubtitleUnit
     from core.llm_subtitle_translator.translator import SubtitleLLMTranslator
     e = fake_engine('die')
@@ -349,14 +356,26 @@ def test_worker_che_muore_durante_la_traduzione_non_blocca_ne_rompe_la_pipeline(
         e.unload()
 
 
-def test_stop_dell_utente_unload_gguf_engine_uccide_il_figlio(fake_engine, monkeypatch, tmp_path):
+def test_stop_dell_utente_cleanup_del_traduttore_uccide_il_figlio(fake_engine, monkeypatch, tmp_path):
     monkeypatch.setattr(ge, '_gguf_engine', None)
     fake_engine('ok')                                     # imposta WORKER_SCRIPT e la modalita'
     eng = ge.get_gguf_engine(str(tmp_path / 'x-Q3_K_M.gguf'), 'Q3_K_M')
     proc = eng._proc
     assert proc is not None and proc.poll() is None
-    ge.unload_gguf_engine()
+    import importlib
+    from types import SimpleNamespace
+    from unittest import mock
+    for m in ('torch', 'transformers', 'huggingface_hub'):          # solo per importare core.translator senza torch
+        try:
+            importlib.import_module(m)
+        except Exception:
+            monkeypatch.setitem(sys.modules, m, mock.MagicMock())
+    had = 'core.translator' in sys.modules
+    T = importlib.import_module('core.translator')
+    T.LLMSubtitleTranslator.cleanup(SimpleNamespace(_engine=None))      # come lo chiama la pipeline allo Stop
     assert proc.poll() is not None and eng._proc is None
+    if not had:
+        sys.modules.pop('core.translator', None)
 
 
 @pytest.mark.skipif(not sys.platform.startswith('linux'), reason='controllo del pid con /proc')
@@ -383,3 +402,92 @@ def test_morte_del_genitore_non_lascia_il_worker_orfano(tmp_path):
     else:
         os.kill(pid, 9)
         pytest.fail('worker orfano dopo la morte del genitore')
+
+
+# ------------------------------------------------------------------------------------------------ annullo, avvio difettoso, orfani
+def test_stop_durante_il_caricamento_chiude_subito_il_figlio(fake_engine, monkeypatch, tmp_path):
+    monkeypatch.setattr(ge, '_gguf_engine', None)
+    fake_engine('slowload')
+    res = {}
+
+    def run():
+        try:
+            ge.get_gguf_engine(str(tmp_path / 'x-Q3_K_M.gguf'), 'Q3_K_M')
+        except Exception as exc:
+            res['exc'] = exc
+    th = threading.Thread(target=run)
+    th.start()
+    time.sleep(1.0)
+    t0 = time.time()
+    ge.unload_gguf_engine()                          # Stop mentre get_gguf_engine tiene _gguf_lock
+    th.join(15)
+    assert not th.is_alive() and time.time() - t0 < 15 and isinstance(res.get('exc'), RuntimeError)
+    assert ge.current_gguf_engine() is None
+
+
+def test_dopo_uno_stop_nessun_riavvio_del_modello(fake_engine):
+    e = fake_engine('ok')
+    e.load()
+    starts = []
+    orig = e._start
+    e._start = lambda: (starts.append(1), orig())[1]
+    e.abort()
+    with pytest.raises(RuntimeError):
+        e.generate([['a']])
+    assert starts == [] and e._proc is None
+    e.load()                                         # un load esplicito riparte
+    assert e.generate([['a']]) == ['ok:1']
+    e.unload()
+
+
+def test_worker_che_muore_dopo_ready_da_la_causa_non_un_broken_pipe(fake_engine):
+    e = fake_engine('dieafterready')
+    with pytest.raises(RuntimeError) as ex:
+        e.load()
+    assert 'boom nativo' in str(ex.value) and 'Errno' not in str(ex.value) and e._proc is None
+
+
+def test_rumore_non_ascii_sul_canale_non_uccide_il_worker(fake_engine):
+    e = fake_engine('noise')
+    try:
+        assert e.generate([['a']]) == ['ok:1']
+        assert e._proc is not None and e._proc.poll() is None
+    finally:
+        e.unload()
+
+
+@pytest.mark.skipif(not sys.platform.startswith('linux'), reason='controllo del pid con /proc')
+def test_morte_del_genitore_il_worker_vero_esce_da_solo_anche_senza_eof_su_stdin(tmp_path):
+    """Il caso reale del watchdog: stdin NON si chiude (lo tiene aperto un altro processo) e il genitore muore: il worker esce da solo."""
+    fake = tmp_path / 'fake'
+    fake.mkdir()
+    (fake / 'llama_cpp.py').write_text('def llama_backend_init():\n    pass\n', encoding='utf-8')
+    code = textwrap.dedent(f"""
+        import os, subprocess, sys
+        r, w = os.pipe()
+        env = dict(os.environ, PYTHONPATH={str(fake)!r} + os.pathsep + {str(ROOT)!r})
+        worker = subprocess.Popen([sys.executable, {str(WORKER)!r}], stdin=r, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env)
+        holder = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(40)'], pass_fds=(w,))
+        os.close(r)
+        assert worker.stdout.readline()                 # 'ready'
+        print(worker.pid, holder.pid, flush=True)
+        os._exit(0)
+    """)
+    p = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, timeout=120)
+    wpid, hpid = (int(x) for x in p.stdout.split()[-2:])
+
+    def gone(pid):
+        return not Path(f'/proc/{pid}').exists() or Path(f'/proc/{pid}/stat').read_text().split()[2] == 'Z'
+    try:
+        for _ in range(150):
+            if gone(wpid):
+                break
+            time.sleep(0.1)
+        else:
+            pytest.fail('il worker vero non e\' uscito dopo la morte del genitore')
+    finally:
+        for pid in (wpid, hpid):
+            try:
+                os.kill(pid, 9)
+            except OSError:
+                pass

@@ -80,6 +80,45 @@ def no_window_flags(windows: Optional[bool] = None) -> int:
     return getattr(subprocess, 'CREATE_NO_WINDOW', _CREATE_NO_WINDOW_WIN)
 
 
+def process_alive(pid: int, windows: Optional[bool] = None) -> bool:
+    """True se il processo `pid` esiste e non e' terminato. Solo libreria standard (+ctypes): usabile in un processo che non
+    deve ancora importare altro. Su Windows apre un handle SYNCHRONIZE e lo interroga; se non riesce a rispondere, True."""
+    if not _is_win(windows):
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except OSError:
+            return True              # esiste ma non e' nostro (PermissionError)
+    try:
+        import ctypes
+        k = ctypes.windll.kernel32
+        h = k.OpenProcess(0x00100000, False, pid)          # SYNCHRONIZE
+        if not h:
+            return False
+        try:
+            return k.WaitForSingleObject(h, 0) != 0         # 0 = segnalato = terminato
+        finally:
+            k.CloseHandle(h)
+    except Exception:
+        return True
+
+
+def point_stdout_handle_to_stderr(windows: Optional[bool] = None) -> bool:
+    """Windows: dopo `os.dup2(2, 1)` (che sposta solo il descrittore del C runtime) sposta anche l'handle standard di
+    Windows, cosi' le DLL che scrivono su STD_OUTPUT_HANDLE finiscono sull'stderr. No-op altrove (False)."""
+    if not _is_win(windows):
+        return False
+    try:
+        import ctypes
+        import msvcrt
+        ctypes.windll.kernel32.SetStdHandle(-11, msvcrt.get_osfhandle(2))
+        return True
+    except Exception:
+        return False
+
+
 def kill_tree(pid: int, wait: float = 5.0) -> bool:
     """Uccide il processo e tutti i discendenti (ffmpeg, sottoprocessi GPU...) con psutil: stesso comportamento su
     ogni sistema. True se il processo principale e' stato terminato (o non esisteva piu'), False se non e' stato

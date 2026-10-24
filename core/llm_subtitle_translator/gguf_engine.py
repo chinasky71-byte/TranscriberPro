@@ -475,6 +475,11 @@ def get_gguf_engine(gguf_path: str, quant: str,
 
 def unload_gguf_engine() -> None:
     global _gguf_engine
+    # Stop dell'utente durante un caricamento o una generazione: il motore a sottoprocesso si chiude PRIMA di prendere il
+    # lock (che get_gguf_engine tiene per tutta la durata del caricamento).
+    abort = getattr(_gguf_engine, 'abort', None)
+    if abort is not None:
+        abort()
     with _gguf_lock:
         if _gguf_engine is not None:
             _gguf_engine.unload()

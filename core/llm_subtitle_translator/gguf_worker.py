@@ -25,12 +25,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def _prepare_llama():
-    """DLL CUDA di torch/lib sul PATH (stdlib-only, caricato da file: `import utils` qui NON deve ancora avvenire), poi llama_cpp."""
-    spec = importlib.util.spec_from_file_location('tp_cuda_dll_path', ROOT / 'utils' / 'cuda_dll_path.py')
+def _load_util(name):
+    """Modulo di utils/ caricato da file (solo libreria standard): `import utils` qui NON deve ancora avvenire (importa PyQt6)."""
+    spec = importlib.util.spec_from_file_location('tp_' + name, ROOT / 'utils' / (name + '.py'))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    mod.ensure_torch_lib_on_path()
+    return mod
+
+
+def _prepare_llama():
+    """DLL CUDA di torch/lib sul PATH, poi llama_cpp."""
+    _load_util('cuda_dll_path').ensure_torch_lib_on_path()
     import llama_cpp  # noqa: F401  -- PRIMO import nativo del processo (vedi docstring)
     return llama_cpp
 
@@ -39,11 +44,38 @@ def _open_channel():
     out = os.fdopen(os.dup(1), 'w', encoding='ascii', buffering=1)
     os.dup2(2, 1)
     sys.stdout = sys.stderr
+    # dup2 sposta solo il descrittore del C runtime: le DLL che scrivono sull'handle standard di Windows (driver CUDA/Vulkan,
+    # CRT statici) userebbero ancora il canale di protocollo.
+    _load_util('platform_compat').point_stdout_handle_to_stderr()
     return out
+
+
+PARENT_POLL_S = 2.0
+
+
+def _watch_parent():
+    """Se il processo padre muore (anche con TerminateProcess) il figlio non deve restare con la VRAM occupata, neanche dentro un
+    caricamento o una decodifica nativi in cui non legge lo stdin: esce da solo."""
+    import threading
+    import time
+    ppid = os.getppid()
+    compat = _load_util('platform_compat')
+
+    def alive():
+        # POSIX: se il padre muore il figlio e' adottato (ppid cambia); Windows: handle sul pid del padre
+        return os.getppid() == ppid if os.name != 'nt' else compat.process_alive(ppid)
+
+    def loop():
+        while True:
+            time.sleep(PARENT_POLL_S)
+            if not alive():
+                os._exit(0)
+    threading.Thread(target=loop, daemon=True).start()
 
 
 def main():
     chan = _open_channel()
+    _watch_parent()
 
     def emit(ev):
         try:
@@ -56,11 +88,11 @@ def main():
         _prepare_llama()
         sys.path[0] = str(ROOT)     # sys.path[0] e' la cartella dello script: i suoi moduli (engine, translator...) oscurerebbero altri pacchetti
         from core.llm_subtitle_translator import gguf_engine as ge
+        from utils.translations import get_translations
     except Exception as exc:
         emit({'ev': 'error', 'kind': 'runtime', 'msg': f'{type(exc).__name__}: {exc}', 'phase': 'start'})
         return 1
     emit({'ev': 'ready'})
-    from utils.translations import get_translations
 
     engine = None
     for line in sys.stdin:
