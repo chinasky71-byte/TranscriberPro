@@ -7,6 +7,28 @@ dietro `llm_translator_gguf_enabled` (default **False** fino al 24/10; ACCESO di
 Regole di flusso: una PR per fase; implementa, prova, revisione critica separata in sola lettura, correggi. Niente toccato:
 APP_VERSION, CHANGELOG, README, requirements*, pin (ctranslate2 4.6.0, llama-cpp-python 0.3.34), percorso NVIDIA.
 
+## 2026-10-24 · Prova col glossario e decisioni del proprietario sull'installer
+**Condizione 2 (prova col glossario su un episodio vero): CHIUSA** con questi numeri, riferiti dal proprietario. Episodio The Ark S03E12, glossario attivo con 16 termini, GGUF Q4_K_M acceso di default, v1.34.31, RTX 3060.
+
+| Contatore | GGUF Q4_K_M | NF4 (stesso episodio, 15/10) |
+|---|---|---|
+| Righe tradotte / tempo | 677 in 2,4 min | 29,6 min |
+| Retry | 2/2 | - |
+| Fallback | 0/0 | - |
+| Recuperati L2 | 25 | 23 |
+| Serbatoio L3 | 1/1 | - |
+| Identici confermati | 5 | 7 |
+| Lingua di partenza residua | 6 | 8 |
+
+Nessun peggioramento nei contatori. **La tenuta dei termini del glossario riga per riga NON e' misurata**: il log non la registra.
+
+**Decisioni del proprietario sull'installer GGUF** (il lavoro e' del thread dell'installer):
+1. L'installer CHIEDE conferma prima di scaricare un GGUF (6,8-7,3 GiB), anche sulle schede da 12 GB; con `--yes` (install.sh) / `-Yes` o equivalente (install.ps1) salta la domanda.
+2. Aggiornamenti futuri: il nome del repository porta la versione (es. `...-gguf-v2`); si scarica solo se il file manca o il suo SHA-256 non coincide con l'atteso; i valori attesi (nome file, byte, SHA-256, repository) stanno in UN solo punto del codice, non duplicati tra install.ps1, install.sh e Python.
+3. Con Vulkan e VRAM >= 20 GB l'installer scarica comunque Q4_K_M (su AMD il GGUF e' l'unica via senza bitsandbytes e bf16 non e' stato confrontato su Vulkan).
+
+Restano non verificati: schede da 8-10 GB, AMD/Vulkan, watchdog con worker bloccato, download vero da Hugging Face e sua ripresa.
+
 ## 2026-10-24 · Prove su Windows (PC del proprietario) con il percorso GGUF acceso
 Ambiente: RTX 3060 12 GB, Windows 11, llama-cpp-python 0.3.34, master 63eed81 (v1.34.30) piu' l'installer; GUI reale, `llm_translator_gguf_enabled` e `llm_translator_gguf_before_nf4` = true, GGUF Q4_K_M in `models/translategemma-12b-gguf/`. Esiti riferiti dal proprietario.
 
