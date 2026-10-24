@@ -214,6 +214,7 @@ class Config:
         'llm_translator_gguf_dir': '',          # vuoto = models/translategemma-12b-gguf
         'llm_translator_gguf_quant': 'auto',    # auto = la migliore che entra; oppure Q4_K_M | Q3_K_M | IQ3_M
         'llm_translator_gguf_parallel': 4,      # sequenze decodificate insieme (KV cache = parallel x 512 token)
+        'llm_translator_gguf_before_nf4': True,  # GGUF preferito a NF4 sulle schede 12-20 GiB (banco fase 3); False = regola storica
         'llm_translator_nf4_min_free_gb': 10.5,  # VRAM libera minima per NF4 (provvisorio: vedi translator_path_select)
         
         # NLLB model

@@ -108,6 +108,7 @@ def _config_values(cfg_get: Callable) -> dict:
         quant=sel.normalize_quant(cfg_get("llm_translator_gguf_quant", "auto")),
         n_parallel=max(1, num("llm_translator_gguf_parallel", sel.DEFAULT_N_PARALLEL, int)),
         nf4_min=num("llm_translator_nf4_min_free_gb", sel.DEFAULT_NF4_MIN_FREE_GIB, float),
+        gguf_before_nf4=bool(cfg_get("llm_translator_gguf_before_nf4", sel.DEFAULT_GGUF_BEFORE_NF4)),
     )
 
 
@@ -167,7 +168,7 @@ def _acquire(model_key, log_callback, adapter, legacy, cfg_get, log, inputs):
 
     choice = sel.choose_translator_path(
         free, backend, gguf_available=available.keys(), quant=cfg["quant"],
-        nf4_min_free_gib=cfg["nf4_min"], n_parallel=cfg["n_parallel"])
+        nf4_min_free_gib=cfg["nf4_min"], n_parallel=cfg["n_parallel"], gguf_before_nf4=cfg["gguf_before_nf4"])
     if gguf_note and choice.kind in (sel.GGUF, sel.NLLB):
         log(tr(gguf_note))        # solo se il GGUF serviva davvero a questa scheda
     log(tr('gg_path_chosen').format(path=choice.label, free_gb=free or 0.0, backend=backend))
