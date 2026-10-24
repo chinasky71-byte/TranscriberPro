@@ -999,13 +999,13 @@ class Translations:
             'gd_none_bf16': 'GPU with {vram} GiB: the full bf16 model fits, no GGUF needed.',
             'gd_none_vram_too_low': 'GPU with {vram} GiB ({backend}): too little memory for the GGUF models, no download (the app uses NLLB fine-tuned).',
             'gd_replaced': '  {name}: replaced (the old file did not match the published SHA-256), downloaded and verified',
-            'gd_exists': '  {name} already exists: it is verified and replaced only if its SHA-256 differs from the published one.',
+            'gd_exists': '  {name} already exists: it is verified and, if its SHA-256 differs from the published one (even if it is your own GGUF with the same name), replaced only after the new download is complete and verified.',
             'gd_err_disk': 'Not enough disk space in {path}: {need} needed, {free} free.',
             'gd_err_http': 'Download refused by the server (HTTP {code}): {url}',
             'gd_err_failed': 'Download of {name} failed after several attempts: {err}. Run the installer again: it resumes where it stopped.',
             'gd_err_checksum': '{name}: the SHA-256 does not match the published one, partial file discarded.',
             'gd_err_size': '{name}: the download ended early ({got} of {want} bytes).',
-            'gd_err_rename': 'Cannot rename the finished download to {path} (file in use by another program, e.g. antivirus). Run the installer again: the file is already complete.',
+            'gd_err_rename': 'Cannot rename the finished download to {path} (file in use by another program, e.g. the app or an antivirus). Close the app and run the installer again: the new file is already complete.',
 
             # ── log pipeline: translator.py ──
             'lt_generation_slowed_down_compared_to': '  ⚠️ Generation slowed down {ratio:.1f}× compared to the best pace of this file. Usually this means another process is using the GPU.',
@@ -2407,13 +2407,13 @@ class Translations:
             'gd_none_bf16': 'GPU da {vram} GiB: il modello bf16 intero ci sta, nessun GGUF necessario.',
             'gd_none_vram_too_low': "GPU da {vram} GiB ({backend}): memoria troppo poca per i modelli GGUF, non scarico nulla (l'app usa NLLB fine-tuned).",
             'gd_replaced': '  {name}: sostituito (il vecchio file non coincideva con lo SHA-256 pubblicato), scaricato e verificato',
-            'gd_exists': '  {name} esiste già: viene verificato e sostituito solo se il suo SHA-256 è diverso da quello pubblicato.',
+            'gd_exists': '  {name} esiste già: viene verificato e, se il suo SHA-256 è diverso da quello pubblicato (anche se è un tuo GGUF con lo stesso nome), sostituito solo a nuovo download completo e verificato.',
             'gd_err_disk': 'Spazio su disco insufficiente in {path}: servono {need}, liberi {free}.',
             'gd_err_http': 'Download rifiutato dal server (HTTP {code}): {url}',
             'gd_err_failed': "Download di {name} non riuscito dopo più tentativi: {err}. Rilancia l'installer: riprende da dove si è fermato.",
             'gd_err_checksum': '{name}: lo SHA-256 non coincide con quello pubblicato, file parziale scartato.',
             'gd_err_size': '{name}: il download si è interrotto prima della fine ({got} di {want} byte).',
-            'gd_err_rename': 'Impossibile rinominare il download completato in {path} (file in uso da un altro programma, ad esempio l\'antivirus). Rilancia l\'installer: il file è già completo.',
+            'gd_err_rename': 'Impossibile rinominare il download completato in {path} (file in uso da un altro programma, ad esempio l\'app o l\'antivirus). Chiudi l\'app e rilancia l\'installer: il nuovo file è già completo.',
 
             # ── log pipeline: translator.py ──
             'lt_generation_slowed_down_compared_to': '  ⚠️ Generazione rallentata {ratio:.1f}× rispetto al ritmo migliore di questo file. Di solito significa che un altro processo sta usando la GPU.',
