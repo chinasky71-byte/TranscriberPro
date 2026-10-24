@@ -237,9 +237,11 @@ def test_router_sotto_8gb_nllb_con_motivo_a_schermo(router_env):
     assert 'NLLB' in text and '5.0' in text
 
 
-def test_router_gguf_mancanti_nllb_non_nf4_che_non_regge(router_env, tmp_path):
+def test_router_gguf_mancanti_torna_al_percorso_storico(router_env, tmp_path):
+    # Nessun GGUF (installer non ancora aggiornato): nulla cambia rispetto a prima, e il log lo dice.
     e = router_env.acquire(('cuda', 9.0, True), cfg_over={'llm_translator_gguf_dir': str(tmp_path / 'vuota')})
-    assert e is None and 'GGUF' in '\n'.join(router_env.logs)
+    assert e is not None and 'GGUF' in '\n'.join(router_env.logs)
+    assert router_env.calls and router_env.calls[-1][0] == 'legacy'
 
 
 def test_router_caricamento_gguf_fallito_ripiega_dichiarato(router_env):
@@ -316,14 +318,16 @@ def test_router_soglie_gguf_configurabili(router_env):
 
 
 def test_router_adattatore_lora_esclude_il_gguf(router_env):
-    assert router_env.acquire(('cuda', 7.6, True), adapter='/lora') is None
+    assert router_env.acquire(('cuda', 7.6, True), adapter='/lora') is not None      # percorso storico, non GGUF
+    assert 'LoRA' in '\n'.join(router_env.logs) or 'adapter' in '\n'.join(router_env.logs).lower()
     assert not any(c[0] == 'gguf' for c in router_env.calls)
 
 
 def test_router_llama_senza_gpu_o_assente(router_env):
-    assert router_env.acquire(('cuda', 7.6, False)) is None
+    assert router_env.acquire(('cuda', 7.6, False)) is not None      # senza GGUF utilizzabile: percorso storico dichiarato
     router_env.monkeypatch.setattr(pr.importlib.util, 'find_spec', lambda name: None)
-    assert router_env.acquire(('cuda', 7.6, True)) is None
+    assert router_env.acquire(('cuda', 7.6, True)) is not None
+    assert not any(c[0] == 'gguf' for c in router_env.calls)
 
 
 def test_router_vulkan_amd_usa_il_gguf_senza_bitsandbytes(router_env):
@@ -373,7 +377,7 @@ GG_KEYS = ['gg_ready', 'gg_path_chosen', 'gg_adapter_blocks_gguf', 'gg_llama_mis
            'gg_load_failed', 'gg_using_nllb', 'gg_reason_no_gpu', 'gg_reason_gguf_missing',
            'gg_reason_quant_unknown', 'gg_reason_vram_too_low', 'gg_reason_load_failed', 'gg_router_error',
            'gg_nllb_ft_unavailable', 'gg_err_llama', 'gg_err_file_missing', 'gg_err_no_gpu_offload', 'gg_err_load',
-           'gg_err_arch', 'gg_err_no_context', 'gg_load_failed_nf4']
+           'gg_err_arch', 'gg_err_no_context', 'gg_load_failed_nf4', 'gg_missing_legacy']
 
 
 @pytest.mark.parametrize('key', GG_KEYS)
