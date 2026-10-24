@@ -3,6 +3,13 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.30 — 2026-10-24 — Correzione urgente: l'app non si avviava su Windows
+
+- **Difetto (introdotto con la traduzione dell'interfaccia, fase B, 1.34.26):** `import utils` caricava `utils.translations`, che per rilevare la lingua importava PyQt6; su Windows PyQt6
+  caricato PRIMA di onnxruntime fa fallire l'avvio (`DLL load failed while importing onnxruntime_pybind11_state`). L'app partiva solo nei test e nella pipeline in processo figlio, non dalla GUI.
+- **Correzione:** `Translations._detect_language()` usa QLocale solo se PyQt6 e' gia' caricato (dopo `QApplication`, come prima per la GUI), senza mai importarlo lui. Test di regressione:
+  `import utils` non carica PyQt6 e onnxruntime si importa dopo.
+
 ## 1.34.29 — 2026-10-24 — Percorso GGUF in sottoprocesso pulito (risolto il crash su Windows); modelli GGUF su Hugging Face
 
 - **Il traduttore GGUF gira ora in un processo di lavoro separato** (`gguf_subprocess.py`, `gguf_worker.py`), con `llama_cpp` come primo import: su Windows, importato dopo `utils`/PyQt6, mandava in
