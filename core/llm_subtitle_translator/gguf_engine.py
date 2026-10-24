@@ -225,6 +225,13 @@ class GGUFEngine(SubtitleLLMEngine):
             raise RuntimeError(tr('gg_err_llama').format(exc=exc)) from exc
         if not Path(self.gguf_path).is_file():
             raise RuntimeError(tr('gg_err_file_missing').format(path=self.gguf_path))
+        try:
+            # Windows (ruote CUDA/Vulkan con backend caricati dinamicamente): llama_supports_gpu_offload() PRIMA di qualunque Llama()
+            # legge un registro dei backend ancora vuoto e va in access violation. llama_backend_init() e' quello che fa Llama() alla
+            # prima istanza (idempotente): lo si chiama prima del controllo.
+            ll.llama_backend_init()
+        except Exception as exc:
+            logger.debug(f"llama_backend_init: {exc}")
         if self.n_gpu_layers != 0 and not ll.llama_supports_gpu_offload():
             # Una ruota solo-CPU eseguirebbe un 12B sulla CPU: piu' lento di NLLB e senza averlo detto.
             raise RuntimeError(tr('gg_err_no_gpu_offload'))
