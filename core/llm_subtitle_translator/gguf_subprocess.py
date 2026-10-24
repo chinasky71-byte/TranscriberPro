@@ -108,7 +108,9 @@ class GGUFSubprocessEngine(GGUFEngine):
         tail = self._stderr_tail()
         self._failures += 1
         self._kill()
-        raise RuntimeError(why or tr('gg_err_worker_died').format(detail=tail or '-'))
+        msg = why or tr('gg_err_worker_died').format(detail=tail or '-')
+        self.log(msg)               # all'utente: chiaro, una volta (i blocchi dopo una morte ripetuta non lo ripetono)
+        raise RuntimeError(msg)
 
     @staticmethod
     def _raise(ev: Dict[str, Any]):
