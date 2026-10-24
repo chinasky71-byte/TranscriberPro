@@ -3,6 +3,12 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.32 — 2026-10-24 — Installer GGUF: testi ripristinati, sostituzione solo se l'impronta cambia
+
+- **Ripristinati i 38 testi `gd_*` dell'installer dei GGUF** persi nella 1.34.30 (rilascio che aveva sovrascritto `utils/translations.py` con una copia piu' vecchia): i messaggi del download tornano in italiano e inglese.
+- L'installer sostituisce un GGUF gia' presente solo se il suo SHA-256 e' diverso, avvisa quando lo fa, e segnala se il file e' in uso. Dati dei GGUF (nome, byte, SHA-256, repository) in un solo punto del codice.
+- Test nuovo: ogni chiave di `tr()` e `_tr()` usata nel codice esiste in inglese e in italiano con gli stessi segnaposto (core, utils, gui). Lavoro della sessione cloud (PR #24).
+
 ## 1.34.31 — 2026-10-24 — TranslateGemma in GGUF ACCESO di default; installer che scarica i modelli
 
 - **Il traduttore LLM usa di default i pesi GGUF quantizzati** (`llm_translator_gguf_enabled` e `llm_translator_gguf_before_nf4` a `True`; le voci delle versioni 1.34.27-1.34.29 che dicono "spento di default" sono superate).
