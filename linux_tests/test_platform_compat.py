@@ -142,3 +142,15 @@ def test_notify_linux_usa_notify_send_se_c_e_e_non_fa_nulla_altrimenti(monkeypat
     monkeypatch.setattr(q.shutil, 'which', lambda n: None)
     q.notify('Titolo', 'Messaggio')
     assert len(calls) == 1                                  # senza notify-send: nessun errore e nessun processo
+
+
+def test_process_alive_posix():
+    import os
+    assert pc.process_alive(os.getpid(), windows=False) is True
+    p = subprocess.Popen([sys.executable, '-c', 'pass'])
+    p.wait()
+    assert pc.process_alive(p.pid, windows=False) is False     # terminato e raccolto
+
+
+def test_point_stdout_handle_to_stderr_e_noop_fuori_da_windows():
+    assert pc.point_stdout_handle_to_stderr(windows=False) is False

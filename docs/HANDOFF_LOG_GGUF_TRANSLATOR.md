@@ -7,7 +7,40 @@ dietro `llm_translator_gguf_enabled` (default **False**) finche' il banco di qua
 Regole di flusso: una PR per fase; implementa, prova, revisione critica separata in sola lettura, correggi. Niente toccato:
 APP_VERSION, CHANGELOG, README, requirements*, pin (ctranslate2 4.6.0, llama-cpp-python 0.3.34), percorso NVIDIA.
 
+## 2026-10-24 · Obiettivo 1: motore GGUF in sottoprocesso pulito
+
+**Difetto**: `llama_supports_gpu_offload()` va in access violation su Windows (RTX 3060, llama-cpp-python 0.3.34) se `llama_cpp` e' importato DOPO `utils` (PyQt6), anche dopo `llama_backend_init()`. Nel processo figlio della pipeline `utils` e' gia' caricato: il percorso in-process non e' praticabile su Windows.
+
+**Fatto**: `core/llm_subtitle_translator/gguf_worker.py` (script lanciato direct, `llama_cpp` PRIMO import nativo; stdout reale deviato sull'stderr, protocollo su un duplicato privato) e `gguf_subprocess.py` (`GGUFSubprocessEngine`, sottoclasse di `GGUFEngine`: stessa interfaccia, stesso prompt, il modello resta caricato fra i file). `get_gguf_engine` restituisce il proxy di default (`in_process=True` per il worker, il banco e i test). Con il flag spento nulla cambia: il modulo si importa solo da `get_gguf_engine`.
+Robustezza (dalla revisione): id di richiesta e scarto delle risposte arretrate, righe non JSON ignorate, lettura da thread con tempi massimi (carico 900 s, blocco 600 s: larghi, servono solo a non bloccare la coda), `unload()` durante un `generate()` chiude il worker dopo 3 s, un solo riavvio dopo la morte del worker, lingua dell'app passata al worker, errori `UnknownLanguageError` conservati.
+
+**Se il worker muore o si pianta**: messaggio chiaro nel log dell'utente (con la coda dell'stderr nativo), i blocchi di quel giro restano vuoti e il traduttore a blocchi li manda ai livelli successivi (L2/L3: NLLB/Qwen), mai un blocco ne' un crash della pipeline; un solo riavvio, poi errore immediato senza ricaricare il 12B a ogni blocco; il Stop dell'utente (`cleanup()` -> `unload_gguf_engine`) chiude il figlio; se il genitore muore il figlio vede EOF su stdin ed esce. Protocollo: righe JSON su stdin/stdout (la VRAM e il modello restano nel figlio per tutta la coda; i file temporanei costringerebbero a ricaricare il modello a ogni blocco).
+
+**Test**: suite `linux_tests` con GGUF Gemma3 270M e Qwen su CPU (numeri nel PR). Provato su Linux CPU: il sottoprocesso da lo stesso testo del motore in-process, riparte dopo `unload`, l'errore `n_gpu_layers != 0` su ruota senza GPU arriva come errore; ordine di import (llama_cpp prima di utils) verificato con uno spy su `meta_path`; worker finto per rumore sul canale, timeout, annullo concorrente, morti ripetute, serializzazione.
+
+**Seconda revisione critica separata (nessun bloccante, 7 importanti corretti)**: Stop durante il caricamento (`unload_gguf_engine` chiude il figlio prima del lock di `get_gguf_engine`: `abort()`), nessun riavvio del 12B dopo uno Stop (`_cancelled`), figlio morto dopo `ready` (la causa arriva dall'stderr, non un broken pipe), rumore non ASCII sul canale (`errors='replace'`), `SetStdHandle` su Windows oltre a `dup2`, lettura dell'stderr dopo `kill`, watchdog nel figlio se il genitore muore anche senza EOF su stdin (`platform_compat.process_alive`); tetto assoluto ai tempi; messaggi nuovi con `tr()` EN/IT. Il lint di piattaforma imponeva di tenere `windll` in `utils/platform_compat.py` (`process_alive`, `point_stdout_handle_to_stderr`, `no_window_flags`).
+
+**Test**: `linux_tests` 427 passed, 17 skipped; con GGUF Gemma3 270M e Qwen su CPU: 437 passed, 7 skipped.
+
+**Non verificato**: l'access violation e' solo Windows: la prova reale la fa la sessione locale. **Che il crash Windows sparisca** (dipende dalla tesi "primo import nativo", dato della sessione locale); `dup2` su Windows con DLL che scrivono sull'handle standard, `CREATE_NO_WINDOW`, `TemporaryFile` come stderr su Windows; `torch/lib` sul PATH nel worker; eseguibile congelato PyInstaller (il worker usa `sys.executable` e lo script: non partirebbe da un exe); il percorso con `n_gpu_layers != 0` e GPU vera; il worker crea un secondo file di log in `~/.transcriberpro/logs`; stderr del worker non limitato in dimensione.
+
+## 2026-10-24 · Risultati del banco di qualita' (sessione locale, RTX 3060 12 GB, Windows, 900 righe)
+
+450 righe di *Deadpool 2* + 450 di *A Man Called Otto* (sottotitoli professionali allineati), giudizio alla cieca di 12 revisori indipendenti (75 righe ciascuno, i candidati di una riga allo stesso revisore), margine di non-inferiorita' scelto da Franz: 3 punti.
+
+| variante | errori gravi | tasso (IC95% Wilson) | diff da NF4 (IC95% Newcombe) | peggio/meglio | righe/s | picco VRAM MiB (base 649) | perse |
+|---|---|---|---|---|---|---|---|
+| NF4 | 59/900 | 6,6% [5,1-8,4] | - | - | 0,317 | 11178 (+10529) | 1 |
+| Q4_K_M | 56/900 | 6,2% [4,8-8,0] | -0,3 [-1,7; +1,0] | 16/19 | 4,411 | 9146 (+8528) | 2 |
+| Q3_K_M | 67/900 | 7,4% [5,9-9,3] | +0,9 [-0,8; +2,6] | 33/25 | 3,898 | 7944 (+7277) | 2 |
+| IQ3_M | 64/900 | 7,1% [5,6-9,0] | +0,6 [-1,2; +2,3] | 33/28 | 4,632 | 7470 (+6807) | 2 |
+
+Verdetto del banco con margine 3 punti: **NON INFERIORE per tutte e tre**. Validatore: softened_profanity NF4 12, Q4_K_M 7, Q3_K_M 11, IQ3_M 11; copy_through 2 per tutte. Glossario non misurato. Generazione NF4 2837 s contro 194-231 s; caricamento 3-4 s contro 26 s.
+**Limiti**: un solo tipo di giudice, un solo materiale, EN->IT, margine ampio, tasso assoluto severo (6-7%): vale il confronto fra varianti; una sola scheda e un solo driver, nessuna misura su 8-10 GB.
+
 ## 2026-10-24 · Correzione dal banco locale (sessione locale, v1.34.28)
+
+**CORREZIONE (stesso giorno)**: la patch 1.34.28 (`llama_backend_init()` prima di `llama_supports_gpu_offload()`) e' innocua ma **NON risolveva** il crash: l'access violation avviene anche dopo, se `llama_cpp` e' importato dopo `utils` (PyQt6). Funziona se prima si importa torch o se `llama_cpp` e' il primo import del processo. Rimedio: voce "Obiettivo 1" qui sopra.
 
 - **Bug trovato su Windows** (ruota llama-cpp-python 0.3.34 con backend dinamici): `GGUFEngine.load()` chiamava `llama_supports_gpu_offload()` prima di qualunque `Llama()` e andava in
   `OSError: access violation reading 0x0`. Corretto chiamando prima `llama_backend_init()`; test aggiunto (`test_backend_inizializzato_prima_di_supports_gpu_offload`). I test in cloud non lo vedevano
@@ -116,3 +149,8 @@ dimensiona sulla piu' grande; (f) il ripiego NLLB ricarica i pesi a ogni file.
 
 **Domande per l'utente**
 - Conferma della soglia NF4 a 10,5 GiB (vedi punto 1) e di `n_parallel` = 4 come valore di partenza.
+
+## Domande aperte e decisioni (24/10)
+- **Distribuzione dei GGUF agli utenti — decisione di Franz: si caricano su Hugging Face e l'installer li scarica** (`install.ps1`/`install.sh --with-models`). Oggi i pesi fine-tuned sono in una cartella locale dell'utente e i file intermedi sono ~50 GB; le tre quantizzazioni pesano 5-7 GiB ciascuna. Non fa parte di queste PR.
+- Il glossario e la revisione mirata devono usare lo stesso processo del traduttore GGUF? Aperta.
+
