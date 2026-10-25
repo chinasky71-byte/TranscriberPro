@@ -1,0 +1,61 @@
+{
+  "timestamp": "2026-10-25T12:28:55+01:00",
+  "label": "gpu-rocm-final-asr",
+  "git_commit": "21232d8",
+  "distro": "Ubuntu 26.04.1 LTS",
+  "kernel": "7.0.0-38-generic",
+  "arch": "x86_64",
+  "cpu": "AMD Ryzen 5 9600X 6-Core Processor",
+  "ram_gib": 30.0,
+  "python": "3.12.15",
+  "gpus": [
+    {
+      "vendor": "amd",
+      "name": "Radeon RX 9060 XT",
+      "vram_mib": 16304,
+      "vram_free_mib": 15796,
+      "driver": "amdgpu",
+      "integrated": null,
+      "pci_id": "1002:7590",
+      "compute_cap": null,
+      "source": "sysfs+lspci",
+      "bus_id": "0000:03:00.0",
+      "backends": [
+        "rocm",
+        "vulkan"
+      ],
+      "gfx": "gfx1200",
+      "gfx_source": "kfd",
+      "amd_family": "RDNA4",
+      "rocm_support": "official"
+    },
+    {
+      "vendor": "amd",
+      "name": "Radeon Graphics",
+      "vram_mib": 512,
+      "vram_free_mib": 85,
+      "driver": "amdgpu",
+      "integrated": null,
+      "pci_id": "1002:13c0",
+      "compute_cap": null,
+      "source": "sysfs+lspci",
+      "bus_id": "0000:15:00.0",
+      "backends": [
+        "rocm",
+        "vulkan"
+      ],
+      "gfx": "gfx1036",
+      "gfx_source": "kfd",
+      "amd_family": "RDNA2",
+      "rocm_support": "unofficial"
+    }
+  ],
+  "gpu_summary": "Radeon RX 9060 XT (gfx1200, RDNA4), 16304 MiB; Radeon Graphics (gfx1036, RDNA2), 512 MiB",
+  "torch": "2.10.0+rocm7.0",
+  "hip": "7.0.51831",
+  "cuda_available": true,
+  "device_count": 2,
+  "backend": "rocm",
+  "rocm_smi": "ROCM-SMI version: 4.0.0+unknown",
+  "amdgpu_version": ""
+}

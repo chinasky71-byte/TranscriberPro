@@ -1,0 +1,597 @@
+{
+  "environment": {
+    "timestamp": "2026-10-25T12:16:22+01:00",
+    "label": "gpu-rocm-final-translation",
+    "git_commit": "f87c326",
+    "distro": "Ubuntu 26.04.1 LTS",
+    "kernel": "7.0.0-38-generic",
+    "arch": "x86_64",
+    "cpu": "AMD Ryzen 5 9600X 6-Core Processor",
+    "ram_gib": 30.0,
+    "python": "3.12.15",
+    "gpus": [
+      {
+        "vendor": "amd",
+        "name": "Radeon RX 9060 XT",
+        "vram_mib": 16304,
+        "vram_free_mib": 15796,
+        "driver": "amdgpu",
+        "integrated": null,
+        "pci_id": "1002:7590",
+        "compute_cap": null,
+        "source": "sysfs+lspci",
+        "bus_id": "0000:03:00.0",
+        "backends": [
+          "rocm",
+          "vulkan"
+        ],
+        "gfx": "gfx1200",
+        "gfx_source": "kfd",
+        "amd_family": "RDNA4",
+        "rocm_support": "official"
+      },
+      {
+        "vendor": "amd",
+        "name": "Radeon Graphics",
+        "vram_mib": 512,
+        "vram_free_mib": 61,
+        "driver": "amdgpu",
+        "integrated": null,
+        "pci_id": "1002:13c0",
+        "compute_cap": null,
+        "source": "sysfs+lspci",
+        "bus_id": "0000:15:00.0",
+        "backends": [
+          "rocm",
+          "vulkan"
+        ],
+        "gfx": "gfx1036",
+        "gfx_source": "kfd",
+        "amd_family": "RDNA2",
+        "rocm_support": "unofficial"
+      }
+    ],
+    "gpu_summary": "Radeon RX 9060 XT (gfx1200, RDNA4), 16304 MiB; Radeon Graphics (gfx1036, RDNA2), 512 MiB",
+    "torch": "2.10.0+rocm7.0",
+    "hip": "7.0.51831",
+    "cuda_available": true,
+    "device_count": 2,
+    "backend": "rocm",
+    "rocm_smi": "ROCM-SMI version: 4.0.0+unknown",
+    "amdgpu_version": ""
+  },
+  "runs": [
+    {
+      "suite": "translation",
+      "engine": "nllb",
+      "run": 0,
+      "time_s": 23.820137410002644,
+      "peak_vram_mib": 12539,
+      "metrics": {
+        "wer": {
+          "rate": 0.5130434782608696,
+          "sub": 78,
+          "del": 11,
+          "ins": 29
+        },
+        "cer": {
+          "rate": 0.3554585152838428
+        },
+        "chrf": 0.756300317360424,
+        "similarity": 0.6150627615062761,
+        "untranslated_blocks": 1,
+        "blocks": 47,
+        "blocks_source": 47,
+        "untranslated_ratio": 0.02127659574468085,
+        "words_ref": 230,
+        "words_hyp": 248,
+        "source_words": 267
+      },
+      "output": "",
+      "error": "",
+      "device": "gpu"
+    },
+    {
+      "suite": "translation",
+      "engine": "nllb",
+      "run": 1,
+      "time_s": 17.62715344600292,
+      "peak_vram_mib": 12540,
+      "metrics": {
+        "wer": {
+          "rate": 0.5130434782608696,
+          "sub": 78,
+          "del": 11,
+          "ins": 29
+        },
+        "cer": {
+          "rate": 0.3554585152838428
+        },
+        "chrf": 0.756300317360424,
+        "similarity": 0.6150627615062761,
+        "untranslated_blocks": 1,
+        "blocks": 47,
+        "blocks_source": 47,
+        "untranslated_ratio": 0.02127659574468085,
+        "words_ref": 230,
+        "words_hyp": 248,
+        "source_words": 267
+      },
+      "output": "",
+      "error": "",
+      "device": "gpu"
+    },
+    {
+      "suite": "translation",
+      "engine": "nllb",
+      "run": 2,
+      "time_s": 17.896674048999557,
+      "peak_vram_mib": 12538,
+      "metrics": {
+        "wer": {
+          "rate": 0.5130434782608696,
+          "sub": 78,
+          "del": 11,
+          "ins": 29
+        },
+        "cer": {
+          "rate": 0.3554585152838428
+        },
+        "chrf": 0.756300317360424,
+        "similarity": 0.6150627615062761,
+        "untranslated_blocks": 1,
+        "blocks": 47,
+        "blocks_source": 47,
+        "untranslated_ratio": 0.02127659574468085,
+        "words_ref": 230,
+        "words_hyp": 248,
+        "source_words": 267
+      },
+      "output": "",
+      "error": "",
+      "device": "gpu"
+    },
+    {
+      "suite": "translation",
+      "engine": "nllb_finetuned",
+      "run": 0,
+      "time_s": 17.293674212996848,
+      "peak_vram_mib": 6286,
+      "metrics": {
+        "wer": {
+          "rate": 0.43043478260869567,
+          "sub": 63,
+          "del": 21,
+          "ins": 15
+        },
+        "cer": {
+          "rate": 0.30131004366812225
+        },
+        "chrf": 0.7595183416974817,
+        "similarity": 0.6563876651982379,
+        "untranslated_blocks": 2,
+        "blocks": 47,
+        "blocks_source": 47,
+        "untranslated_ratio": 0.0425531914893617,
+        "words_ref": 230,
+        "words_hyp": 224,
+        "source_words": 267
+      },
+      "output": "",
+      "error": "",
+      "device": "gpu"
+    },
+    {
+      "suite": "translation",
+      "engine": "nllb_finetuned",
+      "run": 1,
+      "time_s": 15.603625357005512,
+      "peak_vram_mib": 6285,
+      "metrics": {
+        "wer": {
+          "rate": 0.43043478260869567,
+          "sub": 63,
+          "del": 21,
+          "ins": 15
+        },
+        "cer": {
+          "rate": 0.30131004366812225
+        },
+        "chrf": 0.7595183416974817,
+        "similarity": 0.6563876651982379,
+        "untranslated_blocks": 2,
+        "blocks": 47,
+        "blocks_source": 47,
+        "untranslated_ratio": 0.0425531914893617,
+        "words_ref": 230,
+        "words_hyp": 224,
+        "source_words": 267
+      },
+      "output": "",
+      "error": "",
+      "device": "gpu"
+    },
+    {
+      "suite": "translation",
+      "engine": "nllb_finetuned",
+      "run": 2,
+      "time_s": 15.62215402199945,
+      "peak_vram_mib": 6285,
+      "metrics": {
+        "wer": {
+          "rate": 0.43043478260869567,
+          "sub": 63,
+          "del": 21,
+          "ins": 15
+        },
+        "cer": {
+          "rate": 0.30131004366812225
+        },
+        "chrf": 0.7595183416974817,
+        "similarity": 0.6563876651982379,
+        "untranslated_blocks": 2,
+        "blocks": 47,
+        "blocks_source": 47,
+        "untranslated_ratio": 0.0425531914893617,
+        "words_ref": 230,
+        "words_hyp": 224,
+        "source_words": 267
+      },
+      "output": "",
+      "error": "",
+      "device": "gpu"
+    },
+    {
+      "suite": "translation",
+      "engine": "llm",
+      "run": 0,
+      "time_s": 17.478481425998325,
+      "peak_vram_mib": 8798,
+      "metrics": {
+        "wer": {
+          "rate": 0.41304347826086957,
+          "sub": 65,
+          "del": 20,
+          "ins": 10
+        },
+        "cer": {
+          "rate": 0.308296943231441
+        },
+        "chrf": 0.7630007998891388,
+        "similarity": 0.6577777777777778,
+        "untranslated_blocks": 2,
+        "blocks": 47,
+        "blocks_source": 47,
+        "untranslated_ratio": 0.0425531914893617,
+        "words_ref": 230,
+        "words_hyp": 220,
+        "source_words": 267
+      },
+      "output": "",
+      "error": "",
+      "device": "gpu"
+    },
+    {
+      "suite": "translation",
+      "engine": "llm",
+      "run": 1,
+      "time_s": 14.523913974000607,
+      "peak_vram_mib": 8798,
+      "metrics": {
+        "wer": {
+          "rate": 0.41304347826086957,
+          "sub": 65,
+          "del": 20,
+          "ins": 10
+        },
+        "cer": {
+          "rate": 0.308296943231441
+        },
+        "chrf": 0.7630007998891388,
+        "similarity": 0.6577777777777778,
+        "untranslated_blocks": 2,
+        "blocks": 47,
+        "blocks_source": 47,
+        "untranslated_ratio": 0.0425531914893617,
+        "words_ref": 230,
+        "words_hyp": 220,
+        "source_words": 267
+      },
+      "output": "",
+      "error": "",
+      "device": "gpu"
+    },
+    {
+      "suite": "translation",
+      "engine": "llm",
+      "run": 2,
+      "time_s": 14.52949442499812,
+      "peak_vram_mib": 8798,
+      "metrics": {
+        "wer": {
+          "rate": 0.41304347826086957,
+          "sub": 65,
+          "del": 20,
+          "ins": 10
+        },
+        "cer": {
+          "rate": 0.308296943231441
+        },
+        "chrf": 0.7630007998891388,
+        "similarity": 0.6577777777777778,
+        "untranslated_blocks": 2,
+        "blocks": 47,
+        "blocks_source": 47,
+        "untranslated_ratio": 0.0425531914893617,
+        "words_ref": 230,
+        "words_hyp": 220,
+        "source_words": 267
+      },
+      "output": "",
+      "error": "",
+      "device": "gpu"
+    },
+    {
+      "suite": "translation",
+      "engine": "http:gemma4-12b-dense",
+      "run": 0,
+      "time_s": 29.477442378993146,
+      "peak_vram_mib": 9017,
+      "metrics": {
+        "wer": {
+          "rate": 0.41739130434782606,
+          "sub": 65,
+          "del": 11,
+          "ins": 20
+        },
+        "cer": {
+          "rate": 0.3170305676855895
+        },
+        "chrf": 0.7853015822315487,
+        "similarity": 0.673773987206823,
+        "untranslated_blocks": 1,
+        "blocks": 47,
+        "blocks_source": 47,
+        "untranslated_ratio": 0.02127659574468085,
+        "words_ref": 230,
+        "words_hyp": 239,
+        "source_words": 267
+      },
+      "output": "",
+      "error": "",
+      "device": "gpu"
+    },
+    {
+      "suite": "translation",
+      "engine": "http:gemma4-12b-dense",
+      "run": 1,
+      "time_s": 24.59326275100466,
+      "peak_vram_mib": 9017,
+      "metrics": {
+        "wer": {
+          "rate": 0.41739130434782606,
+          "sub": 65,
+          "del": 11,
+          "ins": 20
+        },
+        "cer": {
+          "rate": 0.3170305676855895
+        },
+        "chrf": 0.7853015822315487,
+        "similarity": 0.673773987206823,
+        "untranslated_blocks": 1,
+        "blocks": 47,
+        "blocks_source": 47,
+        "untranslated_ratio": 0.02127659574468085,
+        "words_ref": 230,
+        "words_hyp": 239,
+        "source_words": 267
+      },
+      "output": "",
+      "error": "",
+      "device": "gpu"
+    },
+    {
+      "suite": "translation",
+      "engine": "http:gemma4-12b-dense",
+      "run": 2,
+      "time_s": 25.45543284100131,
+      "peak_vram_mib": 9017,
+      "metrics": {
+        "wer": {
+          "rate": 0.41739130434782606,
+          "sub": 65,
+          "del": 11,
+          "ins": 20
+        },
+        "cer": {
+          "rate": 0.3170305676855895
+        },
+        "chrf": 0.7853015822315487,
+        "similarity": 0.673773987206823,
+        "untranslated_blocks": 1,
+        "blocks": 47,
+        "blocks_source": 47,
+        "untranslated_ratio": 0.02127659574468085,
+        "words_ref": 230,
+        "words_hyp": 239,
+        "source_words": 267
+      },
+      "output": "",
+      "error": "",
+      "device": "gpu"
+    },
+    {
+      "suite": "translation",
+      "engine": "http:gpt-oss-20b",
+      "run": 0,
+      "time_s": 21.478042340000684,
+      "peak_vram_mib": 11471,
+      "metrics": {
+        "wer": {
+          "rate": 0.45217391304347826,
+          "sub": 74,
+          "del": 13,
+          "ins": 17
+        },
+        "cer": {
+          "rate": 0.31965065502183404
+        },
+        "chrf": 0.7760242485756151,
+        "similarity": 0.6379310344827587,
+        "untranslated_blocks": 2,
+        "blocks": 47,
+        "blocks_source": 47,
+        "untranslated_ratio": 0.0425531914893617,
+        "words_ref": 230,
+        "words_hyp": 234,
+        "source_words": 267
+      },
+      "output": "",
+      "error": "",
+      "device": "gpu"
+    },
+    {
+      "suite": "translation",
+      "engine": "http:gpt-oss-20b",
+      "run": 1,
+      "time_s": 11.757372603999102,
+      "peak_vram_mib": 11471,
+      "metrics": {
+        "wer": {
+          "rate": 0.45217391304347826,
+          "sub": 74,
+          "del": 13,
+          "ins": 17
+        },
+        "cer": {
+          "rate": 0.31965065502183404
+        },
+        "chrf": 0.7760242485756151,
+        "similarity": 0.6379310344827587,
+        "untranslated_blocks": 2,
+        "blocks": 47,
+        "blocks_source": 47,
+        "untranslated_ratio": 0.0425531914893617,
+        "words_ref": 230,
+        "words_hyp": 234,
+        "source_words": 267
+      },
+      "output": "",
+      "error": "",
+      "device": "gpu"
+    },
+    {
+      "suite": "translation",
+      "engine": "http:gpt-oss-20b",
+      "run": 2,
+      "time_s": 11.799513994003064,
+      "peak_vram_mib": 11471,
+      "metrics": {
+        "wer": {
+          "rate": 0.45217391304347826,
+          "sub": 74,
+          "del": 13,
+          "ins": 17
+        },
+        "cer": {
+          "rate": 0.31965065502183404
+        },
+        "chrf": 0.7760242485756151,
+        "similarity": 0.6379310344827587,
+        "untranslated_blocks": 2,
+        "blocks": 47,
+        "blocks_source": 47,
+        "untranslated_ratio": 0.0425531914893617,
+        "words_ref": 230,
+        "words_hyp": 234,
+        "source_words": 267
+      },
+      "output": "",
+      "error": "",
+      "device": "gpu"
+    }
+  ],
+  "summary": [
+    {
+      "suite": "translation",
+      "engine": "http:gemma4-12b-dense",
+      "runs": 3,
+      "failed": 0,
+      "device": "gpu",
+      "backend": "rocm",
+      "hardware": "Radeon RX 9060 XT (gfx1200, RDNA4), 16304 MiB; Radeon Graphics (gfx1036, RDNA2), 512 MiB",
+      "time_s_median": 25.45543284100131,
+      "peak_vram_mib": 9017,
+      "wer": 0.41739130434782606,
+      "cer": 0.3170305676855895,
+      "chrf": 0.7853015822315487,
+      "similarity": 0.673773987206823,
+      "untranslated_ratio": 0.02127659574468085
+    },
+    {
+      "suite": "translation",
+      "engine": "http:gpt-oss-20b",
+      "runs": 3,
+      "failed": 0,
+      "device": "gpu",
+      "backend": "rocm",
+      "hardware": "Radeon RX 9060 XT (gfx1200, RDNA4), 16304 MiB; Radeon Graphics (gfx1036, RDNA2), 512 MiB",
+      "time_s_median": 11.799513994003064,
+      "peak_vram_mib": 11471,
+      "wer": 0.45217391304347826,
+      "cer": 0.31965065502183404,
+      "chrf": 0.7760242485756151,
+      "similarity": 0.6379310344827587,
+      "untranslated_ratio": 0.0425531914893617
+    },
+    {
+      "suite": "translation",
+      "engine": "llm",
+      "runs": 3,
+      "failed": 0,
+      "device": "gpu",
+      "backend": "rocm",
+      "hardware": "Radeon RX 9060 XT (gfx1200, RDNA4), 16304 MiB; Radeon Graphics (gfx1036, RDNA2), 512 MiB",
+      "time_s_median": 14.52949442499812,
+      "peak_vram_mib": 8798,
+      "wer": 0.41304347826086957,
+      "cer": 0.308296943231441,
+      "chrf": 0.7630007998891388,
+      "similarity": 0.6577777777777778,
+      "untranslated_ratio": 0.0425531914893617
+    },
+    {
+      "suite": "translation",
+      "engine": "nllb",
+      "runs": 3,
+      "failed": 0,
+      "device": "gpu",
+      "backend": "rocm",
+      "hardware": "Radeon RX 9060 XT (gfx1200, RDNA4), 16304 MiB; Radeon Graphics (gfx1036, RDNA2), 512 MiB",
+      "time_s_median": 17.896674048999557,
+      "peak_vram_mib": 12540,
+      "wer": 0.5130434782608696,
+      "cer": 0.3554585152838428,
+      "chrf": 0.756300317360424,
+      "similarity": 0.6150627615062761,
+      "untranslated_ratio": 0.02127659574468085
+    },
+    {
+      "suite": "translation",
+      "engine": "nllb_finetuned",
+      "runs": 3,
+      "failed": 0,
+      "device": "gpu",
+      "backend": "rocm",
+      "hardware": "Radeon RX 9060 XT (gfx1200, RDNA4), 16304 MiB; Radeon Graphics (gfx1036, RDNA2), 512 MiB",
+      "time_s_median": 15.62215402199945,
+      "peak_vram_mib": 6286,
+      "wer": 0.43043478260869567,
+      "cer": 0.30131004366812225,
+      "chrf": 0.7595183416974817,
+      "similarity": 0.6563876651982379,
+      "untranslated_ratio": 0.0425531914893617
+    }
+  ]
+}

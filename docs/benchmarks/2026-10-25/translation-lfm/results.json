@@ -1,0 +1,173 @@
+{
+  "environment": {
+    "timestamp": "2026-10-25T12:24:02+01:00",
+    "label": "gpu-rocm-lfm",
+    "git_commit": "f87c326",
+    "distro": "Ubuntu 26.04.1 LTS",
+    "kernel": "7.0.0-38-generic",
+    "arch": "x86_64",
+    "cpu": "AMD Ryzen 5 9600X 6-Core Processor",
+    "ram_gib": 30.0,
+    "python": "3.12.15",
+    "gpus": [
+      {
+        "vendor": "amd",
+        "name": "Radeon RX 9060 XT",
+        "vram_mib": 16304,
+        "vram_free_mib": 15796,
+        "driver": "amdgpu",
+        "integrated": null,
+        "pci_id": "1002:7590",
+        "compute_cap": null,
+        "source": "sysfs+lspci",
+        "bus_id": "0000:03:00.0",
+        "backends": [
+          "rocm",
+          "vulkan"
+        ],
+        "gfx": "gfx1200",
+        "gfx_source": "kfd",
+        "amd_family": "RDNA4",
+        "rocm_support": "official"
+      },
+      {
+        "vendor": "amd",
+        "name": "Radeon Graphics",
+        "vram_mib": 512,
+        "vram_free_mib": 53,
+        "driver": "amdgpu",
+        "integrated": null,
+        "pci_id": "1002:13c0",
+        "compute_cap": null,
+        "source": "sysfs+lspci",
+        "bus_id": "0000:15:00.0",
+        "backends": [
+          "rocm",
+          "vulkan"
+        ],
+        "gfx": "gfx1036",
+        "gfx_source": "kfd",
+        "amd_family": "RDNA2",
+        "rocm_support": "unofficial"
+      }
+    ],
+    "gpu_summary": "Radeon RX 9060 XT (gfx1200, RDNA4), 16304 MiB; Radeon Graphics (gfx1036, RDNA2), 512 MiB",
+    "torch": "2.10.0+rocm7.0",
+    "hip": "7.0.51831",
+    "cuda_available": true,
+    "device_count": 2,
+    "backend": "rocm",
+    "rocm_smi": "ROCM-SMI version: 4.0.0+unknown",
+    "amdgpu_version": ""
+  },
+  "runs": [
+    {
+      "suite": "translation",
+      "engine": "http:lfm2.5-24b-a2b",
+      "run": 0,
+      "time_s": 17.605226066996693,
+      "peak_vram_mib": 11137,
+      "metrics": {
+        "wer": {
+          "rate": 0.8260869565217391,
+          "sub": 77,
+          "del": 7,
+          "ins": 106
+        },
+        "cer": {
+          "rate": 0.6803493449781659
+        },
+        "chrf": 0.7407974522374533,
+        "similarity": 0.5402504472271914,
+        "untranslated_blocks": 2,
+        "blocks": 47,
+        "blocks_source": 47,
+        "untranslated_ratio": 0.0425531914893617,
+        "words_ref": 230,
+        "words_hyp": 329,
+        "source_words": 267
+      },
+      "output": "",
+      "error": "",
+      "device": "gpu"
+    },
+    {
+      "suite": "translation",
+      "engine": "http:lfm2.5-24b-a2b",
+      "run": 1,
+      "time_s": 11.374884513003053,
+      "peak_vram_mib": 11137,
+      "metrics": {
+        "wer": {
+          "rate": 0.8260869565217391,
+          "sub": 77,
+          "del": 7,
+          "ins": 106
+        },
+        "cer": {
+          "rate": 0.6803493449781659
+        },
+        "chrf": 0.7407974522374533,
+        "similarity": 0.5402504472271914,
+        "untranslated_blocks": 2,
+        "blocks": 47,
+        "blocks_source": 47,
+        "untranslated_ratio": 0.0425531914893617,
+        "words_ref": 230,
+        "words_hyp": 329,
+        "source_words": 267
+      },
+      "output": "",
+      "error": "",
+      "device": "gpu"
+    },
+    {
+      "suite": "translation",
+      "engine": "http:lfm2.5-24b-a2b",
+      "run": 2,
+      "time_s": 11.33788786700461,
+      "peak_vram_mib": 11137,
+      "metrics": {
+        "wer": {
+          "rate": 0.8260869565217391,
+          "sub": 77,
+          "del": 7,
+          "ins": 106
+        },
+        "cer": {
+          "rate": 0.6803493449781659
+        },
+        "chrf": 0.7407974522374533,
+        "similarity": 0.5402504472271914,
+        "untranslated_blocks": 2,
+        "blocks": 47,
+        "blocks_source": 47,
+        "untranslated_ratio": 0.0425531914893617,
+        "words_ref": 230,
+        "words_hyp": 329,
+        "source_words": 267
+      },
+      "output": "",
+      "error": "",
+      "device": "gpu"
+    }
+  ],
+  "summary": [
+    {
+      "suite": "translation",
+      "engine": "http:lfm2.5-24b-a2b",
+      "runs": 3,
+      "failed": 0,
+      "device": "gpu",
+      "backend": "rocm",
+      "hardware": "Radeon RX 9060 XT (gfx1200, RDNA4), 16304 MiB; Radeon Graphics (gfx1036, RDNA2), 512 MiB",
+      "time_s_median": 11.374884513003053,
+      "peak_vram_mib": 11137,
+      "wer": 0.8260869565217391,
+      "cer": 0.6803493449781659,
+      "chrf": 0.7407974522374533,
+      "similarity": 0.5402504472271914,
+      "untranslated_ratio": 0.0425531914893617
+    }
+  ]
+}

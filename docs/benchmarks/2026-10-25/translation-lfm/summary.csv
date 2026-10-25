@@ -1,0 +1,2 @@
+suite,engine,runs,failed,device,backend,hardware,time_s_median,peak_vram_mib,wer,cer,chrf,similarity,untranslated_ratio
+translation,http:lfm2.5-24b-a2b,3,0,gpu,rocm,Radeon RX 9060 XT (gfx1200, RDNA4), 16304 MiB; Radeon Graphics (gfx1036, RDNA2), 512 MiB,11.374884513003053,11137,0.8260869565217391,0.6803493449781659,0.7407974522374533,0.5402504472271914,0.0425531914893617
