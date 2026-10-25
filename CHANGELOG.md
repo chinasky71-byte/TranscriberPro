@@ -3,6 +3,15 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.34 — 2026-10-25 — Correzioni dalla validazione su GPU AMD (Linux/ROCm) e criterio di successo della traduzione
+
+- **Prima prova reale su AMD** (Radeon RX 9060 XT, ROCm 7.0, Ubuntu): rapporto in `docs/VALIDAZIONE_AMD_2026-10-24.md`. Correzioni: `torchaudio.info` (rimosso da torchaudio 2.9/2.10) sostituito da `soundfile`;
+  NLLB su ROCm sul solo dispositivo 0 (con una iGPU AMD `device_map="auto"` mandava i layer su entrambe e la generazione moriva); ctranslate2 inizializzato prima di torch su Linux (SIGSEGV di Whisper su ROCm,
+  `utils/ct2_bootstrap.py`, **solo Linux**: su Windows l'ordine degli import non cambia).
+- **Criterio di successo della traduzione** (vale su tutte le piattaforme): una traduzione con oltre l'80% dei blocchi rimasti nella lingua di partenza (`translation_max_untranslated_pct`) o con un errore GPU
+  sistemico non e' piu' data per riuscita (prima il file veniva salvato come tradotto con exit 0). Test in `linux_tests/test_translation_success_gate.py`.
+- Lavoro della sessione cloud (PR #28), controllato in locale: suite verde e avvio della finestra verificato su Windows.
+
 ## 1.34.33 — 2026-10-25 — Lingua per voto su piu' blocchi, attesa della VRAM prima della traduzione, barra della correzione di genere
 
 - **Rilevamento automatico della lingua per voto** su piu' blocchi sparsi (Qwen3 e faster-whisper, `core/lang_vote.py`) invece di un solo campione.
