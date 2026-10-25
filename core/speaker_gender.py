@@ -286,8 +286,8 @@ class SpeakerGenderMapper:
             if progress_callback is not None:
                 try:
                     progress_callback(f)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"progress_callback fallita: {e}")
 
         import torch
         import torchaudio
@@ -302,6 +302,7 @@ class SpeakerGenderMapper:
                 self.extract_audio(str(src), wav, language=audio_language)
 
             # Diarization (riuso o calcolo): senza avanzamento interno, pesa solo se va calcolata
+            # (pesi: estrazione audio, diarization; il resto della mappa e' la classificazione dei parlanti)
             w_audio, w_diar = (0.1, 0.5) if diarization is None else (0.2, 0.0)
             _progress(w_audio)
             if diarization is None:
