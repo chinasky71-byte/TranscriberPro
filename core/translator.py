@@ -1086,13 +1086,16 @@ _nllb_ft_tokenizer = None
 _nllb_ft_lock = Lock()
 _use_gpu = torch.cuda.is_available()
 _device = 'cuda' if _use_gpu else 'cpu'
-# NLLB: NON usare device_map="auto". Su macchine con iGPU AMD + dGPU (es.
+# NLLB su ROCm: NON usare device_map="auto". Su macchine con iGPU AMD + dGPU (es.
 # Ryzen con Radeon Graphics + RX 9060 XT) accelerate distribuisce i layer su
 # ENTRAMBI i device; l'iGPU (gfx1036) non ha i kernel compilati per alcune
 # operazioni e la generazione muore con "HIP error: invalid device
 # function" (verificato il 24/10/2026 su ROCm 7.0). NLLB-3.3B fp16 occupa
 # ~6.6 GB: entra su una sola GPU. Fissiamo quindi il device 0.
-_NLLB_DEVICE_MAP = {'': 0} if _use_gpu else 'auto'
+# Solo su ROCm: su CUDA 'auto' serve al ramo 8-bit con offload fp32 su CPU
+# (VRAM limitata), che con {'': 0} non funzionerebbe piu'.
+_NLLB_DEVICE_MAP = ({'': 0} if _use_gpu and getattr(torch.version, 'hip', None)
+                    else 'auto')
 
 
 def _load_nllb_model(model_name: str = "facebook/nllb-200-3.3B"):
