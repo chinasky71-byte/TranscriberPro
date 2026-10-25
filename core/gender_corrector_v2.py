@@ -35,6 +35,8 @@ from typing import Callable, List, Optional, Tuple
 # WARNING di default e ogni logger.debug() qui dentro veniva scartato PRIMA
 # di raggiungere il file condiviso — stesso difetto già trovato e corretto
 # in utils/adaptive_batch_manager.py.
+from utils.eta import EtaEstimator
+from utils.events import emit as _tp_emit
 from utils.logger import setup_logger
 from utils.platform_compat import venv_python
 from utils.translations import tr
@@ -160,6 +162,48 @@ def _diag_addressee_gender(gmap, t0: float, t1: float):
     return spk, gender, conf, reason
 
 
+# Peso delle fasi sulla barra (selettore spaCy, mappa genere dall'audio, riscrittura delle righe).
+# Il selettore e la mappa non danno avanzamento interno fino alla loro fine, tranne i parlanti classificati.
+_BAR_SELECTOR_END = 0.10
+_BAR_MAP_END = 0.90
+
+
+class _GenderBar:
+    """Barra della correzione di genere: riga di log (si aggiorna sul posto nella card) ed evento `bar` con ETA.
+
+    `set(frazione)` accetta 0..1 monotona; emette solo quando la percentuale intera cambia. Va creata
+    all'inizio del lavoro: l'ETA conta dal momento della creazione."""
+
+    def __init__(self, log: Callable[[str], None]):
+        self._log = log
+        self._eta = EtaEstimator()
+        self._last = -1
+
+    def set(self, fraction: float) -> None:
+        pct = int(max(0.0, min(float(fraction), 1.0)) * 100)
+        if pct <= self._last:
+            return
+        self._last = pct
+        eta_s = None
+        if pct < 100:
+            self._eta.update(pct / 100.0)
+            eta_s = self._eta.eta_seconds()
+        _tp_emit('bar', phase='gender', pct=pct, eta_s=eta_s)
+        if pct >= 100:
+            self._log(tr('g2_progress_done'))
+        else:
+            bar = '\u2588' * (pct // 10) + '\u2591' * (10 - pct // 10)
+            eta_str = "-" if eta_s is None else (f"~{eta_s}s" if eta_s < 60 else f"~{int(eta_s / 60 + 0.5)}m")
+            self._log(tr('g2_progress_eta').format(bar=bar, progress=pct, eta_str=eta_str))
+
+    def close_silently(self) -> None:
+        """Fase conclusa senza lavoro reale (salti, selettore assente): chiude la barra della card senza
+        la riga "100%" nel log, che direbbe una cosa non vera."""
+        if self._last < 100:
+            self._last = 100
+            _tp_emit('bar', phase='gender', pct=100)
+
+
 class GenderCorrectorV2:
     """Nuovo motore di correzione genere (deterministico, audio-driven)."""
 
@@ -168,6 +212,7 @@ class GenderCorrectorV2:
         self._log_cb = log_callback
         self.conf_threshold = conf_threshold
         self._mapper = None
+        self._bar = _GenderBar(self._log)       # rimpiazzata a ogni correct_file
 
     def _log(self, msg: str):
         if self._log_cb:
@@ -209,6 +254,18 @@ class GenderCorrectorV2:
                      video_path: Optional[Path] = None,
                      diarization: Optional[list] = None,
                      character_context: Optional[dict] = None) -> bool:
+        """Corregge il genere con barra di avanzamento ed ETA (v. _correct_file)."""
+        self._bar = _GenderBar(self._log)
+        self._bar.set(0.0)
+        ok = self._correct_file(srt_path, output_path, video_path, diarization, character_context)
+        if ok:
+            self._bar.close_silently()      # no-op se il lavoro e' arrivato in fondo (100% gia' emesso)
+        return ok
+
+    def _correct_file(self, srt_path: Path, output_path: Path,
+                      video_path: Optional[Path] = None,
+                      diarization: Optional[list] = None,
+                      character_context: Optional[dict] = None) -> bool:
         """Corregge il genere di 1ª persona in un SRT tradotto.
 
         Args:
@@ -233,6 +290,7 @@ class GenderCorrectorV2:
             shutil.copy(srt_path, output_path)
             return True
         tokens_per_line, tokens_p2_per_line = sel_out
+        self._bar.set(_BAR_SELECTOR_END)
 
         from utils.config import get_config as _gc
         if not bool(_gc().get('gender_correction_second_person', True)):
@@ -260,7 +318,11 @@ class GenderCorrectorV2:
         self._mapper = SpeakerGenderMapper(
             hf_token, log_callback=self._log,
             conf_threshold=self.conf_threshold)
-        gmap = self._mapper.build_map(str(video_path), diarization=diarization)
+        gmap = self._mapper.build_map(
+            str(video_path), diarization=diarization,
+            progress_callback=lambda f: self._bar.set(
+                _BAR_SELECTOR_END + (_BAR_MAP_END - _BAR_SELECTOR_END) * f))
+        self._bar.set(_BAR_MAP_END)
         for spk, sg in sorted(gmap.speakers.items()):
             logger.debug(
                 f"Speaker {spk}: gender={sg.gender} conf={sg.confidence:.2f} "
@@ -278,7 +340,8 @@ class GenderCorrectorV2:
                 'p2': {'no_turn': 0, 'overlapping_scene': 0, 'no_addressee': 0,
                        'not_strict': 0, 'low_confidence': 0, 'no_votes': 0}}
         new_cues = list(cues)
-        for i in candidates:
+        for n_done, i in enumerate(candidates):
+            self._bar.set(_BAR_MAP_END + (1.0 - _BAR_MAP_END) * n_done / len(candidates))
             idx, start, end, text = cues[i]
             if _DIALOG_RE.search(text):
                 stats['dialog'] += 1          # due parlanti: mai toccare
@@ -332,6 +395,7 @@ class GenderCorrectorV2:
                     if esito2 == 'rewritten':
                         esito = 'rewritten'
                         applied_gender = a_gender
+            self._bar.set(_BAR_MAP_END + (1.0 - _BAR_MAP_END) * (n_done + 1) / len(candidates))
             if esito == 'rewritten':
                 # riporta il testo su singola riga corretta preservando
                 # gli a-capo originali quando possibile
@@ -348,6 +412,7 @@ class GenderCorrectorV2:
                     f"Riga {idx}: '{text}' -> '{new_text}' ({applied_gender})")
 
         output_path.write_text(_generate_srt(new_cues), encoding='utf-8')
+        self._bar.set(1.0)
 
         self._log(tr('g2_gender_correction_v2_lines_rewritten').format(rewritten=stats['rewritten'], unchanged=stats['unchanged'], unknown=stats['unknown'], dialog=stats['dialog'], rejected=stats['rejected']))
         if stats['unknown']:
