@@ -1,128 +1,140 @@
-# Validazione AMD — 24/10/2026
+# AMD validation — 2026-10-24
 
-Esecuzione della checklist `docs/PROVA_AMD_COMPLETA.md` su Linux + GPU AMD.
-Le prove GUI (Sezioni 3 e 5) sono state **saltate per decisione dell'utente**
-(nessun display nella sessione di test).
+Execution of the checklist `docs/PROVA_AMD_COMPLETA.md` on Linux + AMD GPU.
+The GUI tests (Sections 3 and 5) were **skipped by user decision** (no display
+in the test session).
 
-## Ambiente (Sezione 0)
+> This report was translated from Italian to English to comply with the
+> repository documentation rule (`AGENTS.md`). The file name is unchanged so
+> existing links keep working.
 
-| Voce | Valore |
+## Environment (Section 0)
+
+| Item | Value |
 |---|---|
-| Distribuzione | Ubuntu 26.04.1 LTS |
+| Distribution | Ubuntu 26.04.1 LTS |
 | Kernel | 7.0.0-38-generic |
 | GPU | **Radeon RX 9060 XT 16 GB — gfx1200, RDNA4, ROCm "official"** |
-| IGPU | Radeon Graphics gfx1036 (RDNA2) — non usata per i calcoli |
-| `/dev/kfd` | accessibile all’utente che esegue i test |
-| Gruppi | `render`, `video`, `sudo` presenti |
-| Driver | `amdgpu` caricato — **mai modificato** |
-| ROCm di sistema | assente (`/opt/rocm`, `rocminfo`); non necessario: le wheel portano il runtime |
-| Libdrm | `libdrm_amdgpu.so.1` presente; warning `amdgpu.ids` cosmetico |
-| Spazio iniziale | 110 GB liberi |
-| Python | solo 3.14.4 di sistema → installato CPython 3.12.15 standalone in `.tools/` |
+| IGPU | Radeon Graphics gfx1036 (RDNA2) — not used for compute |
+| `/dev/kfd` | accessible to the user running the tests |
+| Groups | `render`, `video`, `sudo` present |
+| Driver | `amdgpu` loaded — **never modified** |
+| System ROCm | absent (`/opt/rocm`, `rocminfo`); not required: the wheels ship the runtime |
+| Libdrm | `libdrm_amdgpu.so.1` present; `amdgpu.ids` warning is cosmetic |
+| Initial disk space | 110 GB free |
+| Python | system only 3.14.4 → standalone CPython 3.12.15 installed in `.tools/` |
 
-Versioni effettive: Python 3.12.15, torch 2.10.0+rocm7.0 (HIP 7.0.51831),
+Actual versions: Python 3.12.15, torch 2.10.0+rocm7.0 (HIP 7.0.51831),
 ctranslate2 4.8.3, transformers 4.57.6, faster-whisper 1.2.1, llama_cpp 0.3.34,
 soundfile 0.13.1, ffmpeg 8.0.1, tesseract 5.5.0 (eng+ita+osd), mkvtoolnix 97.
 
-## Sezione 1 — Installazione
+## Section 1 — Installation
 
-| # | Prova | Esito | Note |
+| # | Test | Result | Notes |
 |---|---|---|---|
-| 1.1 | `install.sh --gpu-backend=rocm --check` | **OK** | exit 0 dopo l'installazione di Python 3.12; prima: KO su python/ffmpeg/tesseract |
-| 1.2 | `install.sh --gpu-backend=rocm --yes` | **OK** | exit 0, venv 15 GB, selfcheck senza KO, ~12 GB scaricati. Nessun sudo, nessun pacchetto di sistema toccato dallo script |
-| 1.3 | Fallback Vulkan (RDNA1 o precedente) | **SALTATO** | scheda RDNA4: non serve |
+| 1.1 | `install.sh --gpu-backend=rocm --check` | **OK** | exit 0 after installing Python 3.12; before: KO on python/ffmpeg/tesseract |
+| 1.2 | `install.sh --gpu-backend=rocm --yes` | **OK** | exit 0, 15 GB venv, selfcheck without KO, ~12 GB downloaded. No sudo, no system package touched by the script |
+| 1.3 | Vulkan fallback (RDNA1 or older) | **SKIPPED** | RDNA4 card: not needed |
 
-Dipendenze di sistema installate a parte (utente, `apt`, **solo 15 pacchetti
-nuovi, zero upgrade**): ffmpeg, mkvtoolnix, tesseract-ocr + ita/eng.
-Nessun pacchetto mesa/libdrm/amdgpu/kernel/xorg/wayland è stato toccato.
+System dependencies installed separately (user, `apt`, **only 15 new
+packages, zero upgrades**): ffmpeg, mkvtoolnix, tesseract-ocr + ita/eng.
+No mesa/libdrm/amdgpu/kernel/xorg/wayland package was touched.
 
-## Sezione 2 — Rilevamento e smoke test
+## Section 2 — Detection and smoke test
 
-| # | Prova | Esito | Dettaglio |
+| # | Test | Result | Detail |
 |---|---|---|---|
-| 2.1 | `gpu_detect.py --json` | **OK** | RX 9060 XT, gfx1200, RDNA4, official; backend consigliato `rocm` |
-| 2.2 | `amd_smoke_test.py --whisper` | **OK** | torch/HIP ok (matmul 0.268 s), ctranslate2 2 device, bf16/fp16/int8, llama.cpp Vulkan `gpu_offload=true`, Whisper tiny su GPU ok |
-| 2.3 | GGUF/Vulkan | **OK (coperto da 4.8)** | TranslateGemma GGUF Q4_K_M caricato ed eseguito su Vulkan |
+| 2.1 | `gpu_detect.py --json` | **OK** | RX 9060 XT, gfx1200, RDNA4, official; recommended backend `rocm` |
+| 2.2 | `amd_smoke_test.py --whisper` | **OK** | torch/HIP ok (matmul 0.268 s), ctranslate2 2 devices, bf16/fp16/int8, llama.cpp Vulkan `gpu_offload=true`, Whisper tiny on GPU ok |
+| 2.3 | GGUF/Vulkan | **OK (covered by 4.8)** | TranslateGemma GGUF Q4_K_M loaded and run on Vulkan |
 
-Rapporto: `amd_smoke_report.txt`.
+Report: `amd_smoke_report.txt`.
 
-## Sezione 3 — App GUI
+## Section 3 — GUI app
 
-`SALTATO` integralmente su decisione dell'utente (nessun display).
+`SKIPPED` entirely by user decision (no display).
 
-## Sezione 4 — Elaborazione reale
+## Section 4 — Real processing
 
-Input: `samples/prova_amd_test.mp4` (130,6 s, audio inglese a due voci).
-Atteso: `samples/testo_atteso.txt`.
+Input: `samples/prova_amd_test.mp4` (130.6 s, two-voice English audio).
+Expected: `samples/testo_atteso.txt`.
 
-| # | Step | Esito | Tempo | Picco VRAM | Note |
+| # | Step | Result | Time | Peak VRAM | Notes |
 |---|---|---|---|---|---|
-| 4.1 | **Whisper large-v3** (`faster-whisper`) | **OK** | 29–32 s | **9207 MiB** | auto-detect `en`; 23 blocchi SRT; **similarità 98,8%** (solo "thirty percent"→"30%") |
-| 4.2 | **Qwen3-ASR-1.7B** | **OK** | 44 s | **7254 MiB** | bf16; **similarità 99,5%** |
-| 4.3 | Canary | **OK (fallback)** | 31 s | ~9 GB | NeMo/ROCm non disponibile → fallback automatico a Faster-Whisper, come previsto |
-| 4.4 | Modalità `auto` | **OK** | 45 s | ~7 GB | lingua `und` → Qwen3 auto-detect |
-| 4.5 | Demucs + pyannote | **OK / SALTATO** | 29 s | ~9 GB | Demucs gira su GPU; diarizzazione saltata: token HF assente (modelli gated 401), job completato |
-| 4.6 | Punteggiatura | **OK** | — | — | Whisper/Qwen3 producono punteggiatura nativa; restorer non necessario |
-| 4.7 | **NLLB-200-3.3B** | **OK** | 64–69 s | **12857 MiB** | en→it, `residual source language: 0`, traduzione corretta |
-| 4.8 | **TranslateGemma-12B GGUF Q4_K_M** | **OK** | 62–66 s | **9454 MiB** | llama.cpp su **Vulkan**, 4 sequenze parallele, residual 0 |
-| 4.9 | Glossario (Qwen2.5-14B) | **SALTATO** | — | — | workflow GUI su più episodi + GGUF ~9 GB; la parte Vulkan è coperta da 4.8 |
-| 4.10 | OCR PGS/VOBSUB + genere | **SALTATO** | — | — | il sample non ha sottotitoli bitmap; gender richiede diarizzazione/token |
+| 4.1 | **Whisper large-v3** (`faster-whisper`) | **OK** | 29–32 s | **9207 MiB** | auto-detect `en`; 23 SRT blocks; **98.8% similarity** (only "thirty percent" → "30%") |
+| 4.2 | **Qwen3-ASR-1.7B** | **OK** | 44 s | **7254 MiB** | bf16; **99.5% similarity** |
+| 4.3 | Canary | **OK (fallback)** | 31 s | ~9 GB | NeMo/ROCm unavailable → automatic fallback to Faster-Whisper, as expected |
+| 4.4 | `auto` mode | **OK** | 45 s | ~7 GB | language `und` → Qwen3 auto-detect |
+| 4.5 | Demucs + pyannote | **OK / SKIPPED** | 29 s | ~9 GB | Demucs runs on GPU; diarization skipped: no HF token (gated models returned 401), job completed |
+| 4.6 | Punctuation | **OK** | — | — | Whisper/Qwen3 produce native punctuation; restorer not needed |
+| 4.7 | **NLLB-200-3.3B** | **OK** | 64–69 s | **12857 MiB** | en→it, `residual source language: 0`, correct translation |
+| 4.8 | **TranslateGemma-12B GGUF Q4_K_M** | **OK** | 62–66 s | **9454 MiB** | llama.cpp on **Vulkan**, 4 parallel sequences, residual 0 |
+| 4.9 | Glossary (Qwen2.5-14B) | **SKIPPED** | — | — | GUI workflow over multiple episodes + ~9 GB GGUF; the Vulkan part is covered by 4.8 |
+| 4.10 | PGS/VOBSUB OCR + gender | **SKIPPED** | — | — | the sample has no bitmap subtitles; gender requires diarization/token |
 
-Nessun errore `out of memory`, `segmentation fault` o `Aborted` nei test
-eseguiti **dopo i fix** sotto. Restano warning MIOpen innocui
-(`IsEnoughWorkspace`) e i warning torch su flash/mem-efficient attention ROCm
-sperimentale.
+No `out of memory`, `segmentation fault` or `Aborted` errors in the tests run
+**after the fixes** below. Only harmless MIOpen warnings
+(`IsEnoughWorkspace`) and torch warnings about experimental ROCm
+flash/mem-efficient attention remain.
 
-## Sezione 5 — Coda e interfaccia
+## Section 5 — Queue and UI
 
-`SALTATO` (5.1–5.3): richiede la GUI. La coda headless (`core.queue_runner`)
-è stata comunque usata per tutti i test e ha funzionato (stato, log, exit code).
+`SKIPPED` (5.1–5.3): requires the GUI. The headless queue
+(`core.queue_runner`) was used for all tests and worked (status, logs, exit
+codes).
 
-## Sezione 6 — Difetti trovati e corretti
+## Section 6 — Defects found and fixed
 
-Tre problemi reali bloccavano la pipeline su AMD. Correzioni committate sul
-branch `test/amd-rocm-validazione`.
+Three real problems blocked the pipeline on AMD. The fixes are merged into
+`master` (1.34.34); two platform guards were refined during review (PR #28),
+as noted below.
 
-### 1. `torchaudio.info` rimosso in torchaudio 2.10
-`core/audio_processor.py` usava `torchaudio.info` in modalità batched. Con
-torchaudio 2.10 l'attributo non esiste più: `AttributeError` mascherato da
-"no chunks created", pipeline ferma prima della trascrizione.
-**Fix:** `soundfile.info` (dipendenza già presente).
+### 1. `torchaudio.info` removed in torchaudio 2.10
+`core/audio_processor.py` used `torchaudio.info` in batched mode. With
+torchaudio 2.10 the attribute no longer exists: an `AttributeError` masked as
+"no chunks created", pipeline stopped before transcription.
+**Fix:** `soundfile.info` (dependency already present).
 
-### 2. SIGSEGV di ctranslate2 se torch inizializza il contesto HIP per primo
-Con ROCm, se Demucs o i controlli VRAM (`torch.cuda.mem_get_info`) toccano la
-GPU prima della prima inferenza Whisper, `ctranslate2` 4.8.3 va in SIGSEGV
-(exit -11) in `encode()`, anche in `detect_language()`.
-Riprodotto in forma minimale; invertendo l'ordine nessun crash.
-**Fix:** `utils/ct2_bootstrap.py` — `ctranslate2.get_cuda_device_count()`
-all'inizio di `core/pipeline_cli.main()`, prima di importare la pipeline.
-Costo pochi ms, nessun modello caricato. Disattivabile con
-`TP_SKIP_CT2_INIT=1`.
+### 2. ctranslate2 SIGSEGV when torch initializes the HIP context first
+With ROCm, if Demucs or the VRAM checks (`torch.cuda.mem_get_info`) touch the
+GPU before the first Whisper inference, `ctranslate2` 4.8.3 crashes with
+SIGSEGV (exit -11) in `encode()`, including in `detect_language()`.
+Reproduced in minimal form; reversing the order removed the crash.
+**Fix:** `utils/ct2_bootstrap.py` — `ctranslate2.get_cuda_device_count()` at
+the start of `core/pipeline_cli.main()`, before importing the pipeline.
+Costs a few ms, loads no model. Can be disabled with
+`TP_SKIP_CT2_INIT=1`. **Review update (PR #28):** the bootstrap now runs on
+Linux only, to avoid changing the torch/onnxruntime/llama_cpp import order on
+Windows.
 
-### 3. NLLB distribuito sull'iGPU → `HIP error: invalid device function`
-`device_map="auto"` spalmava NLLB tra device 0 (gfx1200) e device 1
-(gfx1036). L'iGPU non ha i kernel compilati: ogni batch falliva e veniva
-saltato, ma la pipeline dichiarava successo salvando un `.it.srt` in inglese.
-**Fix:** `device_map={"": 0}` per NLLB base e fine-tuned (`core/translator.py`).
-NLLB-3.3B fp16 (~6,6 GB) entra su una sola GPU.
+### 3. NLLB spread over the iGPU → `HIP error: invalid device function`
+`device_map="auto"` spread NLLB across device 0 (gfx1200) and device 1
+(gfx1036). The iGPU has no compiled kernels: every batch failed and was
+skipped, yet the pipeline reported success and saved an English `.it.srt`.
+**Fix:** `device_map={"": 0}` for base and fine-tuned NLLB
+(`core/translator.py`). NLLB-3.3B fp16 (~6.6 GB) fits on a single GPU.
+**Review update (PR #28):** the pin now applies on ROCm only; on CUDA
+`"auto"` is required for the 8-bit CPU-offload branch used below 7 GB.
 
-### 4. Falso positivo di successo della traduzione (corretto)
-`translate_file` ritornava `True` anche quando **tutti** i batch fallivano e i
-blocchi restavano in inglese (osservato con l'errore HIP del punto 3: 41/46
-righe residue, exit 0, `.it.srt` in inglese). Il ciclo assorbiva ogni
-eccezione ("Batch skipped"), l'audit contava i blocchi residui ma il valore
-non era usato, e il `return True` finale non guardava nulla.
-**Fix:** nuova chiave `translation_max_untranslated_pct` (default **80**),
-errori GPU fatali non piu' assorbiti, audit eseguito prima di scrivere il
-file; stesso criterio per il traduttore LLM. La pipeline, su `False`,
-conserva il file in lingua originale e segna il job come fallito.
-Test: `linux_tests/test_translation_success_gate.py`.
+### 4. False positive translation success (fixed)
+`translate_file` returned `True` even when **all** batches failed and the
+blocks stayed in English (observed with the HIP error from point 3: residual
+41/46 lines, exit 0, English `.it.srt`). The loop swallowed every exception
+("Batch skipped"), the audit counted residual blocks but the value was
+unused, and the final `return True` checked nothing.
+**Fix:** new key `translation_max_untranslated_pct` (default **80**), fatal
+GPU errors are no longer swallowed, audit runs before writing the file; same
+criterion for the LLM translator. On `False` the pipeline keeps the
+original-language file and marks the job as failed.
+Tests: `linux_tests/test_translation_success_gate.py`.
 
-## Stato macchina
+## Machine state
 
-- Nessuna modifica a driver, kernel, mesa, xorg, wayland, systemd o Steam.
-- Nessun riavvio.
-- File creati fuori dal repo: `~/.transcriberpro/config.json` e log
-  (previsti dall'app). Tutto il resto è dentro il repo: `venv/`, `models/`
-  (33 GB), `.tools/`, `.test_logs/` (artefatti, ignorati da git).
-- Disco: 34 GB liberi al termine.
+- No changes to driver, kernel, mesa, xorg, wayland, systemd or Steam.
+- No reboot.
+- Files created outside the repository: `~/.transcriberpro/config.json` and
+  logs (the app expects them). Everything else is inside the repository:
+  `venv/`, `models/` (33 GB at the time of the run), `.tools/`.
+  Test artifacts were moved to `~/.transcriberpro/validation-logs/` according
+  to the privacy rule.
+- Disk: 34 GB free at the end.
