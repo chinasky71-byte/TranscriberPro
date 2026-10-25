@@ -6,16 +6,23 @@ documentation) apply to every contribution.
 ## Branch model
 
 ```
-master          ← releases only, protected
-  ↑ PR (from development)
-development     ← integration, protected
+master          ← legacy desktop line, maintained outside this workflow
+development     ← integration for the new product (WebUI, Linux, Docker)
   ↑ PR (from feature branches)
 feat/…  fix/…  docs/…  test/…  bench/…
 ```
 
-- Never commit directly to `master` or `development`.
-- Create the branch from the **current** `origin/development`.
+- `development` is the integration branch. Create feature branches from the
+  **current** `origin/development`.
+- **Do not merge `development` into `master` for now**: the two lines have
+  different targets (see ADR-006). `master` is maintained by another
+  contributor.
+- Merge `origin/master` into `development` when master changes, so the legacy
+  line stays compatible.
+- Never commit directly to `development`.
 - Delete the feature branch after the merge (locally and remotely).
+- `development` may become a separate repository later; the split is a
+  separate decision (ADR-006).
 
 ## Session protocol (avoid divergence)
 
@@ -68,10 +75,13 @@ Use the template. A PR is ready when:
 ## Merge strategy
 
 - Feature branch → `development`: `--no-ff` merge commit.
-- `development` → `master`: only at a milestone/release, via PR.
+- `master` → `development`: merge when the legacy line changes.
+- `development` → `master`: **not for now**. `development` releases are tagged
+  independently; `master` releases are handled by its maintainer (ADR-006).
 
 ## Releases
 
-- Bump `APP_VERSION` in `main.py` and update `CHANGELOG.md`.
-- Tag `master`.
+- Development line: bump `APP_VERSION` in `main.py`, update `CHANGELOG.md`,
+  tag `development`.
 - Build and publish Docker images with tags `backend-version` and `backend-sha`.
+- Legacy line: release handling stays with the `master` maintainer.
