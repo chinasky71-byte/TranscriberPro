@@ -12,6 +12,7 @@ import os
 from typing import Optional
 
 TOKEN_ENV = "TP_WEB_TOKEN"
+SESSION_COOKIE = "tp_session"
 
 
 def token_from_env() -> Optional[str]:
@@ -30,3 +31,14 @@ def is_loopback(host: str) -> bool:
 
 def token_matches(provided: str, expected: str) -> bool:
     return hmac.compare_digest(provided or "", expected or "")
+
+
+def request_token(request) -> str:
+    """Token from the bearer header, the SSE query parameter or the session cookie."""
+    header = request.headers.get("authorization", "")
+    if header.lower().startswith("bearer "):
+        return header[7:]
+    query = request.query_params.get("token", "")
+    if query:
+        return query
+    return request.cookies.get(SESSION_COOKIE, "")

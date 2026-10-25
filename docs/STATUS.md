@@ -20,17 +20,20 @@ ROCm 7.0, torch 2.10.0+rocm7.0, venv ~16 GB, model cache ~33 GB
 - **Job service**: `core/jobs/` owns the queue (manager, process runner, event
   hub, persistence, progress). `core.queue_runner` is a thin client; the
   headless pipeline was validated end to end after the extraction.
-- **Web API**: FastAPI app in `web/` with token auth, path validation, jobs,
-  SSE, config and history; validated with a real job and a cancel over HTTP.
+- **Web UI + API**: FastAPI app in `web/` with token auth (bearer + HttpOnly
+  session cookie), path validation, jobs, SSE, config and history. The MVP UI
+  (dashboard, add form, queue, logs) is server-rendered with HTMX + Alpine,
+  assets vendored locally. Validated with a real job over HTTP and through
+  the UI.
 - **ADRs** 001–006, support matrix, contributing rules, guard tests.
 - **Tests**: unit/guard tests in `linux_tests/` (bench, boundaries, events,
   docs links, translation gate, i18n).
 
 ## In progress / next
 
-1. **WebUI Step 3** — MVP pages (dashboard, queue, logs) on top of the API.
-   See `docs/webui/PLAN.md`.
-2. Settings/history, OCR review, glossary and library pages after the MVP.
+1. **WebUI Step 4** — settings and history pages. See `docs/webui/PLAN.md`.
+2. OCR review (Step 5), glossary and library (Step 6), PyQt removal and
+   Docker (Steps 7–8).
 3. Docker packaging after the WebUI MVP.
 4. Reference dataset extension (real clips with human Italian references)
    before any model decision beyond the current sample.

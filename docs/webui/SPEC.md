@@ -1,6 +1,7 @@
 # WebUI specification
 
-Status: draft — implementation starts with Step 1 (`docs/webui/PLAN.md`).
+Status: MVP implemented (Step 3). Settings/history, OCR review, glossary and
+library pages follow (`docs/webui/PLAN.md`).
 
 ## 1. Goal
 

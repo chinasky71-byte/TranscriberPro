@@ -9,13 +9,14 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from core.jobs.manager import JobManager
 from core.jobs.models import TERMINAL
 from utils.config import get_config
 from utils.gpu_detect import detect_gpus
-from web.auth import token_matches
+from web.auth import request_token, token_matches
 from web.events import SSEBridge
 from web.paths import compute_roots, validate_media_path
 
@@ -107,11 +108,7 @@ def create_app(manager: JobManager, token: Optional[str] = None,
         expected = app.state.token
         if not expected:
             return
-        header = request.headers.get("authorization", "")
-        provided = header[7:] if header.lower().startswith("bearer ") else ""
-        if not provided:
-            provided = request.query_params.get("token", "")
-        if not token_matches(provided, expected):
+        if not token_matches(request_token(request), expected):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                                 detail="invalid or missing token")
 
@@ -220,8 +217,20 @@ def create_app(manager: JobManager, token: Optional[str] = None,
             config.set(key, value, save=True)
         return read_config()
 
-    @app.get("/")
-    def index() -> Dict[str, str]:
-        return {"service": "transcriberpro-web", "api": "/api", "docs": "/docs"}
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self'; "
+            "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")
+        return response
+
+    from web.ui import router as ui_router
+    app.include_router(ui_router)
+    static_dir = Path(__file__).resolve().parent / "static"
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     return app

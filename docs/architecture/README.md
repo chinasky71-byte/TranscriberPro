@@ -28,7 +28,7 @@ Physical mapping (current and target):
 | Infrastructure | `utils/` | present |
 | Platform services (OS) | `platform_services/` | **target** |
 | Runtime (GPU backend) | `runtime/` | **target** |
-| Web (API + UI) | `web/` | API present; UI target |
+| Web (API + UI) | `web/` | present (MVP) |
 | GUI | `gui/` | present, **frozen** (replaced by the WebUI) |
 
 ## Dependency rules

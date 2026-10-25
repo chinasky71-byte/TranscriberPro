@@ -17,6 +17,24 @@ Every session that touches the repository must add an entry before the merge.
 - Next step:
 ```
 
+## 2026-10-25 — WebUI MVP (Step 3)
+
+- Branch / commits: `feat/webui-mvp` (branch created before the first commit).
+- Goal: browser interface for dashboard, queue, logs.
+- Done: Jinja2 templates (`base`, `index`, `_status`, `_queue`, `login`),
+  HTMX + Alpine vendored locally, `web/ui.py` routes (page, queue/status
+  partials, add/cancel/remove, login/logout), cookie session auth, CSP and
+  security headers, static CSS/JS.
+- Tests: 6 UI tests (render, static + headers, form add, invalid path, login
+  flow, open-redirect); real smoke test: 303 without cookie, login, form add,
+  SSE events (created/status/log), job done in ~78 s with SRT.
+- Decisions: Alpine used for the logs panel; token stored in an HttpOnly
+  cookie for browser sessions; CSP allows `unsafe-eval` for Alpine expressions
+  (no inline scripts); media roots and token still from env/config.
+- Known issues: no settings/history/OCR/glossary pages yet; no CSRF token
+  beyond SameSite=Lax; logs panel is per job only.
+- Next step: Step 4, settings and history.
+
 ## 2026-10-25 — Web API (WebUI Step 2)
 
 - Branch / commits: `feat/web-api` (branch created before the first commit).

@@ -1,0 +1,11 @@
+<h2>Status</h2>
+<dl class="facts">
+  <dt>Version</dt><dd>{{ status.version }}</dd>
+  <dt>Backend</dt><dd>{{ status.backend }}</dd>
+  <dt>GPU</dt><dd>{{ status.gpu_name }}{% if status.vram_mib %} · {{ status.vram_mib }} MiB{% endif %}</dd>
+  <dt>Manager</dt><dd>{{ status.manager_state }}</dd>
+  <dt>Queue</dt>
+  <dd>{{ status.counts.queued }} queued · {{ status.counts.running }} running ·
+      {{ status.counts.done }} done · {{ status.counts.failed }} failed</dd>
+  <dt>Auth</dt><dd>{{ 'token' if status.auth_enabled else 'off' }}</dd>
+</dl>
