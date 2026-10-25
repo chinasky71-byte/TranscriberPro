@@ -1,0 +1,150 @@
+# Benchmark harness
+
+Reproducible comparison of ASR engines and translation engines on the files in
+`samples/`. It is a development tool, not part of the shipped application.
+
+## Data
+
+| File | Used as |
+|---|---|
+| `prova_amd_test.mp4` | input audio/video (130 s, English) |
+| `correct_transcription_en.txt` | gold transcription (ASR) |
+| `correct_translation_it.txt` | gold Italian translation (translation) |
+
+`samples/` is gitignored: the media and references are local test material and
+must never be committed.
+
+## Usage
+
+```bash
+# ASR: Whisper vs Qwen3-ASR, 3 runs each
+venv/bin/python -m bench.run --suite asr --engines faster-whisper,qwen3 --repeat 3
+
+# Translation: NLLB vs TranslateGemma (GGUF), 3 runs each
+venv/bin/python -m bench.run --suite translation --engines nllb,llm --repeat 3
+
+# Translation with NLLB fine-tuned (expects models/nllb-ft/)
+venv/bin/python -m bench.run --suite translation --engines nllb_finetuned --repeat 3
+
+# Translation through a llama.cpp server (OpenAI-compatible, one request per block)
+venv/bin/python -m bench.run --suite translation \
+  --engines http:gemma4-12b-dense,http:gpt-oss-20b \
+  --server-url http://127.0.0.1:9091 --repeat 3
+```
+
+### HTTP engines
+
+`http:<preset>` translates one block per request against a running
+`llama-server`. Used to test GGUF models that the project's TranslateGemma
+engine cannot load (different architecture, template or quantization name).
+
+Start a **separate** instance for benchmarks, with a small context and
+reasoning disabled where needed — do not touch the system service or its
+`models.ini`:
+
+```bash
+llama serve --host 127.0.0.1 --port 9091 \
+  --models-preset /tmp/tp_bench_models.ini --models-max 1
+```
+
+```ini
+[gemma4-12b-dense]
+model = /srv/models/gemma4-12b-dense/gemma-4-12b-it-UD-Q4_K_XL.gguf
+n-gpu-layers = 999
+ctx-size = 4096
+jinja = true
+flash-attn = on
+temp = 0
+top-k = 1
+reasoning-budget = 0
+
+[gpt-oss-20b]
+model = /srv/models/gpt-oss-20b/gpt-oss-20b-UD-Q4_K_XL.gguf
+n-gpu-layers = 999
+ctx-size = 4096
+jinja = true
+flash-attn = on
+temp = 0
+top-k = 1
+reasoning-budget = 0
+reasoning = off
+```
+
+The server keeps the model resident between runs, so the first run of each
+model includes the cold load and the following ones are warm. In-process
+engines (`nllb`, `nllb_finetuned`, `llm`) load the model in every run because
+each run is a fresh subprocess. Report the two cases separately.
+
+# Both
+venv/bin/python -m bench.run --suite all --repeat 3
+```
+
+Results are written to `~/.transcriberpro/bench/<timestamp>/`:
+
+- `environment.json` — hardware, backend, driver/ROCm, CPU, kernel, commit
+- `results.json` — every run, metrics, timings, peak VRAM, device used
+- `summary.md` — **hardware block at the top**, then medians per engine
+- `summary.csv` — same columns as the Markdown table
+- `asr/<engine>/runN.srt`, `runN.log`, `translation/<engine>/runN.srt`
+- `manifest.txt` — commit, dataset, backend, hardware
+
+Example header in `summary.md`:
+
+```markdown
+# Benchmark results
+
+- **Hardware:** Radeon RX 9060 XT (gfx1200, RDNA4), 16304 MiB
+- **Backend:** rocm (torch 2.10.0+rocm7.0, HIP 7.0.51831)
+- **OS:** Ubuntu 26.04.1 LTS / kernel 7.0.0-38-generic
+- **CPU:** AMD Ryzen 5 9600X (x86_64)
+- **Date:** 2026-10-25T12:00:00+02:00
+- **Commit:** abc1234
+```
+
+CPU-only runs carry an explicit warning: timings and VRAM are not
+representative of GPU performance, and the `device` column says `cpu`.
+
+## Method
+
+- **ASR**: the real headless pipeline (`core.queue_runner`) with a forced
+  engine and English target, so Demucs, chunking and segmentation are included.
+  The config file is modified for the duration of each run and restored
+  byte-for-byte afterwards.
+- **Translation**: the reference English lines are split into **one sentence
+  per block** (like real Whisper segments) and translated by the engine
+  through the project's factory. Timings are realistic (~15 characters per
+  second, minimum 1.5 s): the LLM translator budgets characters as
+  `duration * 17 CPS`, so one second per block would force it to condense the
+  text and the comparison would measure adaptation, not translation. The
+  Italian reference is compared as continuous text, so segmentation
+  differences do not affect the score.
+- **Runs**: 3 by default; the summary reports medians, not a single run.
+- **VRAM**: `rocm-smi` on device 0 is sampled every 0.5 s; the peak is reported.
+- **Normalization**: lowercase, NFKC, numbers to digits, `percent`/`percento`
+  to `%`, punctuation removed, spaces collapsed. It is identical for reference
+  and hypothesis.
+
+## Metrics
+
+| Metric | Meaning |
+|---|---|
+| WER | word error rate (substitutions + deletions + insertions) |
+| CER | character error rate |
+| chrF | character n-gram F-score (n = 1..6, beta = 2) |
+| similarity | word-level sequence similarity (0..1) |
+| untranslated_ratio | translation blocks identical to the source (translation only) |
+| time_s_median | wall-clock time per run |
+| peak_vram_mib | peak VRAM on device 0 |
+| device | `gpu`, `cpu` or `unknown`, inferred per run from the log and VRAM peak |
+| backend | `rocm`, `cuda`, `cpu` — from the environment fingerprint |
+| hardware | GPU summary repeated on each row for easy copy/paste |
+
+## Known limitations
+
+- One 130 s synthetic clip: the harness can reject clearly bad candidates but
+  cannot crown a winner. Extend `samples/` with real material before making
+  product decisions.
+- The Italian reference contains a few typos (`controtto`, `Apsetta`, `lavor`);
+  they penalize every engine equally and are not corrected in the gold file.
+- The ASR reference has no timestamps, so timestamp accuracy is not measured.
+- CPU-only runs report no VRAM.

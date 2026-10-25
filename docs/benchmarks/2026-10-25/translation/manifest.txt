@@ -1,0 +1,7 @@
+commit=f87c326
+data=samples
+suite=translation
+repeat=3
+backend=rocm
+hardware=Radeon RX 9060 XT (gfx1200, RDNA4), 16304 MiB; Radeon Graphics (gfx1036, RDNA2), 512 MiB
+server_url=http://127.0.0.1:9091
