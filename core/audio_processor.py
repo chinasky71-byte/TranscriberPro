@@ -185,8 +185,13 @@ class AudioProcessor:
             # BatchedInferencePipeline mode — salta chunking
             if use_batched_pipeline:
                 self._log(tr('ap_batched_mode_chunking_skipped'))
-                wav_info = torchaudio.info(str(vocals_path))
-                total_duration = wav_info.num_frames / wav_info.sample_rate
+                # torchaudio.info e' stato rimosso in torchaudio 2.9/2.10
+                # (requirements-rocm.txt pinna 2.10.0+rocm7.0): usiamo
+                # soundfile, gia' dipendenza del progetto, che legge i WAV
+                # (qui vocals_path e' sempre un WAV).
+                import soundfile as _sf
+                _wav_info = _sf.info(str(vocals_path))
+                total_duration = _wav_info.frames / _wav_info.samplerate
                 self._log(tr('ap_audio_processing_completed_single_file').format(total_duration=total_duration))
                 return [(vocals_path, 0.0, total_duration)]
 

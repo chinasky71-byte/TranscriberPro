@@ -158,3 +158,16 @@ gui/theme.qss
 
 # Sottotitoli generati dall'app quando si prova il video di Prova_AMD
 Prova_AMD/*.srt
+
+# ---------------------------------------------------------------------------
+# Artefatti della validazione AMD (24/10/2026)
+# - .tools/    : uv + CPython 3.12 standalone usati per il venv (scaricati,
+#                non versionabili; ricreabili con i comandi in docs)
+# - .test_logs/: log, shim e output dei test hardware (non fanno parte del
+#                prodotto; contengono percorsi locali)
+# - samples/   : copia locale del materiale di prova (l'originale e' in
+#                Prova_AMD/); il video da 18 MB non va su git
+# ---------------------------------------------------------------------------
+.tools/
+.test_logs/
+samples/
