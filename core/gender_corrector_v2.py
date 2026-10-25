@@ -171,30 +171,37 @@ _BAR_MAP_END = 0.90
 class _GenderBar:
     """Barra della correzione di genere: riga di log (si aggiorna sul posto nella card) ed evento `bar` con ETA.
 
-    `set(frazione)` accetta 0..1 monotona; emette solo quando la percentuale intera cambia."""
+    `set(frazione)` accetta 0..1 monotona; emette solo quando la percentuale intera cambia. Va creata
+    all'inizio del lavoro: l'ETA conta dal momento della creazione."""
 
     def __init__(self, log: Callable[[str], None]):
         self._log = log
         self._eta = EtaEstimator()
         self._last = -1
 
-    def set(self, fraction: float, force: bool = False) -> None:
+    def set(self, fraction: float) -> None:
         pct = int(max(0.0, min(float(fraction), 1.0)) * 100)
-        if pct <= self._last and not force:
+        if pct <= self._last:
             return
-        self._last = max(pct, self._last)
+        self._last = pct
         eta_s = None
         if pct < 100:
             self._eta.update(pct / 100.0)
             eta_s = self._eta.eta_seconds()
         _tp_emit('bar', phase='gender', pct=pct, eta_s=eta_s)
-        bars = pct // 10
-        bar = '\u2588' * bars + '\u2591' * (10 - bars)
         if pct >= 100:
             self._log(tr('g2_progress_done'))
         else:
-            eta_str = f"{eta_s}s" if eta_s is not None else "-"
+            bar = '\u2588' * (pct // 10) + '\u2591' * (10 - pct // 10)
+            eta_str = "-" if eta_s is None else (f"~{eta_s}s" if eta_s < 60 else f"~{int(eta_s / 60 + 0.5)}m")
             self._log(tr('g2_progress_eta').format(bar=bar, progress=pct, eta_str=eta_str))
+
+    def close_silently(self) -> None:
+        """Fase conclusa senza lavoro reale (salti, selettore assente): chiude la barra della card senza
+        la riga "100%" nel log, che direbbe una cosa non vera."""
+        if self._last < 100:
+            self._last = 100
+            _tp_emit('bar', phase='gender', pct=100)
 
 
 class GenderCorrectorV2:
@@ -205,7 +212,7 @@ class GenderCorrectorV2:
         self._log_cb = log_callback
         self.conf_threshold = conf_threshold
         self._mapper = None
-        self._bar = _GenderBar(self._log)
+        self._bar = _GenderBar(self._log)       # rimpiazzata a ogni correct_file
 
     def _log(self, msg: str):
         if self._log_cb:
@@ -248,10 +255,11 @@ class GenderCorrectorV2:
                      diarization: Optional[list] = None,
                      character_context: Optional[dict] = None) -> bool:
         """Corregge il genere con barra di avanzamento ed ETA (v. _correct_file)."""
+        self._bar = _GenderBar(self._log)
         self._bar.set(0.0)
         ok = self._correct_file(srt_path, output_path, video_path, diarization, character_context)
         if ok:
-            self._bar.set(1.0)
+            self._bar.close_silently()      # no-op se il lavoro e' arrivato in fondo (100% gia' emesso)
         return ok
 
     def _correct_file(self, srt_path: Path, output_path: Path,
@@ -387,6 +395,7 @@ class GenderCorrectorV2:
                     if esito2 == 'rewritten':
                         esito = 'rewritten'
                         applied_gender = a_gender
+            self._bar.set(_BAR_MAP_END + (1.0 - _BAR_MAP_END) * (n_done + 1) / len(candidates))
             if esito == 'rewritten':
                 # riporta il testo su singola riga corretta preservando
                 # gli a-capo originali quando possibile
@@ -403,6 +412,7 @@ class GenderCorrectorV2:
                     f"Riga {idx}: '{text}' -> '{new_text}' ({applied_gender})")
 
         output_path.write_text(_generate_srt(new_cues), encoding='utf-8')
+        self._bar.set(1.0)
 
         self._log(tr('g2_gender_correction_v2_lines_rewritten').format(rewritten=stats['rewritten'], unchanged=stats['unchanged'], unknown=stats['unknown'], dialog=stats['dialog'], rejected=stats['rejected']))
         if stats['unknown']:

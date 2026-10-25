@@ -52,3 +52,25 @@ def test_la_card_mostra_percentuale_ed_eta_dalla_barra():
     tr.feed_event('bar', {'phase': 'gender', 'pct': 40, 'eta_s': 90})
     step = next(st for st in tr.snapshot().steps if st.key == 'gender')
     assert (step.status, step.pct, step.eta) == ('active', 40, '~2m')
+
+
+def _run(tmp_path, selector):
+    srt = tmp_path / 'a.srt'
+    srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nCiao\n\n", encoding='utf-8')
+    lines, got = [], _collect()
+    c = g2.GenderCorrectorV2(log_callback=lines.append)
+    c._run_selector = selector
+    assert c.correct_file(srt, tmp_path / 'o.srt') is True
+    return lines, [f['pct'] for k, f in got if k == 'bar']
+
+
+def test_salto_senza_lavoro_chiude_la_card_ma_non_scrive_100_nel_log(tmp_path):
+    lines, pcts = _run(tmp_path, lambda l: None)      # selettore fallito: SRT copiato
+    assert pcts[-1] == 100
+    assert not any(Translations.TEXTS['en']['g2_progress_done'] in l or Translations.TEXTS['it']['g2_progress_done'] in l
+                   for l in lines)
+
+
+def test_lavoro_completo_chiude_una_sola_volta(tmp_path):
+    lines, pcts = _run(tmp_path, lambda l: ([[]], [[]]))   # nessuna riga candidata
+    assert pcts == sorted(pcts) and pcts.count(100) == 1
