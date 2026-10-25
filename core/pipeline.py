@@ -787,6 +787,10 @@ class ProcessingPipeline:
 
             self._log(tr('pl_selected_translation_model').format(model=selected_model.upper()))
 
+            # Solo i motori che caricano su GPU (non API) aspettano che il driver restituisca la VRAM degli ASR.
+            if selected_model not in ('claude', 'openai', 'opensubtitles'):
+                self._wait_vram_settled()
+
             # Contesto dell'opera per il traduttore: titolo e trama sono
             # già in self.metadata e aiutano soprattutto sui nomi propri e
             # sul registro. I motori che non lo usano lo ignorano.
@@ -864,7 +868,6 @@ class ProcessingPipeline:
         # traduttore, caricando subito, sconfinerebbe in RAM condivisa.
         self._clear_vram()
         release_ram_to_os()
-        self._wait_vram_settled()
 
     def _wait_vram_settled(self) -> None:
         if not torch.cuda.is_available():
