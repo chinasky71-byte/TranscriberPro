@@ -3,6 +3,13 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.33 — 2026-10-25 — Lingua per voto su piu' blocchi, attesa della VRAM prima della traduzione, barra della correzione di genere
+
+- **Rilevamento automatico della lingua per voto** su piu' blocchi sparsi (Qwen3 e faster-whisper, `core/lang_vote.py`) invece di un solo campione.
+- **Attesa che la VRAM degli ASR sia davvero libera prima della traduzione** su GPU (sconfinamento della memoria su Windows, `core/vram_settle.py`); solo nel ramo di traduzione su GPU.
+- **Correzione di genere v2:** barra di avanzamento ed ETA nella card del log; la barra non dichiara 100% se non ha lavorato.
+- Lavoro della sessione cloud (PR #25-#27), controllato in locale: suite verde e avvio della finestra verificato.
+
 ## 1.34.32 — 2026-10-24 — Installer GGUF: testi ripristinati, sostituzione solo se l'impronta cambia
 
 - **Ripristinati i 38 testi `gd_*` dell'installer dei GGUF** persi nella 1.34.30 (rilascio che aveva sovrascritto `utils/translations.py` con una copia piu' vecchia): i messaggi del download tornano in italiano e inglese.
