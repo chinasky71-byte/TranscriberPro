@@ -32,18 +32,26 @@ interpretation of it.
    be written under the project directory (including subfolders, temporary
    files and generated reports).
 2. **Never in git — not even excluded.** `.gitignore`, `.git/info/exclude`,
-   local branches or filters are **not** an acceptable workaround: personal
-   data must not be in the working tree at all. Excluding it from git leaves
-   it on disk inside the project, which is not allowed.
-3. **Use outside paths.** When an operation needs data of that kind (logs,
+   local branches or filters are **not** an acceptable workaround to keep
+   personal data on disk inside the project: personal data must not be in
+   the working tree at all. The build-artifact exemption in point 3 covers
+   local paths only, never personal data.
+3. **Local build artifacts are exempt — paths only.** Toolchain-generated
+   directories (`venv*/`, `.tools/`, `models/`, caches) may reference the
+   absolute project path because the local environment needs it. They must
+   be listed in `.gitignore` and must **never** be committed, force-added or
+   otherwise included in the repository. This exemption covers local paths
+   only: no names, emails, hostnames, tokens or credentials may be stored
+   in them.
+4. **Use outside paths.** When an operation needs data of that kind (logs,
    caches, test outputs, temporary files), write it under the user's home
    (e.g. `~/.transcriberpro/`, `~/.cache/`) or under `/tmp` — never inside
    the project directory.
-4. **Ask when it is not obvious.** If the correct location is unclear, or a
+5. **Ask when it is not obvious.** If the correct location is unclear, or a
    tool would place personal data inside the project by default, stop and
    ask the user for an alternative path. Do not improvise and do not choose
    on your own.
-5. **Scan before committing.** Before any commit, check the staged files for
+6. **Scan before committing.** Before any commit, check the staged files for
    personal identifiers (usernames, real names, emails, hostnames,
    `/home/<user>` paths). If any are present, stop and report instead of
    committing.
