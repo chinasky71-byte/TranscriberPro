@@ -19,7 +19,7 @@ Every session that touches the repository must add an entry before the merge.
 
 ## 2026-10-25 — WebUI MVP (Step 3)
 
-- Branch / commits: `feat/webui-mvp` (branch created before the first commit).
+- Branch / commits: `feat/webui-mvp`; commit `ba9ba99`, merged as `a9c0975`.
 - Goal: browser interface for dashboard, queue, logs.
 - Done: Jinja2 templates (`base`, `index`, `_status`, `_queue`, `login`),
   HTMX + Alpine vendored locally, `web/ui.py` routes (page, queue/status
@@ -37,7 +37,7 @@ Every session that touches the repository must add an entry before the merge.
 
 ## 2026-10-25 — Web API (WebUI Step 2)
 
-- Branch / commits: `feat/web-api` (branch created before the first commit).
+- Branch / commits: `feat/web-api`; commit `66c426e`, merged as `cb962cc`.
 - Goal: expose the shared job queue over HTTP with auth, path validation and SSE.
 - Done: `web/` (FastAPI factory, entry point, auth, paths, SSE bridge);
   `TP_DATA_DIR`/`TP_MODELS_DIR`; manager `keep_alive` mode; whitelisted
@@ -56,7 +56,7 @@ Every session that touches the repository must add an entry before the merge.
 - Branch / commits: **deviation** — the branch `feat/jobs-service` was not
   created and the work landed directly on `development` as `e87e8ae`
   (already pushed; published history is not rewritten). Future steps use
-  feature branches.
+  feature branches. Documentation correction: `54a1913`.
 - Goal: one implementation of the queue, shared by CLI and (later) WebUI.
 - Done: `core/jobs/` with `Job`, `ProcessRunner`, `JobManager`, `EventHub`,
   atomic persistence, legacy status snapshot; `core/queue_runner.py` is now a
