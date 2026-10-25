@@ -335,6 +335,7 @@ class Qwen3AsrEngine(TranscriptionEngine):
             if name and text:
                 votes[name] += 1
         if not votes:
+            logger.warning("[qwen3-lid] nessuna sonda con lingua e testo: LID inconcludente")
             return '', raw
         return votes.most_common(1)[0][0], raw
 

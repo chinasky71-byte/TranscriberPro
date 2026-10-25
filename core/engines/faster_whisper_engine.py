@@ -310,7 +310,10 @@ class FasterWhisperEngine(TranscriptionEngine):
             import numpy as np
             import soundfile as sf
             from core import qwen3_lang_retry as LR
-            m = getattr(self.faster_whisper_model, 'model', self.faster_whisper_model)
+            # BatchedInferencePipeline.model è il WhisperModel (ha a sua volta .model = ct2); un
+            # WhisperModel puro ha .model = ct2 (detect_language diverso, vuole features): niente salto.
+            inner = getattr(self.faster_whisper_model, 'model', None)
+            m = inner if inner is not None and hasattr(inner, 'model') else self.faster_whisper_model
             if not hasattr(m, 'detect_language'):
                 return None
             paths = [str(c[0]) for c in audio_chunks]
