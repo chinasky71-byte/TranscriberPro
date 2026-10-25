@@ -106,10 +106,17 @@ saltato, ma la pipeline dichiarava successo salvando un `.it.srt` in inglese.
 **Fix:** `device_map={"": 0}` per NLLB base e fine-tuned (`core/translator.py`).
 NLLB-3.3B fp16 (~6,6 GB) entra su una sola GPU.
 
-### Nota aperta (non corretta)
-La pipeline considera riuscita la traduzione anche quando tutti i batch
-falliscono (41 righe "residual source language" su 46, exit 0). Con il fix 3
-non si verifica più, ma il criterio di successo andrebbe irrobustito.
+### 4. Falso positivo di successo della traduzione (corretto)
+`translate_file` ritornava `True` anche quando **tutti** i batch fallivano e i
+blocchi restavano in inglese (osservato con l'errore HIP del punto 3: 41/46
+righe residue, exit 0, `.it.srt` in inglese). Il ciclo assorbiva ogni
+eccezione ("Batch skipped"), l'audit contava i blocchi residui ma il valore
+non era usato, e il `return True` finale non guardava nulla.
+**Fix:** nuova chiave `translation_max_untranslated_pct` (default **80**),
+errori GPU fatali non piu' assorbiti, audit eseguito prima di scrivere il
+file; stesso criterio per il traduttore LLM. La pipeline, su `False`,
+conserva il file in lingua originale e segna il job come fallito.
+Test: `linux_tests/test_translation_success_gate.py`.
 
 ## Stato macchina
 
