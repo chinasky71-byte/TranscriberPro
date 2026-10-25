@@ -274,12 +274,21 @@ class SpeakerGenderMapper:
 
     def build_map(self, media_path: str, num_speakers: int = 0,
                   diarization: Optional[List[Tuple[float, float, str]]] = None,
-                  audio_language: str = 'eng') -> SpeakerGenderMap:
+                  audio_language: str = 'eng',
+                  progress_callback: Optional[Callable[[float], None]] = None) -> SpeakerGenderMap:
         """Costruisce la SpeakerGenderMap per un file video/audio.
 
         `diarization` opzionale: se la pipeline l'ha già calcolata (STEP
         trascrizione) viene riusata, saltando il passo pyannote.
+        `progress_callback(frazione 0..1)`: avanzamento della mappa (audio, diarization se calcolata, parlanti).
         """
+        def _progress(f: float) -> None:
+            if progress_callback is not None:
+                try:
+                    progress_callback(f)
+                except Exception as e:
+                    logger.debug(f"progress_callback fallita: {e}")
+
         import torch
         import torchaudio
 
@@ -292,7 +301,10 @@ class SpeakerGenderMapper:
                 self.log(tr('sg_extracting_audio_16_khz_mono'))
                 self.extract_audio(str(src), wav, language=audio_language)
 
-            # Diarization (riuso o calcolo)
+            # Diarization (riuso o calcolo): senza avanzamento interno, pesa solo se va calcolata
+            # (pesi: estrazione audio, diarization; il resto della mappa e' la classificazione dei parlanti)
+            w_audio, w_diar = (0.1, 0.5) if diarization is None else (0.2, 0.0)
+            _progress(w_audio)
             if diarization is None:
                 from core.diarizer import Diarizer
                 diar = Diarizer(self.hf_token, log_callback=self.log)
@@ -303,6 +315,7 @@ class SpeakerGenderMapper:
                     diar.unload()
 
             turns = sorted(diarization, key=lambda t: t[0])
+            _progress(w_audio + w_diar)
 
             # Waveform completa in RAM (16 kHz mono ≈ 5 MB/min: ok)
             waveform, sr = torchaudio.load(str(wav))
@@ -315,7 +328,8 @@ class SpeakerGenderMapper:
             for (s, e, spk) in turns:
                 by_speaker.setdefault(spk, []).append((s, e))
 
-            for spk, segs in by_speaker.items():
+            for n_spk, (spk, segs) in enumerate(by_speaker.items()):
+                _progress(w_audio + w_diar + (1.0 - w_audio - w_diar) * n_spk / len(by_speaker))
                 speech_time = sum(e - s for s, e in segs)
                 # i segmenti più lunghi sono i più affidabili
                 best = sorted(segs, key=lambda x: x[1] - x[0], reverse=True)
