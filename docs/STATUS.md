@@ -2,7 +2,7 @@
 
 Updated: 2026-10-25
 Line: `development` (active product); `master` is legacy (ADR-006)
-Branch: `development`
+Branch: `development` · last merge: `a9c0975` (WebUI MVP)
 Environment: Ubuntu 26.04, Radeon RX 9060 XT 16 GB (gfx1200, RDNA4),
 ROCm 7.0, torch 2.10.0+rocm7.0, venv ~16 GB, model cache ~33 GB
 
