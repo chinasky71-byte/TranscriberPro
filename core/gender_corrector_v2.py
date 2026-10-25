@@ -35,6 +35,8 @@ from typing import Callable, List, Optional, Tuple
 # WARNING di default e ogni logger.debug() qui dentro veniva scartato PRIMA
 # di raggiungere il file condiviso — stesso difetto già trovato e corretto
 # in utils/adaptive_batch_manager.py.
+from utils.eta import EtaEstimator
+from utils.events import emit as _tp_emit
 from utils.logger import setup_logger
 from utils.platform_compat import venv_python
 from utils.translations import tr
@@ -160,6 +162,41 @@ def _diag_addressee_gender(gmap, t0: float, t1: float):
     return spk, gender, conf, reason
 
 
+# Peso delle fasi sulla barra (selettore spaCy, mappa genere dall'audio, riscrittura delle righe).
+# Il selettore e la mappa non danno avanzamento interno fino alla loro fine, tranne i parlanti classificati.
+_BAR_SELECTOR_END = 0.10
+_BAR_MAP_END = 0.90
+
+
+class _GenderBar:
+    """Barra della correzione di genere: riga di log (si aggiorna sul posto nella card) ed evento `bar` con ETA.
+
+    `set(frazione)` accetta 0..1 monotona; emette solo quando la percentuale intera cambia."""
+
+    def __init__(self, log: Callable[[str], None]):
+        self._log = log
+        self._eta = EtaEstimator()
+        self._last = -1
+
+    def set(self, fraction: float, force: bool = False) -> None:
+        pct = int(max(0.0, min(float(fraction), 1.0)) * 100)
+        if pct <= self._last and not force:
+            return
+        self._last = max(pct, self._last)
+        eta_s = None
+        if pct < 100:
+            self._eta.update(pct / 100.0)
+            eta_s = self._eta.eta_seconds()
+        _tp_emit('bar', phase='gender', pct=pct, eta_s=eta_s)
+        bars = pct // 10
+        bar = '\u2588' * bars + '\u2591' * (10 - bars)
+        if pct >= 100:
+            self._log(tr('g2_progress_done'))
+        else:
+            eta_str = f"{eta_s}s" if eta_s is not None else "-"
+            self._log(tr('g2_progress_eta').format(bar=bar, progress=pct, eta_str=eta_str))
+
+
 class GenderCorrectorV2:
     """Nuovo motore di correzione genere (deterministico, audio-driven)."""
 
@@ -168,6 +205,7 @@ class GenderCorrectorV2:
         self._log_cb = log_callback
         self.conf_threshold = conf_threshold
         self._mapper = None
+        self._bar = _GenderBar(self._log)
 
     def _log(self, msg: str):
         if self._log_cb:
@@ -209,6 +247,17 @@ class GenderCorrectorV2:
                      video_path: Optional[Path] = None,
                      diarization: Optional[list] = None,
                      character_context: Optional[dict] = None) -> bool:
+        """Corregge il genere con barra di avanzamento ed ETA (v. _correct_file)."""
+        self._bar.set(0.0)
+        ok = self._correct_file(srt_path, output_path, video_path, diarization, character_context)
+        if ok:
+            self._bar.set(1.0)
+        return ok
+
+    def _correct_file(self, srt_path: Path, output_path: Path,
+                      video_path: Optional[Path] = None,
+                      diarization: Optional[list] = None,
+                      character_context: Optional[dict] = None) -> bool:
         """Corregge il genere di 1ª persona in un SRT tradotto.
 
         Args:
@@ -233,6 +282,7 @@ class GenderCorrectorV2:
             shutil.copy(srt_path, output_path)
             return True
         tokens_per_line, tokens_p2_per_line = sel_out
+        self._bar.set(_BAR_SELECTOR_END)
 
         from utils.config import get_config as _gc
         if not bool(_gc().get('gender_correction_second_person', True)):
@@ -260,7 +310,11 @@ class GenderCorrectorV2:
         self._mapper = SpeakerGenderMapper(
             hf_token, log_callback=self._log,
             conf_threshold=self.conf_threshold)
-        gmap = self._mapper.build_map(str(video_path), diarization=diarization)
+        gmap = self._mapper.build_map(
+            str(video_path), diarization=diarization,
+            progress_callback=lambda f: self._bar.set(
+                _BAR_SELECTOR_END + (_BAR_MAP_END - _BAR_SELECTOR_END) * f))
+        self._bar.set(_BAR_MAP_END)
         for spk, sg in sorted(gmap.speakers.items()):
             logger.debug(
                 f"Speaker {spk}: gender={sg.gender} conf={sg.confidence:.2f} "
@@ -278,7 +332,8 @@ class GenderCorrectorV2:
                 'p2': {'no_turn': 0, 'overlapping_scene': 0, 'no_addressee': 0,
                        'not_strict': 0, 'low_confidence': 0, 'no_votes': 0}}
         new_cues = list(cues)
-        for i in candidates:
+        for n_done, i in enumerate(candidates):
+            self._bar.set(_BAR_MAP_END + (1.0 - _BAR_MAP_END) * n_done / len(candidates))
             idx, start, end, text = cues[i]
             if _DIALOG_RE.search(text):
                 stats['dialog'] += 1          # due parlanti: mai toccare
