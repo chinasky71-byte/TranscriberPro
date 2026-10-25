@@ -309,6 +309,36 @@ class Qwen3AsrEngine(TranscriptionEngine):
             pass
         return 0.0
 
+    def _probe_language(self, audio_chunks: List[tuple]) -> Tuple[str, str]:
+        """LID su più chunk sparsi (non solo il primo, spesso musica/silenzio): voto sui nomi lingua non vuoti.
+        Ritorna (nome lingua vincente o '', ultimo valore grezzo per il log)."""
+        from collections import Counter
+        from core import lang_vote as LV
+        paths = [str(c[0]) for c in audio_chunks]
+        try:
+            from core import qwen3_lang_retry as LR
+            voice_fn = lambda p: LR.voice_stats(p)['voice_s']
+        except Exception:
+            voice_fn = None
+        votes: Counter = Counter()
+        raw = ''
+        for idx in LV.select_probe_chunks(paths, voice_s_fn=voice_fn):
+            try:
+                probe = self.model.transcribe(audio=paths[idx], language=None)
+            except Exception as e:
+                logger.debug(f"[qwen3-lid] chunk {idx + 1}: sonda fallita: {e}")
+                continue
+            raw = (probe[0].language if probe else '') or ''
+            name = raw.split(',')[0].strip()
+            text = ((probe[0].text if probe else '') or '').strip()
+            logger.info(f"[qwen3-lid] chunk {idx + 1}: '{name}'")
+            if name and text:
+                votes[name] += 1
+        if not votes:
+            logger.warning("[qwen3-lid] nessuna sonda con lingua e testo: LID inconcludente")
+            return '', raw
+        return votes.most_common(1)[0][0], raw
+
     # ------------------------------------------------------------------
     # Trascrizione
     # ------------------------------------------------------------------
@@ -339,14 +369,12 @@ class Qwen3AsrEngine(TranscriptionEngine):
         detected_639_1: Optional[str] = None
         if language is None:
             self.log(tr('qw_language_auto_detect_native_qwen3'))
-            first_path = str(audio_chunks[0][0])
-            probe = self.model.transcribe(audio=first_path, language=None)
-            probe_lang_name = (probe[0].language or '').split(',')[0].strip()
+            probe_lang_name, probe_raw = self._probe_language(audio_chunks)
             detected_639_1 = QWEN_NAME_TO_ISO.get(probe_lang_name)
             if detected_639_1 is None:
                 # Silenzio o lingua non riconosciuta dall'ASR
                 raise LanguageNotAlignable(
-                    None, tr('qw_lid_qwen3_inconclusive').format(language=probe[0].language))
+                    None, tr('qw_lid_qwen3_inconclusive').format(language=probe_raw))
             self.log(tr('qw_language_detected_automatically').format(detected_639_1=detected_639_1, probe_lang_name=probe_lang_name))
             if detected_639_1 not in ALIGNER_LANGS_639_1:
                 # ASR la supporta ma l'aligner no → timestamp inaffidabili

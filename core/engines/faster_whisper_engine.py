@@ -303,6 +303,40 @@ class FasterWhisperEngine(TranscriptionEngine):
         except Exception as e:
             logger.error(f"Errore durante unload: {e}")
 
+    def _vote_language(self, audio_chunks: List[tuple]) -> Optional[str]:
+        """Lingua del file votata su chunk sparsi con detect_language di Whisper; None se inconcludente."""
+        from core import lang_vote as LV
+        try:
+            import numpy as np
+            import soundfile as sf
+            from core import qwen3_lang_retry as LR
+            # BatchedInferencePipeline.model è il WhisperModel (ha a sua volta .model = ct2); un
+            # WhisperModel puro ha .model = ct2 (detect_language diverso, vuole features): niente salto.
+            inner = getattr(self.faster_whisper_model, 'model', None)
+            m = inner if inner is not None and hasattr(inner, 'model') else self.faster_whisper_model
+            if not hasattr(m, 'detect_language'):
+                return None
+            paths = [str(c[0]) for c in audio_chunks]
+            samples = []
+            for idx in LV.select_probe_chunks(paths, voice_s_fn=lambda p: LR.voice_stats(p)['voice_s']):
+                try:
+                    x, sr = sf.read(paths[idx], dtype='float32', always_2d=True)
+                    x = x.mean(axis=1)[:sr * 30]
+                    if sr != 16000 and len(x):
+                        x = np.interp(np.linspace(0, len(x) - 1, int(len(x) * 16000 / sr)),
+                                      np.arange(len(x)), x).astype('float32')
+                    lang, prob = m.detect_language(audio=x)[:2]
+                    logger.info(f"[whisper-lid] chunk {idx + 1}: '{lang}' p={prob:.2f}")
+                    samples.append((lang, float(prob)))
+                except Exception as e:
+                    logger.debug(f"[whisper-lid] chunk {idx + 1}: sonda fallita: {e}")
+            iso, share = LV.vote(samples)
+            logger.info(f"[whisper-lid] voto: {iso} (quota {share:.2f}) su {len(samples)} sonde")
+            return iso
+        except Exception as e:
+            logger.warning(f"[whisper-lid] voto lingua non disponibile: {e}")
+            return None
+
     def _check_vad_availability(self):
         """Verifica se il VAD è disponibile/funzionante"""
         try:
@@ -553,6 +587,15 @@ class FasterWhisperEngine(TranscriptionEngine):
                             and self.config.get('whisper_lang_retry_enabled', True))
             lang_retry_accept = frozenset(self.config.get('whisper_lang_retry_accept_langs', ['en']))
             lang_retry_records: list = []
+
+            # Auto-detect: UNA lingua per tutto il file, votata su più chunk sparsi (prima ogni chunk
+            # decideva da solo e si loggava solo il primo: un intro di musica poteva dare 'nn').
+            if auto_detect:
+                voted = self._vote_language(audio_chunks)
+                if voted:
+                    whisper_language = voted
+                    detected_language = voted
+                    self.log(tr('fw_language_detected_automatically').format(detected_language=voted))
 
             def _retry_transcribe(*a, **k):
                 # alcuni modelli (WhisperModel puro, senza BatchedInferencePipeline) non accettano
