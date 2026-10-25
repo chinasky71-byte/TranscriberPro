@@ -19,7 +19,10 @@ Every session that touches the repository must add an entry before the merge.
 
 ## 2026-10-25 — Job service extracted (`core/jobs`)
 
-- Branch / commits: `feat/jobs-service` (this branch).
+- Branch / commits: **deviation** — the branch `feat/jobs-service` was not
+  created and the work landed directly on `development` as `e87e8ae`
+  (already pushed; published history is not rewritten). Future steps use
+  feature branches.
 - Goal: one implementation of the queue, shared by CLI and (later) WebUI.
 - Done: `core/jobs/` with `Job`, `ProcessRunner`, `JobManager`, `EventHub`,
   atomic persistence, legacy status snapshot; `core/queue_runner.py` is now a
@@ -28,7 +31,8 @@ Every session that touches the repository must add an entry before the merge.
 - Tests: `linux_tests/test_jobs_manager.py` (8 tests, fake runner); headless
   queue on a real sample (71 s, status schema and SRT correct).
 - Decisions: manager persists only when a path is given (the CLI keeps its own
-  `--status` file); Qt worker untouched until WebUI parity.
+  `--status` file); Qt worker untouched until WebUI parity. Process note: a
+  feature branch must be created **before** the first commit.
 - Known issues: GUI still has its own queue; API not started.
 - Next step: Step 2, HTTP API.
 
