@@ -29,10 +29,28 @@ venv/bin/python -m bench.run --suite all --repeat 3
 
 Results are written to `~/.transcriberpro/bench/<timestamp>/`:
 
-- `results.json` — every run, metrics, timings, peak VRAM
-- `summary.md`, `summary.csv` — medians per engine
-- `asr/<engine>/runN.srt`, `translation/<engine>/runN.srt` — raw outputs
-- `manifest.txt` — commit and dataset path
+- `environment.json` — hardware, backend, driver/ROCm, CPU, kernel, commit
+- `results.json` — every run, metrics, timings, peak VRAM, device used
+- `summary.md` — **hardware block at the top**, then medians per engine
+- `summary.csv` — same columns as the Markdown table
+- `asr/<engine>/runN.srt`, `runN.log`, `translation/<engine>/runN.srt`
+- `manifest.txt` — commit, dataset, backend, hardware
+
+Example header in `summary.md`:
+
+```markdown
+# Benchmark results
+
+- **Hardware:** Radeon RX 9060 XT (gfx1200, RDNA4), 16304 MiB
+- **Backend:** rocm (torch 2.10.0+rocm7.0, HIP 7.0.51831)
+- **OS:** Ubuntu 26.04.1 LTS / kernel 7.0.0-38-generic
+- **CPU:** AMD Ryzen 5 9600X (x86_64)
+- **Date:** 2026-10-25T12:00:00+02:00
+- **Commit:** abc1234
+```
+
+CPU-only runs carry an explicit warning: timings and VRAM are not
+representative of GPU performance, and the `device` column says `cpu`.
 
 ## Method
 
@@ -60,6 +78,9 @@ Results are written to `~/.transcriberpro/bench/<timestamp>/`:
 | untranslated_ratio | translation blocks identical to the source (translation only) |
 | time_s_median | wall-clock time per run |
 | peak_vram_mib | peak VRAM on device 0 |
+| device | `gpu`, `cpu` or `unknown`, inferred per run from the log and VRAM peak |
+| backend | `rocm`, `cuda`, `cpu` — from the environment fingerprint |
+| hardware | GPU summary repeated on each row for easy copy/paste |
 
 ## Known limitations
 

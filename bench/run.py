@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import subprocess
 import sys
 from pathlib import Path
 
+from bench import environment
 from bench.runner import (
-    DEFAULT_DATA, DEFAULT_OUT, REPO,
+    DEFAULT_DATA, DEFAULT_OUT,
     run_asr, run_translation, summary, write_report,
 )
 
@@ -36,6 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data", type=Path, default=DEFAULT_DATA)
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--timeout", type=int, default=1800)
+    parser.add_argument("--label", default="", help="free-form label shown in the report")
     args = parser.parse_args(argv)
 
     if not args.data.is_dir():
@@ -47,15 +48,16 @@ def main(argv: list[str] | None = None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"results: {out_dir}")
 
-    try:
-        commit = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=str(REPO),
-            capture_output=True, text=True, timeout=10,
-        ).stdout.strip()
-    except Exception:
-        commit = ""
+    env = environment.collect(label=args.label)
+    print(f"hardware: {env['gpu_summary']}")
+    print(f"backend: {env['backend']} | torch {env['torch']} | HIP {env['hip']}")
+    print(f"cpu: {env['cpu']}")
+    if environment.is_cpu_only(env):
+        print("warning: CPU-only run, timings/VRAM are not representative")
+
     (out_dir / "manifest.txt").write_text(
-        f"commit={commit}\ndata={args.data}\nsuite={args.suite}\nrepeat={args.repeat}\n",
+        f"commit={env.get('git_commit', '')}\ndata={args.data}\nsuite={args.suite}\n"
+        f"repeat={args.repeat}\nbackend={env.get('backend')}\nhardware={env.get('gpu_summary')}\n",
         encoding="utf-8",
     )
 
@@ -68,11 +70,11 @@ def main(argv: list[str] | None = None) -> int:
         for engine in engines:
             records.extend(runner(engine, args.data, out_dir, args.repeat, args.timeout))
 
-    write_report(records, out_dir)
-    rows = summary(records)
+    write_report(records, out_dir, env)
+    rows = summary(records, env)
     for row in rows:
         print(f"{row['suite']:<12} {row['engine']:<16} "
-              f"runs={row['runs']} failed={row['failed']} "
+              f"runs={row['runs']} failed={row['failed']} device={row.get('device', '?')} "
               f"time={row.get('time_s_median', 0):.1f}s "
               f"wer={row.get('wer', float('nan')):.3f} "
               f"chrf={row.get('chrf', float('nan')):.3f} "

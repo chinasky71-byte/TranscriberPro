@@ -51,6 +51,24 @@ class RunResult:
     metrics: dict[str, Any] = field(default_factory=dict)
     output: str = ""
     error: str = ""
+    device: str = ""
+
+
+def detect_device(text: str, peak_mib: Optional[int] = None) -> str:
+    """Infer whether a run actually used the GPU, from its log and VRAM peak."""
+    low = (text or "").lower()
+    if "device=cpu" in low or "loaded on cpu" in low or "caricato su cpu" in low:
+        return "cpu"
+    if "device=gpu" in low or "loaded on cuda" in low or "caricato su cuda" in low:
+        return "gpu"
+    if "gguf" in low and ("vulkan" in low or "offload" in low):
+        return "gpu"
+    if peak_mib is not None:
+        if peak_mib >= 1500:
+            return "gpu"
+        if peak_mib <= 800:
+            return "cpu"
+    return "unknown"
 
 
 class VramSampler:
@@ -188,9 +206,10 @@ def run_asr(engine: str, data_dir: Path, out_dir: Path, repeat: int,
                     peak = sampler.peak_mib
                 elapsed = time.perf_counter() - started
                 logs = sorted((tmp_path / "logs").glob("*.log"))
+                log_text = ""
                 if logs:
-                    _write_output(out_dir / "asr" / engine, f"run{index}.log",
-                                  logs[-1].read_text(encoding="utf-8", errors="replace"))
+                    log_text = logs[-1].read_text(encoding="utf-8", errors="replace")
+                    _write_output(out_dir / "asr" / engine, f"run{index}.log", log_text)
                 if proc.returncode != 0:
                     tail = logs[-1].read_text(encoding="utf-8", errors="replace")[-2000:] if logs else proc.stderr[-2000:]
                     error = f"exit {proc.returncode}: {tail}"
@@ -205,7 +224,8 @@ def run_asr(engine: str, data_dir: Path, out_dir: Path, repeat: int,
                         produced.unlink(missing_ok=True)
 
         record = RunResult(suite="asr", engine=engine, run=index, time_s=elapsed,
-                           peak_vram_mib=peak, error=error)
+                           peak_vram_mib=peak, error=error,
+                           device=detect_device(log_text, peak))
         if hypothesis:
             record.metrics = _score_transcription(reference, hypothesis)
             record.output = str(_write_output(out_dir / "asr" / engine, f"run{index}.srt", srt_text))
@@ -253,7 +273,8 @@ def run_translation(engine: str, data_dir: Path, out_dir: Path, repeat: int,
                               out_path.read_text(encoding="utf-8-sig"))
 
         record = RunResult(suite="translation", engine=engine, run=index,
-                           time_s=elapsed, peak_vram_mib=peak, error=error)
+                           time_s=elapsed, peak_vram_mib=peak, error=error,
+                           device=detect_device((proc.stdout or "") + (proc.stderr or ""), peak))
         if output_blocks:
             record.metrics = _score_translation(source_blocks, output_blocks,
                                                 reference_blocks[:len(output_blocks)])
@@ -264,7 +285,7 @@ def run_translation(engine: str, data_dir: Path, out_dir: Path, repeat: int,
     return results
 
 
-def summary(records: list[RunResult]) -> list[dict]:
+def summary(records: list[RunResult], environment: Optional[dict] = None) -> list[dict]:
     grouped: dict[tuple[str, str], list[RunResult]] = {}
     for record in records:
         grouped.setdefault((record.suite, record.engine), []).append(record)
@@ -277,7 +298,11 @@ def summary(records: list[RunResult]) -> list[dict]:
             "engine": engine,
             "runs": len(items),
             "failed": len(items) - len(ok),
+            "device": ",".join(sorted({item.device for item in items if item.device})) or "unknown",
         }
+        if environment:
+            row["backend"] = environment.get("backend", "")
+            row["hardware"] = environment.get("gpu_summary", "")
         if ok:
             row["time_s_median"] = statistics.median(item.time_s for item in ok)
             peaks = [item.peak_vram_mib for item in ok if item.peak_vram_mib is not None]
@@ -296,22 +321,31 @@ def summary(records: list[RunResult]) -> list[dict]:
     return rows
 
 
-def write_report(records: list[RunResult], out_dir: Path) -> None:
+def write_report(records: list[RunResult], out_dir: Path,
+                 environment: Optional[dict] = None) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    rows = summary(records)
+    rows = summary(records, environment)
+    payload: dict[str, Any] = {"environment": environment,
+                              "runs": [record.__dict__ for record in records],
+                              "summary": rows}
     (out_dir / "results.json").write_text(
-        json.dumps({"runs": [record.__dict__ for record in records], "summary": rows},
-                   indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    headers = ["suite", "engine", "runs", "failed", "time_s_median", "peak_vram_mib",
-               "wer", "cer", "chrf", "similarity", "untranslated_ratio"]
-    lines = ["| " + " | ".join(headers) + " |",
-             "|" + "---|" * len(headers)]
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    if environment:
+        (out_dir / "environment.json").write_text(
+            json.dumps(environment, indent=2, ensure_ascii=False), encoding="utf-8")
+    headers = ["suite", "engine", "runs", "failed", "device", "backend", "hardware",
+               "time_s_median", "peak_vram_mib", "wer", "cer", "chrf", "similarity",
+               "untranslated_ratio"]
+    lines = []
+    if environment:
+        from bench.environment import header
+        lines.append(header(environment))
+    lines += ["| " + " | ".join(headers) + " |",
+              "|" + "---|" * len(headers)]
     for row in rows:
         cells = []
-        for header in headers:
-            value = row.get(header)
+        for header_name in headers:
+            value = row.get(header_name)
             if isinstance(value, float):
                 cells.append(f"{value:.4f}")
             else:
