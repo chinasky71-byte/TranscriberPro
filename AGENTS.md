@@ -47,3 +47,21 @@ interpretation of it.
    personal identifiers (usernames, real names, emails, hostnames,
    `/home/<user>` paths). If any are present, stop and report instead of
    committing.
+
+## Documentation — hard rule
+
+**All documentation must be written in English only**, regardless of the
+language used in the chat, in issues, in reviews or anywhere else.
+
+1. **Scope.** `README*`, everything under `docs/`, ADRs, guides, reports,
+   changelogs and any other human-readable documentation file in the
+   repository are documentation.
+2. **Language of the conversation is irrelevant.** Chatting in Italian (or
+   any other language) does not authorise Italian documentation. The output
+   that ends up in the repository is always English.
+3. **Existing non-English documentation.** It must be translated to English
+   when it is modified; new documentation must never be added in another
+   language. If a full translation is required, ask first and track it as
+   separate work.
+4. **Code comments and identifiers** follow the existing codebase style and
+   are out of scope for this rule unless the user says otherwise.
