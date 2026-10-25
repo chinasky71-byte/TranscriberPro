@@ -19,6 +19,8 @@ Eventi (campo `k`):
   audio_lang lang=<codice lingua dell'audio>
   embedded   lang=<codice>                       sottotitoli embedded scelti: audio non serve
   skip       phases=[...]                        fasi che non avverranno
+  step       name=save|mux|upload, state=start|done|skip, [ok=bool], [reason=...]
+                                                  passo di finalizzazione (salvataggio, mux, upload)
   ocr_leave                                      OCR non riuscito: si torna a testo/audio
   bar        phase=demucs|asr|translate|gender, pct=0..100
 """
