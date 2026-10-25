@@ -54,8 +54,9 @@ interpretation of it.
 language used in the chat, in issues, in reviews or anywhere else.
 
 1. **Scope.** `README*`, everything under `docs/`, ADRs, guides, reports,
-   changelogs and any other human-readable documentation file in the
-   repository are documentation.
+   changelogs, **agent rule/instruction files** (`AGENTS.md`, `CLAUDE.md`,
+   `CLAUDE_INTEGRATION.txt` and any similar file) and any other
+   human-readable documentation file in the repository are documentation.
 2. **Language of the conversation is irrelevant.** Chatting in Italian (or
    any other language) does not authorise Italian documentation. The output
    that ends up in the repository is always English.
