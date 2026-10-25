@@ -37,6 +37,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--timeout", type=int, default=1800)
     parser.add_argument("--label", default="", help="free-form label shown in the report")
+    parser.add_argument("--server-url", default="http://127.0.0.1:9091",
+                        help="llama.cpp server for engines named http:<model>")
     args = parser.parse_args(argv)
 
     if not args.data.is_dir():
@@ -57,7 +59,8 @@ def main(argv: list[str] | None = None) -> int:
 
     (out_dir / "manifest.txt").write_text(
         f"commit={env.get('git_commit', '')}\ndata={args.data}\nsuite={args.suite}\n"
-        f"repeat={args.repeat}\nbackend={env.get('backend')}\nhardware={env.get('gpu_summary')}\n",
+        f"repeat={args.repeat}\nbackend={env.get('backend')}\nhardware={env.get('gpu_summary')}\n"
+        f"server_url={args.server_url}\n",
         encoding="utf-8",
     )
 
@@ -66,9 +69,12 @@ def main(argv: list[str] | None = None) -> int:
     for suite in suites:
         engines = _engines(args.engines) or _engines(
             DEFAULT_ASR_ENGINES if suite == "asr" else DEFAULT_TRANSLATION_ENGINES)
-        runner = run_asr if suite == "asr" else run_translation
         for engine in engines:
-            records.extend(runner(engine, args.data, out_dir, args.repeat, args.timeout))
+            if suite == "asr":
+                records.extend(run_asr(engine, args.data, out_dir, args.repeat, args.timeout))
+            else:
+                records.extend(run_translation(engine, args.data, out_dir, args.repeat,
+                                               args.timeout, server_url=args.server_url))
 
     write_report(records, out_dir, env)
     rows = summary(records, env)

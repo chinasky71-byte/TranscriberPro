@@ -10,7 +10,8 @@ sys.path.insert(0, str(ROOT))
 
 from bench import metrics  # noqa: E402
 from bench.text import (  # noqa: E402
-    Line, compact, normalize, parse_reference, split_sentences, srt_blocks, srt_from_lines, tokens,
+    Line, compact, normalize, parse_reference, parse_srt_entries, split_sentences,
+    srt_blocks, srt_from_entries, srt_from_lines, tokens,
 )
 
 
@@ -89,3 +90,26 @@ def test_srt_timings_are_realistic():
 
 def test_compact_removes_spaces():
     assert compact("a b c") == "abc"
+
+
+def test_srt_entries_roundtrip():
+    lines = [Line("A", "First line."), Line("B", "Second line.")]
+    source = srt_from_lines(lines)
+    path = Path("/tmp") / "tp_bench_entries.srt"
+    path.write_text(source, encoding="utf-8")
+    try:
+        entries = parse_srt_entries(path)
+        assert [entry["text"] for entry in entries] == ["First line.", "Second line."]
+        assert entries[0]["start"] == "00:00:00,000"
+        rebuilt = srt_from_entries(entries)
+        path.write_text(rebuilt, encoding="utf-8")
+        assert srt_blocks(path) == ["First line.", "Second line."]
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def test_http_cleanup():
+    from bench._translate_http import _clean
+    assert _clean('"Buongiorno a tutti."') == "Buongiorno a tutti."
+    assert _clean("Italian: Ciao") == "Ciao"
+    assert _clean("  due\n righe  ") == "due righe"

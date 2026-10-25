@@ -23,6 +23,58 @@ venv/bin/python -m bench.run --suite asr --engines faster-whisper,qwen3 --repeat
 # Translation: NLLB vs TranslateGemma (GGUF), 3 runs each
 venv/bin/python -m bench.run --suite translation --engines nllb,llm --repeat 3
 
+# Translation with NLLB fine-tuned (expects models/nllb-ft/)
+venv/bin/python -m bench.run --suite translation --engines nllb_finetuned --repeat 3
+
+# Translation through a llama.cpp server (OpenAI-compatible, one request per block)
+venv/bin/python -m bench.run --suite translation \
+  --engines http:gemma4-12b-dense,http:gpt-oss-20b \
+  --server-url http://127.0.0.1:9091 --repeat 3
+```
+
+### HTTP engines
+
+`http:<preset>` translates one block per request against a running
+`llama-server`. Used to test GGUF models that the project's TranslateGemma
+engine cannot load (different architecture, template or quantization name).
+
+Start a **separate** instance for benchmarks, with a small context and
+reasoning disabled where needed — do not touch the system service or its
+`models.ini`:
+
+```bash
+llama serve --host 127.0.0.1 --port 9091 \
+  --models-preset /tmp/tp_bench_models.ini --models-max 1
+```
+
+```ini
+[gemma4-12b-dense]
+model = /srv/models/gemma4-12b-dense/gemma-4-12b-it-UD-Q4_K_XL.gguf
+n-gpu-layers = 999
+ctx-size = 4096
+jinja = true
+flash-attn = on
+temp = 0
+top-k = 1
+reasoning-budget = 0
+
+[gpt-oss-20b]
+model = /srv/models/gpt-oss-20b/gpt-oss-20b-UD-Q4_K_XL.gguf
+n-gpu-layers = 999
+ctx-size = 4096
+jinja = true
+flash-attn = on
+temp = 0
+top-k = 1
+reasoning-budget = 0
+reasoning = off
+```
+
+The server keeps the model resident between runs, so the first run of each
+model includes the cold load and the following ones are warm. In-process
+engines (`nllb`, `nllb_finetuned`, `llm`) load the model in every run because
+each run is a fresh subprocess. Report the two cases separately.
+
 # Both
 venv/bin/python -m bench.run --suite all --repeat 3
 ```

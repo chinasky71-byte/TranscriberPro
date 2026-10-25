@@ -117,6 +117,34 @@ def split_sentences(text: str) -> list[str]:
     return [part.strip() for part in parts if part.strip()]
 
 
+def parse_srt_entries(path: Path) -> list[dict]:
+    """Parse an SRT into entries with timings and text, preserving order."""
+    entries = []
+    raw = Path(path).read_text(encoding="utf-8-sig").strip()
+    for block in re.split(r"\n\s*\n", raw):
+        lines = [line for line in block.splitlines() if line.strip()]
+        if not lines:
+            continue
+        if "-->" in lines[0] and len(lines) >= 2:
+            index, timing, text_lines = len(entries) + 1, lines[0], lines[1:]
+        elif len(lines) >= 2 and "-->" in lines[1]:
+            index, timing, text_lines = int(lines[0]), lines[1], lines[2:]
+        else:
+            continue
+        start, end = [part.strip() for part in timing.split("-->")]
+        entries.append({"index": index, "start": start, "end": end,
+                        "text": " ".join(text_lines).strip()})
+    return entries
+
+
+def srt_from_entries(entries: list[dict]) -> str:
+    blocks = []
+    for offset, entry in enumerate(entries, start=1):
+        blocks.append(
+            f"{entry.get('index', offset)}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n")
+    return "\n".join(blocks)
+
+
 def srt_blocks(path: Path) -> list[str]:
     """Return the text of every block of an SRT file, in order."""
     blocks: list[str] = []

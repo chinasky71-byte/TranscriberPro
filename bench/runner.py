@@ -22,7 +22,7 @@ import sys
 import tempfile
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -238,7 +238,7 @@ def run_asr(engine: str, data_dir: Path, out_dir: Path, repeat: int,
 
 
 def run_translation(engine: str, data_dir: Path, out_dir: Path, repeat: int,
-                    timeout_s: int, log=print) -> list[RunResult]:
+                    timeout_s: int, log=print, server_url: str = "") -> list[RunResult]:
     source_lines = parse_reference(data_dir / TRANSLATION_SOURCE)
     reference_text = " ".join(line.text for line in parse_reference(data_dir / TRANSLATION_REFERENCE))
     sentences = []
@@ -247,6 +247,7 @@ def run_translation(engine: str, data_dir: Path, out_dir: Path, repeat: int,
     source_blocks = [line.text for line in sentences]
     source_srt = srt_from_lines(sentences)
     results: list[RunResult] = []
+    engine_dir = engine.replace(":", "_")
 
     for index in range(repeat):
         started = time.perf_counter()
@@ -258,28 +259,47 @@ def run_translation(engine: str, data_dir: Path, out_dir: Path, repeat: int,
             src_path = tmp_path / "source.srt"
             out_path = tmp_path / "translated.srt"
             src_path.write_text(source_srt, encoding="utf-8")
+
+            if engine.startswith("http:"):
+                if not server_url:
+                    raise ValueError("http engine requires --server-url")
+                model = engine.split(":", 1)[1]
+                cmd = [sys.executable, "-m", "bench._translate_http", server_url, model,
+                       str(src_path), str(out_path), "--timeout", str(min(timeout_s, 180))]
+                ctx = nullcontext()
+            elif engine == "nllb_finetuned":
+                cmd = [sys.executable, "-m", "bench._translate", engine,
+                       str(src_path), str(out_path)]
+                ctx = temporary_config({
+                    "nllb_finetuned_model_path": str(REPO / "models" / "nllb-ft"),
+                })
+            else:
+                cmd = [sys.executable, "-m", "bench._translate", engine,
+                       str(src_path), str(out_path)]
+                ctx = nullcontext()
+
             with VramSampler() as sampler:
                 try:
-                    proc = _run(
-                        [sys.executable, "-m", "bench._translate", engine,
-                         str(src_path), str(out_path)],
-                        timeout_s=timeout_s,
-                    )
+                    with ctx:
+                        proc = _run(cmd, timeout_s=timeout_s)
                 finally:
                     peak = sampler.peak_mib
             elapsed = time.perf_counter() - started
             log_text = (proc.stdout or "") + (proc.stderr or "")
-            _write_output(out_dir / "translation" / engine, f"run{index}.log", log_text)
+            _write_output(out_dir / "translation" / engine_dir, f"run{index}.log", log_text)
             if proc.returncode != 0 or not out_path.exists():
-                error = f"exit {proc.returncode}: {proc.stderr[-2000:]}"
+                error = f"exit {proc.returncode}: {(proc.stderr or '')[-2000:]}"
             else:
                 output_blocks = srt_blocks(out_path)
-                _write_output(out_dir / "translation" / engine, f"run{index}.srt",
+                _write_output(out_dir / "translation" / engine_dir, f"run{index}.srt",
                               out_path.read_text(encoding="utf-8-sig"))
 
+        if engine.startswith("http:"):
+            device = "gpu" if (peak or 0) >= 1500 else "unknown"
+        else:
+            device = detect_device((proc.stdout or "") + (proc.stderr or ""), peak)
         record = RunResult(suite="translation", engine=engine, run=index,
-                           time_s=elapsed, peak_vram_mib=peak, error=error,
-                           device=detect_device((proc.stdout or "") + (proc.stderr or ""), peak))
+                           time_s=elapsed, peak_vram_mib=peak, error=error, device=device)
         if output_blocks:
             record.metrics = _score_translation(source_blocks, output_blocks, reference_text)
         results.append(record)
