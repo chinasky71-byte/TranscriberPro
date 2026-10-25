@@ -2,7 +2,8 @@
 
 Updated: 2026-10-25
 Line: `development` (active product); `master` is legacy (ADR-006)
-Branch: `development` · last merge: `a9c0975` (WebUI MVP)
+Branch: `development` · last merge: `31bd740` (documentation sync)
+WebUI: **not running** (start it with the command in `web/README.md`)
 Environment: Ubuntu 26.04, Radeon RX 9060 XT 16 GB (gfx1200, RDNA4),
 ROCm 7.0, torch 2.10.0+rocm7.0, venv ~16 GB, model cache ~33 GB
 
@@ -57,6 +58,9 @@ ROCm 7.0, torch 2.10.0+rocm7.0, venv ~16 GB, model cache ~33 GB
 ## Useful commands
 
 ```bash
+# WebUI (token required on a non-loopback host)
+venv/bin/python -m web.main --host 0.0.0.0 --port 8080
+
 venv/bin/python -m pytest linux_tests -q
 venv/bin/python -m core.queue_runner samples/prova_amd_test.mp4 \
   --status /tmp/queue.json --log-dir /tmp/queue_logs

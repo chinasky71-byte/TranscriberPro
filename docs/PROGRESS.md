@@ -17,6 +17,15 @@ Every session that touches the repository must add an entry before the merge.
 - Next step:
 ```
 
+## 2026-10-25 — Documentation sync (handoff)
+
+- Branch / commits: `docs/progress-sync`; commit `92c2580`, merged as `31bd740`.
+- Goal: make a cold start unambiguous.
+- Done: commit/merge hashes for WebUI Steps 1–3 in `PROGRESS` and `PLAN`;
+  `STATUS` updated with the last merge and the WebUI start command.
+- Tests: docs index and link tests (10 passed).
+- Next step: Step 4, settings and history.
+
 ## 2026-10-25 — WebUI MVP (Step 3)
 
 - Branch / commits: `feat/webui-mvp`; commit `ba9ba99`, merged as `a9c0975`.
