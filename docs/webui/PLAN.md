@@ -5,8 +5,8 @@ tests, and an update to `docs/STATUS.md` and `docs/PROGRESS.md`.
 
 | Step | Branch | Deliverable | Acceptance | Status |
 |---|---|---|---|---|
-| 0 | `docs/webui-spec` | `AGENTS.md` entry point, `STATUS`, `PROGRESS`, `docs/README`, this spec/plan, docs guard test | docs tests green; a new session can resume from `AGENTS.md` | **done in this branch** |
-| 1 | `feat/jobs-service` | `core/jobs/`: models, process runner, manager, event hub, persistence; `queue_runner` ported | headless queue parity; tests without Qt | next |
+| 0 | `docs/webui-spec` | `AGENTS.md` entry point, `STATUS`, `PROGRESS`, `docs/README`, this spec/plan, docs guard test | docs tests green; a new session can resume from `AGENTS.md` | done |
+| 1 | `feat/jobs-service` | `core/jobs/`: models, process runner, manager, event hub, persistence; `queue_runner` ported | headless queue parity; tests without Qt | **done in this branch** |
 | 2 | `feat/web-api` | FastAPI app, health/status/jobs/events/config, token auth, path validation | queue start/stop/cancel via `curl`; SSE works | pending |
 | 3 | `feat/webui-mvp` | Dashboard, queue, job detail, logs (HTMX + Alpine) | one real file processed from the browser on AMD | pending |
 | 4 | `feat/webui-settings` | Settings and history pages | config changes and history work | pending |
@@ -23,7 +23,7 @@ tests, and an update to `docs/STATUS.md` and `docs/PROGRESS.md`.
 - [x] `docs/README.md` index (authoritative vs historical, language)
 - [x] `docs/webui/SPEC.md` and `docs/webui/PLAN.md`
 - [x] `linux_tests/test_docs_index.py`
-- [ ] merge into `development`
+- [x] merge into `development`
 
 ## Step 1 notes
 

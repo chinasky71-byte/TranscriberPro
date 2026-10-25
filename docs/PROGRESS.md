@@ -17,6 +17,21 @@ Every session that touches the repository must add an entry before the merge.
 - Next step:
 ```
 
+## 2026-10-25 — Job service extracted (`core/jobs`)
+
+- Branch / commits: `feat/jobs-service` (this branch).
+- Goal: one implementation of the queue, shared by CLI and (later) WebUI.
+- Done: `core/jobs/` with `Job`, `ProcessRunner`, `JobManager`, `EventHub`,
+  atomic persistence, legacy status snapshot; `core/queue_runner.py` is now a
+  thin client; `FileProgress` moved to `core/jobs/progress.py` with a shim in
+  `gui/file_progress.py`; boundary allowlist for `core -> gui` is now empty.
+- Tests: `linux_tests/test_jobs_manager.py` (8 tests, fake runner); headless
+  queue on a real sample (71 s, status schema and SRT correct).
+- Decisions: manager persists only when a path is given (the CLI keeps its own
+  `--status` file); Qt worker untouched until WebUI parity.
+- Known issues: GUI still has its own queue; API not started.
+- Next step: Step 2, HTTP API.
+
 ## 2026-10-25 — WebUI specification and agent entry point
 
 - Branch / commits: `docs/webui-spec` (this branch).

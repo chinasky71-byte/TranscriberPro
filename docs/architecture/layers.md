@@ -21,20 +21,19 @@ does not fit a layer, the design is wrong, not the rule.
 **Rule:** `core/` may ask *what* is available (`Caps`) and *do* domain work,
 but it must not know *how* the OS or the GPU runtime implements it.
 
-## Job service — `core/jobs/` (target)
+## Job service — `core/jobs/` (present)
 
 **Responsibility:** own the queue and the lifecycle of one subprocess per file.
 
-Planned modules: `models.py` (`Job`), `process_runner.py` (spawn
+Implemented modules: `models.py` (`Job`), `process_runner.py` (spawn
 `core.pipeline_cli`, parse stdout/stderr, kill tree, result file), `manager.py`
 (FIFO, concurrency 1, cancel, per-file overrides), `events.py` (pub/sub and
 per-job log ring buffer), `persistence.py` (atomic `jobs.json`,
 `running` → `interrupted` on restart).
 
-Current location of the same logic: `gui/workers.py` (`ProcessingWorker`),
-`gui/services/queue_service.py` and `core/queue_runner.py`. The extraction must
-not change behaviour; `core/queue_runner.py` becomes a thin CLI on top of the
-manager.
+`core/queue_runner.py` is a thin CLI client; `core/jobs/progress.py` holds the
+former `gui/file_progress.py` (Qt-free). The Qt worker still uses its own queue
+until the WebUI parity, but `core/` no longer imports `gui/`.
 
 **Allowed:** `core.pipeline_cli` (as a subprocess), `utils`, stdlib.
 **Forbidden:** Qt, `runtime` internals.

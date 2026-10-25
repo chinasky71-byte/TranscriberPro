@@ -63,7 +63,7 @@ class Platform(Protocol):
 Rules: no business decisions, never install or modify drivers, never raise on
 unsupported features (degrade to a no-op and report through `Caps`).
 
-## `JobManager` (target)
+## `JobManager` (current)
 
 The single owner of the queue, shared by WebUI, CLI and (temporarily) the GUI.
 
@@ -85,8 +85,9 @@ Invariants:
   become `interrupted`;
 - cancel kills the process tree and frees the GPU.
 
-Current equivalents: `gui/workers.py::ProcessingWorker`,
-`gui/services/queue_service.py`, `core/queue_runner.py`.
+Implementation: `core/jobs/manager.py`. The Qt worker still has its own copy;
+it will be ported during the WebUI work. `legacy_snapshot()` keeps the
+historical `queue_status.json` schema for the headless CLI.
 
 ## `Event` (current, v1)
 

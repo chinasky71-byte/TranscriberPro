@@ -24,7 +24,7 @@ Physical mapping (current and target):
 | Layer | Path | Status |
 |---|---|---|
 | Domain (business logic) | `core/` | present |
-| Job service | `core/jobs/` | **target** — logic currently in `gui/workers.py` and `core/queue_runner.py` |
+| Job service | `core/jobs/` | present — shared by the headless queue; the Qt GUI still uses its own worker |
 | Infrastructure | `utils/` | present |
 | Platform services (OS) | `platform_services/` | **target** |
 | Runtime (GPU backend) | `runtime/` | **target** |

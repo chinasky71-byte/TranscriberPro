@@ -18,10 +18,8 @@ CORE = ROOT / "core"
 
 FORBIDDEN_IMPORT_PREFIXES = ("platform_services", "runtime", "PyQt6", "PySide6")
 
-# core -> gui exception: pure-Python progress parser, no Qt. To be moved to core/jobs.
-ALLOWED_GUI_IMPORTS = {
-    ("core/queue_runner.py", "gui.file_progress"),
-}
+# No core -> gui exception left: FileProgress moved to core/jobs/progress.py.
+ALLOWED_GUI_IMPORTS = set()
 
 # OS checks in core. Matched as (relative path, substring of the source line).
 # The test fails both on a new occurrence and on a stale entry.

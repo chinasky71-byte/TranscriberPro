@@ -17,15 +17,18 @@ ROCm 7.0, torch 2.10.0+rocm7.0, venv ~16 GB, model cache ~33 GB
   translation suites, sanitized export into `docs/benchmarks/`.
 - **Architecture baseline**: layers, contracts, runtime policy, platform
   services, events, config, security, testing, extension guide.
+- **Job service**: `core/jobs/` owns the queue (manager, process runner, event
+  hub, persistence, progress). `core.queue_runner` is a thin client; the
+  headless pipeline was validated end to end after the extraction.
 - **ADRs** 001–006, support matrix, contributing rules, guard tests.
 - **Tests**: unit/guard tests in `linux_tests/` (bench, boundaries, events,
   docs links, translation gate, i18n).
 
 ## In progress / next
 
-1. **WebUI Step 1** — extract `core/jobs/` from `gui/workers.py` and
-   `core/queue_runner.py`. See `docs/webui/PLAN.md`.
-2. WebUI API and MVP after the service layer.
+1. **WebUI Step 2** — HTTP API on top of `core/jobs/`. See
+   `docs/webui/PLAN.md`.
+2. WebUI MVP after the API.
 3. Docker packaging after the WebUI MVP.
 4. Reference dataset extension (real clips with human Italian references)
    before any model decision beyond the current sample.

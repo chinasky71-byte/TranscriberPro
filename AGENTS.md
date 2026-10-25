@@ -40,7 +40,7 @@ Documentation index: [`docs/README.md`](docs/README.md).
 | Path | Responsibility | Status |
 |---|---|---|
 | `core/` | pipeline, ASR engines, translators, audio, subtitles, OCR | active |
-| `core/jobs/` | queue and job lifecycle, shared by WebUI/CLI/GUI | target (Step 1) |
+| `core/jobs/` | queue and job lifecycle, shared by WebUI/CLI/GUI | active |
 | `utils/` | config, logging, i18n, clients, cache, GPU probing | active |
 | `platform_services/` | OS-specific services | target |
 | `runtime/` | CUDA/ROCm/Vulkan/CPU policy | target |
