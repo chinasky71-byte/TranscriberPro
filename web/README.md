@@ -36,6 +36,21 @@ only, as `?token=<token>`.
 `TP_DATA_DIR` and `TP_MODELS_DIR` are read at import time: `web.main` sets them
 before importing `utils.config` and `utils.cache_bootstrap`.
 
+## UI
+
+Open `/` in the browser. When a token is configured, `/login` sets an
+HttpOnly `tp_session` cookie (SameSite=Lax) holding the token; the token is
+never written into the HTML. Log out from the top bar.
+
+The page is server-rendered with Jinja2, HTMX (polling the queue) and Alpine
+(logs panel). HTMX and Alpine are vendored in `web/static/vendor/`; no CDN is
+used at runtime. The logs panel subscribes to `/api/events` with
+`EventSource` and reconnects automatically (the server supports
+`Last-Event-ID`).
+
+Plain HTTP on a LAN exposes both the token and the cookie: use a TLS reverse
+proxy, a VPN or an SSH tunnel.
+
 ## API
 
 See [`docs/webui/SPEC.md`](../docs/webui/SPEC.md) for the full contract.

@@ -1,0 +1,37 @@
+{% if error %}<p class="alert error">{{ error }}</p>{% endif %}
+{% if message %}<p class="alert ok">{{ message }}</p>{% endif %}
+
+{% if jobs %}
+<table class="queue">
+  <thead>
+    <tr><th>File</th><th>Status</th><th>Progress</th><th>Phase</th><th></th></tr>
+  </thead>
+  <tbody>
+  {% for job in jobs %}
+    <tr>
+      <td class="name" title="{{ job.path }}">{{ job.name }}</td>
+      <td><span class="badge {{ job.status }}">{{ job.status }}</span></td>
+      <td class="progress">
+        <progress max="100" value="{{ job.percent }}"></progress>
+        <small>{{ job.percent }}%</small>
+      </td>
+      <td class="phase">{{ job.phase }}</td>
+      <td class="actions">
+        {% if job.status in ('queued', 'running') %}
+        <button class="btn small" type="button"
+                hx-post="/ui/jobs/{{ job.id }}/cancel" hx-target="#queue" hx-swap="innerHTML">Cancel</button>
+        {% endif %}
+        {% if job.status == 'queued' %}
+        <button class="btn small" type="button"
+                hx-post="/ui/jobs/{{ job.id }}/remove" hx-target="#queue" hx-swap="innerHTML">Remove</button>
+        {% endif %}
+        <button class="btn small js-log" type="button"
+                data-job="{{ job.id }}" data-name="{{ job.name }}">Log</button>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No jobs yet. Add a media path above.</p>
+{% endif %}
