@@ -147,6 +147,62 @@ class BaseTranslator(ABC):
         """
         self.log_callback = callback
         logger.debug(f"{self.__class__.__name__}: Log callback impostato")
+
+    # ------------------------------------------------------------------
+    # Criterio di successo della traduzione
+    #
+    # `translate_file` storicamente ritornava True appena riusciva a
+    # scrivere il file, anche se OGNI batch era stato saltato per un errore
+    # e i blocchi erano stati rimessi in lingua originale (falso positivo
+    # osservato su AMD: HIP error su tutti i batch, 41/46 righe in inglese,
+    # exit 0 e .it.srt salvato come se fosse tradotto).
+    #
+    # Qui il successo richiede che i blocchi rimasti nella lingua sorgente
+    # non superino `translation_max_untranslated_pct` (default 80%).
+    # ------------------------------------------------------------------
+    DEFAULT_MAX_UNTRANSLATED_PCT = 80.0
+
+    # Errori GPU/sistemici: non sono "una riga sbagliata", il batch
+    # successivo fallira' allo stesso modo. Meglio fermarsi subito e
+    # lasciare alla pipeline il ripiego sul file in lingua originale.
+    _FATAL_GPU_ERROR_MARKERS = (
+        'hip error', 'cuda error', 'invalid device function',
+        'device-side assert', 'no kernel image', 'hipblas', 'miopen',
+        'cublas', 'gpu memoria insufficiente',
+    )
+
+    @classmethod
+    def _is_fatal_gpu_error(cls, exc: BaseException) -> bool:
+        msg = str(exc).lower()
+        return any(marker in msg for marker in cls._FATAL_GPU_ERROR_MARKERS)
+
+    def _max_untranslated_pct(self) -> float:
+        """Soglia configurata, sempre in [0, 100]."""
+        try:
+            from utils.config import get_config
+            value = float(get_config().get(
+                'translation_max_untranslated_pct',
+                self.DEFAULT_MAX_UNTRANSLATED_PCT))
+        except Exception:
+            value = self.DEFAULT_MAX_UNTRANSLATED_PCT
+        return min(100.0, max(0.0, value))
+
+    def _translation_exceeds_error_budget(self, untranslated: int,
+                                          total: int) -> bool:
+        """True se troppi blocchi sono rimasti nella lingua sorgente.
+
+        Args:
+            untranslated: blocchi ancora identici al sorgente (audit L4).
+            total: blocchi totali del file SRT.
+        """
+        total = max(1, int(total))
+        pct = 100.0 * int(untranslated) / total
+        limit = self._max_untranslated_pct()
+        if pct > limit:
+            self.log(tr('tl_translation_failed_untranslated_over_threshold').format(
+                n=int(untranslated), total=total, pct=pct, limit=limit))
+            return True
+        return False
     
     @abstractmethod
     def translate_file(self, input_path: Path, output_path: Path, 
@@ -1830,6 +1886,13 @@ class NLLBTranslator(BaseTranslator):
                         i += len(batch)
 
                     except Exception as e:
+                        if self._is_fatal_gpu_error(e):
+                            # Errore sistemico: i batch successivi fallirebbero
+                            # allo stesso modo. Si esce e il chiamante usera' il
+                            # file in lingua originale (niente falso positivo).
+                            self.log(tr('tl_fatal_gpu_error_aborting').format(
+                                error=str(e)[:200]))
+                            raise
                         retries += 1
 
                         if 'Out of Memory - Batch Size Ridotto' in str(e):
@@ -1935,16 +1998,22 @@ class NLLBTranslator(BaseTranslator):
             for i in recovery_queue:
                 self.log(tr('tl_warning_block_not_translated_stays').format(i=i, text=recovery_queue[i][:60]))
 
-            srt_content = self._generate_srt(translated_subtitles, dash_flags)
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(srt_content)
-
-            self._log_audit(
+            flagged = self._log_audit(
                 {idx: text for idx, _, _, text in translated_subtitles},
                 originals_by_index,
                 counters={tr('tl_counter_repaired_l1'): n_repaired, tr('tl_counter_recovered_l2'): n_l2,
                          tr('tl_counter_reservoir_l3'): n_l3,
                          tr('tl_counter_confirmed_identical'): len(confirmed_identical)})
+
+            # Criterio di successo: non basta aver completato il ciclo. Se troppi
+            # blocchi sono rimasti in lingua originale, la traduzione e'
+            # fallita: NON si scrive il file e la pipeline conserva il sorgente.
+            if self._translation_exceeds_error_budget(len(flagged), total):
+                return False
+
+            srt_content = self._generate_srt(translated_subtitles, dash_flags)
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(srt_content)
 
             return True
             
@@ -2504,16 +2573,19 @@ class LLMSubtitleTranslator(BaseTranslator):
                     output.append((index, start, end,
                                    resolved.get(index, original)))
 
-            output_path.write_text(self._generate_srt(output),
-                                   encoding='utf-8')
-            self.log(tr('tl_subtitles_written').format(name=output_path.name))
-
-            self._log_audit(
+            flagged = self._log_audit(
                 {i: t for i, _, _, t in output}, originals,
                 skip_ids=passthrough.keys(),
                 counters={tr('tl_counter_repaired_l1'): n_repaired, tr('tl_counter_recovered_l2'): n_l2,
                          tr('tl_counter_reservoir_l3'): n_l3,
                          tr('tl_counter_confirmed_identical'): len(confirmed_identical)})
+
+            if self._translation_exceeds_error_budget(len(flagged), total):
+                return False
+
+            output_path.write_text(self._generate_srt(output),
+                                   encoding='utf-8')
+            self.log(tr('tl_subtitles_written').format(name=output_path.name))
 
             return True
 
