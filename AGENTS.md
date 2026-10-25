@@ -44,7 +44,7 @@ Documentation index: [`docs/README.md`](docs/README.md).
 | `utils/` | config, logging, i18n, clients, cache, GPU probing | active |
 | `platform_services/` | OS-specific services | target |
 | `runtime/` | CUDA/ROCm/Vulkan/CPU policy | target |
-| `web/` | HTTP API, SSE, WebUI | target |
+| `web/` | HTTP API, SSE, WebUI | API ready (UI next) |
 | `gui/` | legacy Qt interface | frozen, to be removed after parity |
 | `bench/` | benchmark harness (ASR + translation) | active |
 | `docs/` | architecture, ADRs, benchmarks, guides | active |

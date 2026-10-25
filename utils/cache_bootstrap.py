@@ -11,7 +11,10 @@ import os
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CACHE_ROOT = PROJECT_ROOT / 'models' / '.cache'
+# TP_MODELS_DIR lets containers mount the model cache outside the repository.
+MODELS_ROOT = (Path(os.environ['TP_MODELS_DIR']).expanduser()
+               if os.environ.get('TP_MODELS_DIR') else PROJECT_ROOT / 'models')
+CACHE_ROOT = MODELS_ROOT / '.cache'
 
 HF_CACHE = CACHE_ROOT / 'huggingface'
 TORCH_CACHE = CACHE_ROOT / 'torch'

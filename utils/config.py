@@ -47,8 +47,10 @@ except ImportError as e:
 
 class Config:
     """Gestisce configurazione e preferenze utente"""
-    
-    CONFIG_DIR = Path.home() / '.transcriberpro'
+
+    # TP_DATA_DIR lets containers and the WebUI keep config/logs outside the home.
+    CONFIG_DIR = (Path(os.environ['TP_DATA_DIR']).expanduser()
+                  if os.environ.get('TP_DATA_DIR') else Path.home() / '.transcriberpro')
     CONFIG_FILE = CONFIG_DIR / 'config.json'
     
     # Default settings
@@ -56,6 +58,8 @@ class Config:
         # General settings
         'use_gpu': True,
         'language': 'auto',
+        # Roots accepted by the WebUI for media paths (empty = the user's home).
+        'allowed_media_roots': [],
         'last_input_folder': '',
         'shutdown_after_processing': False,
         

@@ -11,7 +11,7 @@ green; CI enforces the groups that do not need a GPU.
 | Contract | interfaces (`TranscriptionEngine`, `JobManager`, `Caps`) | `linux_tests/test_jobs_manager.py` + `linux_tests/` | CPU |
 | Guard | architecture and protocol rules | `linux_tests/test_architecture_boundaries.py`, `test_events_schema.py` | CPU |
 | Integration (headless) | pipeline on a real sample via `core.queue_runner` | manual / `samples/` | GPU |
-| End-to-end (web) | API + SSE + job lifecycle | `linux_tests/` with a fake manager | CPU |
+| End-to-end (web) | API + SSE + job lifecycle | `linux_tests/test_web_api.py`, `test_web_events.py` | CPU |
 | Container smoke | image starts, `--help`, import | CI | CPU |
 | Hardware validation | ROCm/CUDA end-to-end | self-hosted runner / manual | GPU |
 

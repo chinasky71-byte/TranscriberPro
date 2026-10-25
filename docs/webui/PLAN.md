@@ -7,7 +7,7 @@ tests, and an update to `docs/STATUS.md` and `docs/PROGRESS.md`.
 |---|---|---|---|---|
 | 0 | `docs/webui-spec` | `AGENTS.md` entry point, `STATUS`, `PROGRESS`, `docs/README`, this spec/plan, docs guard test | docs tests green; a new session can resume from `AGENTS.md` | done |
 | 1 | `feat/jobs-service` | `core/jobs/`: models, process runner, manager, event hub, persistence; `queue_runner` ported | headless queue parity; tests without Qt | **done in this branch** |
-| 2 | `feat/web-api` | FastAPI app, health/status/jobs/events/config, token auth, path validation | queue start/stop/cancel via `curl`; SSE works | pending |
+| 2 | `feat/web-api` | FastAPI app, health/status/jobs/events/config, token auth, path validation | queue start/stop/cancel via `curl`; SSE works | **done in this branch** |
 | 3 | `feat/webui-mvp` | Dashboard, queue, job detail, logs (HTMX + Alpine) | one real file processed from the browser on AMD | pending |
 | 4 | `feat/webui-settings` | Settings and history pages | config changes and history work | pending |
 | 5 | `feat/webui-ocr` | OCR review page | parity with the Qt dialog | pending |
