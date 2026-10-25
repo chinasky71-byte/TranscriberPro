@@ -137,3 +137,18 @@ def test_traduzione_completa_resta_un_successo(nllb, tmp_path, monkeypatch):
                         lambda texts, *a, **k: ['Buongiorno a tutti voi.'] * len(texts))
     assert nllb.translate_file(src, out, 'eng', 'ita') is True
     assert out.exists() and 'Buongiorno' in out.read_text(encoding='utf-8')
+
+
+def test_nllb_device_map_solo_su_rocm():
+    """Su CUDA resta 'auto' (offload CPU del ramo 8-bit); {'': 0} solo con HIP."""
+    import torch
+    expected = ({'': 0} if translator_mod._use_gpu
+                and getattr(torch.version, 'hip', None) else 'auto')
+    assert translator_mod._NLLB_DEVICE_MAP == expected
+
+
+def test_ct2_bootstrap_noop_fuori_da_linux(monkeypatch):
+    import utils.ct2_bootstrap as b
+    monkeypatch.setattr(b, '_done', False)
+    monkeypatch.setattr(b.sys, 'platform', 'win32')
+    assert b.ensure_ct2_initialized() is False

@@ -26,6 +26,7 @@ False, senza sollevare eccezioni.
 Variabile d'ambiente: TP_SKIP_CT2_INIT=1 disattiva il bootstrap.
 """
 import os
+import sys
 
 _done = False
 
@@ -41,6 +42,10 @@ def ensure_ct2_initialized() -> bool:
     if _done:
         return True
     if os.environ.get('TP_SKIP_CT2_INIT') == '1':
+        return False
+    # Il SIGSEGV riguarda solo ROCm (Linux): su Windows non si tocca l'ordine
+    # di import di torch/onnxruntime/llama_cpp nel processo.
+    if not sys.platform.startswith('linux'):
         return False
     try:
         import torch  # noqa: F401  (carica le librerie HIP/CUDA del wheel)
