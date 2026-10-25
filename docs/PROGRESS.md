@@ -17,6 +17,22 @@ Every session that touches the repository must add an entry before the merge.
 - Next step:
 ```
 
+## 2026-10-25 — Web API (WebUI Step 2)
+
+- Branch / commits: `feat/web-api` (branch created before the first commit).
+- Goal: expose the shared job queue over HTTP with auth, path validation and SSE.
+- Done: `web/` (FastAPI factory, entry point, auth, paths, SSE bridge);
+  `TP_DATA_DIR`/`TP_MODELS_DIR`; manager `keep_alive` mode; whitelisted
+  config API with masked secrets; requirements-web.txt; web/README.md.
+- Tests: 16 unit tests (paths, API with fake runner, SSE bridge, env dirs);
+  real smoke test on 127.0.0.1:8099: auth 401/200, real job completed in ~78 s
+  with SRT and history, second job cancelled via HTTP in ~2 s.
+- Decisions: token required on non-loopback; token accepted as query param for
+  SSE only; media roots from `TP_MEDIA_ROOTS` or config, else home.
+- Known issues: no UI yet; no login page (token only); job step detail is the
+  next UI step.
+- Next step: Step 3, WebUI MVP.
+
 ## 2026-10-25 — Job service extracted (`core/jobs`)
 
 - Branch / commits: **deviation** — the branch `feat/jobs-service` was not

@@ -12,10 +12,9 @@ defaults (Config.DEFAULTS)  <  config.json  <  per-job in-memory overlay
 - Per-job overrides (`utils/job_overrides.py`) are applied with
   `Config.set_overlay()` and are **never written to disk**.
 - There are **no environment overrides today**.
-- Planned for containers: `TP_DATA_DIR` (config/logs root, default
-  `~/.transcriberpro`) and `TP_MODELS_DIR` (model cache, default
-  `<project>/models`). Both must be implemented before Docker becomes the
-  distribution artifact.
+- `TP_DATA_DIR` (config/logs/jobs root, default `~/.transcriberpro`) and
+  `TP_MODELS_DIR` (model cache, default `<project>/models`) are read at import
+  time; `web.main` sets them before importing config. Containers rely on them.
 
 ## Important keys
 

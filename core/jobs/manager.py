@@ -27,7 +27,8 @@ class JobManager:
                  runner: Optional[Any] = None,
                  progress_factory: Callable[[str], Any] = FileProgress,
                  hub: Optional[EventHub] = None,
-                 load_persisted: bool = True):
+                 load_persisted: bool = True,
+                 keep_alive: bool = False):
         self.target_language = target_language
         self.persist_path = Path(persist_path) if persist_path else None
         self.log_dir = Path(log_dir) if log_dir else None
@@ -42,6 +43,8 @@ class JobManager:
         self._cancel: Dict[str, threading.Event] = {}
         self._worker: Optional[threading.Thread] = None
         self._stopping = threading.Event()
+        self._wake = threading.Event()
+        self._keep_alive = keep_alive
         self._state = "finished"
         self.started = time.time()
 
@@ -63,6 +66,7 @@ class JobManager:
             self._jobs.append(job)
             self._by_id[job.id] = job
         self.hub.publish(job.id, "created", job=job.to_dict())
+        self._wake.set()
         self._save()
         return job
 
@@ -106,12 +110,14 @@ class JobManager:
             if self._worker is not None and self._worker.is_alive():
                 return
             self._stopping.clear()
+            self._wake.clear()
             self._state = "running"
             self._worker = threading.Thread(target=self._run, name="tp-jobs", daemon=True)
             self._worker.start()
 
     def stop(self) -> None:
         self._stopping.set()
+        self._wake.set()
         with self._lock:
             running = [job for job in self._jobs if job.status == RUNNING]
             queued = [job for job in self._jobs if job.status == QUEUED]
@@ -160,10 +166,14 @@ class JobManager:
         while not self._stopping.is_set():
             job = self._next_queued()
             if job is None:
-                break
+                if not self._keep_alive:
+                    break
+                self._wake.wait(0.5)
+                self._wake.clear()
+                continue
             self._run_one(job)
         with self._lock:
-            if self._state != "cancelled":
+            if not self._keep_alive and self._state != "cancelled":
                 self._state = "finished"
 
     def _run_one(self, job: Job) -> None:

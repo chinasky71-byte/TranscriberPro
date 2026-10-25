@@ -51,6 +51,7 @@ when touched (documentation hard rule).
 |---|---|---|
 | [`webui/SPEC.md`](webui/SPEC.md) | WebUI functional and technical specification | authoritative |
 | [`webui/PLAN.md`](webui/PLAN.md) | step-by-step implementation plan and status | authoritative |
+| [`../web/README.md`](../web/README.md) | Web API: run, environment, endpoints | authoritative |
 
 ## Evidence
 
