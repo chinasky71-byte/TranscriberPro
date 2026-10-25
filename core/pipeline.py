@@ -859,11 +859,25 @@ class ProcessingPipeline:
         if self._audio_processor:
             self._audio_processor.cleanup_model()
             self._audio_processor = None
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-            torch.cuda.empty_cache()
+        # Stesso cleanup di STEP 5 (workspace cuBLAS + empty_cache + ipc_collect), poi attesa che il driver restituisca
+        # davvero le pagine: su WDDM la VRAM di Whisper/Demucs/pyannote risulta occupata ancora per qualche secondo e il
+        # traduttore, caricando subito, sconfinerebbe in RAM condivisa.
+        self._clear_vram()
         release_ram_to_os()
+        self._wait_vram_settled()
+
+    def _wait_vram_settled(self) -> None:
+        if not torch.cuda.is_available():
+            return
+        from core.vram_settle import wait_vram_settled
+
+        def _free() -> int:
+            return torch.cuda.mem_get_info()[0]
+        t0 = time.monotonic()
+        first, last, settled = wait_vram_settled(_free, cancelled=lambda: self._cancelled)
+        if first is not None:
+            logger.info(f"VRAM libera prima della traduzione: {first / 1024 ** 3:.2f} -> {last / 1024 ** 3:.2f} GiB "
+                        f"in {time.monotonic() - t0:.1f}s ({'assestata' if settled else 'NON assestata'})")
 
     def _clean_subtitles_step(self, subtitle_path, source_language_639_2: str):
         """CLEANUP ANTICIPATO (Whisper/Demucs) + STEP 5 di process(): pulizia e normalizzazione SRT.
