@@ -78,18 +78,43 @@ def compact(text: str) -> str:
     return normalize(text).replace(" ", "")
 
 
-def srt_from_lines(lines: list[Line]) -> str:
-    """Build an SRT with one block per reference line.
+def _format_time(seconds: float) -> str:
+    millis = int(round(seconds * 1000))
+    hours, millis = divmod(millis, 3_600_000)
+    minutes, millis = divmod(millis, 60_000)
+    secs, millis = divmod(millis, 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
-    Timings are synthetic: translation engines ignore them, and this keeps the
-    comparison aligned one-to-one with the reference.
+
+def srt_from_lines(lines: list[Line], cps: float = 15.0,
+                   min_duration: float = 1.5, gap: float = 0.05) -> str:
+    """Build an SRT with one block per reference line and realistic timings.
+
+    Durations matter: the LLM translator budgets characters as
+    ``duration * 17 CPS``, so one second per block would force it to
+    condense the text. At ~15 characters per second the budget matches real
+    speech and the comparison is about translation quality, not adaptation.
     """
     blocks = []
+    cursor = 0.0
     for index, line in enumerate(lines, start=1):
-        start = f"00:00:{index:02d},000"
-        end = f"00:00:{index + 1:02d},000"
-        blocks.append(f"{index}\n{start} --> {end}\n{line.text}\n")
+        duration = max(min_duration, len(line.text) / cps)
+        start, end = cursor, cursor + duration
+        cursor = end + gap
+        blocks.append(
+            f"{index}\n{_format_time(start)} --> {_format_time(end)}\n{line.text}\n")
     return "\n".join(blocks)
+
+
+def split_sentences(text: str) -> list[str]:
+    """Split a reference line into sentences.
+
+    The real pipeline receives one sentence per Whisper segment; feeding
+    multi-sentence blocks to the translators measures their internal
+    reassembly logic instead of translation quality.
+    """
+    parts = re.split(r"(?<=[.!?])\s+(?=[A-Z\"'])", text.strip())
+    return [part.strip() for part in parts if part.strip()]
 
 
 def srt_blocks(path: Path) -> list[str]:

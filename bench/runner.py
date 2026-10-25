@@ -28,7 +28,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from bench import metrics
-from bench.text import compact, normalize, parse_reference, srt_blocks, srt_from_lines, tokens
+from bench.text import (Line, compact, normalize, parse_reference,
+                        split_sentences, srt_blocks, srt_from_lines, tokens)
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_DATA = REPO / "samples"
@@ -148,8 +149,7 @@ def _score_transcription(reference_text: str, hypothesis_text: str) -> dict:
     }
 
 
-def _score_translation(source_blocks: list[str], output_blocks: list[str], reference_blocks: list[str]) -> dict:
-    reference_text = " ".join(reference_blocks)
+def _score_translation(source_blocks: list[str], output_blocks: list[str], reference_text: str) -> dict:
     output_text = " ".join(output_blocks)
     source_text = " ".join(source_blocks)
     flagged = metrics.untranslated_blocks(source_blocks, output_blocks)
@@ -160,6 +160,7 @@ def _score_translation(source_blocks: list[str], output_blocks: list[str], refer
         "similarity": metrics.similarity(tokens(reference_text), tokens(output_text)),
         "untranslated_blocks": len(flagged),
         "blocks": len(output_blocks),
+        "blocks_source": len(source_blocks),
         "untranslated_ratio": (len(flagged) / len(output_blocks)) if output_blocks else 1.0,
         "words_ref": len(tokens(reference_text)),
         "words_hyp": len(tokens(output_text)),
@@ -239,10 +240,12 @@ def run_asr(engine: str, data_dir: Path, out_dir: Path, repeat: int,
 def run_translation(engine: str, data_dir: Path, out_dir: Path, repeat: int,
                     timeout_s: int, log=print) -> list[RunResult]:
     source_lines = parse_reference(data_dir / TRANSLATION_SOURCE)
-    reference_lines = parse_reference(data_dir / TRANSLATION_REFERENCE)
-    source_blocks = [line.text for line in source_lines]
-    reference_blocks = [line.text for line in reference_lines]
-    source_srt = srt_from_lines(source_lines)
+    reference_text = " ".join(line.text for line in parse_reference(data_dir / TRANSLATION_REFERENCE))
+    sentences = []
+    for line in source_lines:
+        sentences.extend(Line(line.speaker, part) for part in split_sentences(line.text))
+    source_blocks = [line.text for line in sentences]
+    source_srt = srt_from_lines(sentences)
     results: list[RunResult] = []
 
     for index in range(repeat):
@@ -265,6 +268,8 @@ def run_translation(engine: str, data_dir: Path, out_dir: Path, repeat: int,
                 finally:
                     peak = sampler.peak_mib
             elapsed = time.perf_counter() - started
+            log_text = (proc.stdout or "") + (proc.stderr or "")
+            _write_output(out_dir / "translation" / engine, f"run{index}.log", log_text)
             if proc.returncode != 0 or not out_path.exists():
                 error = f"exit {proc.returncode}: {proc.stderr[-2000:]}"
             else:
@@ -276,8 +281,7 @@ def run_translation(engine: str, data_dir: Path, out_dir: Path, repeat: int,
                            time_s=elapsed, peak_vram_mib=peak, error=error,
                            device=detect_device((proc.stdout or "") + (proc.stderr or ""), peak))
         if output_blocks:
-            record.metrics = _score_translation(source_blocks, output_blocks,
-                                                reference_blocks[:len(output_blocks)])
+            record.metrics = _score_translation(source_blocks, output_blocks, reference_text)
         results.append(record)
         log(f"[translation:{engine}] run {index + 1}/{repeat}: "
             f"{'OK' if not error else 'FAIL'} in {elapsed:.1f}s"

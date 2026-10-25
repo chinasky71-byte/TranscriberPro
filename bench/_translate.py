@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import sys
 
-from utils.cache_bootstrap import HF_HOME  # noqa: F401  (side effect: cache inside models/)
+import utils.cache_bootstrap  # noqa: F401  (side effect: model cache inside models/)
 
 
 def main(argv: list[str]) -> int:

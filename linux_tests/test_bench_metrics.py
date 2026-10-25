@@ -10,7 +10,7 @@ sys.path.insert(0, str(ROOT))
 
 from bench import metrics  # noqa: E402
 from bench.text import (  # noqa: E402
-    Line, compact, normalize, parse_reference, srt_blocks, srt_from_lines, tokens,
+    Line, compact, normalize, parse_reference, split_sentences, srt_blocks, srt_from_lines, tokens,
 )
 
 
@@ -54,6 +54,12 @@ def test_untranslated_blocks():
     assert metrics.untranslated_blocks(["Hello"], ["Ciao"]) == []
 
 
+def test_split_sentences():
+    assert split_sentences("No problem. What's going on? You sounded worried.") == [
+        "No problem.", "What's going on?", "You sounded worried."]
+    assert split_sentences("Single sentence") == ["Single sentence"]
+
+
 def test_srt_roundtrip():
     lines = [Line("A", "First line."), Line("B", "Second line.")]
     text = srt_from_lines(lines)
@@ -63,6 +69,22 @@ def test_srt_roundtrip():
         assert srt_blocks(path) == ["First line.", "Second line."]
     finally:
         path.unlink(missing_ok=True)
+
+
+def test_srt_timings_are_realistic():
+    """1 s per block would make the LLM condense (duration * 17 CPS budget)."""
+    import re
+    lines = [Line("A", "x" * 150), Line("B", "short")]
+    text = srt_from_lines(lines)
+    stamps = re.findall(r"(\d\d):(\d\d):(\d\d),(\d\d\d) --> (\d\d):(\d\d):(\d\d),(\d\d\d)", text)
+    assert len(stamps) == 2
+    def seconds(parts):
+        h, m, s, ms = map(int, parts)
+        return h * 3600 + m * 60 + s + ms / 1000
+    first = seconds(stamps[0][4:]) - seconds(stamps[0][:4])
+    second = seconds(stamps[1][4:]) - seconds(stamps[1][:4])
+    assert first >= 9.0        # 150 chars / 15 cps
+    assert second >= 1.5       # minimum duration
 
 
 def test_compact_removes_spaces():

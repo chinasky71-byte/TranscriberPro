@@ -58,9 +58,14 @@ representative of GPU performance, and the `device` column says `cpu`.
   engine and English target, so Demucs, chunking and segmentation are included.
   The config file is modified for the duration of each run and restored
   byte-for-byte afterwards.
-- **Translation**: an SRT built from the reference English lines (synthetic
-  timings) is translated by the engine through the project's factory. This
-  isolates translation quality from ASR errors and segmentation.
+- **Translation**: the reference English lines are split into **one sentence
+  per block** (like real Whisper segments) and translated by the engine
+  through the project's factory. Timings are realistic (~15 characters per
+  second, minimum 1.5 s): the LLM translator budgets characters as
+  `duration * 17 CPS`, so one second per block would force it to condense the
+  text and the comparison would measure adaptation, not translation. The
+  Italian reference is compared as continuous text, so segmentation
+  differences do not affect the score.
 - **Runs**: 3 by default; the summary reports medians, not a single run.
 - **VRAM**: `rocm-smi` on device 0 is sampled every 0.5 s; the peak is reported.
 - **Normalization**: lowercase, NFKC, numbers to digits, `percent`/`percento`
