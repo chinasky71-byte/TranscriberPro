@@ -1,0 +1,109 @@
+Transcriber Pro - amd_smoke_report
+2026-10-24 17:25:48
+
+== Sistema: OK
+python: 3.12.15
+sistema: Linux 7.0.0-38-generic
+macchina: x86_64
+/dev/kfd: presente
+/dev/dri: presente
+kfd leggibile/scrivibile: True
+gruppi render/video: render, video
+
+== gpu_detect --json: OK
+{
+  "gpus": [
+    {
+      "vendor": "amd",
+      "name": "Radeon RX 9060 XT",
+      "vram_mib": 16304,
+      "vram_free_mib": 13826,
+      "driver": "amdgpu",
+      "integrated": null,
+      "pci_id": "1002:7590",
+      "compute_cap": null,
+      "source": "sysfs+lspci",
+      "bus_id": "0000:03:00.0",
+      "backends": [
+        "rocm",
+        "vulkan"
+      ],
+      "gfx": "gfx1200",
+      "gfx_source": "kfd",
+      "amd_family": "RDNA4",
+      "rocm_support": "official"
+    },
+    {
+      "vendor": "amd",
+      "name": "Radeon Graphics",
+      "vram_mib": 512,
+      "vram_free_mib": 195,
+      "driver": "amdgpu",
+      "integrated": null,
+      "pci_id": "1002:13c0",
+      "compute_cap": null,
+      "source": "sysfs+lspci",
+      "bus_id": "0000:15:00.0",
+      "backends": [
+        "rocm",
+        "vulkan"
+      ],
+      "gfx": "gfx1036",
+      "gfx_source": "kfd",
+      "amd_family": "RDNA2",
+      "rocm_support": "unofficial"
+    }
+  ],
+  "backends": {
+    "cuda": {
+      "available": false,
+      "detail": "nvidia-smi non trovato"
+    },
+    "rocm": {
+      "available": true,
+      "detail": "/dev/kfd pronto; rocminfo assente (runtime ROCm di sistema non installato)"
+    },
+    "vulkan": {
+      "available": true,
+      "detail": "loader Vulkan presente, dispositivi non verificati (vulkaninfo assente)"
+    }
+  },
+  "errors": [],
+  "platform": "linux",
+  "in_wsl": false,
+  "forced_backend": null,
+  "recommended_backend": "rocm",
+  "usable_vram_mib": 16304,
+  "max_vram_mib": 16304,
+  "amd_gfx": "gfx1200",
+  "amd_family": "RDNA4",
+  "rocm_support": "official",
+  "amd_path": "rocm",
+  "amd_hsa_override_gfx_version": null,
+  "amd_user_hsa_override": null,
+  "amd_message": "Scheda gfx1200 (RDNA4): ROCm normale."
+}
+
+== Famiglia AMD e percorso: OK
+gfx: gfx1200
+famiglia: RDNA4
+supporto ROCm: official
+percorso scelto: rocm
+override HSA: non applicato (non serve per questa scheda)
+nota: Scheda gfx1200 (RDNA4): ROCm normale.
+
+== torch / HIP: OK
+{"torch": "2.10.0+rocm7.0", "hip": "7.0.51831", "cuda_build": null, "cuda_available": true, "device": "AMD Radeon Graphics", "matmul_ok": true, "matmul_s": 0.268}
+
+== ctranslate2: OK
+{"ctranslate2": "4.8.3", "cuda_devices": 2, "compute_types_cuda": ["bfloat16", "float16", "float32", "int8", "int8_bfloat16", "int8_float16", "int8_float32"]}
+
+== llama_cpp (Vulkan): OK
+{"llama_cpp": "0.3.34", "gpu_offload": true}
+(nessun --gguf: non provato il caricamento di un modello)
+
+== Whisper tiny su GPU (dentro un processo senza PyQt6): OK
+{"whisper_tiny_cuda": "ok", "segments": 0, "seconds": 4.0}
+
+RIASSUNTO: Sistema=OK, gpu_detect --json=OK, Famiglia AMD e percorso=OK, torch / HIP=OK, ctranslate2=OK, llama_cpp (Vulkan)=OK, Whisper tiny su GPU (dentro un processo senza PyQt6)=OK
+Nota: la prova decisiva e' Whisper (ctranslate2 ROCm) dentro l'app PyQt6: avviare ./run.sh e trascrivere 1 minuto.
