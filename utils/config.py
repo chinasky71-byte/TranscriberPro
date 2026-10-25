@@ -183,6 +183,12 @@ class Config:
         # Translation Model Settings (MODIFICATO v5.0 - Claude API Support)
         # ========================================================================
         'translation_model': 'nllb',  # vedi VALID_TRANSLATION_MODELS
+        # Traduzione considerata FALLITA se la percentuale di blocchi che
+        # restano nella lingua di partenza supera questo valore (0-100).
+        # 80 = molto permissivo: serve a intercettare i fallimenti sistemici
+        # (es. tutti i batch saltati per un errore GPU) senza bocciare un
+        # film per poche righe. Abbassarlo rende il criterio piu' severo.
+        'translation_max_untranslated_pct': 80.0,
         'target_language': 'ita',     # ISO 639-2 lingua target sottotitoli
 
         # Claude API (cloud-based translation)
