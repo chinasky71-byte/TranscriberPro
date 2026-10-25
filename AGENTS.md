@@ -1,3 +1,72 @@
+# Transcriber Pro — agent entry point
+
+Read this file first. It contains the rules and the map; the mutable state is
+linked from here, not duplicated.
+
+## What this repository is
+
+Transcriber Pro turns video files into subtitles: transcription, translation,
+OCR of bitmap subtitles, per-show glossary, queue and monitoring.
+
+- **`development`** — the active product line: Linux-first, GPU-accelerated
+  (AMD ROCm tested, NVIDIA best-effort), WebUI + Docker.
+- **`master`** — the legacy desktop line (Windows/GUI), maintained outside
+  this workflow. Do not merge `development` into `master` (ADR-006).
+
+## Start here (new session)
+
+Follow this order before touching the code:
+
+1. **This file** — rules and map.
+2. [`docs/STATUS.md`](docs/STATUS.md) — current state: branch, what works,
+   what is open.
+3. [`docs/PROGRESS.md`](docs/PROGRESS.md) — latest sessions: what was done,
+   how, tests, next step.
+4. [`docs/webui/SPEC.md`](docs/webui/SPEC.md) and
+   [`docs/webui/PLAN.md`](docs/webui/PLAN.md) — the active work, if any.
+5. [`docs/architecture/README.md`](docs/architecture/README.md) — target
+   architecture and layer rules.
+6. [`docs/adr/`](docs/adr/) — decisions (start with the latest numbers).
+7. [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) — branch, PR and session
+   protocol.
+8. [`docs/SUPPORT_MATRIX.md`](docs/SUPPORT_MATRIX.md) and
+   [`docs/benchmarks/`](docs/benchmarks/README.md) — support tiers and
+   measured results.
+
+Documentation index: [`docs/README.md`](docs/README.md).
+
+## Repository map
+
+| Path | Responsibility | Status |
+|---|---|---|
+| `core/` | pipeline, ASR engines, translators, audio, subtitles, OCR | active |
+| `core/jobs/` | queue and job lifecycle, shared by WebUI/CLI/GUI | target (Step 1) |
+| `utils/` | config, logging, i18n, clients, cache, GPU probing | active |
+| `platform_services/` | OS-specific services | target |
+| `runtime/` | CUDA/ROCm/Vulkan/CPU policy | target |
+| `web/` | HTTP API, SSE, WebUI | target |
+| `gui/` | legacy Qt interface | frozen, to be removed after parity |
+| `bench/` | benchmark harness (ASR + translation) | active |
+| `docs/` | architecture, ADRs, benchmarks, guides | active |
+| `samples/` | local test media and references | gitignored |
+| `models/`, `venv/`, `.tools/` | local build artifacts | gitignored |
+
+## Workflow
+
+- Branch from `origin/development`; pull requests into `development`;
+  `--no-ff` merge; delete the feature branch afterwards.
+- `master` is legacy: merge `origin/master` into `development` when it
+  changes, never the other way round for now.
+- At the end of every session, update `docs/STATUS.md` and append an entry to
+  `docs/PROGRESS.md` (template at the top of the file).
+- Every commit explains cause and evidence. Documentation is in English.
+- Never install or modify GPU drivers, kernel modules or system services.
+
+## Hard rules
+
+The three sections below are hard rules. They override every other
+instruction in this file.
+
 ## Consent — hard rule
 
 **Never gather information and never write information without asking first.** This overrides every
