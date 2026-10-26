@@ -27,12 +27,12 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
+from core.jobs.file_runner import FileHooks, FileRunner, kill_tree  # noqa: F401  (kill_tree: nome storico del modulo)
 from utils.translations import tr
 
 VIDEO_EXTS = {'.mkv', '.mp4', '.avi', '.mov', '.m4v', '.ts', '.mpg', '.mpeg', '.wmv', '.webm'}
@@ -205,28 +205,6 @@ def notify(title: str, message: str) -> None:
         pass
 
 
-def kill_tree(proc: subprocess.Popen) -> None:
-    """Uccide il processo e TUTTI i discendenti (ffmpeg, gender_corrector_cli...), come il worker della GUI."""
-    try:
-        import psutil
-        parent = psutil.Process(proc.pid)
-        for child in parent.children(recursive=True):
-            try:
-                child.kill()
-            except Exception:
-                pass
-        parent.kill()
-    except Exception:
-        try:
-            proc.kill()
-        except Exception:
-            pass
-    try:
-        proc.wait(timeout=10)
-    except Exception:
-        pass
-
-
 def _gui_running() -> bool:
     try:
         import psutil
@@ -272,99 +250,39 @@ class QueueLock:
 
 def run_one(video: Path, target_language: str, files_done: int, file_progress_cls, on_progress,
             log_path: Path) -> Dict:
-    """Elabora un file in un subprocess `core.pipeline_cli`. Ritorna {'ok', 'output', 'error'}.
-    KeyboardInterrupt: uccide l'albero, pulisce i temporanei e rilancia."""
-    ipc = Path(tempfile.mkdtemp(prefix='tp_queue_'))
-    args_path, result_path = ipc / 'args.json', ipc / 'result.json'
-    proc = None
+    """Elabora un file in un subprocess `core.pipeline_cli` (core/jobs/file_runner.py: stessa copia della GUI).
+    Ritorna {'ok', 'output', 'error'}. KeyboardInterrupt: uccide l'albero, pulisce i temporanei e rilancia."""
+    fp = file_progress_cls(target_language)
+    lock = threading.Lock()
+    state = {'last_write': 0.0}
+    lf = open(log_path, 'w', encoding='utf-8')
+
+    class _Hooks(FileHooks):
+        def on_raw(self, line):
+            with lock:                  # il log del file contiene TUTTO: righe, eventi strutturati, rumore
+                lf.write(line)
+
+        def on_stderr(self, line):
+            with lock:
+                lf.write('[stderr] ' + line + '\n')
+
+        def on_progress(self, value, phase, changed):
+            now = time.time()
+            if changed or now - state['last_write'] > 15:
+                on_progress(value, phase)
+                state['last_write'] = now
+
     try:
-        args_path.write_text(json.dumps({
-            'video_path': str(video), 'target_language': target_language,
-            'files_processed': files_done, 'result_path': str(result_path)}, ensure_ascii=False),
-            encoding='utf-8')
-        # Stesso ambiente della GUI (gui/workers.py): NIENTE PYTHONUTF8 / `-X utf8` (cambierebbe la codifica
-        # di default delle subprocess annidate), solo gli stream del figlio in UTF-8.
-        env = os.environ.copy()
-        # RDNA2: HSA_OVERRIDE_GFX_VERSION=10.3.0 solo per il figlio, solo se rilevata e se l'utente non l'ha gia' impostata
-        from utils.gpu_detect import apply_subprocess_env
-        apply_subprocess_env(env)
-        env['PYTHONIOENCODING'] = 'utf-8'
-        env['TP_SUBPROCESS'] = '1'
-        env['TQDM_DISABLE'] = '1'
-        env['TP_EVENTS'] = '1'      # eventi strutturati (utils/events.py)
-        flags = 0
-        for name in ('CREATE_NEW_PROCESS_GROUP', 'CREATE_NO_WINDOW'):
-            flags |= getattr(subprocess, name, 0)
-        proc = subprocess.Popen(
-            [sys.executable, '-m', 'core.pipeline_cli', str(args_path)], cwd=str(_ROOT),
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace',
-            bufsize=1, env=env, creationflags=flags)
-
-        fp = file_progress_cls(target_language)
-        lf = open(log_path, 'w', encoding='utf-8')
-        lock = threading.Lock()
-
-        def _out():
-            last_write = 0.0
-            for line in proc.stdout:
-                from utils import events as _tp_events
-                _ev = _tp_events.parse_line(line.rstrip())
-                if _ev is not None:
-                    # evento strutturato: resta nel log del file (utile per la diagnosi), alla barra come percentuale
-                    with lock:
-                        lf.write(line)
-                    try:
-                        pct = fp.feed_event(_ev[0], _ev[1]) if _ev[0] else None
-                    except Exception:
-                        pct = None
-                else:
-                    with lock:
-                        lf.write(line)
-                    try:
-                        pct = fp.feed(line.rstrip())
-                    except Exception:
-                        pct = None
-                now = time.time()
-                if pct is not None or now - last_write > 15:
-                    on_progress(fp.value, fp.phase or '')
-                    last_write = now
-
-        def _err():
-            for line in proc.stderr:
-                with lock:
-                    lf.write('[stderr] ' + line)
-
-        threads = [threading.Thread(target=_out, daemon=True), threading.Thread(target=_err, daemon=True)]
-        for t in threads:
-            t.start()
-        try:
-            while proc.poll() is None:      # attesa interrompibile da Ctrl+C (la lettura dalla pipe non lo e')
-                time.sleep(0.5)
-        except BaseException:
-            kill_tree(proc)
-            raise
-        finally:
-            for t in threads:
-                t.join(timeout=5)
-            try:
-                lf.close()
-            except Exception:
-                pass
-        rc = proc.returncode
-        ok, output = rc == 0, None
-        try:
-            res = json.loads(result_path.read_text(encoding='utf-8'))
-            ok = bool(res.get('success', ok))
-            output = res.get('last_output_path')
-        except Exception:
-            pass
-        return {'ok': ok, 'output': output, 'error': None if ok else f'exit code {rc}'}
+        res = FileRunner(_ROOT).run(
+            str(video), target_language, files_done, progress=fp, hooks=_Hooks(), overrides=None, ipc_prefix='tp_queue_',
+            feed_diag_progress=True, converting_cleanup='always', raise_on_spawn_error=True)
     finally:
-        shutil.rmtree(ipc, ignore_errors=True)
-        try:   # il remux ffmpeg in corso puo' lasciare <video>.converting
-            Path(str(video) + '.converting').unlink(missing_ok=True)
+        try:
+            lf.close()
         except Exception:
             pass
+    ok = res.success
+    return {'ok': ok, 'output': res.output, 'error': None if ok else f'exit code {res.returncode}'}
 
 
 def main(argv=None) -> int:
