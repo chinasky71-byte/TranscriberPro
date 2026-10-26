@@ -824,7 +824,7 @@ Transcriber Pro produce file `.srt` attraverso due pipeline complementari:
 - **Chunking audio intelligente** — divide ai punti di silenzio per timestamp precisi
 - **Qualità di trascrizione fissa al massimo** — i profili Fast / Balanced / Quality / Maximum / Batch restano nel codice ma sono nascosti e bloccati (`transcription_profile_locked`): Faster-Whisper lavora sempre alla qualità massima, mentre per Qwen3-ASR e Canary-Qwen il profilo cambiava solo il batch, con testo identico (misurato). Il selettore del motore resta
 - **Forza trascrizione audio** — ignora i sottotitoli embedded e trascrive sempre dall'audio
-- **Correzione genere v2 (audio-driven)** — corregge il genere grammaticale di 1ª/2ª persona deducendo il genere di chi parla **dalla voce** (diarization pyannote + classificatore ECAPA, 95%) e riscrivendo con un flip morfologico deterministico protetto da validatore — niente LLM, niente VRAM extra, allucinazioni impossibili. Accuratezza femminile in 1ª persona: 19% → 87%. La 2ª persona usa i turni di dialogo (91%) e i vocativi col cast TMDB
+- **Correzione genere v2 (audio-driven)** — corregge il genere grammaticale di 1ª/2ª persona deducendo il genere di chi parla **dalla voce** (diarization pyannote + classificatore ECAPA, 95%) e riscrivendo con un flip morfologico deterministico protetto da validatore — niente LLM, niente VRAM extra, allucinazioni impossibili. Accuratezza femminile in 1ª persona: 19% → 87% (validata su oltre 700 punti di prova estratti automaticamente). La 2ª persona usa i turni di dialogo (91%) e i vocativi col cast TMDB
 
 ### Sincronizzazione Sottotitoli
 - **Coda sync multi-file + motore di allineamento solo-tempi** (`core/timing_aligner.py`) — allinea un file sottotitoli esterno fuori sync ai timestamp corretti usando solo euristiche di tempo/ordine (nessun matching semantico LLM necessario nel caso comune), testato al 100% delle righe entro 0,5 s; ha sostituito il matcher semantico Qwen2.5-14B come percorso di default, riducendo un episodio tipico da ~81 minuti a ~2 secondi. Ora può processare un intero lotto di file in sequenza invece che uno alla volta
@@ -833,7 +833,7 @@ Transcriber Pro produce file `.srt` attraverso due pipeline complementari:
 - **Tracce PGS (Blu-ray) e VOBSUB (DVD)** convertite in SRT testuale — verbatim, nessuna allucinazione AI
 - **OCR parallelo multi-core** — Tesseract gira su più core CPU in contemporanea (misurato ~11× su un film intero, 767 eventi PGS: ~195 s single-core → ~15-20 s parallelo)
 - **Rilevamento lingua per traccia** — il modello Tesseract viene scelto automaticamente dal tag lingua della traccia; supportate: italiano, inglese, spagnolo, francese, tedesco, portoghese, olandese (tessdata_best)
-- **Traduzione automatica in italiano** — le tracce non italiane vengono salvate come `<nome>.<lingua>.srt` e tradotte in `<nome>.it.srt` (entrambi i file conservati)
+- **Traduzione automatica in italiano** — le tracce non italiane vengono sottoposte a OCR nella lingua sorgente, salvate come `<nome>.<lingua>.srt`, poi tradotte in italiano e salvate come `<nome>.it.srt` (entrambi i file conservati)
 - **Strategia configurabile** — *Revisione mirata* (UI di revisione che mostra le righe incerte affiancate all'immagine bitmap originale) o *Solo automatico* (nessuna revisione, output diretto)
 - **Worker paralleli configurabili** — slider in Impostazioni → OCR Sottotitoli; default auto = `min(core CPU, 8)`
 - **Modalità write-back** — rimuxa l'SRT come nuova traccia nell'MKV in-place, oppure sidecar `.srt` accanto al video (VOBSUB sempre sidecar)
@@ -851,22 +851,23 @@ Transcriber Pro produce file `.srt` attraverso due pipeline complementari:
 - **Badge bitmap** — PGS / VOB / MIX cliccabile su ogni riga; clic avvia l'OCR per quel file
 - **Batch OCR** — "Converti tutti (OCR)" converte automaticamente tutti i file bitmap visibili
 - **Avanzamento in tempo reale nella coda** — i job OCR appaiono nella coda di processamento principale con dot di stato, barra di avanzamento e tag OCR·PGS/VOBSUB; non interferiscono con la coda di trascrizione audio
-- **Sync automatico DB** — dopo ogni OCR riuscito il database dello scanner viene notificato; il file esce dalla lista "senza sub"; un sync del widget aggiorna la vista
+- **Sync automatico DB** — dopo ogni OCR riuscito il database dello scanner viene notificato (endpoint `notify-subtitle`) così il file esce dalla lista "senza sub"; un sync del widget aggiorna la vista
 - **Conversione ASS/SSA → SRT** — remux server-side dei sottotitoli testo embedded (gestito dal container Library Scanner)
 - **Rilevamento audio italiano** — dai tag nel nome file (ITA, NUiTA, MULTI, ecc.)
+- **Aggiornamento DB in tempo reale** alla creazione del sottotitolo
 
 ### Metadati e Upload
-- **Metadati TMDB / OMDB** — recupera la sinossi del film per traduzioni contestuali
+- **Metadati TMDB / OMDB** — recupera la sinossi del film per traduzioni contestuali; parsing robusto dei titoli
 - **Upload OpenSubtitles** — integrazione REST API con rilevamento duplicati
 
 ### Interfaccia e Infrastruttura
-- **Interfaccia IT / EN** — UI completamente bilingue; rileva automaticamente la lingua del sistema
+- **Interfaccia IT / EN** — UI completamente bilingue; rileva automaticamente la lingua del sistema; selettore della lingua in Impostazioni Generali
 - **Dialog Impostazioni unificato** — sidebar + contenuto: Generale, Trascrizione, Traduzione, Batch Adattivo, OpenSubtitles, **OCR Sottotitoli** (nuovo)
 - **Sistema icone SVG** — 38 icone vettoriali, adattive al tema
 - **Monitor risorse in tempo reale** — GPU / CPU / RAM durante l'elaborazione
 - **Gestione memoria GPU** — caricamento/scaricamento sequenziale; Demucs, engine ASR e traduttore non girano mai contemporaneamente; tensori Demucs residenti su CPU (solo il segmento in lavorazione va sulla GPU) → picco VRAM costante ~0,6 GB indipendente dalla durata del file
 - **Avvio senza freeze** — torch mai importato nel processo GUI (check ambiente via CLI esterna); I/O asincrono; splash in ~2 s, tab Traduzione da 3719 ms a 15 ms
-- **Estrazione sottotitoli embedded** — salta la trascrizione se esistono sub testo; le tracce solo-bitmap avviano la pipeline OCR
+- **Estrazione sottotitoli embedded** — salta la trascrizione se esistono già sottotitoli testuali puliti; le tracce solo-bitmap avviano invece la pipeline OCR. La scelta della traccia è un'unica graduatoria (italiano testo > italiano bitmap > inglese testo > inglese bitmap > altre lingue); la lingua di una traccia si decide dal suo *contenuto* (tag errati o mancanti vengono corretti dal testo estratto / dal testo OCR, mai dal solo titolo); le tracce "forced" si riconoscono dal flag o dal titolo, tranne una traccia con il flag che è chiaramente il sottotitolo completo (molti eventi al minuto). Nella pipeline l'output dell'OCR è sempre scritto come `.it.srt` accanto al video — l'MKV non viene mai modificato
 - **Stop immediato** — dialog di conferma; termina FFmpeg / Demucs / Whisper in pochi secondi; pulizia temp automatica
 - **Coda di processamento** — filtri In coda / Attivi / Completati / Errori con badge live
 
