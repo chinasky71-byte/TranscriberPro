@@ -11,7 +11,7 @@ green; CI enforces the groups that do not need a GPU.
 | Contract | interfaces (`TranscriptionEngine`, `JobManager`, `Caps`) | `linux_tests/test_jobs_manager.py` + `linux_tests/` | CPU |
 | Guard | architecture and protocol rules | `linux_tests/test_architecture_boundaries.py`, `test_events_schema.py` | CPU |
 | Integration (headless) | pipeline on a real sample via `core.queue_runner` | manual / `samples/` | GPU |
-| End-to-end (web) | API + SSE + job lifecycle | `linux_tests/test_web_api.py`, `test_web_events.py` | CPU |
+| End-to-end (web) | API + SSE + job lifecycle | `linux_tests/test_web_api.py`, `test_web_events.py`, `test_web_ui.py`, `test_web_paths.py` | CPU |
 | Container smoke | image starts, `--help`, import | CI | CPU |
 | Hardware validation | ROCm/CUDA end-to-end | self-hosted runner / manual | GPU |
 
@@ -44,6 +44,26 @@ green; CI enforces the groups that do not need a GPU.
 
 - Relative Markdown links in `docs/architecture/` and `docs/adr/` must resolve.
 - ADR file names must be unique and numerically ordered.
+
+## Legacy root tests (not collected by CI)
+
+These `unittest` modules live in the repository root and are **not** collected
+by `pytest linux_tests`: they predate the `linux_tests/` suite, use
+`unittest` directly and, in some cases, import `gui/`. They are CPU-only
+regression tests for behaviours already covered here; treat them as legacy.
+
+| Module | Protects |
+|---|---|
+| `test_config_load_save.py` | `Config` writes missing defaults atomically |
+| `test_l2_retry.py` | L2 retry must not accept a block rejected twice |
+| `test_llm_source_label.py` | source language passed to the LLM prompt |
+| `test_translation_routing.py` | engine routing for non-English sources |
+| `test_timing_aligner.py` | `core/timing_aligner.py` on synthetic data |
+| `test_sync_batch.py` | subtitle sync pairing/CLI/queue (imports `gui/`) |
+
+Rule: a new test goes to `linux_tests/`. These files are migrated or removed
+with the GUI (Step 7 of `docs/webui/PLAN.md`); until then they are run by hand
+with `venv/bin/python -m unittest <module>`.
 
 ## Commands
 

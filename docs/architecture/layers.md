@@ -13,7 +13,8 @@ does not fit a layer, the design is wrong, not the rule.
 - `core/audio_processor.py`, `core/aligner.py` — audio preparation and alignment
 - `core/subtitle_*`, `core/diarizer.py`, `core/gender_*`, `core/ocr_auto.py`,
   `core/pgs_ocr.py`, `core/vobsub_ocr.py` — subtitle, voice and OCR logic
-- `core/jobs/` *(target)* — queue and job lifecycle, shared by GUI, WebUI and CLI
+- `core/jobs/` — queue and job lifecycle, shared by WebUI, CLI and the
+  headless queue
 
 **Allowed:** `contracts`, `utils`, stdlib, ML libraries.
 **Forbidden:** `platform_services`, `runtime`, Qt.
@@ -76,7 +77,7 @@ overrides.
 **Allowed:** stdlib, `contracts`.
 **Forbidden:** `core`, `platform_services`, `runtime`.
 
-## Web — `web/` (target)
+## Web — `web/` (MVP present)
 
 **Responsibility:** HTTP API, SSE stream and static UI.
 
@@ -96,8 +97,8 @@ overrides.
   allowlist, and must shrink over time.
 - `torch.version.hip` decisions inside `core/translator.py` — belongs to
   `runtime/` policy, injected through `Caps`.
-- `core/queue_runner.py` importing `gui.file_progress` — move the class to
-  `core/jobs/`.
+- ~~`core/queue_runner.py` importing `gui.file_progress`~~ — resolved: the
+  class is `core/jobs/progress.py` and `core/` no longer imports `gui/`.
 - Windows-only behaviour (VRAM settle, hidden console) inside domain modules —
   belongs to `platform_services/`.
 

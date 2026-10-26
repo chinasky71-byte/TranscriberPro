@@ -1,7 +1,8 @@
 # Web API
 
-FastAPI application that exposes the shared job queue. This is Step 2 of
-`docs/webui/PLAN.md`; the browser UI (Step 3) is not here yet.
+FastAPI application that exposes the shared job queue and the browser UI.
+Steps 2 (API) and 3 (MVP UI) of `docs/webui/PLAN.md` are done; settings and
+history pages follow in Step 4.
 
 ## Run
 

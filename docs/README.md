@@ -70,6 +70,7 @@ kept for context. Most are in Italian and must be translated when modified.
 |---|---|---|
 | [`../README.md`](../README.md) | EN + IT | product page; the Italian section is historical |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | IT | release history |
+| [`../CLAUDE_INTEGRATION.txt`](../CLAUDE_INTEGRATION.txt) | IT | Claude API integration guide (legacy desktop line); translate only as separate work |
 | [`../COME_FUNZIONA_UPLOAD.md`](../COME_FUNZIONA_UPLOAD.md) | IT | OpenSubtitles upload notes |
 | [`../LIBRARY_SCANNER_DEVELOPMENT_PLAN.md`](../LIBRARY_SCANNER_DEVELOPMENT_PLAN.md) | EN | legacy plan |
 | [`PROVA_AMD_COMPLETA.md`](PROVA_AMD_COMPLETA.md) | IT | AMD checklist, superseded by the validation report |
