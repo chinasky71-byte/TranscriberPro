@@ -180,6 +180,10 @@ progress::-moz-progress-bar { background: var(--accent); }
 /* File picker (server-side listing of the allowed media roots) */
 [x-cloak] { display: none !important; }
 
+.picker-wrap > summary.btn { display: inline-block; width: fit-content; cursor: pointer; list-style: none; }
+.picker-wrap > summary.btn::-webkit-details-marker { display: none; }
+.picker-wrap > summary.btn::marker { content: ""; }
+.picker-wrap[open] > summary.btn { border-color: var(--accent); color: var(--accent); }
 .picker-body { margin-top: 10px; }
 .picker {
   background: var(--panel-2);

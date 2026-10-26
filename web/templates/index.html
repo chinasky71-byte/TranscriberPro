@@ -4,18 +4,17 @@
   {% include "_status.html" %}
 </section>
 
-<section class="card" x-data="{ open: false }">
+<section class="card">
   <h2>Add to queue</h2>
   <form class="stack" hx-post="/ui/jobs" hx-target="#queue" hx-swap="innerHTML">
     <label>Media path
       <input name="path" placeholder="/media/film.mkv" autocomplete="off">
     </label>
-    <div class="picker-wrap">
-      <button class="btn" type="button" @click="open = !open"
-              x-text="open ? 'Hide the file picker' : 'Choose files…'">Choose files…</button>
-      <div id="picker" class="picker-body" x-show="open" x-cloak
+    <details class="picker-wrap">
+      <summary class="btn">Choose files…</summary>
+      <div id="picker" class="picker-body"
            hx-get="/ui/browse" hx-trigger="load" hx-swap="innerHTML"></div>
-    </div>
+    </details>
     <div class="row">
       <label>Target language
         <select name="target_language">

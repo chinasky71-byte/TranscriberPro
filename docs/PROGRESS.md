@@ -37,8 +37,9 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
   `has_subtitle`, `start_dir`, `resolve_dir`, `list_directory`, `MAX_ENTRIES`);
   API `GET /api/browse`; UI partial `GET /ui/browse` and `_picker.html`
   (roots, breadcrumb/up, folders, checkboxes, `SRT` badge, truncation notice);
-  dashboard form gains the picker, the `Skip files that already have a
-  subtitle` checkbox and repeated `paths` fields; `POST /ui/jobs` queues one job
+  dashboard form gains the picker opened by `<details>`/`<summary>` so it needs
+  no JavaScript at all, the `Skip files that already have a subtitle` checkbox
+  and repeated `paths` fields; `POST /ui/jobs` queues one job
   per selected file (dedupe, per-path errors, `skip_existing`); new whitelisted
   config key `picker_start_dir` (`utils/config.py`, `web/config_schema.py`,
   `_settings.html` `dir` kind with the `/set/root/dir` placeholder); CSS for the
@@ -56,7 +57,9 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
   scanner" in the SPEC still holds. `has_subtitle` matches any `<stem>.*.srt`
   instead of a language suffix because the pipeline writes ISO 639-1. A start
   folder outside the roots is ignored rather than rejected: the setting cannot
-  brick the picker.
+  brick the picker. The panel is a native `<details>` element, not an Alpine
+  toggle: a browser with stale cached HTML or without Alpine still opens the
+  listing, and HTMX only fetches it.
 - Known issues: the picker does not probe the media (no ffprobe), so duration,
   embedded subtitle tracks and audio languages are not shown; the entry limit
   is a silent cap beyond the notice line. Two robustness items found while
