@@ -60,6 +60,9 @@ class Config:
         'language': 'auto',
         # Roots accepted by the WebUI for media paths (empty = the user's home).
         'allowed_media_roots': [],
+        # Folder the WebUI file picker opens on (empty = the first allowed
+        # root). It must stay under an allowed root to be usable.
+        'picker_start_dir': '',
         'last_input_folder': '',
         'shutdown_after_processing': False,
         

@@ -13,9 +13,10 @@ from fastapi.templating import Jinja2Templates
 
 from core.jobs.models import TERMINAL
 from utils.job_overrides import clean
+from web import browse
 from web.auth import SESSION_COOKIE, request_token, token_matches
-from web.config_schema import (ENUM_CONFIG_KEYS, MEDIA_ROOTS_KEY, ConfigError,
-                               apply_values, read_values)
+from web.config_schema import (ENUM_CONFIG_KEYS, MEDIA_ROOTS_KEY, START_DIR_KEY,
+                               ConfigError, apply_values, read_values)
 from web.ocr_review import OcrSessionError, OcrSessionNotFound
 from web.glossary import GlossaryError, GlossaryNotFound
 from web.paths import compute_roots, validate_media_path
@@ -59,6 +60,7 @@ SETTINGS_GROUPS = (
     )),
     ("Media", (
         ("roots", MEDIA_ROOTS_KEY, "Allowed media roots (one path per line)"),
+        ("dir", START_DIR_KEY, "File picker start folder"),
     )),
     ("Secrets", (
         ("secret", "huggingface_token", "Hugging Face token"),
@@ -258,6 +260,24 @@ def index(request: Request) -> HTMLResponse:
     })
 
 
+def _picker_context(request: Request, path: str = "", error: str = "") -> Dict[str, Any]:
+    """Listing for the file picker; a rejected path falls back to the start folder."""
+    config = request.app.state.config
+    roots = compute_roots(lambda key, default: config.get(key, default))
+    start = browse.start_dir(config.get, roots)
+    try:
+        listing = browse.list_directory(path, roots, start=start)
+    except browse.BrowseError as exc:
+        listing = browse.list_directory("", roots, start=start)
+        error = str(exc)
+    return {"status": _status_context(request), "listing": listing, "error": error}
+
+
+@router.get("/ui/browse", response_class=HTMLResponse, dependencies=[Depends(_auth)])
+def ui_browse(request: Request, path: str = Query("")) -> HTMLResponse:
+    return _render(request, "_picker.html", _picker_context(request, path))
+
+
 @router.get("/ui/status", response_class=HTMLResponse, dependencies=[Depends(_auth)])
 def ui_status(request: Request) -> HTMLResponse:
     return _render(request, "_status.html", {"status": _status_context(request)})
@@ -271,12 +291,14 @@ def ui_queue(request: Request) -> HTMLResponse:
 @router.post("/ui/jobs", response_class=HTMLResponse, dependencies=[Depends(_auth)])
 def ui_add_job(request: Request,
                path: str = Form(""),
+               paths: List[str] = Form([]),
                target_language: str = Form(""),
                translation_model: str = Form(""),
                force_audio: bool = Form(False),
                mux: bool = Form(False),
                upload: bool = Form(False),
-               gender: bool = Form(False)) -> HTMLResponse:
+               gender: bool = Form(False),
+               skip_existing: bool = Form(False)) -> HTMLResponse:
     config = request.app.state.config
     raw = {
         "target_language": target_language,
@@ -287,13 +309,41 @@ def ui_add_job(request: Request,
         "gender_correction_enabled": gender,
     }
     overrides = clean({key: value for key, value in raw.items() if value not in ("", False, None)})
+
+    selected = [item.strip() for item in [path, *paths] if item and item.strip()]
+    if not selected:
+        return _render(request, "_queue.html",
+                       _queue_context(request, error="Select at least one media file"))
+
     try:
         roots = compute_roots(lambda key, default: config.get(key, default))
-        media = validate_media_path(path, roots)
     except (FileNotFoundError, PermissionError, ValueError) as exc:
         return _render(request, "_queue.html", _queue_context(request, error=str(exc)))
-    request.app.state.manager.add(media, overrides)
-    return _render(request, "_queue.html", _queue_context(request, message=f"Queued {media.name}"))
+
+    queued: List[str] = []
+    skipped = 0
+    errors: List[str] = []
+    for item in dict.fromkeys(selected):  # keep the order, drop duplicates
+        try:
+            media = validate_media_path(item, roots)
+        except (FileNotFoundError, PermissionError, ValueError) as exc:
+            errors.append(str(exc))
+            continue
+        if skip_existing and browse.has_subtitle(media):
+            skipped += 1
+            continue
+        request.app.state.manager.add(media, overrides)
+        queued.append(media.name)
+
+    parts = []
+    if queued:
+        parts.append(f"Queued {len(queued)} file(s)" if len(queued) > 1
+                     else f"Queued {queued[0]}")
+    if skipped:
+        parts.append(f"skipped {skipped} with an existing subtitle")
+    message = ", ".join(parts)
+    return _render(request, "_queue.html",
+                   _queue_context(request, error="; ".join(errors), message=message))
 
 
 @router.post("/ui/jobs/{job_id}/cancel", response_class=HTMLResponse, dependencies=[Depends(_auth)])

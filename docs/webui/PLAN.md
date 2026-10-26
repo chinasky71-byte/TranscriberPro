@@ -14,6 +14,7 @@ tests, and an update to `docs/STATUS.md` and `docs/PROGRESS.md`.
 | 6 | `feat/webui-glossary` | Glossary and library scanner pages | functional parity | glossary review done; library scanner is separate work (see below) |
 | 7 | `feat/pyqt-optional` | Qt removed from default requirements; `--gui` optional | install without Qt | done |
 | 8 | `feat/docker` | Multi-stage Dockerfile, compose rocm/cuda/cpu, volumes | `docker compose up` produces the SRT | artifacts done — image build and GPU run pending (no container daemon on the dev host; see notes) |
+| 9 | `feat/webui-picker` | Read-only file picker over the allowed roots, multi-select and multi-add, `skip_existing`, `picker_start_dir` in settings | pick a file from the browser and queue several at once | done |
 
 ## Step 0 checklist
 
@@ -71,6 +72,20 @@ tests, and an update to `docs/STATUS.md` and `docs/PROGRESS.md`.
   message pointing at `requirements-gui.txt` and `python -m web.main`.
 - `install.sh --with-gui` installs the optional file; without it the install
   has no Qt.
+
+## Step 9 notes
+
+- `web/browse.py` is a lister: no database, no recursion, no writes. It reuses
+  `web/paths.py::is_allowed`, so the picker and the queue accept exactly the
+  same paths.
+- `picker_start_dir` is a whitelisted config key (`web/config_schema.py`); an
+  empty value means "first allowed root", and a value outside the roots is
+  ignored at listing time instead of erroring.
+- `POST /ui/jobs` now takes repeated `paths` fields next to `path`: one job per
+  file, FIFO, one GPU job at a time. `skip_existing` reuses
+  `web/browse.py::has_subtitle`, which is language-agnostic on purpose (the
+  pipeline writes `<name>.<639-1>.srt`).
+- Guard tests: `linux_tests/test_web_picker.py` (14).
 
 ## Step 8 notes
 

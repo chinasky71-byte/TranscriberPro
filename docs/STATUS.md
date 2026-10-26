@@ -22,12 +22,13 @@ ROCm 7.0, torch 2.10.0+rocm7.0, venv ~16 GB, model cache ~33 GB
   hub, persistence, progress). `core.queue_runner` is a thin client; the
   headless pipeline was validated end to end after the extraction.
 - **Web UI + API**: FastAPI app in `web/` with token auth (bearer + HttpOnly
-  session cookie), path validation, jobs, SSE, config and history. Pages:
-  dashboard and queue (add form, cancel, remove, logs), history with a status
-  filter, settings (whitelisted keys, write-only secrets, value validation) and
-  OCR review (bitmap next to the OCR text, corrections, sidecar SRT). Glossary
-  review reads `glossary_engine` reports. Server-rendered with HTMX + Alpine,
-  assets vendored locally.
+  session cookie), path validation, jobs, SSE, config, history and a read-only
+  file picker. Pages: dashboard and queue (add form, **file picker with
+  multi-select and `skip_existing`**, cancel, remove, logs), history with a
+  status filter, settings (whitelisted keys, write-only secrets, value
+  validation, `picker_start_dir`) and OCR review (bitmap next to the OCR text,
+  corrections, sidecar SRT). Glossary review reads `glossary_engine` reports.
+  Server-rendered with HTMX + Alpine, assets vendored locally.
 - **Containers**: `docker/Dockerfile` (one image per backend) and
   `docker/compose.yaml` (profiles `rocm`/`cuda`/`cpu`); not built yet, see the
   open items.
@@ -42,13 +43,17 @@ ROCm 7.0, torch 2.10.0+rocm7.0, venv ~16 GB, model cache ~33 GB
 1. **Container validation** — build the three images on a host with a container
    daemon and run the `rocm` profile on the reference machine (Step 8
    acceptance is still open).
-2. **Library scanner in the WebUI** — separate FastAPI + SQLite service, needs
+2. **Two robustness items found on a real file** — the `TMPDIR` work folder is
+   left behind when a job is cancelled, and the pipeline pre-loads Whisper even
+   with `transcription_engine_mode=qwen3`, so a non-GPU `ctranslate2` fails a
+   job that would never use Whisper.
+3. **Library scanner in the WebUI** — separate FastAPI + SQLite service, needs
    a database location decision and real media to validate (`docs/webui/PLAN.md`,
    Step 6 notes).
-3. **Glossary report generation** — building a report is still a CLI/offline
+4. **Glossary report generation** — building a report is still a CLI/offline
    job; the page only reviews it.
-4. **CSRF token** for state-changing requests (currently SameSite=Lax only).
-5. Reference dataset extension (real clips with human Italian references)
+5. **CSRF token** for state-changing requests (currently SameSite=Lax only).
+6. Reference dataset extension (real clips with human Italian references)
    before any model decision beyond the current sample.
 
 ## Known issues and limits

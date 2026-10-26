@@ -17,6 +17,7 @@ from core.jobs.models import TERMINAL
 from utils.config import Config, get_config
 from utils.gpu_detect import detect_gpus
 from web.auth import request_token, token_matches
+from web.browse import BrowseError, list_directory, start_dir
 from web.config_schema import ConfigError, read_values, apply_values
 from web.config_schema import SAFE_CONFIG_KEYS, SECRET_CONFIG_KEYS  # re-exported
 from web.events import SSEBridge
@@ -193,6 +194,16 @@ def create_app(manager: JobManager, token: Optional[str] = None,
                   reverse=True)
         return jobs[:limit]
 
+    @app.get("/api/browse", dependencies=auth)
+    def browse(path: str = Query("", description="absolute folder under a root")) -> Dict[str, Any]:
+        """Read-only folder listing for the file picker (no writes, no recursion)."""
+        roots = compute_roots(lambda key, default: config.get(key, default))
+        try:
+            return list_directory(path, roots, start=start_dir(config.get, roots))
+        except BrowseError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail=str(exc)) from None
+
     @app.get("/api/models", dependencies=auth)
     def models() -> Dict[str, Any]:
         """Model and engine choices the UI may offer.
@@ -349,6 +360,11 @@ def create_app(manager: JobManager, token: Optional[str] = None,
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self'; "
             "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")
+        # Pages and partials are rendered per request: a cached copy shows a UI
+        # that no longer matches the server (and hid a new feature once).
+        # Static assets keep their own caching rules.
+        if not request.url.path.startswith("/static"):
+            response.headers.setdefault("Cache-Control", "no-store")
         return response
 
     from web.ui import router as ui_router

@@ -38,6 +38,11 @@
         <label class="checks"><input type="checkbox" name="clear:{{ key }}" value="true">
           Clear stored value</label>
         {% endif %}
+      {% elif kind == 'dir' %}
+        <label>{{ label }}
+          <input type="text" name="{{ key }}" value="{{ current }}" spellcheck="false"
+                 placeholder="/set/root/dir">
+        </label>
       {% else %}
         <label>{{ label }}
           <input type="text" name="{{ key }}" value="{{ current }}" spellcheck="false">
