@@ -59,7 +59,9 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
   folder outside the roots is ignored rather than rejected: the setting cannot
   brick the picker. The panel is a native `<details>` element, not an Alpine
   toggle: a browser with stale cached HTML or without Alpine still opens the
-  listing, and HTMX only fetches it. The `<details>` starts **open**, and every
+  listing, and HTMX only fetches it. The panel is always visible (no toggle at
+  all: the `<details>` version could be closed by one click and looked broken),
+  and every
   non-static response now carries `Cache-Control: no-store` (`web/app.py`):
   a page cached before the deploy was showing a UI without the picker, and the
   server had no header to prevent it.

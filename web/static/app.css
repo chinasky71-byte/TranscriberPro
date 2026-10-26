@@ -180,11 +180,9 @@ progress::-moz-progress-bar { background: var(--accent); }
 /* File picker (server-side listing of the allowed media roots) */
 [x-cloak] { display: none !important; }
 
-.picker-wrap > summary.btn { display: inline-block; width: fit-content; cursor: pointer; list-style: none; }
-.picker-wrap > summary.btn::-webkit-details-marker { display: none; }
-.picker-wrap > summary.btn::marker { content: ""; }
-.picker-wrap[open] > summary.btn { border-color: var(--accent); color: var(--accent); }
-.picker-body { margin-top: 10px; }
+.picker-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.picker-head strong { font-size: 13px; color: var(--muted); font-weight: 600; }
+.picker-body { margin-top: 8px; }
 .picker {
   background: var(--panel-2);
   border: 1px solid var(--line);

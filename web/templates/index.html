@@ -10,11 +10,18 @@
     <label>Media path
       <input name="path" placeholder="/media/film.mkv" autocomplete="off">
     </label>
-    <details class="picker-wrap" open>
-      <summary class="btn">Choose files…</summary>
+    <div class="picker-wrap">
+      <div class="picker-head">
+        <strong>Pick the files to process</strong>
+        <button class="btn small" type="button"
+                hx-get="/ui/browse" hx-target="#picker"
+                hx-swap="innerHTML">Reload the list</button>
+      </div>
       <div id="picker" class="picker-body"
-           hx-get="/ui/browse" hx-trigger="load" hx-swap="innerHTML"></div>
-    </details>
+           hx-get="/ui/browse" hx-trigger="load" hx-swap="innerHTML">
+        <p class="muted">Loading the folders…</p>
+      </div>
+    </div>
     <div class="row">
       <label>Target language
         <select name="target_language">
