@@ -1,16 +1,21 @@
 """Server-rendered WebUI (HTMX + Alpine)."""
 from __future__ import annotations
 
+import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from core.jobs.models import TERMINAL
 from utils.job_overrides import clean
 from web.auth import SESSION_COOKIE, request_token, token_matches
+from web.config_schema import (ENUM_CONFIG_KEYS, MEDIA_ROOTS_KEY, ConfigError,
+                               apply_values, read_values)
 from web.paths import compute_roots, validate_media_path
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
@@ -18,6 +23,51 @@ router = APIRouter()
 
 LANGUAGES = ("ita", "eng", "fra", "spa", "deu", "por", "rus", "jpn", "zho", "ara", "kor", "nld", "pol", "tur")
 TRANSLATION_MODELS = ("nllb_finetuned", "llm")
+
+HISTORY_STATUSES = ("done", "failed", "cancelled", "interrupted")
+
+# Declarative description of the settings page. `kind` selects the input and
+# the normalisation applied by `web/config_schema.py`; the template loops over
+# the groups, so adding a key means adding one tuple here.
+SETTINGS_GROUPS = (
+    ("General", (
+        ("bool", "use_gpu", "Use the GPU"),
+        ("enum", "language", "Interface language"),
+        ("bool", "model_cache_cleanup_enabled", "Clean up unused model caches"),
+    )),
+    ("Transcription", (
+        ("enum", "transcription_engine_mode", "ASR engine mode"),
+        ("text", "whisper_model", "Whisper model"),
+        ("enum", "punctuation_restore_mode", "Punctuation restoration"),
+        ("bool", "enable_diarization", "Diarization"),
+        ("bool", "dialogue_style_enabled", "Netflix dialogue style"),
+        ("bool", "gender_correction_enabled", "Gender correction"),
+    )),
+    ("Translation", (
+        ("enum", "translation_model", "Translation engine"),
+        ("text", "llm_translator_model", "LLM model key"),
+        ("bool", "llm_translator_gguf_enabled", "Prefer GGUF models"),
+        ("number", "translation_max_untranslated_pct", "Max untranslated share (%)"),
+        ("text", "target_language", "Target language (ISO 639-2)"),
+    )),
+    ("Upload and mux", (
+        ("bool", "opensubtitles_upload_enabled", "Upload finished subtitles"),
+        ("bool", "mux_subtitle_into_video", "Mux the SRT into the video"),
+        ("bool", "replace_mislabeled_italian_track", "Replace a mistagged Italian track"),
+    )),
+    ("Media", (
+        ("roots", MEDIA_ROOTS_KEY, "Allowed media roots (one path per line)"),
+    )),
+    ("Secrets", (
+        ("secret", "huggingface_token", "Hugging Face token"),
+        ("secret", "claude_api_key", "Claude API key"),
+        ("secret", "openai_api_key", "OpenAI API key"),
+        ("secret", "opensubtitles_password", "OpenSubtitles password"),
+        ("secret", "opensubtitles_api_key", "OpenSubtitles API key"),
+        ("secret", "opensubtitles_xmlrpc_password", "OpenSubtitles XML-RPC password"),
+        ("secret", "library_scanner_api_key", "Library scanner API key"),
+    )),
+)
 
 
 def _auth(request: Request) -> None:
@@ -68,6 +118,92 @@ def _queue_context(request: Request, error: str = "", message: str = "") -> Dict
 def _render(request: Request, name: str, context: Dict[str, Any]) -> HTMLResponse:
     return TEMPLATES.TemplateResponse(request=request, name=name,
                                       context={"request": request, **context})
+
+
+def _settings_context(request: Request, error: str = "", message: str = "",
+                      draft: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    values = read_values(request.app.state.config)
+    roots = values.get(MEDIA_ROOTS_KEY)
+    if isinstance(roots, (list, tuple)):
+        values[MEDIA_ROOTS_KEY] = "\n".join(str(item) for item in roots)
+    return {
+        "status": _status_context(request),
+        "groups": SETTINGS_GROUPS,
+        "choices": ENUM_CONFIG_KEYS,
+        "values": values,
+        "draft": _draft_view(draft or {}),
+        "error": error,
+        "message": message,
+        "pathsep": os.pathsep,
+    }
+
+
+def _draft_view(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Make submitted values renderable again after a validation error."""
+    view = dict(raw)
+    roots = view.get(MEDIA_ROOTS_KEY)
+    if isinstance(roots, (list, tuple)):
+        view[MEDIA_ROOTS_KEY] = "\n".join(str(item) for item in roots)
+    return view
+
+
+async def _read_settings_form(request: Request) -> Dict[str, Any]:
+    """Map the settings form onto config keys.
+
+    Checkboxes are absent when unchecked; secret inputs use the `secret:` and
+    `clear:` prefixes so an empty box never overwrites a stored token.
+    """
+    form = await request.form()
+    raw: Dict[str, Any] = {}
+    for _title, fields in SETTINGS_GROUPS:
+        for kind, key, _label in fields:
+            if kind == "bool":
+                raw[key] = form.get(key) is not None
+            elif kind == "secret":
+                value = (form.get(f"secret:{key}") or "").strip()
+                if value:
+                    raw[key] = value
+                elif form.get(f"clear:{key}") is not None:
+                    raw[key] = ""
+            elif kind == "roots":
+                text = (form.get(key) or "")
+                raw[key] = [line.strip() for line in text.splitlines() if line.strip()]
+            else:
+                raw[key] = form.get(key) or ""
+    return raw
+
+
+def _duration(job: Dict[str, Any]) -> str:
+    start = job.get("started_at")
+    if not start:
+        return ""
+    end = job.get("finished_at") or start
+    seconds = max(int(end - start), 0)
+    minutes, seconds = divmod(seconds, 60)
+    return f"{minutes}m {seconds}s" if minutes else f"{seconds}s"
+
+
+def _timestamp(value: Any) -> str:
+    if not value:
+        return ""
+    return datetime.fromtimestamp(value).strftime("%Y-%m-%d %H:%M")
+
+
+def _history_context(request: Request, job_status: str = "") -> Dict[str, Any]:
+    jobs = [job for job in request.app.state.manager.snapshot()
+            if job["status"] in TERMINAL]
+    if job_status in TERMINAL:
+        jobs = [job for job in jobs if job["status"] == job_status]
+    jobs.sort(key=lambda job: job.get("finished_at") or job.get("created_at") or 0.0,
+              reverse=True)
+    rows = [dict(job, duration=_duration(job), finished=_timestamp(job.get("finished_at")))
+            for job in jobs]
+    return {
+        "status": _status_context(request),
+        "jobs": rows,
+        "filter": job_status if job_status in TERMINAL else "",
+        "filters": HISTORY_STATUSES,
+    }
 
 
 @router.get("/", response_class=HTMLResponse, dependencies=[Depends(_auth)])
@@ -130,6 +266,33 @@ def ui_remove_job(request: Request, job_id: str) -> HTMLResponse:
     ok = request.app.state.manager.remove(job_id)
     message = "" if ok else "Only queued jobs can be removed"
     return _render(request, "_queue.html", _queue_context(request, error=message if not ok else ""))
+
+
+@router.get("/history", response_class=HTMLResponse, dependencies=[Depends(_auth)])
+def history_page(request: Request, job_status: str = Query("", alias="status")) -> HTMLResponse:
+    return _render(request, "history.html", _history_context(request, job_status))
+
+
+@router.get("/ui/history", response_class=HTMLResponse, dependencies=[Depends(_auth)])
+def ui_history(request: Request, job_status: str = Query("", alias="status")) -> HTMLResponse:
+    return _render(request, "_history.html", _history_context(request, job_status))
+
+
+@router.get("/settings", response_class=HTMLResponse, dependencies=[Depends(_auth)])
+def settings_page(request: Request) -> HTMLResponse:
+    return _render(request, "settings.html", _settings_context(request))
+
+
+@router.post("/settings", response_class=HTMLResponse, dependencies=[Depends(_auth)])
+async def settings_save(request: Request) -> HTMLResponse:
+    raw = await _read_settings_form(request)
+    try:
+        apply_values(request.app.state.config, raw)
+    except ConfigError as exc:
+        return _render(request, "settings.html",
+                       _settings_context(request, error=str(exc), draft=raw))
+    return _render(request, "settings.html",
+                   _settings_context(request, message="Settings saved"))
 
 
 @router.get("/login", response_class=HTMLResponse)

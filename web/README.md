@@ -1,8 +1,8 @@
 # Web API
 
 FastAPI application that exposes the shared job queue and the browser UI.
-Steps 2 (API) and 3 (MVP UI) of `docs/webui/PLAN.md` are done; settings and
-history pages follow in Step 4.
+Steps 2 (API), 3 (MVP UI) and 4 (settings, history) of `docs/webui/PLAN.md`
+are done; the OCR review page follows in Step 5.
 
 ## Run
 
@@ -49,6 +49,14 @@ used at runtime. The logs panel subscribes to `/api/events` with
 `EventSource` and reconnects automatically (the server supports
 `Last-Event-ID`).
 
+Pages:
+
+| Path | Content |
+|---|---|
+| `/` | dashboard, add form, queue, logs panel |
+| `/history` | finished jobs with `done`/`failed`/`cancelled`/`interrupted` filter |
+| `/settings` | whitelisted config keys and write-only secrets |
+
 Plain HTTP on a LAN exposes both the token and the cookie: use a TLS reverse
 proxy, a VPN or an SSH tunnel.
 
@@ -66,7 +74,8 @@ POST   /api/jobs/{id}/cancel
 DELETE /api/jobs/{id}
 GET    /api/jobs/{id}/logs?lines=200
 GET    /api/events?job_id=&after=   (SSE)
-GET    /api/history
+GET    /api/history?status=&limit=
+GET    /api/models
 GET    /api/config
 PUT    /api/config                  {"values": {...}}
 ```
@@ -78,7 +87,12 @@ Interactive schema: `/docs`.
 - One GPU-heavy job at a time; the manager owns the queue.
 - Media paths must exist and resolve under an allowed root (realpath, no
   traversal).
-- Config writes are restricted to a whitelist; secrets are returned as
-  `{"is_set": true}` and are never logged.
+- Config writes are restricted to a whitelist and every value is validated in
+  `web/config_schema.py` before `Config.set`: enum keys against the lists in
+  `utils/config.py`, `translation_max_untranslated_pct` in 0–100,
+  `allowed_media_roots` as existing absolute directories, booleans from
+  `true/false` strings. Secrets are returned as `{"is_set": true}` and are
+  never logged; an empty secret field leaves the stored value untouched, the
+  `clear:` checkbox removes it.
 - The queue is persisted in `TP_DATA_DIR/jobs.json`; jobs left `running` at
   startup become `interrupted`.

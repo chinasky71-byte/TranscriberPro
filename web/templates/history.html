@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card" id="history" hx-get="/ui/history{% if filter %}?status={{ filter }}{% endif %}"
+         hx-trigger="every 10s" hx-swap="innerHTML">
+  {% include "_history.html" %}
+</section>
+
+<section class="card" id="logs-panel"
+         x-data="{open: false}"
+         x-on:tp-logs-open.window="open = true"
+         x-on:tp-logs-close.window="open = false"
+         x-show="open">
+  <div class="row between">
+    <h2>Logs — <span id="logs-title"></span></h2>
+    <button class="btn ghost" id="logs-close" type="button">Close</button>
+  </div>
+  <pre id="logs" class="logs"></pre>
+</section>
+{% endblock %}

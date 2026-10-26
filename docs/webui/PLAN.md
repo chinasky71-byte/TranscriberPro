@@ -9,7 +9,7 @@ tests, and an update to `docs/STATUS.md` and `docs/PROGRESS.md`.
 | 1 | `feat/jobs-service` | `core/jobs/`: models, process runner, manager, event hub, persistence; `queue_runner` ported | headless queue parity; tests without Qt | done — merged `e87e8ae` (direct commit, deviation recorded) |
 | 2 | `feat/web-api` | FastAPI app, health/status/jobs/events/config, token auth, path validation | queue start/stop/cancel via `curl`; SSE works | done — commit `66c426e`, merge `cb962cc` |
 | 3 | `feat/webui-mvp` | Dashboard, queue, job detail, logs (HTMX + Alpine) | one real file processed from the browser on AMD | done — commit `ba9ba99`, merge `a9c0975` |
-| 4 | `feat/webui-settings` | Settings and history pages | config changes and history work | pending |
+| 4 | `feat/webui-settings` | Settings and history pages | config changes and history work | done |
 | 5 | `feat/webui-ocr` | OCR review page | parity with the Qt dialog | pending |
 | 6 | `feat/webui-glossary` | Glossary and library scanner pages | functional parity | pending |
 | 7 | `feat/pyqt-optional` | Qt removed from default requirements; `--gui` optional | install without Qt | pending |

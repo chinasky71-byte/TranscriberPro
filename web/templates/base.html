@@ -13,6 +13,9 @@
   <header class="topbar">
     <div class="brand">Transcriber Pro</div>
     <nav class="top-actions">
+      <a class="link" href="/">Dashboard</a>
+      <a class="link" href="/history">History</a>
+      <a class="link" href="/settings">Settings</a>
       <a class="link" href="/docs">API</a>
       {% if status is defined and status.auth_enabled %}
       <form method="post" action="/logout" class="inline">

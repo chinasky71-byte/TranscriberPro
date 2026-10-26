@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h2>Settings</h2>
+  <p class="muted">Only the keys listed here can be changed from the browser.
+    Secrets are write-only: the page shows whether a value is stored, never the
+    value itself.</p>
+  {% include "_settings.html" %}
+</section>
+{% endblock %}

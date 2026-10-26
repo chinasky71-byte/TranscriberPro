@@ -1,0 +1,37 @@
+{% if error %}<p class="alert error">{{ error }}</p>{% endif %}
+
+<div class="row between">
+  <h2>History</h2>
+  <div class="actions">
+    <a class="btn small {% if not filter %}primary{% endif %}" href="/history">all</a>
+    {% for name in filters %}
+    <a class="btn small {% if filter == name %}primary{% endif %}"
+       href="/history?status={{ name }}">{{ name }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+{% if jobs %}
+<table class="queue">
+  <thead>
+    <tr><th>File</th><th>Status</th><th>Duration</th><th>Finished</th><th>Output</th><th></th></tr>
+  </thead>
+  <tbody>
+  {% for job in jobs %}
+    <tr>
+      <td class="name" title="{{ job.path }}">{{ job.name }}</td>
+      <td><span class="badge {{ job.status }}">{{ job.status }}</span></td>
+      <td>{{ job.duration }}</td>
+      <td>{{ job.finished }}</td>
+      <td class="name" title="{{ job.output or '' }}">{{ job.output or job.error or '' }}</td>
+      <td class="actions">
+        <button class="btn small js-log" type="button"
+                data-job="{{ job.id }}" data-name="{{ job.name }}">Log</button>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No finished jobs{% if filter %} with status {{ filter }}{% endif %} yet.</p>
+{% endif %}

@@ -51,8 +51,45 @@ def media(tmp_path):
     return path
 
 
-def _make(tmp_path, token=None):
-    config = FakeConfig({"allowed_media_roots": [str(tmp_path)]})
+SETTINGS_VALUES = {
+    "allowed_media_roots": [],
+    "use_gpu": True,
+    "language": "auto",
+    "model_cache_cleanup_enabled": True,
+    "transcription_engine_mode": "auto",
+    "whisper_model": "large-v3",
+    "punctuation_restore_mode": "auto",
+    "enable_diarization": False,
+    "dialogue_style_enabled": True,
+    "gender_correction_enabled": False,
+    "translation_model": "nllb",
+    "llm_translator_model": "translategemma-12b",
+    "llm_translator_gguf_enabled": True,
+    "translation_max_untranslated_pct": 80.0,
+    "target_language": "ita",
+    "opensubtitles_upload_enabled": True,
+    "mux_subtitle_into_video": False,
+    "replace_mislabeled_italian_track": True,
+    "huggingface_token": "stored-secret",
+}
+
+SETTINGS_FORM = {
+    "language": "it",
+    "transcription_engine_mode": "qwen3",
+    "whisper_model": "large-v3",
+    "punctuation_restore_mode": "auto",
+    "translation_model": "nllb",
+    "llm_translator_model": "translategemma-12b",
+    "translation_max_untranslated_pct": "75",
+    "target_language": "ita",
+    "use_gpu": "true",
+    "model_cache_cleanup_enabled": "true",
+}
+
+
+def _make(tmp_path, token=None, values=None):
+    merged = dict(SETTINGS_VALUES, allowed_media_roots=[str(tmp_path)], **(values or {}))
+    config = FakeConfig(merged)
     manager = JobManager(runner=FakeRunner(), keep_alive=True, log_dir=tmp_path / "logs")
     return create_app(manager, token=token, config=config), manager
 
@@ -131,3 +168,85 @@ def test_open_redirect_is_rejected(tmp_path):
                                follow_redirects=False)
         assert response.status_code == 303
         assert response.headers["location"] == "/"
+
+
+def test_navigation_links_to_the_new_pages(tmp_path):
+    app, _ = _make(tmp_path)
+    with TestClient(app) as client:
+        page = client.get("/")
+        assert 'href="/history"' in page.text
+        assert 'href="/settings"' in page.text
+
+
+def test_history_page_lists_finished_jobs(tmp_path, media):
+    app, manager = _make(tmp_path)
+    with TestClient(app) as client:
+        job = client.post("/api/jobs", json={"path": str(media)}).json()
+        assert _wait(lambda: manager.get(job["id"])["status"] == "done")
+
+        page = client.get("/history")
+        assert page.status_code == 200
+        assert media.name in page.text
+
+        done = client.get("/history?status=done")
+        assert media.name in done.text
+        assert "No finished jobs" not in done.text
+
+        failed = client.get("/history?status=failed")
+        assert "No finished jobs" in failed.text
+
+        partial = client.get("/ui/history?status=done")
+        assert media.name in partial.text
+
+
+def test_settings_page_renders_and_masks_secrets(tmp_path):
+    app, _ = _make(tmp_path)
+    with TestClient(app) as client:
+        page = client.get("/settings")
+        assert page.status_code == 200
+        assert "Settings" in page.text
+        assert "stored-secret" not in page.text
+        assert 'name="secret:huggingface_token"' in page.text
+        assert 'name="clear:huggingface_token"' in page.text
+        assert 'name="allowed_media_roots"' in page.text
+
+
+def test_settings_save_and_validation_error(tmp_path):
+    app, _ = _make(tmp_path)
+    config = app.state.config
+    form = dict(SETTINGS_FORM, allowed_media_roots=str(tmp_path))
+    with TestClient(app) as client:
+        saved = client.post("/settings", data=form)
+        assert saved.status_code == 200
+        assert "Settings saved" in saved.text
+        assert config.get("language") == "it"
+        assert config.get("transcription_engine_mode") == "qwen3"
+        assert config.get("translation_max_untranslated_pct") == 75.0
+        assert config.get("allowed_media_roots") == [str(tmp_path)]
+
+        rejected = client.post("/settings",
+                               data=dict(form, translation_max_untranslated_pct="140"))
+        assert rejected.status_code == 200
+        assert "between 0 and 100" in rejected.text
+        assert "140" in rejected.text            # the draft is shown again
+        assert config.get("translation_max_untranslated_pct") == 75.0  # nothing saved
+
+
+def test_settings_secret_update_is_never_echoed(tmp_path):
+    app, _ = _make(tmp_path)
+    form = dict(SETTINGS_FORM, allowed_media_roots=str(tmp_path))
+    form["secret:huggingface_token"] = "brand-new-token"
+    with TestClient(app) as client:
+        response = client.post("/settings", data=form)
+        assert response.status_code == 200
+        assert "brand-new-token" not in response.text
+        assert app.state.config.get("huggingface_token") == "brand-new-token"
+
+
+def test_new_pages_require_login(tmp_path):
+    app, _ = _make(tmp_path, token="s3cret")
+    with TestClient(app) as client:
+        for path in ("/history", "/settings"):
+            response = client.get(path, follow_redirects=False)
+            assert response.status_code == 303
+            assert response.headers["location"].startswith("/login")

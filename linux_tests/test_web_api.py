@@ -130,3 +130,66 @@ def test_config_read_masks_secrets_and_write_whitelist(tmp_path):
         assert client.put("/api/config", json={"values": {"transcription_engine_mode": "qwen3"}}).status_code == 200
         assert client.get("/api/config").json()["transcription_engine_mode"] == "qwen3"
         assert client.put("/api/config", json={"values": {"nope": 1}}).status_code == 400
+
+
+def test_history_filters_and_limit(tmp_path, media):
+    app, _ = _app(tmp_path)
+    with TestClient(app) as client:
+        job = client.post("/api/jobs", json={"path": str(media)}).json()
+        assert _wait(lambda: client.get(f"/api/jobs/{job['id']}").json()["status"] == "done")
+
+        assert [item["id"] for item in client.get("/api/history").json()] == [job["id"]]
+        assert client.get("/api/history?status=done").json()[0]["id"] == job["id"]
+        assert client.get("/api/history?status=failed").json() == []
+        assert client.get("/api/history?status=not-a-state").status_code == 400
+        assert client.get("/api/history?limit=0").status_code == 422
+        assert client.get("/api/history?limit=1").json()[0]["id"] == job["id"]
+
+
+def test_config_rejects_invalid_values(tmp_path):
+    app, _ = _app(tmp_path, values={"use_gpu": True})
+    with TestClient(app) as client:
+        def put(values):
+            return client.put("/api/config", json={"values": values})
+
+        assert put({"use_gpu": "maybe"}).status_code == 400
+        assert put({"transcription_engine_mode": "nope"}).status_code == 400
+        assert put({"translation_model": "aya"}).status_code == 400
+        assert put({"punctuation_restore_mode": "sometimes"}).status_code == 400
+        assert put({"translation_max_untranslated_pct": 140}).status_code == 400
+        assert put({"translation_max_untranslated_pct": -1}).status_code == 400
+        assert put({"target_language": "italian"}).status_code == 400
+        assert put({"whisper_model": "   "}).status_code == 400
+        assert put({"allowed_media_roots": ["relative/path"]}).status_code == 400
+        assert put({"allowed_media_roots": [str(tmp_path / "missing")]}).status_code == 400
+
+        assert put({"use_gpu": "false"}).json()["use_gpu"] is False
+        assert put({"translation_max_untranslated_pct": "65"}).json()[
+            "translation_max_untranslated_pct"] == 65.0
+        assert put({"allowed_media_roots": str(tmp_path)}).json()[
+            "allowed_media_roots"] == [str(tmp_path)]
+
+
+def test_config_secret_is_write_only_and_can_be_cleared(tmp_path):
+    app, _ = _app(tmp_path, values={"huggingface_token": ""})
+    with TestClient(app) as client:
+        saved = client.put("/api/config", json={"values": {"huggingface_token": "abc123"}})
+        assert saved.status_code == 200
+        assert saved.json()["huggingface_token"] == {"is_set": True}
+        assert "abc123" not in saved.text
+
+        cleared = client.put("/api/config", json={"values": {"huggingface_token": None}})
+        assert cleared.status_code == 200
+        assert cleared.json()["huggingface_token"] == {"is_set": False}
+
+
+def test_models_endpoint_reads_the_registry_only(tmp_path):
+    app, _ = _app(tmp_path)
+    with TestClient(app) as client:
+        response = client.get("/api/models")
+        assert response.status_code == 200
+        body = response.json()
+        assert "auto" in body["transcription_engine_modes"]
+        assert "nllb_finetuned" in body["translation_models"]
+        assert any(item["key"] == "translategemma-12b" for item in body["llm_models"])
+        assert "torch" not in response.text
