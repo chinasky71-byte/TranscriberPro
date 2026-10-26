@@ -27,6 +27,36 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-26 — Test isolation: the suite no longer destroys the GPU venv
+
+- Branch / commits: `fix/install-test-isolation`.
+- Goal: stop `pytest linux_tests` from reinstalling `requirements.txt` (torch
+  CPU) into the working venv, which silently turned every job into a CPU job.
+- Done: `install.sh` resolves the target venv with
+  `VENV="${TP_INSTALL_VENV:-$ROOT/venv}"` and explains why in a comment; the
+  `env` fixture of `linux_tests/test_install_retry.py` sets
+  `TP_INSTALL_VENV` under `tmp_path`; three guard tests added (the override is
+  honoured, the literal is present in `install.sh`, the fixture points away
+  from `$ROOT/venv`).
+- Tests and results: `test_install_retry.py` 20 passed — the two failures that
+  had been documented as "local venv only" are gone, because they were caused
+  by the real `pip install` that the test triggered. Full suite: **689 passed,
+  11 skipped, 0 failed** (first fully green run), 71 s instead of 129 s.
+  `torch 2.10.0+rocm7.0`, `cuda True`, `ctranslate2 4.8.4` still in place after
+  the run.
+- Decisions / ADRs: no ADR. The override is an installer knob, not a product
+  setting: nothing else changes behaviour when the variable is absent. The
+  guard tests check the literal in `install.sh` so a refactor cannot quietly
+  remove the isolation.
+- Known issues: other `install.sh` paths still write into `$ROOT`
+  (`requirements-gui.txt` install, the local model download section) — they
+  are out of the test's reach today but the same class of accident remains
+  possible. The venv had already been downgraded once before this session, so
+  the documented "known failure" was the symptom of this bug, not an
+  environment quirk.
+- Next step: re-queue the season (E02–E07) with the GPU validated, and record
+  the real per-episode timings.
+
 ## 2026-10-26 — WebUI Step 9: file picker and multi-add
 
 - Branch / commits: `feat/webui-picker`.

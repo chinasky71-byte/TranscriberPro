@@ -229,7 +229,10 @@ if [ "$CHECK" = "1" ]; then [ "${#MISSING[@]}" -eq 0 ] && exit 0 || exit 2; fi
 [ -z "$PY" ] && { bad "Senza Python 3.11/3.12 non posso continuare (le distribuzioni con solo Python 3.13+ richiedono pyenv, uv o un repository dedicato)."; exit 2; }
 
 echo; echo "== Ambiente Python (venv)"
-VENV="$ROOT/venv"
+# TP_INSTALL_VENV sposta il venv su cui si installa: i test di `linux_tests/test_install_retry.py`
+# eseguono questo script e senza override installerebbero requirements.txt (torch CPU) nel venv
+# di lavoro, distruggendo l'ambiente ROCm/Vulkan. Con la variabile puntano a una directory temporanea.
+VENV="${TP_INSTALL_VENV:-$ROOT/venv}"
 if [ ! -x "$VENV/bin/python" ]; then
   echo "  creo il venv in $VENV"
   "$PY" -m venv "$VENV" || { bad "Creazione del venv fallita (manca python3-venv?)"; exit 1; }

@@ -5,7 +5,9 @@ Line: `development` (active product); `master` is legacy (ADR-006)
 Branch: `development` · last merge: `4ef8397` (Docker artifacts)
 WebUI: **not running** (start it with the command in `web/README.md`)
 Environment: Ubuntu 26.04, Radeon RX 9060 XT 16 GB (gfx1200, RDNA4),
-ROCm 7.0, torch 2.10.0+rocm7.0, venv ~16 GB, model cache ~33 GB
+ROCm 7.0, torch 2.10.0+rocm7.0 + ctranslate2 4.8.4 ROCm (verify with
+`venv/bin/python -c "import torch;print(torch.cuda.is_available())"`), venv
+~16 GB, model cache ~33 GB
 
 ## What works
 
@@ -66,8 +68,11 @@ ROCm 7.0, torch 2.10.0+rocm7.0, venv ~16 GB, model cache ~33 GB
 - **Container images not built** in this session (no daemon reachable); only
   the compose schema and the guard tests are verified.
 - The **library scanner** is not part of the WebUI yet (separate service).
-- `linux_tests/test_install_retry.py` fails on the local venv (two tests); it
-  also fails on the unmodified branch, proven with `git stash`.
+- `linux_tests/test_install_retry.py` used to run `install.sh` against the
+  working venv and installed `requirements.txt` (torch **CPU**) into it: running
+  the suite silently disabled the GPU. Fixed in `fix/install-test-isolation`
+  (`install.sh` honours `TP_INSTALL_VENV`, the tests point it at `tmp_path`);
+  the two long-standing failures went away with the same change.
 - **Windows pipeline** startup is untested; Windows is a frozen line.
 - `master` does not contain `AGENTS.md`; development does, by decision.
 - The benchmark uses a **single synthetic clip** and an Italian reference with
