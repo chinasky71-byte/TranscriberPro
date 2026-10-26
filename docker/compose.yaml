@@ -4,7 +4,6 @@
 #
 #   TP_WEB_TOKEN="$(openssl rand -base64 24)" docker compose -f docker/compose.yaml --profile rocm up --build
 #   docker compose -f docker/compose.yaml --profile cuda up --build
-#   docker compose -f docker/compose.yaml --profile cpu  up --build
 #
 # Volumes:
 #   tp-data -> /data    config.json, jobs.json, queue logs, OCR sessions
@@ -68,15 +67,6 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-
-  cpu:
-    <<: *common
-    profiles: ["cpu"]
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-      args:
-        BACKEND: cpu
 
 volumes:
   tp-data:

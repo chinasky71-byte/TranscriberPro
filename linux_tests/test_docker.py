@@ -35,9 +35,9 @@ def _instructions(text: str):
 def test_one_image_per_backend():
     text = _dockerfile()
     assert "ARG BACKEND" in text
-    for backend in ("rocm", "cuda", "cpu"):
+    for backend in ("rocm", "cuda"):
         assert f"{backend})" in text, f"backend {backend} missing from the build switch"
-    assert "BACKEND must be rocm, cuda or cpu" in text, "unknown backend must fail the build"
+    assert "BACKEND must be rocm or cuda" in text, "unknown backend must fail the build"
 
 
 def test_no_drivers_and_no_weights_in_the_image():
@@ -74,7 +74,7 @@ def test_env_dirs_point_at_volumes():
 def test_compose_declares_the_three_backends():
     data = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
     services = data["services"]
-    assert set(services) == {"rocm", "cuda", "cpu"}
+    assert set(services) == {"rocm", "cuda"}
     for name, service in services.items():
         assert service["profiles"] == [name]
         assert service["build"]["args"]["BACKEND"] == name

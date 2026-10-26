@@ -1,14 +1,15 @@
 # Support matrix
 
-Status as of 2026-10-25. “Tested” means executed on real hardware and recorded;
+Status as of 2026-10-26. “Tested” means executed on real hardware and recorded;
 anything else is best-effort.
 
 | Tier | Platform | Backend | Interface | Tested | Notes |
 |---|---|---|---|---|---|
-| **1** | Linux x86_64 + AMD | ROCm 7.x (+ Vulkan for GGUF) | WebUI (target), CLI | **yes** — RX 9060 XT, gfx1200, Ubuntu 26.04 | reference platform; see `docs/VALIDAZIONE_AMD_2026-10-24.md` |
-| 2 | Linux x86_64 + NVIDIA | CUDA 12.x | WebUI (target), CLI | no — CI/community needed | best-effort until a runner exists |
-| 3 | Linux x86_64, no GPU | CPU (+ Vulkan optional) | WebUI (target), CLI | partial (unit/smoke) | slow; OCR and translation on CPU |
-| 3 | Linux + older AMD / Intel | Vulkan (GGUF only) | WebUI (target), CLI | no | transcription/translation on CPU |
+| **1** | Linux x86_64 + AMD | ROCm 7.x on RDNA3/RDNA4/CDNA (+ Vulkan for GGUF) | WebUI, CLI | **yes** — RX 9060 XT, gfx1200, Ubuntu 26.04 | reference platform; throughput recorded in `docs/STATUS.md` |
+| 2 | Linux x86_64 + NVIDIA | CUDA 12.x | WebUI, CLI | no — CI/community needed | best-effort until a runner exists |
+| not supported | Linux + AMD RDNA2 and older | — | — | — | ROCm 7 does not support them officially; the installer refuses (ADR-007) |
+| not supported | Linux x86_64, no GPU | — | — | — | CPU-only installs were removed (ADR-007): they ran ~10x slower |
+| not supported | Linux + Intel / Vulkan only | — | — | — | the Vulkan backend was removed (ADR-007) |
 | frozen | Windows x86_64 + NVIDIA | CUDA | legacy GUI / native | previously | no new features |
 | not supported | Windows + AMD | — | — | — | ROCm is not available; Vulkan/CPU only via native code |
 | not supported | macOS | — | — | — | out of scope |
@@ -22,7 +23,7 @@ anything else is best-effort.
 | AMD driver | kernel `amdgpu` with compute support (`/dev/kfd`), user in `render` and `video` |
 | ROCm | 7.x user-space runtime; the torch wheels ship their own libraries |
 | NVIDIA driver | recent driver compatible with the CUDA 12.x wheels |
-| Vulkan | loader `libvulkan.so.1` + ICD (for llama.cpp GGUF models) |
+| Vulkan | loader `libvulkan.so.1` + ICD (needed by the GGUF models on the ROCm backend) |
 | Disk | ~15 GB for the environment, ~30 GB for models |
 | VRAM | 8 GB minimum for the small profiles, 12 GB recommended, 16 GB for the XL profile |
 

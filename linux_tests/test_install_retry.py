@@ -70,8 +70,8 @@ def env(tmp_path):
 
 
 def run(e, *args, stdin=subprocess.DEVNULL):
-    return subprocess.run(['bash', str(ROOT / 'install.sh'), '--no-gpu', *args], env=e, stdin=stdin,
-                          capture_output=True, text=True, timeout=60)
+    return subprocess.run(['bash', str(ROOT / 'install.sh'), '--backend=cuda', '--force-backend', *args], env=e,
+                          stdin=stdin, capture_output=True, text=True, timeout=60)
 
 
 def calls(log, prefix):
@@ -151,7 +151,7 @@ def test_check_non_installa_mai(env):
 
 def _run_pty(e, answer):
     master, slave = pty.openpty()
-    p = subprocess.Popen(['bash', str(ROOT / 'install.sh'), '--no-gpu'], env=e, stdin=slave, stdout=subprocess.PIPE,
+    p = subprocess.Popen(['bash', str(ROOT / 'install.sh'), '--backend=cuda', '--force-backend'], env=e, stdin=slave, stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, text=True)
     os.close(slave)
     os.write(master, (answer + '\n').encode())
@@ -205,7 +205,7 @@ def full(env, tmp_path):
 
 def run_full(full, *args):
     e, log, root = full
-    return subprocess.run(['bash', str(root / 'install.sh'), '--no-gpu', *args], env=e, stdin=subprocess.DEVNULL,
+    return subprocess.run(['bash', str(root / 'install.sh'), '--backend=cuda', '--force-backend', *args], env=e, stdin=subprocess.DEVNULL,
                           capture_output=True, text=True, timeout=120), log
 
 
@@ -218,10 +218,10 @@ def test_gguf_senza_opzioni_non_scarica_niente(full):
     assert gguf_calls(log) == [], r.stdout
 
 
-def test_with_models_implica_gguf_auto_e_con_no_gpu_lo_dice(full):
+def test_with_models_implica_gguf_auto(full):
     r, log = run_full(full, '--with-models', '--yes')
     c = gguf_calls(log)
-    assert len(c) == 1 and c[0].endswith('--gguf auto --yes --no-gpu'), (c, r.stdout)       # --no-gpu vero: il downloader non scarica
+    assert len(c) == 1 and c[0].endswith('--gguf auto --yes'), (c, r.stdout)
 
 
 def test_gguf_none_esclude_anche_con_with_models(full):
@@ -232,15 +232,16 @@ def test_gguf_none_esclude_anche_con_with_models(full):
 def test_gguf_esplicito_senza_with_models_e_cartella(full, tmp_path):
     r, log = run_full(full, '--gguf=q4', '--gguf-dir=' + str(tmp_path / 'g'))
     c = gguf_calls(log)
-    assert len(c) == 1 and ' --gguf q4 ' in c[0] and c[0].endswith('--no-gpu --dest ' + str(tmp_path / 'g')) and '--yes' not in c[0]
+    assert len(c) == 1 and ' --gguf q4 ' in c[0] and c[0].endswith('--dest ' + str(tmp_path / 'g')) and '--yes' not in c[0]
 
 
-def test_gguf_con_vulkan_non_passa_no_gpu(full):
+def test_backend_ritirati_vengono_rifiutati(full):
     e, log, root = full
-    r = subprocess.run(['bash', str(root / 'install.sh'), '--gpu-backend=vulkan', '--gguf=auto', '--yes'], env=e, stdin=subprocess.DEVNULL,
-                       capture_output=True, text=True, timeout=120)
-    c = gguf_calls(log)
-    assert len(c) == 1 and '--no-gpu' not in c[0], (c, r.stdout)       # su Vulkan llama usa la GPU: il GGUF serve
+    for backend in ('vulkan', 'cpu'):
+        r = subprocess.run(['bash', str(root / 'install.sh'), f'--backend={backend}', '--gguf=auto', '--yes'], env=e,
+                           stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
+        assert r.returncode == 2 and 'non supportato' in r.stdout, (backend, r.stdout)
+    assert gguf_calls(log) == []
 
 
 def test_gguf_fallito_non_blocca_l_installazione(full):
@@ -248,6 +249,30 @@ def test_gguf_fallito_non_blocca_l_installazione(full):
     e['GGUF_RC'] = '1'
     r, _ = run_full(full, '--gguf=auto', '--yes')
     assert r.returncode == 0 and 'Download dei GGUF non completato' in r.stdout and len(gguf_calls(log)) == 1
+
+
+def test_install_scrive_il_timbro_del_backend(full):
+    e, log, root = full
+    r, _ = run_full(full, '--gguf=none')
+    stamp = Path(e['TP_INSTALL_VENV']) / '.tp-backend'
+    assert stamp.exists(), r.stdout
+    text = stamp.read_text(encoding='utf-8')
+    assert 'backend=cuda' in text
+    assert 'requirements=requirements.txt' in text
+    assert 'date=' in text
+
+
+def test_install_fallisce_se_il_backend_non_risponde(full):
+    """La verifica post-installazione deve fermare lo script e non lasciare un timbro bugiardo."""
+    e, log, root = full
+    vpy = Path(e['STUB_BIN']) / 'vpy_stub'
+    vpy.write_text('#!/bin/bash\necho "VPY $*" >> "$STUB_LOG"\ncase "$*" in "- cuda") exit 1 ;; esac\nexit 0\n',
+                   encoding='utf-8')
+    vpy.chmod(0o755)
+    r, _ = run_full(full, '--gguf=none')
+    assert r.returncode == 1, (r.returncode, r.stdout[-800:])
+    assert 'Installazione NON riuscita' in r.stdout
+    assert not (Path(e['TP_INSTALL_VENV']) / '.tp-backend').exists()
 
 
 def test_gguf_valore_errato(env):

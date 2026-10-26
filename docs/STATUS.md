@@ -37,12 +37,18 @@ ROCm 7.0, torch 2.10.0+rocm7.0 + ctranslate2 4.8.4 ROCm (verify with
   validation, `picker_start_dir`) and OCR review (bitmap next to the OCR text,
   corrections, sidecar SRT). Glossary review reads `glossary_engine` reports.
   Server-rendered with HTMX + Alpine, assets vendored locally.
+- **Install policy (ADR-007)**: two supported backends, CUDA and ROCm on
+  AMD RDNA3/RDNA4/CDNA. `install.sh` detects the hardware (`auto` is the
+  default), refuses anything else instead of falling back, verifies the
+  installed backend by importing torch/ctranslate2, and stamps the result in
+  `venv/.tp-backend`; a mismatched re-run refuses to replace torch. CPU and
+  Vulkan installs no longer exist.
 - **Containers**: `docker/Dockerfile` (one image per backend) and
-  `docker/compose.yaml` (profiles `rocm`/`cuda`/`cpu`); not built yet, see the
-  open items.
+  `docker/compose.yaml` (profiles `rocm`/`cuda`); not built yet, see the open
+  items.
 - **GUI optional**: PyQt6 moved to `requirements-gui.txt`; `main.py` exits with
   a message pointing at the WebUI when Qt is absent.
-- **ADRs** 001–006, support matrix, contributing rules, guard tests.
+- **ADRs** 001–007, support matrix, contributing rules, guard tests.
 - **Tests**: unit/guard tests in `linux_tests/` (bench, boundaries, events,
   docs links, translation gate, i18n, web API/UI/picker/OCR/glossary, Docker,
   install isolation). The suite is fully green: 689 passed, 11 skipped.
