@@ -62,6 +62,10 @@ Do not force-push shared branches.
 8. **No driver installs** and no system modifications at runtime.
 9. **Commits**: imperative subject, body explaining cause and evidence, plus
    the project trailers when applicable.
+10. **Progress log**: every implementation step adds its `docs/PROGRESS.md`
+    entry in the same pull request, before the merge (one entry per PR, template
+    at the top of the file). Enforced by
+    `linux_tests/test_docs_progress.py`; a PR without its entry is not ready.
 
 ## Pull requests
 
@@ -70,6 +74,7 @@ Use the template. A PR is ready when:
 - CI is green (unit tests, guard tests, Docker build);
 - the change is reviewed;
 - documentation is updated;
+- the `docs/PROGRESS.md` entry for the step is in the PR;
 - no allowlist entry was added without justification.
 
 ## Merge strategy

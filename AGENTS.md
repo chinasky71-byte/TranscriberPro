@@ -59,6 +59,11 @@ Documentation index: [`docs/README.md`](docs/README.md).
   changes, never the other way round for now.
 - At the end of every session, update `docs/STATUS.md` and append an entry to
   `docs/PROGRESS.md` (template at the top of the file).
+- **Every implementation step goes into `docs/PROGRESS.md` before its branch is
+  merged**: one entry per pull request (not one per session), with branch and
+  commits, goal, what changed, tests and results, decisions, known issues and
+  the next step. A step is not done until its entry exists; the guard test
+  `linux_tests/test_docs_progress.py` enforces the fields and the ordering.
 - Every commit explains cause and evidence. Documentation is in English.
 - Never install or modify GPU drivers, kernel modules or system services.
 
