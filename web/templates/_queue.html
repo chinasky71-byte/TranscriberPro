@@ -1,13 +1,50 @@
-{% if error %}<p class="alert error">{{ error }}</p>{% endif %}
-{% if message %}<p class="alert ok">{{ message }}</p>{% endif %}
+{% if queue.error %}<p class="alert error">{{ queue.error }}</p>{% endif %}
+{% if queue.message %}<p class="alert ok">{{ queue.message }}</p>{% endif %}
 
-{% if jobs %}
+{% if queue.active %}
+<div class="hero-job">
+  <div class="hero-head">
+    <span class="badge running">running</span>
+    <strong class="hero-name" title="{{ queue.active.path }}">{{ queue.active.name }}</strong>
+  </div>
+  <div class="hero-bar">
+    <progress max="100" value="{{ queue.active.percent }}"></progress>
+    <span class="hero-pct">{{ queue.active.percent }}%</span>
+  </div>
+  <div class="hero-meta">
+    <span>phase <strong>{{ queue.active.phase or 'starting' }}</strong></span>
+    <span><strong>{{ queue.active.elapsed }}</strong> elapsed</span>
+    {% if queue.active.eta %}<span>{{ queue.active.eta }}</span>{% endif %}
+    <button class="btn small js-log" type="button"
+            data-job="{{ queue.active.id }}" data-name="{{ queue.active.name }}">Log</button>
+    <button class="btn small" type="button"
+            hx-post="/ui/jobs/{{ queue.active.id }}/cancel" hx-target="#queue"
+            hx-swap="innerHTML">Cancel</button>
+  </div>
+</div>
+{% else %}
+<div class="hero-idle">
+  <span class="muted">Nothing running.</span>
+  {% if queue.counts.queued %}<span>{{ queue.counts.queued }} waiting in the queue.</span>{% endif %}
+</div>
+{% endif %}
+
+<p class="counters">
+  <span class="pill">{{ queue.counts.queued }} queued</span>
+  <span class="pill">{{ queue.counts.running }} running</span>
+  <span class="pill">{{ queue.counts.done }} done</span>
+  {% if queue.counts.failed %}<span class="pill warn">{{ queue.counts.failed }} failed</span>{% endif %}
+  {% if queue.counts.cancelled %}<span class="pill">{{ queue.counts.cancelled }} cancelled</span>{% endif %}
+  {% if queue.counts.interrupted %}<span class="pill warn">{{ queue.counts.interrupted }} interrupted</span>{% endif %}
+</p>
+
+{% if queue.jobs %}
 <table class="queue">
   <thead>
-    <tr><th>File</th><th>Status</th><th>Progress</th><th>Phase</th><th></th></tr>
+    <tr><th>File</th><th>Status</th><th>Progress</th><th>Phase</th><th>Time</th><th></th></tr>
   </thead>
   <tbody>
-  {% for job in jobs %}
+  {% for job in queue.jobs %}
     <tr>
       <td class="name" title="{{ job.path }}">{{ job.name }}</td>
       <td><span class="badge {{ job.status }}">{{ job.status }}</span></td>
@@ -16,6 +53,12 @@
         <small>{{ job.percent }}%</small>
       </td>
       <td class="phase">{{ job.phase }}</td>
+      <td class="time">
+        {% if job.status == 'running' %}{{ job.elapsed }}
+        {% elif job.total %}{{ job.total }}
+        {% elif job.status == 'queued' %}<span class="muted">waiting</span>
+        {% endif %}
+      </td>
       <td class="actions">
         {% if job.status in ('queued', 'running') %}
         <button class="btn small" type="button"
@@ -32,6 +75,6 @@
   {% endfor %}
   </tbody>
 </table>
-{% else %}
-<p class="muted">No jobs yet. Add a media path above.</p>
+{% elif not queue.active %}
+<p class="muted">No jobs yet. Pick the files to process above.</p>
 {% endif %}

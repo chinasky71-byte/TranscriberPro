@@ -261,7 +261,7 @@ def test_system_card_mostra_backend_gpu_e_workdir(tmp_path):
         "tmpdir": {"path": "/dev/shm/tp", "free_mib": 14000, "total_mib": 15000},
     }
     with TestClient(app) as client:
-        page = client.get("/")
+        page = client.get("/status")
         assert "System" in page.text
         assert "rocm" in page.text and "GPU ok" in page.text
         assert "2.10.0+rocm7.0" in page.text and "ctranslate2 4.8.4" in page.text
@@ -277,7 +277,7 @@ def test_system_card_avvisa_se_la_gpu_non_risponde(tmp_path):
         "stamp_path": "", "tmpdir": {"path": "/tmp", "free_mib": 100, "total_mib": 200},
     }
     with TestClient(app) as client:
-        page = client.get("/")
+        page = client.get("/status")
         assert "GPU not usable" in page.text
         assert "install.sh --verify-only" in page.text
         assert "no GPU" in page.text
@@ -306,3 +306,83 @@ def test_api_status_espone_lo_stato_di_sistema(tmp_path):
         assert payload["system"]["gpu_ok"] is True
         assert payload["system"]["tmpdir"]["path"] == "/dev/shm/tp"
         assert payload["auth_enabled"] is False
+
+
+# --------------------------------------------------------------- layout: sidebar + stato della coda
+def test_layout_ha_il_menu_a_sinistra_e_il_contenuto_a_destra(tmp_path):
+    app, _ = _make(tmp_path)
+    with TestClient(app) as client:
+        page = client.get("/").text
+        assert '<aside class="sidebar">' in page and '<main class="content">' in page
+        assert page.index('class="sidebar"') < page.index('class="content"')
+        for label, href in (("Queue", 'href="/"'), ("Status", 'href="/status"'),
+                            ("History", 'href="/history"'), ("OCR", 'href="/ocr"'),
+                            ("Glossary", 'href="/glossary"'), ("Settings", 'href="/settings"')):
+            assert f'>{label}</a>' in page and href in page
+        assert 'class="nav-item active" href="/"' in page          # voce corrente evidenziata
+        status_page = client.get("/status").text
+        assert 'class="nav-item active" href="/status"' in status_page
+
+
+def test_landing_mostra_lo_stato_della_coda_al_centro(tmp_path):
+    app, manager = _make(tmp_path)
+    with TestClient(app) as client:
+        page = client.get("/").text
+        assert "Nothing running" in page                     # nessun job
+        assert "0 queued" in page and "0 running" in page     # contatori in cima
+
+        job = manager.add(tmp_path / "movie.mp4")
+        with manager._lock:                                  # simula un job in corso
+            job.status = "running"
+            job.percent = 42
+            job.phase = "asr"
+            job.started_at = time.time() - 754                 # 12m 34s fa
+        page = client.get("/").text
+        assert "hero-job" in page and "movie.mp4" in page
+        assert ">asr<" in page or "asr" in page
+        assert "12m 34s" in page and "elapsed" in page        # tempo trascorso
+        assert "42%" in page
+
+
+def test_tabella_coda_mostra_tempo_trascorso_e_totale(tmp_path):
+    app, manager = _make(tmp_path)
+    done = manager.add(tmp_path / "done.mp4")
+    with manager._lock:
+        done.status = "done"
+        done.percent = 100
+        done.started_at = time.time() - 1500
+        done.finished_at = done.started_at + 1512            # 25m 12s totali
+    running = manager.add(tmp_path / "run.mp4")
+    with manager._lock:
+        running.status = "running"
+        running.percent = 10
+        running.started_at = time.time() - 65                 # 1m 05s
+    with TestClient(app) as client:
+        page = client.get("/ui/queue").text
+        assert "25m 12s" in page                              # tempo totale del job concluso
+        assert "1m 05s" in page or "1m 06s" in page           # trascorso del job in corso
+
+
+def test_formattazione_dei_tempi():
+    from web.ui import _elapsed_of, _eta_of, _hms
+    assert _hms(0) == "" and _hms(None) == ""
+    assert _hms(42) == "42s"
+    assert _hms(754) == "12m 34s"
+    assert _hms(3725) == "1h 02m"
+    now = 1_000_000.0
+    assert _elapsed_of({"started_at": now - 90}, now) == "1m 30s"          # in corso
+    assert _elapsed_of({"started_at": now - 90, "finished_at": now - 60}, now) == "30s"   # totale
+    assert _elapsed_of({"created_at": now}, now) == ""                      # in coda: nessun tempo
+    assert _eta_of({"started_at": now - 100, "percent": 50}, now) == "est. 1m 40s"
+    assert _eta_of({"started_at": now - 100, "percent": 3}, now) == ""      # troppo presto per stimare
+    assert _eta_of({"started_at": now - 100, "percent": 50, "finished_at": now}, now) == ""
+
+
+def test_status_page_mostra_i_dettagli_di_elaborazione(tmp_path):
+    app, _ = _make(tmp_path)
+    with TestClient(app) as client:
+        page = client.get("/status").text
+        assert "Processing" in page
+        assert "Engine" in page and "auto" in page            # valore della fixture
+        assert "Target language" in page and "ita" in page
+        assert "Work dir" in page and "Models dir" in page

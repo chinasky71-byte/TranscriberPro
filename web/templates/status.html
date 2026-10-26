@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  {% include "_status.html" %}
+</section>
+<section class="card">
+  <h2>Processing</h2>
+  <dl class="facts">
+    <dt>Engine</dt><dd>{{ engine }}</dd>
+    <dt>Target language</dt><dd>{{ target_language }}</dd>
+    <dt>Work dir</dt><dd><code>{{ status.tmp.path or '?' }}</code></dd>
+    <dt>Data dir</dt><dd><code>{{ data_dir or '?' }}</code></dd>
+    <dt>Models dir</dt><dd><code>{{ models_dir or '?' }}</code></dd>
+    <dt>Jobs</dt><dd>{{ status.total }} tracked · {{ status.counts.queued }} queued ·
+        {{ status.counts.running }} running · {{ status.counts.done }} done ·
+        {{ status.counts.failed }} failed · {{ status.counts.cancelled }} cancelled</dd>
+  </dl>
+</section>
+{% endblock %}

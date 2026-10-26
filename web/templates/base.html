@@ -10,24 +10,40 @@
   <script src="/static/app.js" defer></script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">Transcriber Pro</div>
-    <nav class="top-actions">
-      <a class="link" href="/">Dashboard</a>
-      <a class="link" href="/history">History</a>
-      <a class="link" href="/ocr">OCR</a>
-      <a class="link" href="/glossary">Glossary</a>
-      <a class="link" href="/settings">Settings</a>
-      <a class="link" href="/docs">API</a>
-      {% if status is defined and status.auth_enabled %}
-      <form method="post" action="/logout" class="inline">
-        <button class="btn ghost" type="submit">Logout</button>
-      </form>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">Transcriber&nbsp;Pro</div>
+      <nav class="side-nav">
+        <a class="nav-item{% if path == '/' %} active{% endif %}" href="/">Queue</a>
+        <a class="nav-item{% if path == '/status' %} active{% endif %}" href="/status">Status</a>
+        <a class="nav-item{% if path.startswith('/history') %} active{% endif %}" href="/history">History</a>
+        <a class="nav-item{% if path.startswith('/ocr') %} active{% endif %}" href="/ocr">OCR</a>
+        <a class="nav-item{% if path.startswith('/glossary') %} active{% endif %}" href="/glossary">Glossary</a>
+        <a class="nav-item{% if path.startswith('/settings') %} active{% endif %}" href="/settings">Settings</a>
+        <a class="nav-item" href="/docs">API</a>
+      </nav>
+      <div class="side-foot">
+        {% if status is defined %}
+        <span class="pill {{ 'ok' if status.auth_enabled else 'warn' }}">
+          auth {{ 'on' if status.auth_enabled else 'off' }}
+        </span>
+        {% endif %}
+        {% if status is defined and status.auth_enabled %}
+        <form method="post" action="/logout" class="inline">
+          <button class="btn ghost small" type="submit">Logout</button>
+        </form>
+        {% endif %}
+      </div>
+    </aside>
+    <main class="content">
+      {% if status is defined and not status.auth_enabled %}
+      <p class="alert error compact"><strong>No authentication.</strong>
+        Anyone who can reach this port can queue jobs and change settings.
+        Keep it on a private network (VPN/Twingate), an SSH tunnel or a TLS proxy,
+        or set <code>TP_WEB_TOKEN</code> to require a token.</p>
       {% endif %}
-    </nav>
-  </header>
-  <main class="wrap">
-    {% block content %}{% endblock %}
-  </main>
+      {% block content %}{% endblock %}
+    </main>
+  </div>
 </body>
 </html>
