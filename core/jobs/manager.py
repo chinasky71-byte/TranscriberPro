@@ -259,6 +259,15 @@ class JobManager:
                 job.error = result.get("error") or "failed"
         self.hub.publish(job.id, "status", status=job.status, job=job.to_dict())
         self._save()
+        if job.status in (CANCELLED, FAILED):
+            # Il processo e' stato ucciso: il `finally` della pipeline non ha
+            # ripulito la cartella di lavoro. Il manager esegue un job alla
+            # volta, quindi qui non si puo' cancellare nulla in uso.
+            try:
+                from utils.temp_cleanup import sweep
+                sweep()
+            except Exception:                              # la pulizia non deve fermare la coda
+                pass
 
     # ------------------------------------------------------------------
     # Persistence and legacy status

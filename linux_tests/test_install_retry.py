@@ -185,8 +185,22 @@ exit 0
 '''
 
 
+@pytest.fixture(scope='session')
+def repo_copy(tmp_path_factory):
+    """Copia della radice per i test che eseguono davvero install.sh, fatta UNA volta per sessione.
+
+    Prima era per-test: ~485 MB × 8 test = quasi 4 GB per run, su /tmp che qui è
+    tmpfs (RAM). Gli ignore tengono fuori toolchain locale e media di test.
+    """
+    root = tmp_path_factory.mktemp('proj') / 'proj'
+    shutil.copytree(ROOT, root, ignore=shutil.ignore_patterns(
+        '.git', 'venv', '__pycache__', 'models', 'NLLB_Tranined', 'Prova_AMD',
+        '.tools', 'samples'), dirs_exist_ok=False)
+    return root
+
+
 @pytest.fixture
-def full(env, tmp_path):
+def full(env, repo_copy):
     """Come `env`, ma il venv si crea (lo stub di python registra le chiamate) e tutto il resto riesce: si arriva alle sezioni dei modelli."""
     e, log, _ = env
     bindir = Path(e['STUB_BIN'])
@@ -197,10 +211,7 @@ def full(env, tmp_path):
         shutil.copy(bindir / 'stub_tool', bindir / t)
     for t in ('mkdir', 'chmod'):
         (bindir / t).symlink_to(shutil.which(t))
-    # il venv va dentro una copia della radice, per non sporcare il repository
-    root = tmp_path / 'proj'
-    shutil.copytree(ROOT, root, ignore=shutil.ignore_patterns('.git', 'venv', '__pycache__', 'models', 'NLLB_Tranined', 'Prova_AMD'), dirs_exist_ok=False)
-    return e, log, root
+    return e, log, repo_copy
 
 
 def run_full(full, *args):
