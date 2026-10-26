@@ -824,7 +824,7 @@ Transcriber Pro produce file `.srt` attraverso due pipeline complementari:
 - **Chunking audio intelligente** — divide ai punti di silenzio per timestamp precisi
 - **Qualità di trascrizione fissa al massimo** — i profili Fast / Balanced / Quality / Maximum / Batch restano nel codice ma sono nascosti e bloccati (`transcription_profile_locked`): Faster-Whisper lavora sempre alla qualità massima, mentre per Qwen3-ASR e Canary-Qwen il profilo cambiava solo il batch, con testo identico (misurato). Il selettore del motore resta
 - **Forza trascrizione audio** — ignora i sottotitoli embedded e trascrive sempre dall'audio
-- **Correzione genere v2 (audio-driven)** — corregge il genere grammaticale di 1ª/2ª persona deducendo il genere di chi parla **dalla voce** (diarization pyannote + classificatore ECAPA, 95%) e riscrivendo con un flip morfologico deterministico protetto da validatore — niente LLM, niente VRAM extra, allucinazioni impossibili. Accuratezza femminile in 1ª persona: 19% → 87%. La 2ª persona usa i turni di dialogo (91%) e i vocativi col cast TMDB
+- **Correzione genere v2 (audio-driven)** — corregge il genere grammaticale di 1ª/2ª persona deducendo il genere di chi parla **dalla voce** (diarization pyannote + classificatore ECAPA, 95%) e riscrivendo con un flip morfologico deterministico protetto da validatore — niente LLM, niente VRAM extra, allucinazioni impossibili. Accuratezza femminile in 1ª persona: 19% → 87% (validata su oltre 700 punti di prova estratti automaticamente). La 2ª persona usa i turni di dialogo (91%) e i vocativi col cast TMDB
 
 ### Sincronizzazione Sottotitoli
 - **Coda sync multi-file + motore di allineamento solo-tempi** (`core/timing_aligner.py`) — allinea un file sottotitoli esterno fuori sync ai timestamp corretti usando solo euristiche di tempo/ordine (nessun matching semantico LLM necessario nel caso comune), testato al 100% delle righe entro 0,5 s; ha sostituito il matcher semantico Qwen2.5-14B come percorso di default, riducendo un episodio tipico da ~81 minuti a ~2 secondi. Ora può processare un intero lotto di file in sequenza invece che uno alla volta
@@ -833,7 +833,7 @@ Transcriber Pro produce file `.srt` attraverso due pipeline complementari:
 - **Tracce PGS (Blu-ray) e VOBSUB (DVD)** convertite in SRT testuale — verbatim, nessuna allucinazione AI
 - **OCR parallelo multi-core** — Tesseract gira su più core CPU in contemporanea (misurato ~11× su un film intero, 767 eventi PGS: ~195 s single-core → ~15-20 s parallelo)
 - **Rilevamento lingua per traccia** — il modello Tesseract viene scelto automaticamente dal tag lingua della traccia; supportate: italiano, inglese, spagnolo, francese, tedesco, portoghese, olandese (tessdata_best)
-- **Traduzione automatica in italiano** — le tracce non italiane vengono salvate come `<nome>.<lingua>.srt` e tradotte in `<nome>.it.srt` (entrambi i file conservati)
+- **Traduzione automatica in italiano** — le tracce non italiane vengono sottoposte a OCR nella lingua sorgente, salvate come `<nome>.<lingua>.srt`, poi tradotte in italiano e salvate come `<nome>.it.srt` (entrambi i file conservati)
 - **Strategia configurabile** — *Revisione mirata* (UI di revisione che mostra le righe incerte affiancate all'immagine bitmap originale) o *Solo automatico* (nessuna revisione, output diretto)
 - **Worker paralleli configurabili** — slider in Impostazioni → OCR Sottotitoli; default auto = `min(core CPU, 8)`
 - **Modalità write-back** — rimuxa l'SRT come nuova traccia nell'MKV in-place, oppure sidecar `.srt` accanto al video (VOBSUB sempre sidecar)
@@ -851,22 +851,23 @@ Transcriber Pro produce file `.srt` attraverso due pipeline complementari:
 - **Badge bitmap** — PGS / VOB / MIX cliccabile su ogni riga; clic avvia l'OCR per quel file
 - **Batch OCR** — "Converti tutti (OCR)" converte automaticamente tutti i file bitmap visibili
 - **Avanzamento in tempo reale nella coda** — i job OCR appaiono nella coda di processamento principale con dot di stato, barra di avanzamento e tag OCR·PGS/VOBSUB; non interferiscono con la coda di trascrizione audio
-- **Sync automatico DB** — dopo ogni OCR riuscito il database dello scanner viene notificato; il file esce dalla lista "senza sub"; un sync del widget aggiorna la vista
+- **Sync automatico DB** — dopo ogni OCR riuscito il database dello scanner viene notificato (endpoint `notify-subtitle`) così il file esce dalla lista "senza sub"; un sync del widget aggiorna la vista
 - **Conversione ASS/SSA → SRT** — remux server-side dei sottotitoli testo embedded (gestito dal container Library Scanner)
 - **Rilevamento audio italiano** — dai tag nel nome file (ITA, NUiTA, MULTI, ecc.)
+- **Aggiornamento DB in tempo reale** alla creazione del sottotitolo
 
 ### Metadati e Upload
-- **Metadati TMDB / OMDB** — recupera la sinossi del film per traduzioni contestuali
+- **Metadati TMDB / OMDB** — recupera la sinossi del film per traduzioni contestuali; parsing robusto dei titoli
 - **Upload OpenSubtitles** — integrazione REST API con rilevamento duplicati
 
 ### Interfaccia e Infrastruttura
-- **Interfaccia IT / EN** — UI completamente bilingue; rileva automaticamente la lingua del sistema
+- **Interfaccia IT / EN** — UI completamente bilingue; rileva automaticamente la lingua del sistema; selettore della lingua in Impostazioni Generali
 - **Dialog Impostazioni unificato** — sidebar + contenuto: Generale, Trascrizione, Traduzione, Batch Adattivo, OpenSubtitles, **OCR Sottotitoli** (nuovo)
 - **Sistema icone SVG** — 38 icone vettoriali, adattive al tema
 - **Monitor risorse in tempo reale** — GPU / CPU / RAM durante l'elaborazione
 - **Gestione memoria GPU** — caricamento/scaricamento sequenziale; Demucs, engine ASR e traduttore non girano mai contemporaneamente; tensori Demucs residenti su CPU (solo il segmento in lavorazione va sulla GPU) → picco VRAM costante ~0,6 GB indipendente dalla durata del file
 - **Avvio senza freeze** — torch mai importato nel processo GUI (check ambiente via CLI esterna); I/O asincrono; splash in ~2 s, tab Traduzione da 3719 ms a 15 ms
-- **Estrazione sottotitoli embedded** — salta la trascrizione se esistono sub testo; le tracce solo-bitmap avviano la pipeline OCR
+- **Estrazione sottotitoli embedded** — salta la trascrizione se esistono già sottotitoli testuali puliti; le tracce solo-bitmap avviano invece la pipeline OCR. La scelta della traccia è un'unica graduatoria (italiano testo > italiano bitmap > inglese testo > inglese bitmap > altre lingue); la lingua di una traccia si decide dal suo *contenuto* (tag errati o mancanti vengono corretti dal testo estratto / dal testo OCR, mai dal solo titolo); le tracce "forced" si riconoscono dal flag o dal titolo, tranne una traccia con il flag che è chiaramente il sottotitolo completo (molti eventi al minuto). Nella pipeline l'output dell'OCR è sempre scritto come `.it.srt` accanto al video — l'MKV non viene mai modificato
 - **Stop immediato** — dialog di conferma; termina FFmpeg / Demucs / Whisper in pochi secondi; pulizia temp automatica
 - **Coda di processamento** — filtri In coda / Attivi / Completati / Errori con badge live
 
@@ -1002,6 +1003,239 @@ I modelli vengono caricati e scaricati sequenzialmente per rientrare nella VRAM 
 
 ---
 
+## Architettura
+
+Transcriber Pro è un'applicazione desktop PyQt6 (prima di tutto Windows; Linux con NVIDIA/CUDA, AMD/ROCm o Vulkan tramite `install.sh`)
+che esegue una pipeline sequenziale, un file alla volta. Tre idee ne guidano il disegno:
+
+1. **La GUI non carica mai librerie ML.** Ogni lavoro pesante gira in un processo Python separato che termina a fine lavoro e
+   restituisce tutta la RAM/VRAM al sistema (e un crash nativo, come un abort di ctranslate2, fa fallire solo quel file, non la coda).
+2. **Un solo modello pesante alla volta sulla GPU.** Motore ASR, Demucs, traduttore e modelli di genere vengono caricati e scaricati a turno;
+   il traduttore aspetta che la VRAM liberata dallo stadio ASR sia davvero tornata libera prima di caricarsi.
+3. **Le decisioni sono funzioni pure, i fatti si leggono altrove.** Le regole di instradamento (motore ASR, percorso del traduttore, voto di
+   lingua, backend GPU) stanno in piccoli moduli di sola libreria standard, provati senza GPU; il codice che legge la VRAM o sonda
+   l'hardware si limita a passare loro i numeri.
+
+### Strati
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│ PRESENTAZIONE  (gui/, PyQt6 — niente torch; onnxruntime prima di Qt)     │
+│  main.py → MainWindow · SettingsDialog · LibraryScannerWidget            │
+│  OcrReviewDialog · GlossaryDialog · SyncDialog · TranslationModelDialog  │
+│  gui/services/ (senza QtWidgets): QueueService · JobOptionsService ·     │
+│   SettingsService · MetadataService · StepTracker · LogFilter            │
+│  Worker QThread: ProcessingWorker · OcrWorker · SyncWorker/              │
+│   SyncBatchWorker · GlossaryBuilderWorker · LibraryScannerWorker         │
+└───────────────┬───────────────────────────────────────────────────────────┘
+                │ un sottoprocesso per file / lavoro, log + eventi strutturati su stdout
+                ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│ CORE  (core/, headless — si lancia anche senza GUI)                      │
+│  pipeline_cli → ProcessingPipeline          queue_runner (coda headless) │
+│  ASR:        EngineRouter · engines/{faster_whisper, qwen3_asr, canary}  │
+│              lang_vote · qwen3_lang_retry · whisper_lang_retry           │
+│              AudioProcessor (Demucs, chunking) · Aligner · Diarizer      │
+│  Sottotitoli: SubtitleExtractor · subtitle_lang · PgsOcr/VobSubOcr/      │
+│              ocr_auto · SubtitleCleaner · SubtitleFormatter              │
+│  Traduzione: translator.py (NLLB · NLLB-FT · LLM · Claude · OpenAI)      │
+│              llm_subtitle_translator/ (TranslateGemma: NF4 / GGUF)       │
+│  Dopo:       gender_corrector_v2 · timing_aligner · SubtitleSynchronizer │
+└───────────────┬───────────────────────────────────────────────────────────┘
+                ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│ UTILS / PIATTAFORMA  (utils/ — `import utils` deve restare leggero)      │
+│  Config (~/.transcriberpro/config.json) · tr() i18n · eventi · logger    │
+│  gpu_detect · platform_compat · translator_path_select · gguf_download   │
+│  cache_bootstrap · ct2_bootstrap · client TMDB/IMDb · OpenSubtitles      │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+### Processi e ambienti virtuali
+
+| Processo | Punto d'ingresso | Perché è separato |
+|---|---|---|
+| GUI | `main.py` | Resta leggera: niente torch, nessun modello; `onnxruntime` viene importato prima di PyQt6 (conflitto di DLL su Windows) |
+| Un file | `python -m core.pipeline_cli` (lanciato da `ProcessingWorker`) | RAM/VRAM restituite al sistema dopo ogni file; isolamento dei crash. La GUI imposta `TP_EVENTS=1` per ricevere eventi strutturati di avanzamento (`utils/events.py`) accanto al log testuale |
+| Coda headless | `python -m core.queue_runner` | Stesso sottoprocesso per file, senza GUI, con un file di stato `queue_status.json` |
+| Traduttore GGUF | `core/llm_subtitle_translator/gguf_worker.py` | Su Windows `llama_cpp` deve essere il primo import nativo del suo processo; il modello resta caricato tra un file e l'altro e si chiude con `unload()`. Protocollo a righe JSON, un solo riavvio se il worker muore |
+| Correzione genere | `core/gender_corrector_cli.py` (+ `gender_selector_cli.py` in `venv_nlp`) | pyannote/ECAPA partono da un contesto CUDA vergine; spaCy vive nel suo venv |
+| Traduzione di riserva (L3) | `core/fallback_translate_cli.py` | Ultimo ripiego per le poche righe che il motore primario ha lasciato non tradotte, con un Qwen chat-tuned (llama-cpp-python) |
+| ASR Canary-Qwen | `core/engines/canary_cli.py` in `venv_canary` | NeMo non può convivere col venv principale; opzionale |
+| Glossario per show | `core/glossary_builder_cli.py` in `venv_glossary` | SimAlign/LaBSE confliggono con il `transformers` del venv principale; il canale Qwen viene delegato al venv principale da `glossary_engine/glossary_qwen_bridge.py` |
+| Sync sottotitoli (una coppia) | `core/sync_cli.py` | Contesto CUDA nuovo a ogni coppia nella coda batch |
+| Controlli ambiente | `core/env_check_cli.py` | Le diagnostiche del dialog Modello di traduzione che richiedono torch/pyannote girano fuori dalla GUI |
+
+**Regola degli import.** Nessun modulo importato da `import utils` a livello di modulo (direttamente o tramite `utils/__init__.py`) può importare
+PyQt6, torch, onnxruntime o llama_cpp; i test in `linux_tests/` la fanno rispettare (`test_import_utils_no_heavy_deps.py`,
+`test_import_pesanti.py`). Il codice specifico di un sistema operativo (`Scripts/python.exe`, `taskkill`, `CREATE_NO_WINDOW`, …) sta solo
+in `utils/platform_compat.py` (`test_platform_lint.py`).
+
+### Pipeline di elaborazione (`core/pipeline.py`, `ProcessingPipeline.process`)
+
+```
+ 0  avvio, metadati TMDB/IMDb
+ 1  sottotitoli embedded ──► traccia testo pulita trovata ───────────────────┐
+    │  solo bitmap (PGS/VOBSUB) ► ocr_auto: OCR [+ traduzione] ► fine        │
+    ▼  niente di utilizzabile                                                 │
+ 2  scelta ed estrazione della traccia audio                                  │
+ 3  AudioProcessor: separazione vocale Demucs + chunking ai silenzi          │
+ 4  EngineRouter → motore ASR (voto di lingua in auto-detect),               │
+ 4.2 allineamento forzato · 4.5 diarization + SubtitleFormatter               │
+    ▼                                                                         │
+ 5  SubtitleCleaner (sovrapposizioni, markup)  ◄──────────────────────────────┘
+ 5.5 scarico Whisper/Demucs, pulizia cuBLAS
+ 6  traduzione (se sorgente ≠ target): attesa VRAM assestata, poi traduce ── vedi sotto
+ 6.5 correzione genere v2 (output italiano tradotto, opzionale)
+ 7  salvataggio .srt · 8 upload OpenSubtitles (opzionale) · 9 mux/chiusura, pulizia
+```
+
+L'attesa di assestamento (`core/vram_settle.py`) esiste perché su Windows (WDDM) `empty_cache()` ritorna prima che il driver abbia
+restituito le pagine; senza di essa il traduttore potrebbe caricarsi sopra la memoria di Whisper e sconfinare nella RAM condivisa. Viene
+saltata per i traduttori API.
+
+### Livello di trascrizione
+
+`EngineRouter.plan()` sceglie il motore senza caricare nulla; un errore di Canary o Qwen3 in qualunque momento ripiega su
+faster-whisper, quindi un motore nuovo non può mai far fallire un file. Le regole, in ordine:
+
+1. Lingua con un Whisper specializzato (`whisper_model_by_language`: francese, tedesco, e spagnolo con il large-v3 standard, così resta su faster-whisper invece che su Qwen3) → faster-whisper con quel modello.
+2. Inglese con Canary-Qwen disponibile → Canary (`canary_enabled`).
+3. Lingua coperta da Qwen3-ASR ∩ Qwen3-ForcedAligner (11 lingue) → Qwen3-ASR (`qwen3_enabled`).
+4. Lingua indefinita → auto-detect di Qwen3; se la lingua rilevata è fuori dall'insieme dell'aligner, una sola ritrascrizione con
+   faster-whisper in quella lingua.
+5. Tutto il resto → faster-whisper large-v3.
+
+`transcription_engine_mode` (`auto | canary | qwen3 | faster-whisper`) forza un motore. Un solo motore è residente per volta.
+Attorno ai motori: `core/lang_vote.py` (modulo puro) campiona alcuni chunk con voce sparsi nel file e fa un voto pesato, così l'intero
+file usa **una** lingua rilevata invece dell'ipotesi del primo chunk; `qwen3_lang_retry` e `whisper_lang_retry` ritrascrivono i chunk
+sospetti con rilevamento lingua (canzoni e citazioni in un'altra lingua); `whisper_sentence_split` spezza per frasi in en/it/fr/de/es. Su
+Linux/ROCm `utils/ct2_bootstrap.py` inizializza il contesto GPU di ctranslate2 prima di torch (altrimenti la prima inferenza di
+faster-whisper termina con SIGSEGV).
+
+### Livello di traduzione
+
+`get_translator()` in `core/translator.py` è la factory (`translation_model` nella config); tutti i motori implementano
+`BaseTranslator.translate_file`:
+
+| Chiave | Motore | Note |
+|---|---|---|
+| `nllb` / `nllb_finetuned` | `NLLBTranslator` / `NLLBFineTunedTranslator` | Locale, modello singleton riusato tra i file; NLLB base è il ripiego della factory (libreria o chiave mancante); il fine-tuned è il ripiego per le sorgenti non inglesi e per le GPU senza spazio per l'LLM |
+| `llm` (`aya` è un alias storico) | `LLMSubtitleTranslator` → `core/llm_subtitle_translator/` | TranslateGemma-12B, solo sorgente inglese |
+| `claude`, `openai` | `ClaudeTranslator`, `OpenAITranslator` | Cloud, niente GPU; libreria o chiave mancante → NLLB |
+| `opensubtitles` | `utils/opensubtitles_ai_translator.py` | Cloud, usa l'account OpenSubtitles |
+
+**Instradamento prima della factory.** TranslateGemma è stato addestrato con l'etichetta sorgente `en`, quindi una sorgente non inglese
+viene rediretta su NLLB fine-tuned (`route_non_english_away_from_llm`, condivisa con il percorso OCR in `core/ocr_auto.py`). La lingua
+ASR rilevata viene passata ai traduttori.
+
+**Percorso TranslateGemma (`llm_translator_gguf_enabled`, acceso di default).** `path_router.acquire_engine` legge i fatti
+(backend, VRAM libera, GGUF presenti, ruota di llama-cpp) e `utils/translator_path_select.choose_translator_path` decide:
+
+| Ordine | Condizione | Percorso |
+|---|---|---|
+| 1 | CUDA/ROCm e VRAM libera ≥ 20 GiB | `bf16` (transformers) |
+| 2 | CUDA, VRAM libera ≥ 10,5 GiB, `llm_translator_gguf_before_nf4` spento | `nf4` (bitsandbytes) |
+| 3 | CUDA/ROCm/Vulkan e un GGUF ci sta (pesi + KV cache + buffer di calcolo) | `gguf:<quant>` — Q4_K_M ≥ 10 GiB liberi, IQ3_M ≥ 7,5 GiB, con llama.cpp nel sottoprocesso worker |
+| 4 | CUDA, VRAM libera ≥ 10,5 GiB | `nf4` (ripiego se nessun GGUF è utilizzabile) |
+| 5 | altrimenti | NLLB fine-tuned, con il motivo scritto nel log |
+
+Se un GGUF non si carica, NF4 è il ripiego automatico quando la scheda lo regge. Con il flag spento si usa il motore storico
+(`get_engine`: bf16/NF4) invariato. I file GGUF (`models/translategemma-12b-gguf/`) li scarica l'installer da Hugging Face
+(`utils/gguf_download.py`: riprendibile, con controllo SHA-256, chiede conferma prima di scaricare). Su AMD il percorso GGUF è l'unico
+modo di eseguire l'LLM senza bitsandbytes.
+
+**Gestione dei fallimenti.** `SubtitleLLMTranslator` riprova a scalare (stesso batch con l'errore nel prompt → batch dimezzato → un
+blocco per volta), `validator.py` separa i problemi bloccanti dalle segnalazioni, `postprocess.py` applica le regole meccaniche dei
+sottotitoli italiani e ricompone le righe. Quello che ancora fallisce passa al serbatoio (nuovo tentativo sul motore primario, poi il
+sottoprocesso Qwen). Una traduzione è dichiarata fallita quando più di `translation_max_untranslated_pct` dei blocchi resta non
+tradotto, e un errore GPU fatale (HIP/CUDA) ferma subito il file invece di far fallire ogni batch; in entrambi i casi la pipeline
+tiene il sottotitolo nella lingua sorgente e segna il lavoro come fallito, invece di salvare in silenzio un file "italiano" non tradotto.
+Un glossario per show (`core/glossary.py`, cercato per TMDB id) fissa i termini ricorrenti per NLLB e per l'LLM locale.
+
+### Correzione genere v2 (`core/gender_corrector_v2.py`)
+
+Deterministica, senza LLM. Un selettore spaCy (venv separato) marca le forme di genere in prima persona; `core/speaker_gender.py` costruisce
+dall'audio una mappa tempo→parlante→genere (diarization pyannote + classificatore vocale ECAPA); `gender_rewriter` inverte la
+morfologia solo quando la riga contraddice il parlante, e un validatore scarta le riscritture non plausibili. Le righe a due parlanti e i
+parlanti di genere ignoto restano intatti. È opzionale (`gender_correction_enabled`) e richiede un token Hugging Face.
+
+### Livello hardware e piattaforma
+
+`utils/gpu_detect.py` (sola libreria standard) trova le GPU NVIDIA, AMD, Intel e Apple da nvidia-smi/NVML, sysfs, registro di Windows,
+lspci, rocm-smi e vulkaninfo, le deduplica e restituisce `recommended_backend()` ∈ `cuda | rocm | vulkan | cpu` e la VRAM utilizzabile.
+Le stesse funzioni le usa l'installer; `--gpu-backend=auto` non sceglie mai ROCm da solo (ripiega su Vulkan), ROCm va richiesto in modo
+esplicito. `install.sh --gpu-backend=auto|cuda|rocm|vulkan|cpu` (Linux) e `install.ps1` (Windows; ROCm è solo Linux) installano le ruote
+corrispondenti di torch, ctranslate2 e llama-cpp-python. Vulkan esegue llama.cpp sulla GPU (glossario, traduttore GGUF) mentre il resto
+resta su CPU.
+
+### Servizi trasversali
+
+- **Configurazione:** `utils/config.py` — `~/.transcriberpro/config.json`, scritture atomiche; il figlio di ogni file la rilegge dal
+  disco, quindi i setter della GUI salvano in modo sincrono.
+- **Lingua di interfaccia e log:** `tr('chiave')` da `utils/translations.py` (IT/EN, una chiave in entrambe le lingue). I processi figli
+  usano `init_language_headless()` così le righe di log seguono la stessa lingua; chi riconosce le righe di log usa `all_texts()`.
+- **Avanzamento:** gli eventi strutturati di `utils/events.py` (`phase`, `bar`, `skip`, …) alimentano `gui/file_progress.py`, l'ETA e lo
+  stato della coda headless, così la barra non dipende più dalle parole del log.
+- **Batch adattivo:** `utils/adaptive_batch_manager.py` regola le dimensioni dei batch in base alla VRAM; `utils/resource_monitor.py`
+  alimenta il monitor della GUI.
+- **Modelli e cache:** `utils/cache_bootstrap.py` reindirizza le cache HF/Torch in `models/.cache/` prima di ogni import pesante.
+- **Metadati e upload:** client TMDB/IMDb e uploader OpenSubtitles (`opensubtitles_rest_uploader.py`,
+  `opensubtitles_xmlrpc_uploader.py`) dietro `subtitle_uploader_interface.py`.
+- **Library Scanner:** `gui/library_scanner_widget.py` parla con il server scanner separato (`library scanner per server- va su
+  docker/`) e lo avvisa (`/api/videos/notify-subtitle`) quando viene creato un sottotitolo.
+- **Sync sottotitoli:** `SubtitleSynchronizer` con il motore solo-tempi (`timing_aligner`) di default, e `sync_pairing` per abbinare
+  video e SRT esterni per episodio.
+
+### Test
+
+`linux_tests/` contiene i test indipendenti dalla piattaforma (rilevamento GPU, scelta del percorso, motore/sottoprocesso/download GGUF,
+voto di lingua, i18n, regole sugli import, criterio di successo della traduzione); i `test_*.py` nella radice coprono parti più vecchie.
+Vedi `linux_tests/README.md`.
+
+---
+
+## Benchmark delle Prestazioni
+
+Provato su: i7-12700KF · 32 GB RAM · RTX 3060 12 GB · SSD NVMe. I numeri qui sotto vengono dai log reali dell'applicazione (non da
+benchmark sintetici) e sono divisi per stadio della pipeline, perché gli stadi hanno costi molto diversi: la trascrizione su GPU è
+veloce, un ramo di traduzione con LLM locale no.
+
+### Trascrizione audio (Faster-Whisper large-v3, batched, GPU)
+
+| Sorgente | Durata audio | Stadio | Tempo reale | Fattore realtime |
+|--------|-------------|-------|-----------|------------------|
+| Episodio TV (audio italiano) | 2 h 38 min | Solo ASR | 11 min 54 s | ~13× |
+| Episodio TV (audio italiano) | 2 h 38 min | Pipeline completa (Demucs + ASR + diarization + correzione genere — traduzione non necessaria) | 26 min 24 s | ~6× |
+| Film (audio francese) | 1 h 32 min | Solo ASR | 2 min 55 s | ~31× |
+| Film (audio francese) | 1 h 32 min | Pipeline completa con traduzione TranslateGemma-12B | 62 min 07 s | ~1,5× |
+
+Lo stadio ASR è costantemente veloce (13-31× realtime osservati tra lingue e durate diverse, in base al batch adattivo alla VRAM). Il
+tempo totale dipende molto dal motore di traduzione: un ramo LLM locale (TranslateGemma-12B) è il costo dominante quando lo si usa; NLLB e
+le API cloud (Claude, GPT-4o-mini) non sono ancora misurati qui ma sono architetturalmente molto più leggeri di un LLM da 12B sulla
+stessa GPU.
+
+### OCR bitmap (Tesseract multi-core parallelo)
+
+| File | Eventi | Single-core | 8 core in parallelo | Accelerazione |
+|------|--------|-------------|------------------|---------|
+| Prospect (2018), PGS | 767 | ~195 s | ~15-20 s | ~11× |
+
+Misurato su un film intero di eventi PGS; lo stesso meccanismo a ThreadPool vale per VOBSUB.
+
+---
+
+## Contribuire
+
+1. Fai il fork del repository
+2. Crea un branch: `git checkout -b feature/mia-funzione`
+3. Fai il commit: `git commit -m 'Aggiungi la mia funzione'`
+4. Fai il push e apri una Pull Request
+
+Per modifiche importanti apri prima una issue.
+
+---
+
 ## Licenza
 
 Questo progetto è distribuito con licenza MIT.
@@ -1017,6 +1251,69 @@ Questo progetto è distribuito con licenza MIT.
 ### v1.24.0 - v1.30.2
 Sei settimane di lavoro sulla qualità di traduzione/trascrizione per le sorgenti non inglesi, condensate qui; il
 dettaglio completo, la metodologia di misura e le regole di decisione per ogni affermazione sono in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.34** — Correzioni dalla prima validazione su una vera GPU AMD (Linux/ROCm); la traduzione non è più dichiarata riuscita quando la maggior parte dei blocchi resta non tradotta. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.33** — Auto-detect della lingua con voto su più chunk; attesa che la VRAM degli ASR sia liberata prima della traduzione su GPU; barra di avanzamento ed ETA per la correzione genere v2. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.32** — Installer GGUF: ripristinati i messaggi tradotti, sostituisce i file solo se lo SHA-256 differisce; nuovo test su tutte le chiavi tr()/_tr(). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.31** — Percorso GGUF di TranslateGemma acceso di default (Q4_K_M su schede da 12-20 GB, IQ3_M su 8-12 GB, ripiego automatico su NF4); l'installer scarica i file GGUF. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.30** — Correzione urgente: l'app non partiva su Windows (PyQt6 veniva importato prima di onnxruntime dal rilevamento lingua). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.29** — Il traduttore GGUF ora gira in un sottoprocesso pulito (corregge il crash su Windows); banco di qualità: Q4_K_M/Q3_K_M/IQ3_M non inferiori a NF4 e ~14 volte più veloci; file GGUF pubblicati su Hugging Face. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.28** — Percorso GGUF: corretto un crash su Windows (`llama_supports_gpu_offload` prima dell'inizializzazione del backend). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.27** — Percorso GGUF di TranslateGemma per schede da 8-12 GB e AMD/Vulkan (codice pronto, SPENTO di default fino al banco di qualità). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.26** — Traduzione dell'interfaccia (fase B): le righe di log della pipeline seguono la lingua dell'interfaccia (sessione cloud, PR #8-#13). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.25** — Traduzione dell'interfaccia (fase A): circa 120 testi che erano solo in italiano ora seguono la lingua dell'interfaccia. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.24** — I nomi delle lingue e le schede della coda ora seguono la lingua dell'interfaccia. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.23** — "Forza trascrizione audio" aggiunto alle opzioni per file del menu contestuale della coda. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.22** — Opzioni job predefinite spostate in Impostazioni (scheda "Opzioni job"); il pannello principale tiene un riepilogo di una riga e la casella di spegnimento, liberando spazio per la coda e il Library Scanner. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.21** — Opzioni job per file dal menu contestuale della coda (lingua sottotitoli, motore di traduzione, correzione genere, mux, upload OpenSubtitles, revisione OCR) e selezione multipla. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.20** — Scheda grafica rilevata mostrata sotto la pillola di stato: verde per NVIDIA, rossa per AMD, "Solo CPU" se non c'è una GPU compatibile. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.19** — Installer: con `--no-gpu`/`-NoGpu` un download fallito della ruota CPU ora si ferma con un messaggio chiaro invece di ripiegare sulle ruote CUDA; integrato il lavoro Linux/AMD della sessione cloud. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.18** — Si può togliere dalla coda un file in attesa mentre se ne elabora un altro (tasto Canc o menu contestuale); un file già in elaborazione non può più essere accodato una seconda volta. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.17** — Rilevamento GPU multi-fornitore (`utils/gpu_detect.py`, Windows e Linux; NVIDIA, AMD, Intel; backend CUDA/ROCm/Vulkan). Non verificato su hardware AMD/Intel reale. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.16** — Linux (non verificato): `install.sh --with-models --qwen-size=auto|7b|14b` scarica Qwen 14B/7B e NLLB fine-tuned, come l'installer Windows. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.15** — Qwen2.5-7B è ora il ripiego automatico per le GPU sotto i 12 GB (costruzione del glossario e serbatoio L3); il 14B resta il predefinito e un percorso modello impostato esplicitamente si comporta come prima. Opzione dell'installer `-QwenSize`. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.14** — Licenza: aggiunti `LICENSE` e `NOTICE.md`, rimossa la chiave TMDB scritta nel sorgente (ora `tmdb_api.txt` / `TMDB_API_KEY`), rimossi i file di prova con film di terzi. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.13** — Linux fase 3 (NON VERIFICATA su una vera macchina Linux): `install.sh`/`run.sh`, mappatura delle cartelle montate del Library Scanner, self-check portabile, `notify-send`. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.12** — Installazione su PC pulito: gli strumenti esterni (Tesseract, MKVToolNix) si trovano anche fuori dal PATH, `-NoGpu` installa torch CPU, corretto l'indirizzo predefinito del Library Scanner. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.11** — Installer: con `-NoGpu` installa la ruota CPU di llama-cpp-python (quella CUDA non si carica senza il driver NVIDIA). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.10** — Installer: con `-InstallSystemDeps` ora scarica da solo i dati lingua `ita`/`eng` di Tesseract (copia con UAC se la cartella è di sistema). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.9** — Compatibilità Linux, fase 3a: fuori da Windows, i percorsi con lettera di unità salvati in una config copiata vengono ignorati a favore dei predefiniti (nessun cambiamento su Windows). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.8** — Compatibilità Linux, fase 1b: anche il ponte Qwen del motore glossario usa `utils/platform_compat.py` (valori identici su Windows). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.7** — Compatibilità Linux, fase 1: i punti noti specifici di Windows passano da `utils/platform_compat.py` (valori identici su Windows; l'annullo del glossario usa psutil invece di `taskkill`). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.6** — Compatibilità Linux, fase 0: nuovo helper `utils/platform_compat.py` (nessun cambiamento di comportamento su Windows). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.5** — Il Log Sintetico è attivo di default all'avvio. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.4** — Scheda dei passi: niente ETA obsoleta quando un motore riporta 100%. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.3** — UI: pulsanti Avvia / Ferma più sottili (più spazio per la coda e il Library Scanner). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.2** — Scheda dei passi: trascrizione e traduzione restano al 99% finché non parte il passo successivo (diarization / recupero ancora in corso). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.1** — ETA della correzione genere mostrata nella scheda dei passi. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.0** — ETA dei motori (trascrizione, Demucs, traduzione NLLB/API) nella scheda dei passi; barra di avanzamento reale per il percorso Demucs standard. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.33.4** — UI: la scheda dei passi mostra l'ETA propria del motore di traduzione (niente soglie 3% / 20 s). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.33.3** — UI: avanzamento OCR e statistiche del Library Scanner condividono una riga (circa 28 px in più per la lista). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.33.2** — UI: pulsanti del Library Scanner più sottili (Importa tutti i filtrati / Superpotere), più spazio per la lista. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.33.1** — UI: la scheda "Pipeline in corso" resta dopo la fine della coda e viene rigenerata dal file successivo. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.33.0** — UI: con il Log Sintetico attivo, una scheda "Pipeline in corso" elenca ogni passo del file corrente (fatto / attivo con percentuale, ETA e barra / in attesa / disattivato / non necessario); ETA di Demucs nel log. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.32.3** — UI: contrasto AA dei badge dello scanner, badge dei formati non più tagliati, i pulsanti non tengono più il focus dopo un clic, rimossi 16 token inutilizzati. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.32.2** — UI: intestazioni delle schede più sottili; con il Library Scanner aperto, la coda e la tabella dello scanner si dividono lo spazio verticale libero. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.32.1** — UI: cifre degli spinbox non più tagliate, Library Scanner compatto (filtri su una riga, lista più alta), caselle delle opzioni job più piccole in una griglia 2x2 allineata. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.32.0** — Rifinitura UI: contrasto AA, emoji duplicate tolte accanto alle icone, barra di avanzamento a capsula con etichetta percentuale separata, icone SVG dei controlli, dialog allineati alla palette, tre difetti di layout preesistenti corretti. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.31.1** — Logica della UI separata dalla vista (`gui/services/`: coda, metadati, opzioni job, impostazioni, filtro log); corregge un crash premendo Avvia con glossario o sync in corso. 216 test + banco visivo. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.31.0** — Fondamenta della UI: design token (`gui/design_tokens.py`), tema QSS generato da un modello, componenti riusabili e modelli di stile per dialog; rimossi ~145 colori scritti nel codice e ~45 fogli di stile sparsi con resa identica al pixel (banco visivo). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.13** — Upload di anime su OpenSubtitles: quando TMDB non ha l'IMDb ID dell'episodio, lo si cerca su OMDb per titolo esatto e univoco dell'episodio, così più episodi sono associati alla propria pagina invece che a "senza categoria". Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.12** — I blocchi di sottotitolo con tempi di inizio fuori ordine (14 su 654 sidecar propri) ora li ordina il cleaner, e il controllo del mux confronta le righe come insieme, quindi "Muxa nel video" non li rifiuta più. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.11** — "Muxa nel video" ora funziona sugli MKV con stream mjpeg di copertina/allegato (ripiego su mkvmerge se ffmpeg fallisce, più un controllo che sia stata sostituita solo la traccia sottotitoli prevista); corretto il mojibake residuo; banco esteso (mux mjpeg, ETA con Canary/Whisper, OCR fallito con ripiego sull'audio). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.10** — Corretto il mojibake nel sorgente (emoji e accenti di log/effetti), `output` riportato per gli episodi OCR, l'OCR bitmap multi-traccia in pipeline ora scrive un solo sidecar e lascia intatto l'MKV. Banco 13/13. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.9** — Completato il refactor interno: selezione sottotitoli/OCR (STEP 0/1/1b) spostata fuori da `process()`, comportamento invariato (9/9 casi del banco). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.8** — Refactor interno: `process()` suddiviso in metodi privati per passo, comportamento invariato (9/9 casi del banco, tracce identiche). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.7** — La pipeline ora riporta cosa sta facendo con eventi strutturati accanto al log testuale (opzionale con `TP_EVENTS=1`, parsing del testo mantenuto come ripiego); l'avanzamento per file non dipende più dalle parole del log. Validato su clip reali (9/9). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.6** — Una traccia sottotitolo bitmap (PGS/VobSub) marcata italiana ma con un'altra lingua ora viene sostituita nell'MKV dal sidecar italiano dopo OCR + traduzione; corretto un `UnboundLocalError` che faceva ripiegare in silenzio l'OCR sulla trascrizione audio quando la lingua del contenuto veniva corretta. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.5** — Coda headless (`python -m core.queue_runner <cartella>`) con un `queue_status.json` aggiornato in tempo reale; l'ETA di trascrizione si arrotonda al minuto più vicino. Validata su clip reali con un banco (fuori dal repository). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.4.15.10.26** — Protezione contro la riscrittura del video da parte di un altro programma (es. FileFlows) durante un job: upload e remux in-place vengono saltati se dimensione/data sono cambiate. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.4** — L'avanzamento per file (riga della coda e barra della locandina) segue la durata reale di ogni fase invece di una tabella di passi fissa: niente più blocco al 60% in trascrizione o all'88% in traduzione. L'OCR+traduzione ora mostra le sue barre di avanzamento. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.3.15.10.26** — La barra di trascrizione mostra il tempo stimato rimanente (Qwen3, Canary, Whisper); il percorso a file singolo di Whisper ora riporta l'avanzamento reale. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.3.14.10.26** — Estetico: le barre di avanzamento nel log del dialog di sincronizzazione si riscrivono sul posto come nel log principale. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.3** — Nuova opzione job "Muxa nel video" (scheda Opzioni job, accanto all'upload OpenSubtitles): il sottotitolo creato dal job viene aggiunto all'MKV come nuova traccia dopo l'upload; l'`.srt` resta accanto al video. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.2.11.10.26** — Una traccia testo embedded marcata italiana ma con contenuto in un'altra lingua (es. inglese marcato `ita`) viene sostituita nell'MKV dal sidecar italiano generato (conservato accanto al video); solo per quel caso, dopo l'upload su OpenSubtitles. Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.2.10.10.26** — Estetico: la barra di avanzamento della traduzione ora compare dopo le righe di riscaldamento dei batch invece che prima (TranslateGemma e NLLB). Dettagli in [CHANGELOG.md](CHANGELOG.md).
+- **v1.30.2.09.10.26** — Selezione dei sottotitoli embedded per contenuto (nuovo `core/subtitle_lang.py`): una traccia marcata `it` non riconosciuta (codice a due lettere) veniva tradotta italiano→italiano e un sottotitolo completo marcato "forced" veniva ignorato a favore della trascrizione dell'audio (RahXephon); tracce con titolo "Forced SRT" erano scelte al posto di quella normale in 3 film dello storico. Inoltre: le cache dei modelli dei motori (Canary, Qwen3, pyannote…) non vengono più cancellate a fine coda (un nuovo download di 54 minuti), interruttore `model_cache_cleanup_enabled`. Dettagli in [CHANGELOG.md](CHANGELOG.md).
 - **v1.30.2** — Profilo di trascrizione bloccato su Massimo, log a schermo più pulito, riordino della coda; pubblicate le regole dello split per frasi in spagnolo; motore del Glossario per show spostato in `glossary_engine/` (banchi rimossi dal repository). (1) `Config.get_transcription_profile()`
   restituisce sempre `maximum` finché `transcription_profile_locked` è true (default; le nuove installazioni partivano da Bilanciato). Misurato su
   40 min di italiano: Whisper 2,9 / 2,3 / 1,9 / 1,8 / 1,5 min per ora di audio (Massimo / Alta qualità / Batch / Bilanciato / Veloce) con solo lo
