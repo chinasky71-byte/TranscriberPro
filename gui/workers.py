@@ -384,7 +384,7 @@ class ProcessingWorker(QThread):
         from utils.job_overrides import clean as _clean_ov
         overrides = _clean_ov(getattr(self, '_current_overrides', None))
         target_language = overrides.get('target_language') or get_config().get_target_language()
-        # Avanzamento del file: fasi pesate per durata reale + barra interna di fase (gui/file_progress.py).
+        # Avanzamento del file: fasi pesate per durata reale + barra interna di fase (core/jobs/file_progress.py).
         from gui.file_progress import FileProgress
         _file_progress = FileProgress(target_language)
         # Anteprima dei passi (Log Sintetico): gira SEMPRE, cosi' spuntando la casella a meta' file lo stato e' gia' vero.
