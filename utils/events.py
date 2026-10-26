@@ -14,7 +14,7 @@ Uso nei produttori:   from utils.events import emit ;  emit('phase', name='asr',
 Senza sink (Library Scanner, chiamate in-process, test) `emit` non fa nulla e non solleva mai.
 
 Eventi (campo `k`):
-  phase      name=<fase di gui/file_progress>, [engine=<motore ASR>], [fraction=0..1 solo per 'final']
+  phase      name=<fase di core/jobs/file_progress>, [engine=<motore ASR>], [fraction=0..1 solo per 'final']
   route      path='ocr', translate=<bool>        ramo bitmap (1b): con o senza traduzione
   audio_lang lang=<codice lingua dell'audio>
   embedded   lang=<codice>                       sottotitoli embedded scelti: audio non serve

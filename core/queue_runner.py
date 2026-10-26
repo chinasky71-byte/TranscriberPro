@@ -5,7 +5,7 @@ Coda headless di Transcriber Pro (senza GUI) con file di stato leggibile.
 Esegue i file UNO ALLA VOLTA con lo stesso `core.pipeline_cli` che usa la GUI (un processo per file:
 la RAM/VRAM torna al sistema a fine file) e aggiorna a ogni evento `queue_status.json`, cosi' una coda
 lanciata fuori dall'interfaccia si puo' controllare: file corrente, fase, percentuale, ETA, completati
-e falliti. La percentuale e' quella della GUI (`gui/file_progress.FileProgress`, classe senza Qt).
+e falliti. La percentuale e' quella della GUI (`core/jobs/file_progress.FileProgress`, classe senza Qt).
 
 Uso:
     python -m core.queue_runner "V:\\RahXephon" [altra\\cartella o file.mkv ...]
@@ -380,7 +380,7 @@ def main(argv=None) -> int:
     if str(_ROOT) not in sys.path:
         sys.path.insert(0, str(_ROOT))
     from utils.config import get_config
-    from gui.file_progress import FileProgress
+    from core.jobs.file_progress import FileProgress
     target = get_config().get_target_language()
 
     files = collect_files(args.inputs, args.recursive, args.skip_existing)
