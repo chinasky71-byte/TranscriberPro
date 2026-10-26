@@ -1,0 +1,34 @@
+# Build context exclusions (docker/Dockerfile).
+# Code and pins only: models, media, local venvs and results never enter the
+# image (ADR-004) and must not leak into the build cache.
+.git
+.github
+.gitignore
+.dockerignore
+
+venv/
+venv_*/
+.venv*/
+.tools/
+
+models/
+NLLB_Tranined/
+samples/
+Prova_AMD/
+assets/
+docs/
+gui/
+linux_tests/
+scripts_manutenzione/
+
+docker/*.md
+
+__pycache__/
+*.py[cod]
+*.log
+*.srt
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.pth
