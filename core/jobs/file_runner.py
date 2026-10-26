@@ -166,6 +166,7 @@ class FileRunner:
 
         t0 = time.time()
         result = None
+        interrupted = False
         try:
             try:
                 proc = subprocess.Popen(
@@ -181,10 +182,14 @@ class FileRunner:
             hooks.on_spawn(proc)
             result = self._stream(proc, video_path, progress, hooks, is_cancelled, feed_diag_progress, t0, result_path)
             return result
+        except BaseException:
+            interrupted = True                      # KeyboardInterrupt (Ctrl+C della coda headless) o errore: il figlio e' stato fermato
+            raise
         finally:
             self.proc = None
             shutil.rmtree(ipc_dir, ignore_errors=True)
-            if converting_cleanup == 'always' or (converting_cleanup == 'cancelled' and result is not None and result.cancelled):
+            stopped = interrupted or (result is not None and result.cancelled)
+            if converting_cleanup == 'always' or (converting_cleanup == 'cancelled' and stopped):
                 try:   # Stop o interruzione: un remux ffmpeg in corso lascia <video>.converting accanto al video
                     Path(str(video_path) + '.converting').unlink(missing_ok=True)
                 except Exception:
