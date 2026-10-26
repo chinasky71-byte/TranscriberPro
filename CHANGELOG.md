@@ -3,6 +3,17 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.36 — 2026-10-26 — Soglia IQ3_M abbassata a 7,3 GiB (misura su RTX 3060 con VRAM limitata a 7,3 GiB)
+
+- **`DEFAULT_GGUF_MIN_FREE_GIB['IQ3_M']` e `llm_translator_gguf_iq3_min_free_gb` da 7,5 a 7,3 GiB.** Con il desktop di Windows (~0,65 GiB) una scheda da 8 GB ha ~7,2-7,4 GiB liberi: con 7,5 finiva su NLLB fine-tuned anche se il GGUF ci sta. Il 7,5 era una stima (pesi 5,27 + KV 0,75 + buffer 0,8 + margine 0,4 = 7,2-7,5), ora e' una misura. Q4_K_M resta a 10,0; nessun'altra soglia toccata.
+- **Misura (26/10/2026, Windows 11, RTX 3060 12 GB, scheda da 8 GB simulata):** un processo a parte riserva VRAM con torch fino a lasciare N GiB liberi, poi traduce con il motore di produzione (`GGUFSubprocessEngine`, n_parallel 4, ctx 512); VRAM dedicata con nvidia-smi ogni 0,25 s, memoria GPU condivisa di Windows con typeperf (serve a vedere lo sconfinamento in RAM, che non da errori).
+  - IQ3_M a **7,3 GiB** liberi: Deadpool 2 (600 righe) picco +6.786 MiB, margine 853 MiB, condivisa max 286 MiB, 5,25 righe/s; The Ark S03E12 (655 blocchi, glossario di 16 termini, percorso di produzione) picco +7.102 MiB, margine 540 MiB, condivisa max 292 MiB, 2,59 blocchi/s, 253 s, **655/655 completati**.
+  - IQ3_M a **7,0 GiB** liberi (The Ark): picco +7.291 MiB, margine 229 MiB, Windows sposta ~1,8 GiB in RAM (condivisa max 1.846 MiB), 1,03 blocchi/s, 636 s: non fallisce ma e' 2,5 volte piu' lento. La prova a 6,8 GiB non e' partita; il punto di rottura sta fra 7,0 e 7,3, quindi **non scendere sotto 7,3**.
+  - Q4_K_M senza zavorra (Deadpool 2): picco +8.397 MiB, margine 2.394 MiB, 4,96 righe/s. Q4_K_M e IQ3_M lasciano 18 righe vuote o non tradotte su 600 in entrambi i casi (stesso comportamento, non una regressione).
+- La stima di ingombro (`gguf_need_gib`, IQ3_M a n_parallel 4 = 7,22 GiB) e' gia' sotto 7,3: il pavimento governa e non rimanda a NLLB una scheda con 7,3 GiB.
+- **Non misurato:** scheda da 8 GB reale, Linux, AMD/Vulkan, altre VRAM libere; i tempi dipendono da banda e core della 3060.
+- Test aggiornati in `linux_tests/test_translator_path_select.py` (limiti a 7,3 e 7,29); README (EN/IT) aggiornato.
+
 ## 1.34.35 — 2026-10-25 — Avanzamento ed ETA del riconoscimento dei parlanti (diarizzazione)
 
 - **Nuovo passo "Riconoscimento parlanti" nella card "Pipeline in corso" (Log Sintetico)**, tra Trascrizione e Traduzione, con percentuale ed ETA come gli altri passi: prima la diarizzazione (circa 5 minuti su una

@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.34.35-orange)
+![Version](https://img.shields.io/badge/Version-1.34.36-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -352,7 +352,7 @@ ASR language is passed on to the translators.
 |---|---|---|
 | 1 | CUDA/ROCm and free VRAM ≥ 20 GiB | `bf16` (transformers) |
 | 2 | CUDA, free VRAM ≥ 10.5 GiB, `llm_translator_gguf_before_nf4` off | `nf4` (bitsandbytes) |
-| 3 | CUDA/ROCm/Vulkan and a GGUF fits (weights + KV cache + compute buffer) | `gguf:<quant>` — Q4_K_M ≥ 10 GiB free, IQ3_M ≥ 7.5 GiB, via llama.cpp in the worker subprocess |
+| 3 | CUDA/ROCm/Vulkan and a GGUF fits (weights + KV cache + compute buffer) | `gguf:<quant>` — Q4_K_M ≥ 10 GiB free, IQ3_M ≥ 7.3 GiB, via llama.cpp in the worker subprocess |
 | 4 | CUDA, free VRAM ≥ 10.5 GiB | `nf4` (fallback when no GGUF is usable) |
 | 5 | otherwise | NLLB fine-tuned, with the reason written in the log |
 
@@ -467,6 +467,7 @@ This project is licensed under the MIT License.
 ### v1.24.0 - v1.30.2
 Six weeks of work on translation/transcription quality for non-English sources, condensed here; full detail,
 measurement methodology and decision rules for every claim below are in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.36** — IQ3_M GGUF threshold lowered to 7.3 GiB free VRAM (measured on an RTX 3060 limited to 7.3 GiB), so 8 GB cards stay on the GGUF path. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.35** — Progress bar and ETA for speaker recognition (diarization) in the pipeline card and the overall bar. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.34** — Fixes from the first real AMD GPU validation (Linux/ROCm); translation is no longer reported as successful when most blocks stay untranslated. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.33** — Language auto-detect by voting on several chunks; wait for ASR VRAM release before GPU translation; progress bar and ETA for gender correction v2. Details in [CHANGELOG.md](CHANGELOG.md).
@@ -1137,7 +1138,7 @@ ASR rilevata viene passata ai traduttori.
 |---|---|---|
 | 1 | CUDA/ROCm e VRAM libera ≥ 20 GiB | `bf16` (transformers) |
 | 2 | CUDA, VRAM libera ≥ 10,5 GiB, `llm_translator_gguf_before_nf4` spento | `nf4` (bitsandbytes) |
-| 3 | CUDA/ROCm/Vulkan e un GGUF ci sta (pesi + KV cache + buffer di calcolo) | `gguf:<quant>` — Q4_K_M ≥ 10 GiB liberi, IQ3_M ≥ 7,5 GiB, con llama.cpp nel sottoprocesso worker |
+| 3 | CUDA/ROCm/Vulkan e un GGUF ci sta (pesi + KV cache + buffer di calcolo) | `gguf:<quant>` — Q4_K_M ≥ 10 GiB liberi, IQ3_M ≥ 7,3 GiB, con llama.cpp nel sottoprocesso worker |
 | 4 | CUDA, VRAM libera ≥ 10,5 GiB | `nf4` (ripiego se nessun GGUF è utilizzabile) |
 | 5 | altrimenti | NLLB fine-tuned, con il motivo scritto nel log |
 
@@ -1252,6 +1253,7 @@ Questo progetto è distribuito con licenza MIT.
 ### v1.24.0 - v1.30.2
 Sei settimane di lavoro sulla qualità di traduzione/trascrizione per le sorgenti non inglesi, condensate qui; il
 dettaglio completo, la metodologia di misura e le regole di decisione per ogni affermazione sono in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.36** — Soglia di IQ3_M abbassata a 7,3 GiB di VRAM libera (misura su una RTX 3060 limitata a 7,3 GiB): le schede da 8 GB restano sul percorso GGUF. Dettagli in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.34** — Correzioni dalla prima validazione su una vera GPU AMD (Linux/ROCm); la traduzione non è più dichiarata riuscita quando la maggior parte dei blocchi resta non tradotta. Dettagli in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.33** — Auto-detect della lingua con voto su più chunk; attesa che la VRAM degli ASR sia liberata prima della traduzione su GPU; barra di avanzamento ed ETA per la correzione genere v2. Dettagli in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.32** — Installer GGUF: ripristinati i messaggi tradotti, sostituisce i file solo se lo SHA-256 differisce; nuovo test su tutte le chiavi tr()/_tr(). Dettagli in [CHANGELOG.md](CHANGELOG.md).

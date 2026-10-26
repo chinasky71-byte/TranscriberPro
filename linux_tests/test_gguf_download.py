@@ -95,7 +95,9 @@ def go(srv, dest, **kw):
     (10.5, 'cuda', 'Q4_K_M'),
     (9.5, 'cuda', 'IQ3_M'),      # sotto la soglia di Q4_K_M, sopra quella di IQ3_M
     (8, 'cuda', 'IQ3_M'),
-    (7.4, 'cuda', None),         # < 8 GB: NLLB-FT
+    (7.4, 'cuda', 'IQ3_M'),      # scheda da 8 GB con il desktop: sopra la soglia misurata (7,3 GiB, 26/10/2026)
+    (7.3, 'cuda', 'IQ3_M'),
+    (7.29, 'cuda', None),        # sotto 7,3 GiB: NLLB-FT (a 7,0 la misura mostra sconfinamento in RAM)
     (6, 'cuda', None),
     (16, 'vulkan', 'Q4_K_M'),    # AMD/Vulkan
     (8, 'vulkan', 'IQ3_M'),

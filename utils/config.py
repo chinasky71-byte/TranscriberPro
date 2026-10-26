@@ -223,7 +223,7 @@ class Config:
         'llm_translator_gguf_parallel': 4,      # sequenze decodificate insieme (KV cache = parallel x 512 token)
         'llm_translator_gguf_before_nf4': True,   # True = Q4_K_M davanti a NF4 sulle schede 10-20 GiB (NF4 ripiego); False = NF4 prima (regola storica: forza NF4)
         'llm_translator_gguf_q4_min_free_gb': 10.0,   # VRAM libera minima per Q4_K_M
-        'llm_translator_gguf_iq3_min_free_gb': 7.5,   # VRAM libera minima per IQ3_M (sotto: NLLB fine-tuned)
+        'llm_translator_gguf_iq3_min_free_gb': 7.3,   # VRAM libera minima per IQ3_M (sotto: NLLB fine-tuned); misura 26/10/2026, vedi translator_path_select
         'llm_translator_nf4_min_free_gb': 10.5,  # VRAM libera minima per NF4 (provvisorio: vedi translator_path_select)
         
         # NLLB model
