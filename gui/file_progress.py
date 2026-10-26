@@ -27,11 +27,11 @@ from typing import Dict, Optional, Set
 from utils.translations import all_texts
 
 # Fasi nell'ordine canonico di esecuzione.
-_ORDER = ['setup', 'ocr_extract', 'ocr_read', 'ocr_translate', 'extract', 'demucs', 'asr', 'clean',
+_ORDER = ['setup', 'ocr_extract', 'ocr_read', 'ocr_translate', 'extract', 'demucs', 'asr', 'diarize', 'clean',
           'translate', 'gender', 'final']
 
 _BASE_WEIGHTS: Dict[str, float] = {
-    'setup': 0.3, 'extract': 0.3, 'demucs': 1.0, 'asr': 4.0, 'clean': 0.1,
+    'setup': 0.3, 'extract': 0.3, 'demucs': 1.0, 'asr': 4.0, 'diarize': 1.0, 'clean': 0.1,
     'translate': 30.0, 'gender': 1.5, 'final': 1.0,
     'ocr_extract': 0.5, 'ocr_read': 3.0, 'ocr_translate': 12.0,
 }
@@ -43,6 +43,7 @@ _ASR_BY_ENGINE = (('qwen3', 6.0), ('canary', 2.5))
 _INNER_KEYS = {
     'demucs': ('Demucs: [',),
     'asr': all_texts('logm_bar_transcription'),
+    'diarize': all_texts('logm_bar_diarization'),
     'translate': (*all_texts('logm_bar_translation'), *all_texts('logm_progress')),
     'ocr_translate': (*all_texts('logm_bar_translation'), *all_texts('logm_progress')),
     'gender': all_texts('logm_bar_gender'),
@@ -53,7 +54,7 @@ _LANG3_TO_2 = {'ita': 'it', 'eng': 'en', 'fra': 'fr', 'fre': 'fr', 'deu': 'de', 
                'nld': 'nl', 'dut': 'nl', 'pol': 'pl', 'tur': 'tr'}
 
 # Barre interne: gruppo dell'evento `bar` -> fasi in cui vale; fase -> gruppo (per cedere il passo al testo).
-_BAR_PHASES = {'demucs': ('demucs',), 'asr': ('asr',), 'translate': ('translate', 'ocr_translate'),
+_BAR_PHASES = {'demucs': ('demucs',), 'asr': ('asr',), 'diarize': ('diarize',), 'translate': ('translate', 'ocr_translate'),
                'gender': ('gender',)}
 _PHASE_BAR = {p: g for g, ps in _BAR_PHASES.items() for p in ps}
 
@@ -85,7 +86,7 @@ class FileProgress:
 
     def __init__(self, target_language: str = 'ita'):
         self.target = _lang2(target_language)
-        self.possible: Set[str] = {'setup', 'extract', 'demucs', 'asr', 'clean', 'translate', 'gender', 'final'}
+        self.possible: Set[str] = {'setup', 'extract', 'demucs', 'asr', 'diarize', 'clean', 'translate', 'gender', 'final'}
         self.weights: Dict[str, float] = dict(_BASE_WEIGHTS)
         self.fraction: Dict[str, float] = {}
         self.phase: Optional[str] = None
@@ -125,7 +126,7 @@ class FileProgress:
             name = f.get('name')
             if name not in _ORDER:
                 return
-            if name in ('setup', 'extract', 'demucs', 'asr', 'clean', 'translate', 'gender'):
+            if name in ('setup', 'extract', 'demucs', 'asr', 'diarize', 'clean', 'translate', 'gender'):
                 self._leave_ocr()       # come i marcatori 1..6.5 del testo
             if name == 'asr':
                 engine = str(f.get('engine') or '').lower()
@@ -147,7 +148,7 @@ class FileProgress:
                 self._drop('translate', 'gender')
         elif kind == 'embedded':
             self._leave_ocr()
-            self._drop('extract', 'demucs', 'asr')
+            self._drop('extract', 'demucs', 'asr', 'diarize')
             if self._same_as_target(str(f.get('lang') or '')):
                 self._drop('translate', 'gender')
         elif kind == 'skip':
@@ -179,6 +180,9 @@ class FileProgress:
         idx = _ORDER.index(phase)
         for p in _ORDER[:idx]:
             if p in self.possible:
+                if p == 'diarize' and p not in self.fraction:
+                    self.possible.discard(p)          # il riconoscimento dei parlanti non e' mai partito (spento o non necessario)
+                    continue
                 self.fraction[p] = 1.0
         self.phase = phase
         self.fraction.setdefault(phase, 0.0)
@@ -190,7 +194,7 @@ class FileProgress:
         for p in ('ocr_extract', 'ocr_read', 'ocr_translate'):
             self.possible.discard(p)
             self.fraction.pop(p, None)
-        self.possible |= {'setup', 'extract', 'demucs', 'asr', 'clean', 'translate', 'gender', 'final'}
+        self.possible |= {'setup', 'extract', 'demucs', 'asr', 'diarize', 'clean', 'translate', 'gender', 'final'}
         self.phase = 'setup'
 
     def _drop(self, *phases: str) -> None:

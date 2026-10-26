@@ -23,7 +23,7 @@ from utils.translations import all_texts
 # Righe che la pipeline aggiorna sul posto (barre di avanzamento / stato).
 # Le righe arrivano dal processo figlio in IT o EN: ogni barra e' riconosciuta in entrambe le lingue (all_texts).
 UPDATABLE_PATTERNS = [*all_texts('logm_progress'), "Demucs: [", *all_texts('logm_bar_translation'),
-                      *all_texts('logm_bar_transcription'), "Warm-up: [", *all_texts('logm_bar_gender'), "⚙️ OCR"]
+                      *all_texts('logm_bar_transcription'), "Warm-up: [", *all_texts('logm_bar_gender'), *all_texts('logm_bar_diarization'), "⚙️ OCR"]
 
 # Righe che NON compaiono a schermo (rumore di fondo): restano nel file di log, perche'
 # la pipeline le scrive anche con logger.info (v. core/pipeline.py::_log e engines/base_engine.py::log).

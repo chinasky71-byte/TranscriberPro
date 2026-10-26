@@ -1183,6 +1183,7 @@ class ProcessingPipeline:
 
                                 from core.diarizer import Diarizer
                                 from core.subtitle_formatter import SubtitleFormatter
+                                self._ev('phase', name='diarize')
                                 self._log(tr('pl_speaker_diarization_in_progress'))
                                 diarizer = Diarizer(self.config.get_huggingface_token(), self._log)
                                 try:
