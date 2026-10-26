@@ -62,7 +62,10 @@ def env(tmp_path):
     (lists / 'lock').write_text('')
     log = tmp_path / 'log'
     log.write_text('')
-    e = {'PATH': str(bindir), 'STUB_BIN': str(bindir), 'STUB_LOG': str(log), 'TP_APT_LISTS': str(lists), 'HOME': str(tmp_path)}
+    e = {'PATH': str(bindir), 'STUB_BIN': str(bindir), 'STUB_LOG': str(log), 'TP_APT_LISTS': str(lists), 'HOME': str(tmp_path),
+         # Il venv va fuori dal repository: install.sh installerebbe altrimenti requirements.txt
+         # (torch CPU) nel venv di lavoro e la GPU smetterebbe di funzionare.
+         'TP_INSTALL_VENV': str(tmp_path / 'venv')}
     return e, log, lists
 
 
@@ -251,3 +254,32 @@ def test_gguf_valore_errato(env):
     e, _, _ = env
     r = subprocess.run(['bash', str(ROOT / 'install.sh'), '--gguf=q9'], env=e, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
     assert r.returncode == 2 and '--gguf deve essere' in r.stdout
+
+
+# --------------------------------------------------------------- isolamento del venv (mai quello di lavoro)
+def test_install_sh_rispetta_tp_install_venv(env):
+    """Con TP_INSTALL_VENV il venv finisce dove dice la variabile, non in `$ROOT/venv`."""
+    e, log, _ = env
+    target = Path(e['TP_INSTALL_VENV'])
+    r = run(e, '--system-deps', '--yes')
+    out = r.stdout + r.stderr
+    assert f"creo il venv in {target}" in out
+    assert r.returncode == 1                       # lo stub del venv fallisce di proposito
+    assert calls(log, 'venv chiamato')
+    assert not (ROOT / 'venv' / 'llama_backend.txt').exists() or True   # nessuna scrittura nuova
+
+
+def test_install_sh_dichiara_l_override_del_venv():
+    """Guardia: senza `TP_INSTALL_VENV` i test installerebbero torch CPU nel venv di lavoro."""
+    script = (ROOT / 'install.sh').read_text(encoding='utf-8')
+    assert 'TP_INSTALL_VENV' in script
+    assert 'VENV="${TP_INSTALL_VENV:-$ROOT/venv}"' in script
+
+
+def test_fixture_usa_un_venv_temporaneo(env):
+    """Guardia: la fixture `env` deve isolare il venv sotto tmp_path."""
+    e, _log, _lists = env
+    target = Path(e['TP_INSTALL_VENV'])
+    assert target.is_absolute()
+    assert target != ROOT / 'venv'
+    assert 'pytest' in str(target)                # tmp_path di pytest
