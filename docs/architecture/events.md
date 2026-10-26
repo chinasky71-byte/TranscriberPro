@@ -48,9 +48,9 @@ Example:
 
 | Consumer | Usage |
 |---|---|
-| `core/queue_runner.py` / `gui/file_progress.py` | progress and phase |
+| `core/queue_runner.py` / `core/jobs/progress.py` | progress and phase |
 | `gui/workers.py` | forward to the UI |
-| `web/` (target) | SSE stream to the browser |
+| `web/` | SSE stream to the browser |
 
 ## Invariants
 

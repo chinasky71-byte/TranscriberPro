@@ -126,7 +126,7 @@ retry once with faster-whisper.
 
 `utils/config.py` is a process-wide singleton reading
 `~/.transcriberpro/config.json`. Precedence: **defaults < config file <
-per-job in-memory overlay**. No environment overrides exist today; the planned
-`TP_DATA_DIR` and `TP_MODELS_DIR` are described in [config.md](config.md).
-Secrets are stored in the config file or read from the environment, never in
-logs or API responses.
+per-job in-memory overlay**. Only the directory roots are overridable from the
+environment (`TP_DATA_DIR`, `TP_MODELS_DIR`, read at import time); no config
+key has an environment override. Secrets are stored in the config file or read
+from the environment, never in logs or API responses.

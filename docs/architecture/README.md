@@ -8,7 +8,7 @@ exist yet, the document says so explicitly.
 
 ```mermaid
 flowchart TD
-    WEB["web/ (target)\nHTTP + SSE + UI"] --> JOBS["core/jobs (target)\nqueue + job lifecycle"]
+    WEB["web/\nHTTP + SSE + UI"] --> JOBS["core/jobs\nqueue + job lifecycle"]
     GUI["gui/ (legacy, frozen)"] --> JOBS
     JOBS --> DOMAIN["core/ (domain)\npipeline, engines, translators,\naudio, subtitles, OCR"]
     DOMAIN --> CONTRACTS["contracts\nCaps, RuntimeProfile, JobManager API, Event"]
@@ -42,10 +42,10 @@ Physical mapping (current and target):
 | `web/` | `core.jobs`, `contracts`, `utils` | `runtime`, `platform_services` internals, `PyQt6` |
 | `gui/` (legacy) | `core.jobs`, `utils` | — (no new features) |
 
-Known exception, recorded in the guard test allowlist: `core/queue_runner.py`
-imports `gui.file_progress.FileProgress`, which is a pure-Python class with no
-Qt dependency. It must be moved to `core/jobs/` as part of the service-layer
-extraction.
+The former exception (`core/queue_runner.py` importing
+`gui.file_progress.FileProgress`) is resolved: the class now lives in
+`core/jobs/progress.py` and the `core -> gui` allowlist is empty. The Qt worker
+does not import `gui/` either; nothing in `core/` depends on Qt.
 
 ## Invariants
 

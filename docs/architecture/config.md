@@ -11,7 +11,8 @@ defaults (Config.DEFAULTS)  <  config.json  <  per-job in-memory overlay
 
 - Per-job overrides (`utils/job_overrides.py`) are applied with
   `Config.set_overlay()` and are **never written to disk**.
-- There are **no environment overrides today**.
+- There are **no environment overrides for config keys**: only the directory
+  roots `TP_DATA_DIR` and `TP_MODELS_DIR` are read from the environment.
 - `TP_DATA_DIR` (config/logs/jobs root, default `~/.transcriberpro`) and
   `TP_MODELS_DIR` (model cache, default `<project>/models`) are read at import
   time; `web.main` sets them before importing config. Containers rely on them.
