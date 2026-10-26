@@ -27,6 +27,41 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-26 — Temp folders of killed jobs no longer stay in RAM
+
+- Branch / commits: `fix/temp-cleanup`.
+- Goal: cancel and crash left the pipeline work folder behind — 854 MB of
+  extracted audio and chunks in `/dev/shm` (i.e. RAM) after one cancelled
+  episode — and the test suite copied ~485 MB of repository per test into
+  `/tmp`, which on the reference machine is also tmpfs.
+- Done: `utils/temp_cleanup.py` (`temp_base`, `stale_dirs`, `sweep`,
+  `sweep_summary`, `directory_size`) removes only `$TMPDIR/TranscriberPro/vid_*`
+  folders, with an age filter; the sweep runs at startup of `web.main` and
+  `core.queue_runner` (nothing can be running) and right after a job ends
+  `cancelled`/`failed` in `JobManager._run_one` (one job at a time, so nothing
+  in use can be deleted). `linux_tests/pytest.ini` pins
+  `--basetemp=/var/tmp/tp-pytest` (disk, and pytest clears it each run, so no
+  accumulation); the `full` fixture became session-scoped and ignores `.tools`
+  and `samples`, so the 485 MB copy happens once instead of once per test.
+- Tests and results: `linux_tests/test_temp_cleanup.py` (11: orphan removal,
+  age filter, missing base, files vs folders, summary, size, manager sweeping
+  after a failure and not after a success, plus guards on the pytest basetemp
+  and the session-scoped fixture). Suite: all green. Measured on the reference
+  machine: 854 MB of orphan chunks and 7.7 GB of pytest copies removed by hand
+  before the fix (RAM in use 11 GiB -> 2.4 GiB, available 18 -> 27 GiB); after
+  the fix one suite run leaves 7.7 MB in `/var/tmp` and `/tmp` stays empty.
+- Decisions / ADRs: no ADR. The sweep is deliberately conservative: only our
+  prefix, only the age filter, only when no job can be running. The
+  `/dev/shm/u1000-Shm_*` segments leaked by killed GPU processes (150 orphans,
+  1.3 GB) are **left alone**: they belong to the graphics driver (some are in
+  use by running applications) and are freed at reboot.
+- Known issues: the age filter is not used at the manager sweep (it removes
+  every `vid_*` right after a failure) — safe because the queue runs one job at
+  a time, but it would need revisiting if the manager ever runs jobs
+  concurrently.
+- Next step: keep an eye on `/dev/shm` growth after cancelled jobs; the
+  container runs will need the same behaviour inside the image.
+
 ## 2026-10-26 — WebUI: system status on the landing page, token removed (Step 10)
 
 - Branch / commits: `feat/webui-system-status`.

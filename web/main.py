@@ -51,6 +51,13 @@ def main(argv: list[str] | None = None) -> int:
     from core.jobs.manager import JobManager
     from web.app import create_app
 
+    # Cartelle di lavoro lasciate da job cancellati/terminati: all'avvio non puo'
+    # esserci nulla in corso, e' il momento sicuro per ripulirle (v. utils/temp_cleanup.py).
+    from utils.temp_cleanup import sweep_summary
+    leftover = sweep_summary()
+    if leftover:
+        print(f"TMPDIR: {leftover}")
+
     config = get_config()
     from utils import backend_preflight
     from utils.backend_preflight import check_for_job

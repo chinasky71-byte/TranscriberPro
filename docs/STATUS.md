@@ -60,10 +60,10 @@ ROCm 7.0, torch 2.10.0+rocm7.0 + ctranslate2 4.8.4 ROCm (verify with
 1. **Container validation** — build the three images on a host with a container
    daemon and run the `rocm` profile on the reference machine (Step 8
    acceptance is still open).
-2. **Two robustness items found on a real file** — the `TMPDIR` work folder is
-   left behind when a job is cancelled, and the pipeline pre-loads Whisper even
-   with `transcription_engine_mode=qwen3`, so a non-GPU `ctranslate2` fails a
-   job that would never use Whisper.
+2. **One robustness item found on a real file** — the pipeline pre-loads
+   Whisper even with `transcription_engine_mode=qwen3`, so a GPU-less
+   `ctranslate2` can fail a job that would never use Whisper. (The orphan
+   `TMPDIR` work folder of cancelled jobs is fixed: `utils/temp_cleanup.py`.)
 3. **Library scanner in the WebUI** — separate FastAPI + SQLite service, needs
    a database location decision and real media to validate (`docs/webui/PLAN.md`,
    Step 6 notes).

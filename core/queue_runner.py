@@ -204,6 +204,10 @@ def main(argv=None) -> int:
     log_dir = Path(args.log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
 
+    from utils.temp_cleanup import sweep_summary
+    leftover = sweep_summary()
+    if leftover:
+        print(f"TMPDIR: {leftover}")
     from utils.backend_preflight import check_for_job
     _cfg = get_config()
     manager = JobManager(target_language=target, persist_path=None, log_dir=log_dir,
