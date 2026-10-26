@@ -1,0 +1,8 @@
+[
+  {"tag": "max-b2", "profile": "maximum"},
+  {"tag": "bal-b8", "profile": "balanced"},
+  {"tag": "bat-b8", "profile": "batch"},
+  {"tag": "max-chunk45", "profile": "maximum",
+   "config": {"asr_chunk_target_duration": 45, "asr_chunk_min_duration": 20,
+              "asr_chunk_max_duration": 60}}
+]
