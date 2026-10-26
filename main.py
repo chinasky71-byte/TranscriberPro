@@ -41,8 +41,21 @@ warnings.filterwarnings("ignore", message="In 2.9, this function's implementatio
 # Qt6 carica DLL che confliggono con onnxruntime_pybind11_state se importato dopo.
 import onnxruntime as _ort  # noqa: F401 (usato da faster-whisper VAD)
 
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QFontDatabase, QFont
+# La GUI desktop e' opzionale (ADR-002): PyQt6 sta in requirements-gui.txt, non
+# nelle dipendenze di default. Senza Qt questo entry point stampa una riga utile
+# e esce, invece di un traceback: l'interfaccia supportata e' `python -m web.main`.
+try:
+    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtGui import QFontDatabase, QFont
+except ImportError as _qt_error:  # pragma: no cover - dipende dall'ambiente
+    print(
+        "PyQt6 non e' installato: la GUI desktop e' opzionale.\n"
+        "  installala:      pip install -r requirements-gui.txt\n"
+        "  oppure usa la WebUI:  python -m web.main --host 127.0.0.1 --port 8080\n"
+        f"  dettaglio: {_qt_error}",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
 
 from utils.logger import setup_logger
 from utils.translations import init_language, tr

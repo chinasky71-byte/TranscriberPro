@@ -17,6 +17,32 @@ Every session that touches the repository must add an entry before the merge.
 - Next step:
 ```
 
+## 2026-10-26 — WebUI Step 7: PyQt optional
+
+- Branch / commits: `feat/pyqt-optional`.
+- Goal: a default install without Qt (ADR-002).
+- Done: `requirements-gui.txt` holds `PyQt6==6.10.2`, `PyQt6-Qt6`, `PyQt6_sip`;
+  those pins removed from `requirements.txt` and `requirements-rocm.txt`
+  (comment pointing at the new file); `main.py` imports Qt behind
+  `try/except ImportError` and exits 2 with a message naming both
+  `requirements-gui.txt` and `python -m web.main`; `install.sh --with-gui`
+  installs the optional file, default installs do not.
+- Tests: `linux_tests/test_gui_optional.py` (4 guard tests): no Qt pin in any
+  default requirements file, Qt pinned in `requirements-gui.txt`, install
+  script exposes the flag, `main.py` keeps the guarded import (AST check for an
+  unguarded module-level import and for a `try` that catches `ImportError`).
+  Simulated a missing Qt with `sys.modules['PyQt6'] = None`: `main.py` printed
+  the message and exited 2. Full suite: 654 passed, same two pre-existing
+  `test_install_retry.py` failures.
+- Decisions: `onnxruntime` stays in the default requirements (it must be
+  imported before Qt and is used by the VAD); the GUI entry point is kept
+  working for users who install the extra file, not removed (removal happens
+  after WebUI parity, ADR-002).
+- Known issues: the Qt GUI is still present in the tree and imports `core.jobs`
+  only; `README.md`/`CHANGELOG.md` (historical, Italian) still describe the
+  GUI-first install and are not updated in this step.
+- Next step: Step 8, Docker.
+
 ## 2026-10-26 — WebUI Step 6: glossary review, and the library scanner scoped out
 
 - Branch / commits: `feat/webui-glossary`.

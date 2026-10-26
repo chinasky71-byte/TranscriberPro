@@ -1,0 +1,15 @@
+# Desktop GUI (legacy line, ADR-002). OPTIONAL.
+#
+# The product interface is the WebUI (`python -m web.main`); Qt is no longer a
+# dependency of a default install. Install this file only if you need the
+# historical desktop window while it still exists:
+#
+#   venv/bin/pip install -r requirements-gui.txt
+#
+# The pins match the ones that were in requirements.txt and
+# requirements-rocm.txt before Step 7 of docs/webui/PLAN.md. Onnxruntime must
+# be imported before PyQt6 (see main.py), which the base requirements still
+# guarantee: onnxruntime stays there.
+PyQt6==6.10.2   # PyQt6-Qt6 e PyQt6-sip arrivano come dipendenze
+PyQt6-Qt6==6.10.2
+PyQt6_sip==13.11.1

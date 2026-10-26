@@ -8,6 +8,7 @@
 #                               puo' chiedere la password (niente terminale) o il comando fallisce, stampa il comando e esce con 2
 #                               senza l'opzione, con un terminale interattivo, chiede "Li installo ora con sudo?"
 #   opzioni: --no-gpu (ruote CPU di torch e llama-cpp-python, ~250 MB invece di ~3 GB) --yes (nessuna domanda)
+#            --with-gui  installa anche requirements-gui.txt (GUI desktop legacy; senza, l'interfaccia e' la WebUI)
 #            --with-models  scarica da Hugging Face il Qwen2.5 (glossario/serbatoio) e il NLLB fine-tuned (molti GB)
 #            --gguf=auto|q4|iq3|q3|none  TranslateGemma-12B GGUF da Hugging Face (5-7 GB, anonimo, riprendibile, SHA-256) in models/translategemma-12b-gguf/.
 #                 auto = per VRAM TOTALE con le stesse soglie del selettore (utils/translator_path_select.py): Q4_K_M per le schede medie, IQ3_M per quelle da ~8 GB,
@@ -29,7 +30,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CHECK=0; SYSDEPS=0; NOGPU=0; YES=0; WITHMODELS=0; QWENSIZE=auto; GPUBACKEND=""; LLAMA_IDX=cpu; ROCM=0; GGUF=""; GGUFDIR=""
+CHECK=0; SYSDEPS=0; NOGPU=0; YES=0; WITHMODELS=0; WITHGUI=0; QWENSIZE=auto; GPUBACKEND=""; LLAMA_IDX=cpu; ROCM=0; GGUF=""; GGUFDIR=""
 for a in "$@"; do
   case "$a" in
     --check) CHECK=1 ;;
@@ -37,6 +38,7 @@ for a in "$@"; do
     --no-gpu) NOGPU=1 ;;
     --yes) YES=1 ;;
     --with-models) WITHMODELS=1 ;;
+    --with-gui) WITHGUI=1 ;;
     --gguf=*) GGUF="${a#--gguf=}" ;;
     --gguf-dir=*) GGUFDIR="${a#--gguf-dir=}" ;;
     --qwen-size=*) QWENSIZE="${a#--qwen-size=}" ;;
@@ -294,8 +296,18 @@ PYEOF
   else bad "ctranslate2 ROCm non scaricata/estratta: Whisper non usera' la GPU AMD. Scarica a mano rocm-python-wheels-Linux.zip da github.com/OpenNMT/CTranslate2/releases"; exit 1; fi
   REQ="$ROOT/requirements-rocm.txt"
 fi
+if [ "$WITHGUI" = "1" ]; then
+  # GUI desktop (legacy, ADR-002): dipendenze separate, non piu' nel default.
+  REQGUI="$ROOT/requirements-gui.txt"
+else
+  REQGUI=""
+fi
 echo "  pip install -r $(basename "$REQ")  (puo' richiedere diversi minuti e alcuni GB di download)"
 "$VPY" -m pip install -r "$REQ" || { bad "pip install fallito (vedi l'errore sopra; rilancia dopo averlo risolto)"; exit 1; }
+if [ -n "$REQGUI" ]; then
+  echo "  pip install -r requirements-gui.txt  (GUI desktop opzionale)"
+  "$VPY" -m pip install -r "$REQGUI" || warn "GUI non installata: l'interfaccia resta la WebUI (python -m web.main)."
+fi
 if [ "$ROCM" = "1" ]; then
   # whisperx senza dipendenze (l'app lo usa solo in core/aligner.py; le sue dipendenze sono gia' in requirements-rocm.txt)
   WV="$(sed -n 's/^[[:space:]]*whisperx==\([0-9.]*\).*/\1/p' "$ROOT/requirements.txt" | head -1)"
