@@ -27,6 +27,51 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-26 — WebUI Step 9: file picker and multi-add
+
+- Branch / commits: `feat/webui-picker`.
+- Goal: choose the media from the browser instead of typing an absolute path,
+  and queue several files at once, without turning the WebUI into a library
+  scanner.
+- Done: `web/browse.py` (read-only lister: `VIDEO_EXTENSIONS`, `natural_key`,
+  `has_subtitle`, `start_dir`, `resolve_dir`, `list_directory`, `MAX_ENTRIES`);
+  API `GET /api/browse`; UI partial `GET /ui/browse` and `_picker.html`
+  (roots, breadcrumb/up, folders, checkboxes, `SRT` badge, truncation notice);
+  dashboard form gains the picker, the `Skip files that already have a
+  subtitle` checkbox and repeated `paths` fields; `POST /ui/jobs` queues one job
+  per selected file (dedupe, per-path errors, `skip_existing`); new whitelisted
+  config key `picker_start_dir` (`utils/config.py`, `web/config_schema.py`,
+  `_settings.html` `dir` kind with the `/set/root/dir` placeholder); CSS for the
+  picker and `[x-cloak]`.
+- Tests and results: `linux_tests/test_web_picker.py` (14 tests: listing and
+  folder-first order, hidden entries skipped, `SRT` badge, symlink escape
+  dropped, path outside the roots / relative / file / missing rejected,
+  `picker_start_dir` honoured and ignored when outside the roots, entry limit
+  and `parent`, JSON API plus auth, multi-add, `skip_existing`, empty selection,
+  mixed valid/invalid, settings round trip). Full suite: 684 passed,
+  11 skipped, only the two known `test_install_retry.py` failures.
+- Decisions / ADRs: no ADR. The picker lists only what the queue already
+  accepts (`web/paths.py::is_allowed`), so there is one rule for both; no
+  database, no recursion, no upload, no index — the non-goal "no library
+  scanner" in the SPEC still holds. `has_subtitle` matches any `<stem>.*.srt`
+  instead of a language suffix because the pipeline writes ISO 639-1. A start
+  folder outside the roots is ignored rather than rejected: the setting cannot
+  brick the picker.
+- Known issues: the picker does not probe the media (no ffprobe), so duration,
+  embedded subtitle tracks and audio languages are not shown; the entry limit
+  is a silent cap beyond the notice line. Two robustness items found while
+  running a real file are still open: the temporary folder under `TMPDIR` is
+  left behind when a job is cancelled (`SIGKILL` skips the pipeline `finally`),
+  and the pipeline pre-loads Whisper even with
+  `transcription_engine_mode=qwen3`, so a `ctranslate2` without the GPU runtime
+  fails a job that would never use it. Environment note from the same session:
+  the local venv had `torch 2.8.0+cpu`; it was reinstalled to
+  `2.10.0+rocm7.0` plus the `ctranslate2` 4.8.4 ROCm wheel, which restored GPU
+  processing (a 133-minute episode finished in 25 minutes).
+- Next step: run the picker against the real library and queue the remaining
+  episodes; then the two robustness items above and the container build
+  (Step 8 acceptance).
+
 ## 2026-10-26 — Documentation: SPEC/API sync and the PROGRESS rule
 
 - Branch / commits: `docs/spec-sync` (this entry ships in the same commit).

@@ -17,6 +17,7 @@ from core.jobs.models import TERMINAL
 from utils.config import Config, get_config
 from utils.gpu_detect import detect_gpus
 from web.auth import request_token, token_matches
+from web.browse import BrowseError, list_directory, start_dir
 from web.config_schema import ConfigError, read_values, apply_values
 from web.config_schema import SAFE_CONFIG_KEYS, SECRET_CONFIG_KEYS  # re-exported
 from web.events import SSEBridge
@@ -192,6 +193,16 @@ def create_app(manager: JobManager, token: Optional[str] = None,
         jobs.sort(key=lambda job: job.get("finished_at") or job.get("created_at") or 0.0,
                   reverse=True)
         return jobs[:limit]
+
+    @app.get("/api/browse", dependencies=auth)
+    def browse(path: str = Query("", description="absolute folder under a root")) -> Dict[str, Any]:
+        """Read-only folder listing for the file picker (no writes, no recursion)."""
+        roots = compute_roots(lambda key, default: config.get(key, default))
+        try:
+            return list_directory(path, roots, start=start_dir(config.get, roots))
+        except BrowseError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail=str(exc)) from None
 
     @app.get("/api/models", dependencies=auth)
     def models() -> Dict[str, Any]:

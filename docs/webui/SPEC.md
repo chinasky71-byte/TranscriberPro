@@ -1,7 +1,7 @@
 # WebUI specification
 
-Status: MVP implemented (Step 3). Settings/history, OCR review, glossary and
-library pages follow (`docs/webui/PLAN.md`).
+Status: Steps 0–9 done (`docs/webui/PLAN.md`). The library scanner is a
+separate FastAPI + SQLite service, not part of this spec.
 
 ## 1. Goal
 
@@ -14,7 +14,9 @@ videos, configure jobs and monitor the pipeline. The pipeline stays headless
 - Multi-user, accounts, permissions.
 - Editing subtitles by hand (except the OCR review page).
 - Cloud hosting, public exposure, mobile app.
-- Uploading media through the browser: v1 accepts filesystem paths.
+- Uploading media through the browser: the file picker lists folders under the
+  allowed roots and queues paths; there is no upload endpoint and no library
+  index (the picker is a lister, not a scanner).
 - Replacing the pipeline or the model selection logic.
 
 ## 3. Decisions
@@ -82,6 +84,7 @@ semantics); logs are per job and never contain secrets.
 | GET/PUT | `/api/config` | whitelisted keys; value validation (enum, 0–100, existing roots); secrets as `is_set` / write-only |
 | GET | `/api/history` | finished jobs, `?status=` (terminal state) and `?limit=` (1–1000, default 100), newest first |
 | GET | `/api/models` | engine modes, translation models and `MODEL_SPECS` keys; registry only, no weights |
+| GET | `/api/browse` | folder listing for the file picker: `?path=` (absolute, under a root; empty = start folder); returns folders, video files, `has_subtitle`, `parent`, `roots`, `truncated`; 400 when the path is rejected |
 | POST | `/api/ocr/sessions` | start an OCR review session `{path, language?}` |
 | GET | `/api/ocr/sessions` | list sessions |
 | GET | `/api/ocr/sessions/{id}` | session status plus its events |
@@ -100,7 +103,7 @@ Errors: JSON `{error: {code, message}}`; no stack traces, no secrets.
 | Page | Contents | Phase |
 |---|---|---|
 | Dashboard | backend, GPU/VRAM, version, queue counters, active job | MVP (done) |
-| Queue | add path, per-file overrides, start/stop/cancel, progress, phase, log tail | MVP (done) |
+| Queue | add path, **file picker with multi-select**, per-file overrides, `skip_existing`, start/stop/cancel, progress, phase, log tail | MVP + Step 9 (done) |
 | Job detail | steps, logs, output path | MVP (logs panel; no separate page) |
 | History | finished jobs, status filter, duration, output path, log | Step 4 (done) |
 | Settings | general, transcription, translation, media roots, secrets | Step 4 (done; no OCR tab, OCR has its own page) |
@@ -129,7 +132,10 @@ Mobile-friendly layout; no external CDN assets.
 - `TP_DATA_DIR` (default `~/.transcriberpro`): config, logs, `jobs.json`.
 - `TP_MODELS_DIR` (default `<repo>/models`): model cache.
 - Media roots from config; output next to the media.
-- Both env vars are implemented in Step 1/2; containers rely on them.
+- `picker_start_dir` (default empty = the first allowed root) is the folder the
+  file picker opens on; the value is used only when it sits under an allowed
+  root, so a stale setting cannot lock the picker. Both env vars are
+  implemented in Step 1/2; containers rely on them.
 
 ## 10. Testing and acceptance
 

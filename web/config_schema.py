@@ -24,12 +24,14 @@ from typing import Any, Dict, Iterable, Mapping, Tuple
 from utils.config import Config
 
 MEDIA_ROOTS_KEY = "allowed_media_roots"
+START_DIR_KEY = "picker_start_dir"
 PERCENT_KEY = "translation_max_untranslated_pct"
 TARGET_LANGUAGE_KEY = "target_language"
 
 SAFE_CONFIG_KEYS = {
     "language",
     MEDIA_ROOTS_KEY,
+    START_DIR_KEY,
     "transcription_engine_mode",
     "whisper_model",
     "use_gpu",
@@ -142,6 +144,29 @@ def as_media_roots(value: Any) -> list:
     return roots
 
 
+def as_start_dir(value: Any) -> str:
+    """Normalise the folder the WebUI file picker opens on.
+
+    Empty means "use the first allowed root". A non-empty value must be an
+    absolute existing directory; whether it is also reachable by the picker is
+    decided at listing time, because the allowed roots can change later.
+    """
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ConfigError(f"{START_DIR_KEY}: expected a path or an empty value")
+    text = value.strip()
+    if not text:
+        return ""
+    candidate = Path(text).expanduser()
+    if not candidate.is_absolute():
+        raise ConfigError(f"{START_DIR_KEY}: the path must be absolute")
+    resolved = candidate.resolve()
+    if not resolved.is_dir():
+        raise ConfigError(f"{START_DIR_KEY}: not a directory: {text}")
+    return str(resolved)
+
+
 def as_secret(key: str, value: Any) -> str:
     if value is None:
         return ""
@@ -172,6 +197,8 @@ def normalise_values(values: Mapping[str, Any]) -> Dict[str, Any]:
             cleaned[key] = text
         elif key == MEDIA_ROOTS_KEY:
             cleaned[key] = as_media_roots(value)
+        elif key == START_DIR_KEY:
+            cleaned[key] = as_start_dir(value)
         elif key == PERCENT_KEY:
             cleaned[key] = as_number(key, value, 0.0, 100.0)
         elif key == TARGET_LANGUAGE_KEY:

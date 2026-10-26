@@ -1,0 +1,47 @@
+{% if error %}<p class="alert error">{{ error }}</p>{% endif %}
+<div class="picker">
+  <div class="picker-roots">
+    {% for root in listing.roots %}
+    <button class="btn small" type="button"
+            hx-get="/ui/browse?path={{ root.path | urlencode }}"
+            hx-target="#picker" hx-swap="innerHTML"
+            title="{{ root.path }}">{{ root.name }}</button>
+    {% endfor %}
+  </div>
+
+  <div class="picker-path">
+    {% if listing.parent %}
+    <button class="btn small" type="button"
+            hx-get="/ui/browse?path={{ listing.parent | urlencode }}"
+            hx-target="#picker" hx-swap="innerHTML">Up</button>
+    {% endif %}
+    <code>{{ listing.path }}</code>
+  </div>
+
+  <div class="picker-list">
+    {% for folder in listing.dirs %}
+    <div class="picker-row folder">
+      <button class="picker-open" type="button"
+              hx-get="/ui/browse?path={{ folder.path | urlencode }}"
+              hx-target="#picker" hx-swap="innerHTML">{{ folder.name }}/</button>
+    </div>
+    {% endfor %}
+    {% for file in listing.files %}
+    <label class="picker-row file">
+      <input type="checkbox" name="paths" value="{{ file.path }}">
+      <span class="name" title="{{ file.path }}">{{ file.name }}</span>
+      <span class="meta">{{ file.size_h }}</span>
+      {% if file.has_subtitle %}<span class="badge done">SRT</span>{% endif %}
+    </label>
+    {% endfor %}
+    {% if not listing.dirs and not listing.files %}
+    <p class="muted">No folders or video files in this folder.</p>
+    {% endif %}
+  </div>
+
+  {% if listing.truncated %}
+  <p class="muted">Showing the first {{ listing.limit }} entries of this folder.</p>
+  {% endif %}
+  <p class="muted small">Only {{ listing.limit }} entries are listed per folder.
+    Video files: {{ listing.files | length }}; folders: {{ listing.dirs | length }}.</p>
+</div>

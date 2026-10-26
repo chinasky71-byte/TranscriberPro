@@ -4,12 +4,18 @@
   {% include "_status.html" %}
 </section>
 
-<section class="card">
+<section class="card" x-data="{ open: false }">
   <h2>Add to queue</h2>
   <form class="stack" hx-post="/ui/jobs" hx-target="#queue" hx-swap="innerHTML">
     <label>Media path
-      <input name="path" placeholder="/media/film.mkv" autocomplete="off" required>
+      <input name="path" placeholder="/media/film.mkv" autocomplete="off">
     </label>
+    <div class="picker-wrap">
+      <button class="btn" type="button" @click="open = !open"
+              x-text="open ? 'Hide the file picker' : 'Choose files…'">Choose files…</button>
+      <div id="picker" class="picker-body" x-show="open" x-cloak
+           hx-get="/ui/browse" hx-trigger="load" hx-swap="innerHTML"></div>
+    </div>
     <div class="row">
       <label>Target language
         <select name="target_language">
@@ -29,6 +35,7 @@
       <label><input type="checkbox" name="mux" value="true"> Mux into video</label>
       <label><input type="checkbox" name="upload" value="true"> Upload</label>
       <label><input type="checkbox" name="gender" value="true"> Gender correction</label>
+      <label><input type="checkbox" name="skip_existing" value="true"> Skip files that already have a subtitle</label>
     </div>
     <button class="btn primary" type="submit">Add</button>
   </form>

@@ -176,3 +176,37 @@ progress::-moz-progress-bar { background: var(--accent); }
   font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   white-space: pre-wrap;
 }
+
+/* File picker (server-side listing of the allowed media roots) */
+[x-cloak] { display: none !important; }
+
+.picker-body { margin-top: 10px; }
+.picker {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+.picker-roots { display: flex; gap: 6px; flex-wrap: wrap; }
+.picker-path { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.picker-path code { color: var(--muted); font-size: 12px; word-break: break-all; }
+.picker-list { max-height: 320px; overflow: auto; display: grid; gap: 2px; }
+.picker-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; }
+.picker-row:hover { background: rgba(79, 140, 255, 0.10); }
+.picker-row.folder .picker-open {
+  background: none;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+.picker-row.folder .picker-open::before { content: "\1F4C1\00a0"; }
+.picker-row.file label,
+.picker-row.file { cursor: pointer; }
+.picker-row .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.picker-row .meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.picker .muted.small { font-size: 11px; }
