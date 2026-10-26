@@ -221,39 +221,191 @@ Models are loaded and unloaded sequentially to fit within available VRAM.
 
 ## Architecture
 
+Transcriber Pro is a PyQt6 desktop application (Windows first; Linux with NVIDIA/CUDA, AMD/ROCm or Vulkan through `install.sh`)
+that runs a sequential, one-file-at-a-time pipeline. Three ideas shape the whole design:
+
+1. **The GUI never loads ML libraries.** Every heavy job runs in a separate Python process that exits when the job ends and
+   gives all RAM/VRAM back to the OS (and a native crash such as a ctranslate2 abort only fails that file, not the queue).
+2. **One heavy model on the GPU at a time.** ASR engine, Demucs, translator and gender models are loaded and unloaded in turn;
+   the translator waits for the VRAM freed by the ASR stage to actually settle before it loads.
+3. **Decisions are pure functions, facts are read elsewhere.** Routing rules (ASR engine, translator path, language vote, GPU
+   backend) live in small stdlib-only modules that are tested without a GPU; the code that reads VRAM or probes the hardware
+   just feeds them numbers.
+
+### Layers
+
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                     PRESENTATION LAYER                        │
-│                        (PyQt6 GUI)                            │
-│  MainWindow · LibraryScannerWidget · OcrReviewDialog          │
-│  SettingsDialog · ResourceMonitor · ProfileDialog             │
-└───────────────────────────┬──────────────────────────────────┘
-                            │ Qt Signals / Slots
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│                   CORE PROCESSING LAYER                       │
-│          ProcessingPipeline (audio transcription)             │
-│  EngineRouter (per-language ASR + Whisper model selection)    │
-│  SubtitleExtractor · AudioProcessor · Transcriber             │
-│  qwen3_lang_retry / whisper_lang_retry (forced-language retry)│
-│  whisper_sentence_split (en/it/fr/de/es sentence-aware split) │
-│  Translator (NLLB / NLLB-FT / TranslateGemma / Claude / OpenAI)│
-│  GenderCorrectorV2 (speaker gender map · selector · rewriter) │
-│  TimingAligner (multi-file subtitle sync queue)               │
-│                                                               │
-│          PgsOcr · VobSubOcr · BitmapOcrCommon                 │
-│  pgsreader (vendored) · vobsub parser (vendored)              │
-│  Tesseract (parallel ThreadPool)                              │
-└───────────────────────────┬──────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│                    UTILS / DATA LAYER                         │
-│  Config · TMDBClient · IMDbClient · OpenSubtitles             │
-│  FileHandler · Logger · ResourceMonitor                       │
-│  LibraryScanner API client (notify-subtitle)                  │
-└──────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│ PRESENTATION  (gui/, PyQt6 — no torch; onnxruntime imported before Qt)│
+│  main.py → MainWindow · SettingsDialog · LibraryScannerWidget            │
+│  OcrReviewDialog · GlossaryDialog · SyncDialog · TranslationModelDialog  │
+│  gui/services/ (no QtWidgets): QueueService · JobOptionsService ·        │
+│   SettingsService · MetadataService · StepTracker · LogFilter            │
+│  QThread workers: ProcessingWorker · OcrWorker · SyncWorker/             │
+│   SyncBatchWorker · GlossaryBuilderWorker · LibraryScannerWorker         │
+└───────────────┬───────────────────────────────────────────────────────────┘
+                │ one subprocess per file / job, log + structured events on stdout
+                ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│ CORE  (core/, headless — also runnable without the GUI)                  │
+│  pipeline_cli → ProcessingPipeline          queue_runner (headless queue)│
+│  ASR:        EngineRouter · engines/{faster_whisper, qwen3_asr, canary}  │
+│              lang_vote · qwen3_lang_retry · whisper_lang_retry           │
+│              AudioProcessor (Demucs, chunking) · Aligner · Diarizer      │
+│  Subtitles:  SubtitleExtractor · subtitle_lang · PgsOcr/VobSubOcr/       │
+│              ocr_auto · SubtitleCleaner · SubtitleFormatter              │
+│  Translate:  translator.py (NLLB · NLLB-FT · LLM · Claude · OpenAI)      │
+│              llm_subtitle_translator/ (TranslateGemma: NF4 / GGUF)       │
+│  Post:       gender_corrector_v2 · timing_aligner · SubtitleSynchronizer │
+└───────────────┬───────────────────────────────────────────────────────────┘
+                ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│ UTILS / PLATFORM  (utils/ — importing `utils` must stay light)           │
+│  Config (~/.transcriberpro/config.json) · tr() i18n · events · logger    │
+│  gpu_detect · platform_compat · translator_path_select · gguf_download   │
+│  cache_bootstrap · ct2_bootstrap · TMDB/IMDb clients · OpenSubtitles     │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Processes and virtual environments
+
+| Process | Entry point | Why it is separate |
+|---|---|---|
+| GUI | `main.py` | Stays light: no torch, no model; `onnxruntime` is imported before PyQt6 (Windows DLL conflict) |
+| One file | `python -m core.pipeline_cli` (spawned by `ProcessingWorker`) | RAM/VRAM returned to the OS after every file; crash isolation. The GUI sets `TP_EVENTS=1` to receive structured progress events (`utils/events.py`) next to the text log |
+| Headless queue | `python -m core.queue_runner` | Same per-file subprocess without the GUI, with a `queue_status.json` state file |
+| GGUF translator | `core/llm_subtitle_translator/gguf_worker.py` | `llama_cpp` must be the first native import of its process on Windows; the model stays loaded between files and is closed on `unload()`. JSON-line protocol, restart-once on worker death |
+| Gender correction | `core/gender_corrector_cli.py` (+ `gender_selector_cli.py` in `venv_nlp`) | pyannote/ECAPA start from a clean CUDA context; spaCy lives in its own venv |
+| Reservoir translation (L3) | `core/fallback_translate_cli.py` | Last-resort translation of the few lines the primary engine left untranslated, with a chat-tuned Qwen (llama-cpp-python) |
+| Canary-Qwen ASR | `core/engines/canary_cli.py` in `venv_canary` | NeMo cannot share the main venv; optional |
+| Per-show glossary | `core/glossary_builder_cli.py` in `venv_glossary` | SimAlign/LaBSE conflict with the main venv's `transformers`; the Qwen channel is delegated back to the main venv by `glossary_engine/glossary_qwen_bridge.py` |
+| Subtitle sync (one pair) | `core/sync_cli.py` | Fresh CUDA context per pair for the batch queue |
+| Environment checks | `core/env_check_cli.py` | Diagnostics of the translation-model dialog that need torch/pyannote run outside the GUI |
+
+**Import rule.** No module imported by `import utils` at module level (directly or through `utils/__init__.py`) may import PyQt6, torch,
+onnxruntime or llama_cpp; `tests` under `linux_tests/` enforce it (`test_import_utils_no_heavy_deps.py`,
+`test_import_pesanti.py`). OS-specific code (`Scripts/python.exe`, `taskkill`, `CREATE_NO_WINDOW`, …) lives only in
+`utils/platform_compat.py` (`test_platform_lint.py`).
+
+### Processing pipeline (`core/pipeline.py`, `ProcessingPipeline.process`)
+
+```
+ 0  init, TMDB/IMDb metadata
+ 1  embedded subtitles ──► clean text track found ───────────────────────────┐
+    │  bitmap only (PGS/VOBSUB) ► ocr_auto: OCR [+ translate] ► done         │
+    ▼  nothing usable                                                         │
+ 2  audio track selection + extraction                                        │
+ 3  AudioProcessor: Demucs vocal separation + silence-aware chunking         │
+ 4  EngineRouter → ASR engine (language vote on auto-detect),               │
+ 4.2 forced alignment · 4.5 diarization + SubtitleFormatter                    │
+    ▼                                                                         │
+ 5  SubtitleCleaner (overlaps, markup)  ◄───────────────────────────────────┘
+ 5.5 unload Whisper/Demucs, cuBLAS cleanup
+ 6  translation (if source ≠ target): wait for VRAM to settle, then translate ── see below
+ 6.5 gender correction v2 (Italian output that was translated, opt-in)
+ 7  save .srt · 8 OpenSubtitles upload (opt-in) · 9 mux/finalize, cleanup
+```
+
+The "settle" wait (`core/vram_settle.py`) exists because on Windows (WDDM) `empty_cache()` returns before the driver
+has given the pages back; without it the translator could load on top of Whisper's memory and spill into shared RAM. It is
+skipped for API translators.
+
+### Transcription layer
+
+`EngineRouter.plan()` picks the engine without loading anything; a failure of Canary or Qwen3 at any point falls back to
+faster-whisper, so a new engine can never fail a file. Rules, in order:
+
+1. Language with a specialised Whisper (`whisper_model_by_language`: French, German, and Spanish with the standard large-v3, so it stays on faster-whisper instead of Qwen3) → faster-whisper with that model.
+2. English and Canary-Qwen available → Canary (`canary_enabled`).
+3. Language covered by Qwen3-ASR ∩ Qwen3-ForcedAligner (11 languages) → Qwen3-ASR (`qwen3_enabled`).
+4. Undefined language → Qwen3 auto-detect; if the detected language is outside the aligner set, one re-transcription with
+   faster-whisper in that language.
+5. Everything else → faster-whisper large-v3.
+
+`transcription_engine_mode` (`auto | canary | qwen3 | faster-whisper`) forces an engine. Only one engine is resident at a time.
+Around the engines: `core/lang_vote.py` (a pure module) samples a few voiced chunks spread across the file and takes a
+weighted vote, so the whole file uses **one** detected language instead of the first chunk's guess; `qwen3_lang_retry` and
+`whisper_lang_retry` re-transcribe suspicious chunks with language detection (songs and quotes in another language);
+`whisper_sentence_split` does sentence-aware splitting for en/it/fr/de/es. On Linux/ROCm `utils/ct2_bootstrap.py` initialises
+ctranslate2's GPU context before torch (otherwise the first faster-whisper inference crashes with SIGSEGV).
+
+### Translation layer
+
+`get_translator()` in `core/translator.py` is the factory (`translation_model` in the config); all engines implement
+`BaseTranslator.translate_file`:
+
+| Key | Engine | Notes |
+|---|---|---|
+| `nllb` / `nllb_finetuned` | `NLLBTranslator` / `NLLBFineTunedTranslator` | Local, singleton model reused across files; NLLB base is the factory fallback (missing library or key); fine-tuned is the fallback for non-English sources and for GPUs without room for the LLM |
+| `llm` (`aya` is a legacy alias) | `LLMSubtitleTranslator` → `core/llm_subtitle_translator/` | TranslateGemma-12B, English source only |
+| `claude`, `openai` | `ClaudeTranslator`, `OpenAITranslator` | Cloud, no GPU; missing library or key → NLLB |
+| `opensubtitles` | `utils/opensubtitles_ai_translator.py` | Cloud, uses the OpenSubtitles account |
+
+**Routing before the factory.** TranslateGemma was trained with an `en` source label, so a non-English source is
+re-routed to NLLB fine-tuned (`route_non_english_away_from_llm`, shared with the OCR path in `core/ocr_auto.py`). The detected
+ASR language is passed on to the translators.
+
+**TranslateGemma path (`llm_translator_gguf_enabled`, on by default).** `path_router.acquire_engine` reads the facts
+(backend, free VRAM, GGUF files present, llama-cpp wheel) and `utils/translator_path_select.choose_translator_path` decides:
+
+| Order | Condition | Path |
+|---|---|---|
+| 1 | CUDA/ROCm and free VRAM ≥ 20 GiB | `bf16` (transformers) |
+| 2 | CUDA, free VRAM ≥ 10.5 GiB, `llm_translator_gguf_before_nf4` off | `nf4` (bitsandbytes) |
+| 3 | CUDA/ROCm/Vulkan and a GGUF fits (weights + KV cache + compute buffer) | `gguf:<quant>` — Q4_K_M ≥ 10 GiB free, IQ3_M ≥ 7.5 GiB, via llama.cpp in the worker subprocess |
+| 4 | CUDA, free VRAM ≥ 10.5 GiB | `nf4` (fallback when no GGUF is usable) |
+| 5 | otherwise | NLLB fine-tuned, with the reason written in the log |
+
+If a GGUF fails to load, NF4 is the automatic fallback when the card can hold it. With the flag off, the historical engine
+(`get_engine`: bf16/NF4) is used unchanged. The GGUF files (`models/translategemma-12b-gguf/`) are downloaded by the
+installer from Hugging Face (`utils/gguf_download.py`: resumable, SHA-256 checked, asks before downloading). On AMD the
+GGUF path is the only way to run the LLM without bitsandbytes.
+
+**Failure handling.** `SubtitleLLMTranslator` retries by steps (same batch with the error in the prompt → half batch → one
+block at a time), `validator.py` separates blocking issues from warnings, `postprocess.py` applies the mechanical
+Italian-subtitle rules and re-wraps lines. What still fails goes to the reservoir (primary engine retry, then the Qwen
+subprocess). A translation is reported as failed when more than `translation_max_untranslated_pct` of the blocks stay
+untranslated, and a fatal GPU error (HIP/CUDA) stops the file at once instead of failing every batch; in both cases the pipeline keeps the
+source-language subtitle and marks the job as failed instead of silently saving an untranslated "Italian" file.
+A per-show glossary (`core/glossary.py`, looked up by TMDB id) fixes recurring terms for NLLB and the local LLM.
+
+### Gender correction v2 (`core/gender_corrector_v2.py`)
+
+Deterministic, no LLM. A spaCy selector (separate venv) marks first-person gendered forms; `core/speaker_gender.py` builds a
+time→speaker→gender map from the audio (pyannote diarization + ECAPA voice classifier); `gender_rewriter` flips the
+morphology only when the line contradicts the speaker, and a validator rejects implausible rewrites. Double-speaker lines and
+unknown-gender speakers are left untouched. It is opt-in (`gender_correction_enabled`) and requires a Hugging Face token.
+
+### Hardware and platform layer
+
+`utils/gpu_detect.py` (stdlib only) finds NVIDIA, AMD, Intel and Apple GPUs from nvidia-smi/NVML, sysfs, the Windows
+registry, lspci, rocm-smi and vulkaninfo, de-duplicates them and returns `recommended_backend()` ∈ `cuda | rocm | vulkan | cpu`
+and the usable VRAM. The same functions are used by the installer; `--gpu-backend=auto` never picks ROCm by itself (it falls back to Vulkan), ROCm must be requested explicitly. `install.sh
+--gpu-backend=auto|cuda|rocm|vulkan|cpu` (Linux) and `install.ps1` (Windows; ROCm is Linux-only) install matching torch, ctranslate2 and
+llama-cpp-python wheels. Vulkan runs llama.cpp on the GPU
+(glossary, GGUF translator) while the rest stays on CPU.
+
+### Cross-cutting services
+
+- **Configuration:** `utils/config.py` — `~/.transcriberpro/config.json`, atomic writes; the per-file child re-reads it from
+  disk, so GUI setters save synchronously.
+- **Interface and log language:** `tr('key')` from `utils/translations.py` (IT/EN, a key in both languages). Child processes
+  use `init_language_headless()` so log lines follow the same language; consumers that recognise log lines use `all_texts()`.
+- **Progress:** `utils/events.py` structured events (`phase`, `bar`, `skip`, …) feed `gui/file_progress.py`, the ETA and the
+  headless queue status, so the progress bar no longer depends on log wording.
+- **Adaptive batch:** `utils/adaptive_batch_manager.py` tunes batch sizes from VRAM; `utils/resource_monitor.py` feeds the GUI monitor.
+- **Models and caches:** `utils/cache_bootstrap.py` redirects HF/Torch caches into `models/.cache/` before any heavy import.
+- **Metadata and upload:** TMDB/IMDb clients, and the OpenSubtitles uploaders (`opensubtitles_rest_uploader.py`,
+  `opensubtitles_xmlrpc_uploader.py`) behind `subtitle_uploader_interface.py`.
+- **Library Scanner:** `gui/library_scanner_widget.py` talks to the separate scanner server (`library scanner per server- va su
+  docker/`) and notifies it (`/api/videos/notify-subtitle`) when a subtitle is created.
+- **Subtitle sync:** `SubtitleSynchronizer` with the timing-only engine (`timing_aligner`) by default, and `sync_pairing` to
+  match videos and external SRTs by episode.
+
+### Tests
+
+`linux_tests/` holds the platform-independent tests (GPU detection, path selection, GGUF engine/subprocess/download, language
+vote, i18n, import rules, translation success gate); root-level `test_*.py` cover older pieces. See `linux_tests/README.md`.
 
 ---
 
