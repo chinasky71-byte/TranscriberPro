@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h2>OCR review</h2>
+  <p class="muted">Extract a bitmap subtitle track (PGS/VOBSUB), correct the text
+    against the bitmap and write a sidecar SRT. The media file is never
+    modified.</p>
+  {% if error %}<p class="alert error">{{ error }}</p>{% endif %}
+  {% if message %}<p class="alert ok">{{ message }}</p>{% endif %}
+  <form method="post" action="/ocr" class="stack">
+    <label>Media path
+      <input name="path" placeholder="/media/film.mkv" autocomplete="off" required>
+    </label>
+    <label>Track language (ISO 639-2, optional)
+      <input name="language" placeholder="ita" autocomplete="off">
+    </label>
+    <button class="btn primary" type="submit">Run OCR</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Sessions</h2>
+  {% if sessions %}
+  <table class="queue">
+    <thead>
+      <tr><th>File</th><th>Status</th><th>Track</th><th>Events</th><th>Output</th><th></th></tr>
+    </thead>
+    <tbody>
+    {% for session in sessions %}
+      <tr>
+        <td class="name" title="{{ session.video }}">{{ session.name }}</td>
+        <td><span class="badge {{ session.status }}">{{ session.status }}</span></td>
+        <td>{{ session.kind or '—' }} · {{ session.language or '—' }}</td>
+        <td>{{ session.event_count }}{% if session.flagged_count %} ({{ session.flagged_count }} flagged){% endif %}</td>
+        <td class="name" title="{{ session.srt_path }}">{{ session.srt_path or '' }}</td>
+        <td class="actions">
+          <a class="btn small" href="/ocr/{{ session.id }}">Open</a>
+          <form method="post" action="/ocr/{{ session.id }}/delete" class="inline">
+            <button class="btn small ghost" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No OCR sessions yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

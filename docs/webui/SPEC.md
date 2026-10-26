@@ -94,7 +94,7 @@ Errors: JSON `{error: {code, message}}`; no stack traces, no secrets.
 | Job detail | steps, logs, output path | MVP |
 | History | completed/failed jobs, open output folder | Step 4 |
 | Settings | general, OCR, translation/models, paths | Step 4 |
-| OCR review | bitmap image + text, approve/correct | Step 5 |
+| OCR review | bitmap image + text, approve/correct | Step 5 (done) |
 | Glossary | per-show terms, candidates, approve | Step 6 |
 | Library scanner | scan, filters, bitmap badges, batch OCR | Step 6 |
 

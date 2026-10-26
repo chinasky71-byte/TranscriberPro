@@ -1,0 +1,55 @@
+{% if session.status in ('running', 'saving') %}
+<div hx-get="/ui/ocr/{{ session.id }}" hx-trigger="every 2s" hx-swap="outerHTML">
+  <p class="muted">Working… this panel refreshes by itself.</p>
+</div>
+{% elif session.status == 'failed' %}
+<div>
+  <p class="alert error">{{ session.error or 'OCR failed' }}</p>
+  <a class="btn" href="/ocr">Back to sessions</a>
+</div>
+{% else %}
+<div>
+  {% if current %}
+  <form method="post" action="/ocr/{{ session.id }}/events/{{ current.index }}" class="stack">
+    <input type="hidden" name="flagged" value="{{ 1 if flagged else 0 }}">
+    <div class="ocr-grid">
+      {% if current.image %}
+      <img class="ocr-image" alt="bitmap of event {{ current.index }}"
+           src="/api/ocr/sessions/{{ session.id }}/images/{{ current.index }}">
+      {% else %}
+      <p class="muted">No bitmap stored for this event.</p>
+      {% endif %}
+      <label>Text (verbatim OCR, correct only what the bitmap shows)
+        <textarea name="text" rows="4" spellcheck="false">{{ current.text }}</textarea>
+      </label>
+    </div>
+    <dl class="facts">
+      <dt>Event</dt><dd>{{ current.index }} · confidence {{ current.confidence }}</dd>
+      <dt>Flags</dt><dd>{{ current.flags|join(', ') or '—' }}</dd>
+    </dl>
+    <label class="checks">
+      <input type="checkbox" name="verified" value="true"
+             {% if current.verified %}checked{% endif %}> Verified
+    </label>
+    <div class="row">
+      {% if previous %}
+      <a class="btn" href="/ocr/{{ session.id }}?index={{ previous }}{% if flagged %}&amp;flagged=1{% endif %}">Previous</a>
+      {% endif %}
+      <button class="btn primary" type="submit">Save and continue</button>
+      {% if following %}
+      <a class="btn" href="/ocr/{{ session.id }}?index={{ following }}{% if flagged %}&amp;flagged=1{% endif %}">Next</a>
+      {% endif %}
+    </div>
+  </form>
+
+  <form method="post" action="/ocr/{{ session.id }}/srt" class="row">
+    <button class="btn primary" type="submit">Write SRT next to the video</button>
+    {% if session.srt_path %}<span class="muted">{{ session.srt_path }}</span>{% endif %}
+  </form>
+  {% else %}
+  <p class="muted">
+    {% if flagged %}No flagged events left.{% else %}No events to review.{% endif %}
+  </p>
+  {% endif %}
+</div>
+{% endif %}

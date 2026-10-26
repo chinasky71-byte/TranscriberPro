@@ -17,6 +17,37 @@ Every session that touches the repository must add an entry before the merge.
 - Next step:
 ```
 
+## 2026-10-26 — WebUI Step 5: OCR review
+
+- Branch / commits: `feat/webui-ocr`.
+- Goal: correct bitmap-subtitle OCR in the browser with the same data contract
+  as the Qt dialog.
+- Done: `core/ocr_review_job.py` (worker CLI, `ocr` and `writeback` modes,
+  sidecar only); `web/ocr_review.py` (session store under `TP_DATA_DIR/ocr/`,
+  atomic JSON, subprocess runner, image serving, text limits); API
+  `/api/ocr/sessions` (create/list/detail/update event/image/write-back/
+  delete); pages `/ocr` and `/ocr/{id}` with self-polling while the worker
+  runs and a `flagged` filter; nav link, grid styles.
+- Tests: `linux_tests/test_web_ocr.py` (8 tests) with a synchronous fake
+  runner that writes the same files as the worker: lifecycle, validation
+  (outside roots, missing file, relative path, bad language, unknown session,
+  oversized text), pages, login redirect, image serving, and
+  `build_events` -> `events_to_srt` on corrected text. Architecture guard
+  tests still green (the worker lives in `core/`, so `web/` imports no domain
+  module directly).
+- Real validation: server on `127.0.0.1:8097`, real subprocess; a session on
+  `samples/prova_amd_test.mp4` (no bitmap track) reached `failed` with
+  "no PGS/VOBSUB bitmap subtitle track found" and the page showed it. A
+  positive end-to-end OCR run needs bitmap media, which `samples/` does not
+  contain yet.
+- Decisions: the OCR worker is a domain CLI (`core/ocr_review_job.py`) like
+  `core.pipeline_cli`, not a web module, so the layer rules hold; write-back
+  is always a sidecar, never an in-place mux from the browser; sessions store
+  one PNG per event instead of holding PIL images in memory.
+- Known issues: no CSRF token; no real bitmap sample to validate a successful
+  OCR + write-back; session files are not cleaned up automatically.
+- Next step: Step 6, glossary and library pages.
+
 ## 2026-10-26 — WebUI Step 4: settings and history
 
 - Branch / commits: `feat/webui-settings`.

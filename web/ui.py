@@ -16,6 +16,7 @@ from utils.job_overrides import clean
 from web.auth import SESSION_COOKIE, request_token, token_matches
 from web.config_schema import (ENUM_CONFIG_KEYS, MEDIA_ROOTS_KEY, ConfigError,
                                apply_values, read_values)
+from web.ocr_review import OcrSessionError, OcrSessionNotFound
 from web.paths import compute_roots, validate_media_path
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
@@ -206,6 +207,46 @@ def _history_context(request: Request, job_status: str = "") -> Dict[str, Any]:
     }
 
 
+def _ocr_sessions_context(request: Request, error: str = "", message: str = "") -> Dict[str, Any]:
+    return {
+        "status": _status_context(request),
+        "sessions": request.app.state.ocr.list(),
+        "error": error,
+        "message": message,
+    }
+
+
+def _ocr_context(request: Request, session_id: str, index: int = 0,
+                 flagged: bool = False, error: str = "", message: str = "") -> Dict[str, Any]:
+    service = request.app.state.ocr
+    meta = service.get(session_id)
+    events = service.events(session_id)
+    if flagged:
+        visible = [event for event in events
+                   if event.get("flags") and not event.get("verified")]
+    else:
+        visible = events
+    current = None
+    previous = following = None
+    if visible:
+        current = next((event for event in visible if event.get("index") == index), visible[0])
+        position = visible.index(current)
+        previous = visible[position - 1]["index"] if position > 0 else None
+        following = visible[position + 1]["index"] if position + 1 < len(visible) else None
+    return {
+        "status": _status_context(request),
+        "session": meta,
+        "events": events,
+        "visible": visible,
+        "current": current,
+        "previous": previous,
+        "following": following,
+        "flagged": flagged,
+        "error": error,
+        "message": message,
+    }
+
+
 @router.get("/", response_class=HTMLResponse, dependencies=[Depends(_auth)])
 def index(request: Request) -> HTMLResponse:
     return _render(request, "index.html", {
@@ -293,6 +334,89 @@ async def settings_save(request: Request) -> HTMLResponse:
                        _settings_context(request, error=str(exc), draft=raw))
     return _render(request, "settings.html",
                    _settings_context(request, message="Settings saved"))
+
+
+@router.get("/ocr", response_class=HTMLResponse, dependencies=[Depends(_auth)])
+def ocr_page(request: Request) -> HTMLResponse:
+    return _render(request, "ocr.html", _ocr_sessions_context(request))
+
+
+@router.post("/ocr", response_class=HTMLResponse, dependencies=[Depends(_auth)])
+def ocr_start(request: Request, path: str = Form(""), language: str = Form("")) -> HTMLResponse:
+    config = request.app.state.config
+    try:
+        roots = compute_roots(lambda key, default: config.get(key, default))
+        media = validate_media_path(path, roots)
+    except (FileNotFoundError, PermissionError, ValueError) as exc:
+        return _render(request, "ocr.html",
+                       _ocr_sessions_context(request, error=str(exc)))
+    session = request.app.state.ocr.create(str(media), language.strip())
+    return RedirectResponse(f"/ocr/{session['id']}", status_code=303)
+
+
+@router.get("/ocr/{session_id}", response_class=HTMLResponse, dependencies=[Depends(_auth)])
+def ocr_session_page(request: Request, session_id: str, index: int = Query(0),
+                     flagged: int = Query(0)) -> HTMLResponse:
+    try:
+        context = _ocr_context(request, session_id, index=index, flagged=bool(flagged))
+    except OcrSessionNotFound:
+        return _render(request, "ocr.html",
+                       _ocr_sessions_context(request, error="Unknown OCR session"))
+    return _render(request, "ocr_session.html", context)
+
+
+@router.get("/ui/ocr/{session_id}", response_class=HTMLResponse, dependencies=[Depends(_auth)])
+def ui_ocr_session(request: Request, session_id: str, index: int = Query(0),
+                    flagged: int = Query(0)) -> HTMLResponse:
+    try:
+        context = _ocr_context(request, session_id, index=index, flagged=bool(flagged))
+    except OcrSessionNotFound:
+        return _render(request, "ocr.html",
+                       _ocr_sessions_context(request, error="Unknown OCR session"))
+    return _render(request, "_ocr_session_body.html", context)
+
+
+@router.post("/ocr/{session_id}/events/{index}", response_class=HTMLResponse,
+             dependencies=[Depends(_auth)])
+def ocr_save_event(request: Request, session_id: str, index: int,
+                   text: str = Form(""), verified: bool = Form(False),
+                   flagged: int = Form(0)) -> HTMLResponse:
+    try:
+        request.app.state.ocr.update_event(session_id, index, text, verified)
+        context = _ocr_context(request, session_id, flagged=bool(flagged))
+        target = context["following"] or index
+        suffix = "&flagged=1" if flagged else ""
+        return RedirectResponse(f"/ocr/{session_id}?index={target}{suffix}", status_code=303)
+    except OcrSessionNotFound:
+        return _render(request, "ocr.html",
+                       _ocr_sessions_context(request, error="Unknown OCR session"))
+    except OcrSessionError as exc:
+        context = _ocr_context(request, session_id, index=index, flagged=bool(flagged),
+                              error=str(exc))
+        return _render(request, "ocr_session.html", context)
+
+
+@router.post("/ocr/{session_id}/srt", response_class=HTMLResponse, dependencies=[Depends(_auth)])
+def ocr_writeback(request: Request, session_id: str) -> HTMLResponse:
+    try:
+        meta = request.app.state.ocr.writeback(session_id)
+    except OcrSessionNotFound:
+        return _render(request, "ocr.html",
+                       _ocr_sessions_context(request, error="Unknown OCR session"))
+    except OcrSessionError as exc:
+        context = _ocr_context(request, session_id, error=str(exc))
+        return _render(request, "ocr_session.html", context)
+    return RedirectResponse(f"/ocr/{meta['id']}", status_code=303)
+
+
+@router.post("/ocr/{session_id}/delete", response_class=HTMLResponse, dependencies=[Depends(_auth)])
+def ocr_delete(request: Request, session_id: str) -> HTMLResponse:
+    try:
+        request.app.state.ocr.delete(session_id)
+    except OcrSessionNotFound:
+        return _render(request, "ocr.html",
+                       _ocr_sessions_context(request, error="Unknown OCR session"))
+    return RedirectResponse("/ocr", status_code=303)
 
 
 @router.get("/login", response_class=HTMLResponse)
