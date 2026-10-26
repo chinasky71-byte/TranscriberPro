@@ -1,8 +1,8 @@
 # Project status
 
-Updated: 2026-10-25
+Updated: 2026-10-26
 Line: `development` (active product); `master` is legacy (ADR-006)
-Branch: `development` · last merge: `31bd740` (documentation sync)
+Branch: `development` · last merge: `4ef8397` (Docker artifacts)
 WebUI: **not running** (start it with the command in `web/README.md`)
 Environment: Ubuntu 26.04, Radeon RX 9060 XT 16 GB (gfx1200, RDNA4),
 ROCm 7.0, torch 2.10.0+rocm7.0, venv ~16 GB, model cache ~33 GB
@@ -22,27 +22,47 @@ ROCm 7.0, torch 2.10.0+rocm7.0, venv ~16 GB, model cache ~33 GB
   hub, persistence, progress). `core.queue_runner` is a thin client; the
   headless pipeline was validated end to end after the extraction.
 - **Web UI + API**: FastAPI app in `web/` with token auth (bearer + HttpOnly
-  session cookie), path validation, jobs, SSE, config and history. The MVP UI
-  (dashboard, add form, queue, logs) is server-rendered with HTMX + Alpine,
-  assets vendored locally. Validated with a real job over HTTP and through
-  the UI.
+  session cookie), path validation, jobs, SSE, config and history. Pages:
+  dashboard and queue (add form, cancel, remove, logs), history with a status
+  filter, settings (whitelisted keys, write-only secrets, value validation) and
+  OCR review (bitmap next to the OCR text, corrections, sidecar SRT). Glossary
+  review reads `glossary_engine` reports. Server-rendered with HTMX + Alpine,
+  assets vendored locally.
+- **Containers**: `docker/Dockerfile` (one image per backend) and
+  `docker/compose.yaml` (profiles `rocm`/`cuda`/`cpu`); not built yet, see the
+  open items.
+- **GUI optional**: PyQt6 moved to `requirements-gui.txt`; `main.py` exits with
+  a message pointing at the WebUI when Qt is absent.
 - **ADRs** 001–006, support matrix, contributing rules, guard tests.
 - **Tests**: unit/guard tests in `linux_tests/` (bench, boundaries, events,
-  docs links, translation gate, i18n).
+  docs links, translation gate, i18n, web API/UI/OCR/glossary, Docker).
 
 ## In progress / next
 
-1. **WebUI Step 4** — settings and history pages. See `docs/webui/PLAN.md`.
-2. OCR review (Step 5), glossary and library (Step 6), PyQt removal and
-   Docker (Steps 7–8).
-3. Docker packaging after the WebUI MVP.
-4. Reference dataset extension (real clips with human Italian references)
+1. **Container validation** — build the three images on a host with a container
+   daemon and run the `rocm` profile on the reference machine (Step 8
+   acceptance is still open).
+2. **Library scanner in the WebUI** — separate FastAPI + SQLite service, needs
+   a database location decision and real media to validate (`docs/webui/PLAN.md`,
+   Step 6 notes).
+3. **Glossary report generation** — building a report is still a CLI/offline
+   job; the page only reviews it.
+4. **CSRF token** for state-changing requests (currently SameSite=Lax only).
+5. Reference dataset extension (real clips with human Italian references)
    before any model decision beyond the current sample.
 
 ## Known issues and limits
 
 - The **Qt GUI is frozen**: no new features; it will be removed after WebUI
-  parity (`docs/webui/SPEC.md`).
+  parity. Its dependencies are optional (`requirements-gui.txt`) and it is not
+  in the container image.
+- **No positive OCR run** has been validated: `samples/` has no bitmap subtitle
+  track, so only the failure path ("no PGS/VOBSUB track") is proven end to end.
+- **Container images not built** in this session (no daemon reachable); only
+  the compose schema and the guard tests are verified.
+- The **library scanner** is not part of the WebUI yet (separate service).
+- `linux_tests/test_install_retry.py` fails on the local venv (two tests); it
+  also fails on the unmodified branch, proven with `git stash`.
 - **Windows pipeline** startup is untested; Windows is a frozen line.
 - `master` does not contain `AGENTS.md`; development does, by decision.
 - The benchmark uses a **single synthetic clip** and an Italian reference with
