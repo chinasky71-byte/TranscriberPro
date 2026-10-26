@@ -91,7 +91,7 @@ def test_pesi_e_ingombri_misurati_dal_banco():
 
 
 def test_soglie_minime_scelte_dal_proprietario():
-    assert sel.DEFAULT_GGUF_MIN_FREE_GIB == {'Q4_K_M': 10.0, 'IQ3_M': 7.5}
+    assert sel.DEFAULT_GGUF_MIN_FREE_GIB == {'Q4_K_M': 10.0, 'IQ3_M': 7.3}   # IQ3_M misurato il 26/10/2026 (era 7,5, stima)
     assert sel.AUTO_QUANTS == ('Q4_K_M', 'IQ3_M')
     # i pavimenti stanno sopra l'ingombro stimato a 4 sequenze: a n_parallel 4 governano loro
     for q in sel.AUTO_QUANTS:
@@ -102,8 +102,9 @@ def test_8gb_va_su_gguf_con_la_migliore_che_entra():
     # scheda da 8 GB: ~7,0-7,6 GiB liberi
     c = pick(7.6)
     assert c.kind == sel.GGUF and c.quant == 'IQ3_M'             # Q4_K_M (pavimento 10 GiB) non entra
-    assert pick(7.5).quant == 'IQ3_M' and pick(9.9).quant == 'IQ3_M'
-    assert pick(7.49).kind == sel.NLLB                            # sotto 7,5 GiB liberi (scheda da 8 GB molto occupata): NLLB
+    assert pick(7.3).quant == 'IQ3_M' and pick(7.5).quant == 'IQ3_M' and pick(9.9).quant == 'IQ3_M'
+    assert pick(7.29).kind == sel.NLLB                            # sotto 7,3 GiB liberi (a 7,0 la misura mostra sconfinamento in RAM): NLLB
+    assert pick(7.0).kind == sel.NLLB
     assert pick(10.0).quant == 'Q4_K_M'                           # 10 GiB: entra la migliore (NF4 parte da 10,5)
     assert pick(10.4).quant == 'Q4_K_M' and pick(10.5, gguf_before_nf4=False).kind == sel.NF4
     assert pick(10.5).quant == 'Q4_K_M'                           # con il default acceso Q4_K_M passa davanti a NF4
@@ -111,7 +112,7 @@ def test_8gb_va_su_gguf_con_la_migliore_che_entra():
 
 def test_sotto_8gb_nllb_con_motivo():
     c = pick(5.0)
-    assert c.kind == sel.NLLB and c.reason == 'vram_too_low' and c.need_gib == 7.5
+    assert c.kind == sel.NLLB and c.reason == 'vram_too_low' and c.need_gib == 7.3
 
 
 def test_quant_forzata_non_ripiega_su_un_altra_in_silenzio():
