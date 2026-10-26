@@ -2,48 +2,52 @@
 # Prepara Transcriber Pro su Linux (qualsiasi distribuzione con apt, dnf, pacman o zypper; altrimenti stampa cosa installare).
 # NON VERIFICATO SU LINUX REALE: scritto e controllato con `bash -n`, ma mai eseguito su una macchina Linux.
 #
-#   ./install.sh --check        solo il rapporto dei prerequisiti, nessuna modifica
-#   ./install.sh                crea il venv e installa requirements.txt (chiede conferma per sudo)
+#   ./install.sh --check        solo il rapporto dei prerequisiti e il backend che sceglierebbe, nessuna modifica
+#   ./install.sh                rileva l'hardware e installa: CUDA su NVIDIA, ROCm su GPU AMD supportate. Nessun altro backend.
+#                               Senza --backend decide da solo; se l'hardware non e' supportato si ferma e lo dice (niente fallback silenziosi).
+#   ./install.sh --backend=cuda|rocm|auto   forza il backend (auto = rilevamento, il default)
+#   ./install.sh --force-backend            accetta un backend diverso dall'hardware rilevato: serve solo al cross-build dei
+#                               container (immagine NVIDIA costruita su un host AMD) e per i test; in tutti gli altri casi e' un errore
 #   ./install.sh --system-deps  installa anche i pacchetti di sistema con sudo e rilancia da solo lo script (un solo rilancio); se sudo non
 #                               puo' chiedere la password (niente terminale) o il comando fallisce, stampa il comando e esce con 2
 #                               senza l'opzione, con un terminale interattivo, chiede "Li installo ora con sudo?"
-#   opzioni: --no-gpu (ruote CPU di torch e llama-cpp-python, ~250 MB invece di ~3 GB) --yes (nessuna domanda)
+#   opzioni: --yes (nessuna domanda)
 #            --with-gui  installa anche requirements-gui.txt (GUI desktop legacy; senza, l'interfaccia e' la WebUI)
 #            --with-models  scarica da Hugging Face il Qwen2.5 (glossario/serbatoio) e il NLLB fine-tuned (molti GB)
 #            --gguf=auto|q4|iq3|q3|none  TranslateGemma-12B GGUF da Hugging Face (5-7 GB, anonimo, riprendibile, SHA-256) in models/translategemma-12b-gguf/.
 #                 auto = per VRAM TOTALE con le stesse soglie del selettore (utils/translator_path_select.py): Q4_K_M per le schede medie, IQ3_M per quelle da ~8 GB,
-#                 nulla se la VRAM e' troppo poca, se basta il bf16 (cuda/rocm) o senza GPU; su Vulkan, dove il bf16 non esiste, si scarica anche con molta VRAM; q3 solo se la chiedi. Senza l'opzione: auto se c'e' --with-models, altrimenti nulla.
-#                 Chiede conferma (--yes la salta). Scarica i file e basta: non cambia nessuna impostazione dell'app.
+#                 nulla se la VRAM e' troppo poca o se basta il bf16. Chiede conferma (--yes la salta).
 #            --gguf-dir=PATH  cartella di destinazione (default: models/translategemma-12b-gguf, quella che l'app scansiona)
-#            --qwen-size=auto|7b|14b  (auto = 14B con GPU da 12 GB o piu', 7B con GPU piu' piccola o --no-gpu)
-#            --gpu-backend=auto|cuda|vulkan|rocm|cpu  (senza l'opzione: comportamento di sempre = ruota CUDA di llama-cpp-python)
-#                 cuda   come senza opzione        cpu     come --no-gpu
-#                 vulkan torch su CPU + llama-cpp-python Vulkan (glossario su GPU AMD/Intel, serve il driver Vulkan; la
-#                        trascrizione e la traduzione restano su CPU)
-#                 auto   sceglie con `utils/gpu_detect.py --backend` (cuda, vulkan o cpu; se rileva solo ROCm usa vulkan e, per una GPU AMD,
-#                        indica la famiglia: RDNA3/4 e CDNA -> suggerisce rocm; RDNA2 -> spiega l'override HSA e bf16 lento; RDNA1 e precedenti -> vulkan/cpu)
-#                 rocm   Linux + GPU AMD con ROCm 7.0: torch/torchaudio +rocm7.0 (requirements-rocm.txt), ctranslate2 ROCm (release
-#                        OpenNMT/CTranslate2), whisperx --no-deps, llama-cpp-python Vulkan. NON PROVATO SU HARDWARE AMD. Non installa ROCm
-#                        di sistema: controlla /dev/kfd, gruppi render/video e driver amdgpu e dice cosa fare. Python 3.11 o 3.12.
+#            --qwen-size=auto|7b|14b  (auto = 14B con GPU da 12 GB o piu', 7B con GPU piu' piccola)
+#
+# Backend supportati (decisione esplicita, v. ADR-007):
+#   cuda  NVIDIA su Linux: requirements.txt (torch +cu126), llama-cpp-python ruota CUDA
+#   rocm  AMD con ROCm 7.0 su RDNA3/RDNA4/CDNA: requirements-rocm.txt (torch +rocm7.0), ctranslate2 ROCm dalla release
+#         OpenNMT/CTranslate2, whisperx --no-deps, llama-cpp-python ruota Vulkan. Non installa ROCm di sistema: la ruota di torch
+#         porta il suo runtime; controlla /dev/kfd, i gruppi render/video e il driver amdgpu e dice cosa fare. Python 3.11 o 3.12.
+#   RDNA2 e precedenti, nessuna GPU, Vulkan e CPU non sono supportati: lo script si ferma.
+#   Al termine l'installazione viene verificata davvero (import di torch/ctranslate2 e device visibile) e il backend scelto
+#   viene scritto in venv/.tp-backend: rilanciare lo script con un backend diverso non sostituisce piu' torch in silenzio.
 #
 # Non copia ne' scrive mai credenziali. Non va lanciato come root (il venv deve essere dell'utente).
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CHECK=0; SYSDEPS=0; NOGPU=0; YES=0; WITHMODELS=0; WITHGUI=0; QWENSIZE=auto; GPUBACKEND=""; LLAMA_IDX=cpu; ROCM=0; GGUF=""; GGUFDIR=""
+CHECK=0; SYSDEPS=0; YES=0; WITHMODELS=0; WITHGUI=0; QWENSIZE=auto; BACKEND="auto"; FORCE_BACKEND=0; LLAMA_IDX=cuda; ROCM=0; GGUF=""; GGUFDIR=""
 for a in "$@"; do
   case "$a" in
     --check) CHECK=1 ;;
     --system-deps) SYSDEPS=1 ;;
-    --no-gpu) NOGPU=1 ;;
     --yes) YES=1 ;;
     --with-models) WITHMODELS=1 ;;
     --with-gui) WITHGUI=1 ;;
     --gguf=*) GGUF="${a#--gguf=}" ;;
     --gguf-dir=*) GGUFDIR="${a#--gguf-dir=}" ;;
     --qwen-size=*) QWENSIZE="${a#--qwen-size=}" ;;
-    --gpu-backend=*) GPUBACKEND="${a#--gpu-backend=}" ;;
-    -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
+    --backend=*) BACKEND="${a#--backend=}" ;;
+    --gpu-backend=*) BACKEND="${a#--gpu-backend=}" ;;   # alias storico
+    --force-backend) FORCE_BACKEND=1 ;;
+    -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
     *) echo "Opzione sconosciuta: $a"; exit 2 ;;
   esac
 done
@@ -59,44 +63,77 @@ ask()  { [ "$YES" = "1" ] && return 0; read -r -p "$1 [s/N] " r; case "$r" in s|
 have() { command -v "$1" >/dev/null 2>&1; }
 
 case "$GGUF" in ''|auto|q4|iq3|q3|none) ;; *) echo "[KO] --gguf deve essere auto, q4, iq3, q3 o none"; exit 2 ;; esac
-# --gpu-backend: senza l'opzione non cambia nulla. 'cpu' = --no-gpu; 'vulkan' = ruote CPU di torch + llama Vulkan (NOGPU=1 e LLAMA_IDX=vulkan).
-case "$GPUBACKEND" in ''|auto|cuda|vulkan|rocm|cpu) ;; *) echo "[KO] --gpu-backend deve essere auto, cuda, vulkan, rocm o cpu"; exit 2 ;; esac
-# Famiglia AMD (RDNA1..4, CDNA) dal rilevamento: solo informazioni e consigli, mai una scelta automatica di ROCm.
-amd_hint() {   # $1 = auto | rocm
-  local out fam gfx path ovr
-  out="$(python3 "$ROOT/utils/gpu_detect.py" --amd 2>/dev/null)"
-  fam="$(printf '%s\n' "$out" | sed -n 's/^amd_family=//p')"; gfx="$(printf '%s\n' "$out" | sed -n 's/^gfx=//p')"
-  path="$(printf '%s\n' "$out" | sed -n 's/^path=//p')"; ovr="$(printf '%s\n' "$out" | sed -n 's/^hsa_override_gfx_version=//p')"
-  [ -n "$path" ] || return 0
-  ok "GPU AMD: famiglia ${fam:-sconosciuta}${gfx:+ ($gfx)}"
-  case "$path" in
-    rocm)
-      if [ "$1" = "auto" ]; then warn "Scheda $fam: ROCm e' adatto, ma 'auto' non lo attiva da solo (non provato su hardware). Per usarlo: ./install.sh --gpu-backend=rocm"; fi ;;
-    rocm_override)
-      warn "Scheda $fam ($gfx): ROCm non la supporta ufficialmente. L'app imposta HSA_OVERRIDE_GFX_VERSION=$ovr solo per i propri processi (mai se l'hai gia' impostata tu)."
-      warn "bf16 su RDNA2 non ha accelerazione hardware: Qwen3-ASR e TranslateGemma saranno lenti."
-      if [ "$1" = "auto" ]; then warn "'auto' non attiva ROCm da solo. Per usarlo: ./install.sh --gpu-backend=rocm"; fi ;;
-    vulkan_cpu)
-      if [ "$1" = "rocm" ]; then warn "Scheda ${fam:-AMD}${gfx:+ ($gfx)}: ROCm non e' utilizzabile qui (famiglia troppo vecchia per ROCm 7, oppure ROCm non parte). Meglio --gpu-backend=vulkan (glossario su GPU) oppure --gpu-backend=cpu."
-      else warn "Scheda ${fam:-AMD}${gfx:+ ($gfx)}: ROCm non e' utilizzabile (troppo vecchia per ROCm 7, oppure ROCm non parte). Propongo vulkan (glossario su GPU, il resto su CPU) o cpu: --gpu-backend=vulkan | --gpu-backend=cpu."; fi ;;
-  esac
-}
-if [ "$GPUBACKEND" = "auto" ]; then
-  if [ "$NOGPU" = "1" ]; then GPUBACKEND=cpu
-  else
-    GPUBACKEND="$(python3 "$ROOT/utils/gpu_detect.py" --backend 2>/dev/null | head -1)"
-    case "$GPUBACKEND" in cuda|rocm|vulkan|cpu) ;; *) GPUBACKEND=cpu ;; esac
-    echo "  gpu_detect: backend consigliato = $GPUBACKEND"
-    amd_hint auto
-    [ "$GPUBACKEND" = "rocm" ] && { echo "  [!!]  Rilevato ROCm: 'auto' non lo sceglie perche' non e' ancora provato su hardware; uso vulkan (glossario su GPU, il resto su CPU). Per ROCm: --gpu-backend=rocm"; GPUBACKEND=vulkan; }
-  fi
-fi
-if [ -n "$GPUBACKEND" ] && [ "$NOGPU" = "1" ] && [ "$GPUBACKEND" != "cpu" ]; then echo "[KO] --no-gpu equivale a --gpu-backend=cpu: non si combina con --gpu-backend=$GPUBACKEND"; exit 2; fi
-case "$GPUBACKEND" in
-  cpu) NOGPU=1 ;;
-  vulkan) NOGPU=1; LLAMA_IDX=vulkan ;;
-  rocm) ROCM=1; LLAMA_IDX=vulkan ;;     # torch/ctranslate2 su ROCm; llama resta Vulkan (ruota ROCm di llama non prevista)
+case "$BACKEND" in
+  auto|cuda|rocm) ;;
+  cpu|vulkan) echo "[KO] Backend '$BACKEND' non supportato (ADR-007): restano solo cuda e rocm. Usa --backend=auto|cuda|rocm."; exit 2 ;;
+  *) echo "[KO] --backend deve essere auto, cuda o rocm"; exit 2 ;;
 esac
+
+# ----------------------------------------------------------------------------------------------
+# Scelta del backend. Regola: auto decide dall'hardware e, se l'hardware non e' supportato,
+# SI FERMA. Un backend esplicito diverso dall'hardware e' un errore, a meno di --force-backend
+# (cross-build dei container e test). Nessun percorso porta a installare torch CUDA su una
+# macchina AMD o rocce su una NVIDIA senza che qualcuno l'abbia chiesto (v. ADR-007).
+# ----------------------------------------------------------------------------------------------
+detected_backend() { python3 "$ROOT/utils/gpu_detect.py" --backend 2>/dev/null | head -1; }
+md_amd() { python3 "$ROOT/utils/gpu_detect.py" --amd 2>/dev/null | sed -n "s/^$1=//p"; }
+amd_line="$(python3 "$ROOT/utils/gpu_detect.py" --amd 2>/dev/null)"
+amd_family="$(printf '%s\n' "$amd_line" | sed -n 's/^amd_family=//p')"
+amd_gfx="$(printf '%s\n' "$amd_line" | sed -n 's/^gfx=//p')"
+amd_path="$(printf '%s\n' "$amd_line" | sed -n 's/^path=//p')"
+# il nome commerciale non e' in --amd: si prende dalla scheda discreta del report JSON
+amd_name="$(python3 "$ROOT/utils/gpu_detect.py" --json 2>/dev/null | sed -n 's/.*"name": "\([^"]*\)".*/\1/p' | head -1)"
+DETECTED="$(detected_backend)"
+KFD="${TP_KFD_PATH:-/dev/kfd}"        # override usato dai test per non dipendere dalla macchina
+
+# rocm utilizzabile solo su famiglie supportate ufficialmente da ROCm 7 e con /dev/kfd accessibile
+rocm_ready=1; rocm_why=""
+if [ -z "$amd_path" ]; then rocm_ready=0; rocm_why="nessuna GPU AMD rilevata"
+elif [ "$amd_path" = "rocm_override" ]; then rocm_ready=0; rocm_why="scheda ${amd_family:-AMD}${amd_gfx:+ ($amd_gfx)}: ROCm non la supporta ufficialmente (serve HSA override)"
+elif [ "$amd_path" = "vulkan_cpu" ]; then rocm_ready=0; rocm_why="scheda ${amd_family:-AMD}${amd_gfx:+ ($amd_gfx)}: troppo vecchia per ROCm 7"
+elif [ ! -e "$KFD" ]; then rocm_ready=0; rocm_why="/dev/kfd assente: manca il driver amdgpu con supporto compute"
+elif [ ! -r "$KFD" ] || [ ! -w "$KFD" ]; then rocm_ready=0; rocm_why="/dev/kfd non accessibile a $(id -un): sudo usermod -aG render,video \$USER poi nuovo login"
+fi
+
+case "$BACKEND" in
+  auto)
+    case "$DETECTED" in
+      cuda) BACKEND=cuda ;;
+      rocm)
+        if [ "$rocm_ready" = "1" ]; then BACKEND=rocm
+        else
+          bad "GPU AMD rilevata ma ROCm non e' utilizzabile: $rocm_why"
+          bad "Backend supportati: cuda e rocm su GPU AMD RDNA3/RDNA4/CDNA (ADR-007). Mi fermo senza toccare il venv."
+          exit 2
+        fi ;;
+      *)  bad "Nessun backend supportato su questo hardware (rilevato: ${DETECTED:-niente})."
+          bad "Servono una GPU NVIDIA (cuda) o una AMD RDNA3/RDNA4/CDNA con ROCm (rocm). Mi fermo senza toccare il venv."
+          exit 2 ;;
+    esac ;;
+  cuda)
+    if [ "$DETECTED" != "cuda" ] && [ "$FORCE_BACKEND" != "1" ]; then
+      bad "--backend=cuda richiesto ma l'hardware rilevato e' '${DETECTED:-niente}'. Se e' un cross-build (container) aggiungi --force-backend."
+      exit 2
+    fi ;;
+  rocm)
+    if { [ "$DETECTED" != "rocm" ] || [ "$rocm_ready" != "1" ]; } && [ "$FORCE_BACKEND" != "1" ]; then
+      bad "--backend=rocm richiesto ma non utilizzabile qui: ${rocm_why:-rilevato '${DETECTED:-niente}'}."
+      bad "Per un cross-build (container) aggiungi --force-backend."
+      exit 2
+    fi ;;
+esac
+
+case "$BACKEND" in
+  rocm) ROCM=1; LLAMA_IDX=vulkan ;;   # torch/ctranslate2 su ROCm; llama-cpp-python resta sulla ruota Vulkan (non esiste una ruota ROCm)
+  cuda) ROCM=0; LLAMA_IDX=cuda ;;
+esac
+
+echo; echo "== Backend"
+case "$BACKEND" in
+  rocm) ok "rocm  $( [ -n "$amd_name" ] && printf '%s' "$amd_name" )${amd_gfx:+ ($amd_gfx)} — torch 2.10.0+rocm7.0 + ctranslate2 ROCm" ;;
+  cuda) ok "cuda  NVIDIA — requirements.txt (torch +cu126)" ;;
+esac
+[ "$FORCE_BACKEND" = "1" ] && warn "--force-backend: procedo anche se l'hardware rilevato e' '${DETECTED:-niente}' (cross-build/test)"
 
 MISSING=()
 
@@ -112,11 +149,11 @@ else
 fi
 
 if [ "$ROCM" = "1" ]; then
-  warn "Backend ROCm (NON PROVATO su hardware AMD): torch/ctranslate2 su GPU con ROCm 7.0, llama-cpp-python su Vulkan."
-  amd_hint rocm
-  if [ -e /dev/kfd ]; then
-    if [ -r /dev/kfd ] && [ -w /dev/kfd ]; then ok "/dev/kfd accessibile"
-    else bad "/dev/kfd esiste ma non e' accessibile a $(id -un): aggiungi l'utente ai gruppi render e video (sudo usermod -aG render,video \$USER) e rifai il login"; MISSING+=("kfd-access"); fi
+  ok "Backend ROCm: torch/ctranslate2 su GPU, llama-cpp-python sulla ruota Vulkan"
+  [ -n "$amd_name$amd_family" ] && ok "GPU AMD: ${amd_name:-AMD}${amd_gfx:+ ($amd_gfx)}${amd_family:+ — famiglia $amd_family}"
+  if [ -e "$KFD" ]; then
+    if [ -r "$KFD" ] && [ -w "$KFD" ]; then ok "/dev/kfd accessibile"
+    else bad "/dev/kfd esiste ma non e' accessibile a $(id -un): sudo usermod -aG render,video \$USER, poi nuovo login"; MISSING+=("kfd-access"); fi
   else bad "/dev/kfd assente: serve il driver amdgpu del kernel con supporto compute (kernel recente o pacchetto amdgpu-dkms di AMD)"; MISSING+=("kfd"); fi
   for g in render video; do
     if id -nG 2>/dev/null | tr ' ' '\n' | grep -qx "$g"; then ok "utente nel gruppo $g"; else warn "utente non nel gruppo $g (sudo usermod -aG $g \$USER, poi nuovo login)"; fi
@@ -126,14 +163,19 @@ if [ "$ROCM" = "1" ]; then
   if { have ldconfig && ldconfig -p 2>/dev/null | grep -q 'libvulkan\.so\.1'; } || [ -e /usr/lib/x86_64-linux-gnu/libvulkan.so.1 ] || [ -e /usr/lib64/libvulkan.so.1 ] || [ -e /usr/lib/libvulkan.so.1 ]; then
     ok "Loader Vulkan (libvulkan.so.1) presente"
   else bad "libvulkan.so.1 non trovata (serve per llama-cpp-python Vulkan)"; MISSING+=("vulkan"); fi
-elif [ "$LLAMA_IDX" = "vulkan" ]; then
-  warn "Backend Vulkan: llama-cpp-python usera' la GPU (solo il glossario); trascrizione e traduzione girano su CPU, ~10 volte piu' lente."
-  if { have ldconfig && ldconfig -p 2>/dev/null | grep -q 'libvulkan\.so\.1'; } || [ -e /usr/lib/x86_64-linux-gnu/libvulkan.so.1 ] || [ -e /usr/lib64/libvulkan.so.1 ] || [ -e /usr/lib/libvulkan.so.1 ]; then
+else
+  if have nvidia-smi && nvidia-smi >/dev/null 2>&1; then
+    ok "GPU NVIDIA: $(nvidia-smi --query-gpu=name,driver_version --format=csv,noheader | head -1)"
+  elif [ "$FORCE_BACKEND" = "1" ]; then
+    warn "nvidia-smi non disponibile (--force-backend: cross-build/test, si prosegue)"
+  else
+    bad "nvidia-smi non disponibile: senza driver NVIDIA il backend cuda non puo' funzionare. Mi fermo."; MISSING+=("nvidia-smi")
+  fi
+  if { have ldconfig && ldconfig -p 2>/dev/null | grep -q 'libvulkan\.so\.1'; } || [ -e /usr/lib/x86_64-linux-gnu/libvulkan.so.1 ]; then
     ok "Loader Vulkan (libvulkan.so.1) presente"
-  else bad "libvulkan.so.1 non trovata (pacchetto del loader Vulkan e driver Mesa)"; MISSING+=("vulkan"); fi
-elif [ "$NOGPU" = "1" ]; then warn "Modalita' senza GPU (--no-gpu): l'app gira solo su CPU, ~10 volte piu' lenta."
-elif have nvidia-smi && nvidia-smi >/dev/null 2>&1; then ok "GPU NVIDIA: $(nvidia-smi --query-gpu=name,driver_version --format=csv,noheader | head -1)"
-else warn "nvidia-smi non disponibile: senza driver NVIDIA usa --no-gpu."; fi
+  else warn "libvulkan.so.1 non trovata: serve solo al glossario su Vulkan, non alla trascrizione"
+  fi
+fi
 
 have ffmpeg && have ffprobe && ok "FFmpeg: $(command -v ffmpeg)" || { bad "ffmpeg/ffprobe non trovati"; MISSING+=("ffmpeg"); }
 if have tesseract; then
@@ -142,7 +184,7 @@ if have tesseract; then
 else bad "Tesseract non trovato"; MISSING+=("tesseract"); fi
 have mkvextract && ok "MKVToolNix: $(command -v mkvextract)" || warn "MKVToolNix non trovato (serve solo per i sottotitoli VOBSUB)"
 free_gb="$(df -Pk "$ROOT" | awk 'NR==2{printf "%d", $4/1048576}')"
-need=15; [ "$NOGPU" = "1" ] && need=6; [ "$ROCM" = "1" ] && need=20
+need=15; [ "$ROCM" = "1" ] && need=20
 [ "${free_gb:-0}" -ge "$need" ] && ok "Spazio libero: ${free_gb} GB (servono ~${need})" || { bad "Spazio libero ${free_gb} GB, ne servono ~${need}"; MISSING+=("disco"); }
 
 # gestore pacchetti e nomi (ogni distribuzione chiama i pacchetti in modo diverso). I pacchetti Python si aggiungono solo se servono:
@@ -238,45 +280,45 @@ if [ ! -x "$VENV/bin/python" ]; then
   "$PY" -m venv "$VENV" || { bad "Creazione del venv fallita (manca python3-venv?)"; exit 1; }
 else ok "venv gia' presente (riuso)"; fi
 VPY="$VENV/bin/python"
+
+# Timbro del venv: backend con cui e' stato installato. Rilanciare lo script con un backend diverso non deve
+# sostituire torch in silenzio: o e' lo stesso backend, o serve --force-backend (cross-build/test).
+unset TP_STAMP_ACTION
+STAMP="$VENV/.tp-backend"
+if [ -f "$STAMP" ]; then
+  _stamp_backend="$(sed -n 's/^backend=//p' "$STAMP" | head -1)"
+  if [ -n "$_stamp_backend" ] && [ "$_stamp_backend" != "$BACKEND" ]; then
+    if [ "$FORCE_BACKEND" = "1" ]; then
+      warn "Il venv in $VENV e' timbrato '$_stamp_backend' e sto installando '$BACKEND' (--force-backend)"
+      TP_STAMP_ACTION=rewrite
+    else
+      bad "Il venv in $VENV e' gia' installato per il backend '$_stamp_backend' (v. $STAMP): non lo sostituisco con '$BACKEND'."
+      bad "Se e' davvero quello che vuoi: ./install.sh --backend=$BACKEND --force-backend (o usa un altro venv con TP_INSTALL_VENV)."
+      exit 2
+    fi
+  else
+    ok "venv gia' installato per il backend '$_stamp_backend': aggiorno i pacchetti"
+  fi
+fi
+
 "$VPY" -m pip install --upgrade pip >/dev/null 2>&1
 
 REQ="$ROOT/requirements.txt"
-if [ "$NOGPU" = "0" ] && [ "$ROCM" = "0" ] && [ -f "$VENV/llama_backend.txt" ]; then
-  # venv riusato che aveva la ruota CPU/Vulkan di llama (installata da una esecuzione precedente con --no-gpu / --gpu-backend):
-  # pip la riterrebbe valida (stessa versione), quindi si rimette la ruota CUDA dei requisiti. Senza marcatore non si tocca nulla.
-  LV="$(sed -n 's/^[[:space:]]*llama[-_]cpp[-_]python==\([0-9.]*\).*/\1/Ip' "$ROOT/requirements.txt" | head -1)"
-  if [ -n "$LV" ]; then
-    echo "  llama-cpp-python $LV: ripristino la ruota CUDA (il venv aveva la ruota $(cat "$VENV/llama_backend.txt"))"
-    if "$VPY" -m pip install --force-reinstall --no-deps --only-binary=:all: --index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 "llama_cpp_python==$LV"; then
-      rm -f "$VENV/llama_backend.txt"
-    else warn "Ruota CUDA di llama-cpp-python non reinstallata: il venv conserva quella di prima."; fi
-  fi
-fi
-if [ "$NOGPU" = "1" ] || [ "$ROCM" = "1" ]; then
-  # ruote CPU: llama-cpp-python (stessa versione del pin) e torch/torchaudio, tolte dal file usato da pip
-  LV="$(sed -n 's/^[[:space:]]*llama[-_]cpp[-_]python==\([0-9.]*\).*/\1/Ip' "$ROOT/requirements.txt" | head -1)"
-  TV="$(sed -n 's/^[[:space:]]*torch==\([0-9.]*\).*/\1/p' "$ROOT/requirements.txt" | head -1)"
-  AV="$(sed -n 's/^[[:space:]]*torchaudio==\([0-9.]*\).*/\1/p' "$ROOT/requirements.txt" | head -1)"
-  if [ -n "$LV" ]; then
-    echo "  llama-cpp-python $LV (ruota $LLAMA_IDX)"
+LV="$(sed -n 's/^[[:space:]]*llama[-_]cpp[-_]python==\([0-9.]*\).*/\1/Ip' "$ROOT/requirements.txt" | head -1)"
+# llama-cpp-python: ruota CUDA con backend cuda, ruota Vulkan con rocm (una ruota ROCm non esiste). Il marcatore
+# venv/llama_backend.txt dice quale ruota c'e': se non combacia si reinstalla, altrimenti pip la riterrebbe valida.
+if [ -n "$LV" ]; then
+  _have_idx="$(cat "$VENV/llama_backend.txt" 2>/dev/null || echo '')"
+  if [ "$_have_idx" != "$LLAMA_IDX" ]; then
+    echo "  llama-cpp-python $LV (ruota $LLAMA_IDX${_have_idx:+, ora c'e' $_have_idx})"
     if "$VPY" -m pip install --force-reinstall --no-deps --only-binary=:all: --index-url "https://abetlen.github.io/llama-cpp-python/whl/$LLAMA_IDX" "llama_cpp_python==$LV"; then
       echo "$LLAMA_IDX" > "$VENV/llama_backend.txt"     # letto da utils/llm_model_select.py: solo 'vulkan' cambia la scelta del modello
     else
       rm -f "$VENV/llama_backend.txt"
-      if [ "$NOGPU" = "1" ]; then
-        bad "Download della ruota $LLAMA_IDX di llama-cpp-python fallito (rete o sito irraggiungibile). Mi fermo: proseguire installerebbe la ruota CUDA, inutile senza GPU NVIDIA. Controlla la connessione e rilancia ./install.sh"; exit 1
-      fi
-      warn "Ruota $LLAMA_IDX di llama-cpp-python non installata: si prosegue con quella di requirements.txt."
+      bad "Download della ruota $LLAMA_IDX di llama-cpp-python fallito (rete o sito irraggiungibile). Mi fermo: proseguire installerebbe la ruota sbagliata. Controlla la connessione e rilancia ./install.sh"; exit 1
     fi
-  fi
-  if [ "$NOGPU" = "1" ] && [ -n "$TV" ] && [ -n "$AV" ]; then
-    echo "  torch $TV / torchaudio $AV (ruote CPU)"
-    if "$VPY" -m pip install --only-binary=:all: --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple "torch==$TV" "torchaudio==$AV"; then
-      REQ="$(mktemp /tmp/tp_requirements_nogpu.XXXXXX)"; trap 'rm -f "$REQ"' EXIT
-      grep -Ev '^[[:space:]]*(torch|torchaudio)==' "$ROOT/requirements.txt" > "$REQ"
-    else
-      bad "Download delle ruote CPU di torch fallito (rete o download.pytorch.org irraggiungibile). Mi fermo: proseguire installerebbe torch CUDA (+cu126, ~3 GB), inutile senza GPU NVIDIA. Controlla la connessione e rilancia ./install.sh --no-gpu"; exit 1
-    fi
+  else
+    ok "llama-cpp-python $LV: ruota $LLAMA_IDX gia' presente"
   fi
 fi
 if [ "$ROCM" = "1" ]; then
@@ -316,6 +358,70 @@ if [ "$ROCM" = "1" ]; then
   WV="$(sed -n 's/^[[:space:]]*whisperx==\([0-9.]*\).*/\1/p' "$ROOT/requirements.txt" | head -1)"
   "$VPY" -m pip install --no-deps "whisperx==$WV" || warn "whisperx $WV non installato: l'allineamento parola per parola non funzionera'."
 fi
+# ----------------------------------------------------------------------------------------------
+# Verifica reale: un'installazione non e' riuscita finche' torch/ctranslate2 non vedono davvero la
+# GPU. Se il backend e' cuda/rocm e il device non risponde, lo script FALLISCE e non scrive il
+# timbro, cosi' non resta in giro un venv che sembra a posto e poi gira su CPU.
+# ----------------------------------------------------------------------------------------------
+echo; echo "== Verifica del backend installato"
+check_backend() {
+  "$VPY" - "$BACKEND" <<'PYEOF'
+import sys
+backend = sys.argv[1]
+try:
+    import torch
+except Exception as exc:                                   # noqa: BLE001
+    print(f"KO  import torch fallito: {exc}")
+    raise SystemExit(1)
+version = torch.__version__
+runtime = torch.version.hip or torch.version.cuda or ''
+available = bool(torch.cuda.is_available())
+devices = torch.cuda.device_count() if available else 0
+print(f"  torch {version} | runtime {runtime or '-'} | cuda/hip disponibile: {available} | device: {devices}")
+bad = []
+if backend == 'rocm':
+    if not torch.version.hip:
+        bad.append("torch non e' la ruota ROCm (version.hip vuoto)")
+    if not available:
+        bad.append("torch.cuda.is_available() e' False: ROCm non vede la GPU")
+elif backend == 'cuda':
+    if not torch.version.cuda:
+        bad.append("torch non e' la ruota CUDA (version.cuda vuoto)")
+    if not available:
+        bad.append("torch.cuda.is_available() e' False: il driver NVIDIA non risponde")
+if backend in ('rocm', 'cuda'):
+    try:
+        import ctranslate2
+        n = ctranslate2.get_cuda_device_count()
+        print(f"  ctranslate2 {ctranslate2.__version__} | device GPU: {n}")
+        if n < 1:
+            bad.append("ctranslate2 non vede alcun device GPU (Whisper girerebbe su CPU)")
+    except Exception as exc:                               # noqa: BLE001
+        print(f"  [!!]  ctranslate2 non verificabile: {exc}")
+for line in bad:
+    print(f"KO  {line}")
+raise SystemExit(1 if bad else 0)
+PYEOF
+}
+if check_backend; then
+  ok "backend $BACKEND verificato: la GPU risponde"
+  {
+    echo "backend=$BACKEND"
+    echo "torch=$("$VPY" -c 'import torch;print(torch.__version__)' 2>/dev/null)"
+    echo "torchaudio=$("$VPY" -c 'import torchaudio;print(torchaudio.__version__)' 2>/dev/null)"
+    echo "ctranslate2=$("$VPY" -c 'import ctranslate2;print(ctranslate2.__version__)' 2>/dev/null)"
+    echo "llama_backend=$LLAMA_IDX"
+    echo "requirements=$(basename "$REQ")"
+    echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } > "$STAMP"
+  ok "backend scritto in $STAMP"
+else
+  bad "Installazione NON riuscita: il backend $BACKEND non funziona su questa macchina."
+  bad "Controlla i messaggi qui sopra (driver, gruppi render/video, /dev/kfd, indice delle ruote) e rilancia ./install.sh --backend=$BACKEND."
+  rm -f "$STAMP"
+  exit 1
+fi
+
 ok "ambiente principale pronto"
 
 if [ "$WITHMODELS" = "1" ]; then
@@ -324,7 +430,7 @@ if [ "$WITHMODELS" = "1" ]; then
   QS="$QWENSIZE"
   if [ "$QS" = "auto" ]; then
     VR=0
-    if [ "$NOGPU" = "0" ] && have nvidia-smi; then VR="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | sort -n | tail -1)"; fi
+    VR="$(python3 "$ROOT/utils/gpu_detect.py" --vram 2>/dev/null | head -1)"
     case "$VR" in ''|*[!0-9]*) VR=0 ;; esac
     if [ "$VR" -ge 12000 ]; then QS=14b; else QS=7b; fi
   fi
@@ -358,14 +464,12 @@ if [ "$GGUF" != "none" ]; then
   echo; echo "== TranslateGemma GGUF (Hugging Face)"
   GARGS=(--gguf "$GGUF")
   [ "$YES" = "1" ] && GARGS+=(--yes)
-  # --no-gpu vero (ruote CPU): niente GPU, niente GGUF. Con vulkan/rocm NOGPU vale 1 solo per torch: llama usa la GPU e il GGUF serve.
-  [ "$NOGPU" = "1" ] && [ "$LLAMA_IDX" != "vulkan" ] && GARGS+=(--no-gpu)
   [ -n "$GGUFDIR" ] && GARGS+=(--dest "$GGUFDIR")
   "$VPY" "$ROOT/utils/gguf_download.py" "${GARGS[@]}" || warn "Download dei GGUF non completato: rilancia ./install.sh --gguf=$GGUF (riprende da dove si e' fermato)."
 fi
 
 echo; echo "== Controllo finale"
-SC=("$VPY" "$ROOT/scripts_manutenzione/selfcheck_env.py"); [ "$NOGPU" = "1" ] && SC+=("--no-gpu")
+SC=("$VPY" "$ROOT/scripts_manutenzione/selfcheck_env.py")
 "${SC[@]}"; rc=$?
 echo
 echo "Avvio: ./run.sh   (le chiavi TMDB/HuggingFace/Claude si impostano a mano; questo script non le scrive)"

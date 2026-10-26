@@ -44,6 +44,7 @@ when touched (documentation hard rule).
 | [`adr/ADR-004-docker-distribution.md`](adr/ADR-004-docker-distribution.md) | Docker as the distribution artifact |
 | [`adr/ADR-005-support-matrix.md`](adr/ADR-005-support-matrix.md) | explicit support tiers |
 | [`adr/ADR-006-two-lines.md`](adr/ADR-006-two-lines.md) | legacy master, development product line |
+| [`adr/ADR-007-supported-backends.md`](adr/ADR-007-supported-backends.md) | only CUDA and recent ROCm are supported |
 
 ## Active work
 

@@ -27,6 +27,47 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-26 — Installer: automatic backend choice with deny-by-default (ADR-007)
+
+- Branch / commits: `feat/backend-auto`.
+- Goal: make it impossible to end up with a venv whose backend does not match
+  the hardware — the accident that turned a 27-minute GPU job into a CPU job
+  without a single error.
+- Done: `install.sh` rewritten around a backend decision: `--backend=auto|cuda|rocm`
+  (`auto` is the default, `--gpu-backend` kept as an alias), `--force-backend`
+  for cross-builds and tests; `--no-gpu` and the `cpu`/`vulkan` branches removed;
+  the AMD decision uses `utils/gpu_detect.py` (`path=rocm` and `/dev/kfd`
+  accessible) and refuses RDNA2/`rocm_override`, older families, missing devices
+  and unknown hardware with an explanation; explicit mismatch refuses; a
+  post-install verification imports torch/ctranslate2 and checks the runtime
+  before declaring success, writing `venv/.tp-backend` only then; a venv stamped
+  with another backend refuses to be replaced without `--force-backend`;
+  `--with-models` reads VRAM from the detector instead of nvidia-smi; the GGUF
+  downloader no longer receives `--no-gpu`. `docker/compose.yaml` loses the
+  `cpu` service and `docker/Dockerfile` accepts only `rocm|cuda`.
+  `docs/adr/ADR-007-supported-backends.md` records the policy, and
+  `docs/SUPPORT_MATRIX.md` moves CPU/Vulkan/older-AMD to "not supported".
+- Tests and results: `linux_tests/test_install_backend.py` (11 new: retired
+  backends refused, unknown value refused, `auto` with no hardware stops before
+  touching the venv, `auto` picks cuda, RDNA2 and older families refused,
+  explicit mismatch refused, `--force-backend` allowed, stamp mismatch refuses
+  without pip, same stamp proceeds, no `--no-gpu`/`NOGPU` left in the script);
+  `test_install_retry.py` +2 (stamp written with backend and requirements,
+  failed verification aborts and leaves no stamp) and adapted to
+  `--backend=cuda --force-backend`; `test_amd_rocm_f6.py` now asserts the
+  retired backends are rejected; `test_docker.py` expects two services.
+- Decisions / ADRs: ADR-007. `auto` is authoritative instead of advisory, and
+  the detection is backed by a real import check so a wrong heuristic cannot
+  produce a "successful" wrong install. The pipeline keeps its internal
+  `cuda -> cpu` fallback; the job-level refusal arrives with the runtime
+  preflight (next branch).
+- Known issues: the ROCm Docker image installs `requirements-rocm.txt` but not
+  the `ctranslate2` ROCm wheel (the Step 8 build is still unvalidated); the
+  `llama-cpp-python` Vulkan wheel for the ROCm backend is likewise only
+  installed by `install.sh`, not by the image.
+- Next step: runtime preflight (stamp vs reality, job refused when the GPU does
+  not answer), then the landing page status and the removal of the WebUI token.
+
 ## 2026-10-26 — Session close: throughput measured, GPU verdict, docs sync
 
 - Branch / commits: `docs/session-close` (this entry ships in the same commit).

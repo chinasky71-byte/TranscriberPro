@@ -4,7 +4,6 @@
 #
 #   docker build --build-arg BACKEND=rocm -t transcriberpro:rocm -f docker/Dockerfile .
 #   docker build --build-arg BACKEND=cuda -t transcriberpro:cuda -f docker/Dockerfile .
-#   docker build --build-arg BACKEND=cpu  -t transcriberpro:cpu  -f docker/Dockerfile .
 #
 # The image ships no GPU drivers and no model weights: both come from the host
 # (driver) and from the volumes `/models`, `/data`, `/media`.
@@ -45,11 +44,7 @@ RUN python -m venv /opt/venv \
  && case "$BACKEND" in \
       rocm) pip install -r requirements-rocm.txt ;; \
       cuda) pip install -r requirements.txt ;; \
-      cpu)  grep -Ev '^(torch|torchaudio)==|abetlen\.github\.io' requirements.txt > /tmp/requirements-cpu.txt \
-            && pip install -r /tmp/requirements-cpu.txt \
-            && pip install --index-url https://download.pytorch.org/whl/cpu \
-                 torch==2.8.0 torchaudio==2.8.0 ;; \
-      *) echo "BACKEND must be rocm, cuda or cpu (got '$BACKEND')" >&2; exit 2 ;; \
+      *) echo "BACKEND must be rocm or cuda (got '$BACKEND')" >&2; exit 2 ;; \
     esac \
  && pip install -r requirements-web.txt
 

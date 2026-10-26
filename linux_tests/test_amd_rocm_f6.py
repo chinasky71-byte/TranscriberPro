@@ -86,9 +86,11 @@ def test_install_rocm_check_reports_kfd_and_does_not_modify():
 
 
 @pytest.mark.skipif(sys.platform != 'linux' or os.geteuid() == 0, reason='install.sh rifiuta root e non-Linux')
-def test_install_rocm_conflicts_with_no_gpu():
-    p = _install('--check', '--gpu-backend=rocm', '--no-gpu')
-    assert p.returncode == 2 and 'non si combina' in p.stdout
+def test_install_ritira_cpu_e_vulkan():
+    # ADR-007: restano solo cuda e rocm; i backend ritirati devono fermare lo script subito
+    for backend in ('cpu', 'vulkan'):
+        p = _install('--check', f'--backend={backend}')
+        assert p.returncode == 2 and 'non supportato' in p.stdout, (backend, p.stdout)
 
 
 def test_install_script_is_executable_and_has_rocm_branch():
