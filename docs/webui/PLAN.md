@@ -11,8 +11,8 @@ tests, and an update to `docs/STATUS.md` and `docs/PROGRESS.md`.
 | 3 | `feat/webui-mvp` | Dashboard, queue, job detail, logs (HTMX + Alpine) | one real file processed from the browser on AMD | done — commit `ba9ba99`, merge `a9c0975` |
 | 4 | `feat/webui-settings` | Settings and history pages | config changes and history work | done |
 | 5 | `feat/webui-ocr` | OCR review page | parity with the Qt dialog | done |
-| 6 | `feat/webui-glossary` | Glossary and library scanner pages | functional parity | pending |
-| 7 | `feat/pyqt-optional` | Qt removed from default requirements; `--gui` optional | install without Qt | pending |
+| 6 | `feat/webui-glossary` | Glossary and library scanner pages | functional parity | glossary review done; library scanner is separate work (see below) |
+| 7 | `feat/pyqt-optional` | Qt removed from default requirements; `--gui` optional | install without Qt | done |
 | 8 | `feat/docker` | Multi-stage Dockerfile, compose rocm/cuda/cpu, volumes | `docker compose up` produces the SRT | pending |
 
 ## Step 0 checklist
@@ -46,6 +46,31 @@ tests, and an update to `docs/STATUS.md` and `docs/PROGRESS.md`.
 - Server-rendered pages + HTMX partials; no Node build.
 - Reuse `gui/file_progress.FileProgress` (move it under `core/jobs/`).
 - Show `device`/backend warnings like the benchmark report.
+
+## Step 6 notes
+
+- Glossary: the page reads reports produced by
+  `glossary_engine.build_glossary_candidates.build_full_report(report_out=...)`
+  from `TP_DATA_DIR/glossary/` and stores decisions in
+  `<report>.decisions.json`. Building a report is not exposed in the browser:
+  it needs the show folder, an English reference track and the Qwen extractor,
+  and `glossary_engine`'s own CLI writes only the candidates JSONL.
+- Library scanner: **not done**. It is a separate FastAPI + SQLite service
+  (`library scanner per server- va su docker/library_scanner/`, plan in
+  `LIBRARY_SCANNER_DEVELOPMENT_PLAN.md`) whose only reference implementation is
+  the 1290-line `gui/library_scanner_widget.py`. Doing it needs (a) a decision
+  on where its database lives (`TP_DATA_DIR`), (b) real media with bitmap
+  tracks to validate a scan, (c) its own support story for the watch folder.
+  It stays an explicit work item before Step 7 is considered complete for the
+  GUI removal.
+
+## Step 7 notes
+
+- PyQt6, PyQt6-Qt6 and PyQt6_sip moved to `requirements-gui.txt`.
+- `main.py` imports Qt behind `try/except ImportError` and exits 2 with a
+  message pointing at `requirements-gui.txt` and `python -m web.main`.
+- `install.sh --with-gui` installs the optional file; without it the install
+  has no Qt.
 
 ## Step 8 notes
 

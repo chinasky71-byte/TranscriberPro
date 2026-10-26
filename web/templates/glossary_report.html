@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <div class="row between">
+    <h2>Glossary — {{ report.show }}</h2>
+    <a class="btn small" href="/glossary">All reports</a>
+  </div>
+  {% if error %}<p class="alert error">{{ error }}</p>{% endif %}
+  {% if message %}<p class="alert ok">{{ message }}</p>{% endif %}
+  <dl class="facts">
+    <dt>Blocks</dt><dd>{{ report.blocks }}</dd>
+    <dt>Episodes</dt><dd>{{ report.episodes }}</dd>
+    <dt>Gate</dt><dd>{{ report.gate }}</dd>
+  </dl>
+
+  {% if report.rows %}
+  <table class="queue">
+    <thead>
+      <tr><th>Term</th><th>Status</th><th>Reason</th><th>Decision</th></tr>
+    </thead>
+    <tbody>
+    {% for row in report.rows %}
+      <tr>
+        <td class="name" title="{{ row.term }}">{{ row.term }} <small class="muted">({{ row.occurrences }})</small></td>
+        <td><span class="badge {{ 'done' if row.status == 'auto' else 'failed' if row.status == 'reject' else 'running' }}">{{ row.status }}</span></td>
+        <td>{{ row.reason }}</td>
+        <td>
+          <form method="post" action="/glossary/{{ report.name }}/terms/{{ row.index }}" class="row">
+            <select name="decision">
+              {% for option in ('pending', 'approved', 'rejected') %}
+              <option value="{{ option }}" {% if row.decision == option %}selected{% endif %}>{{ option }}</option>
+              {% endfor %}
+            </select>
+            <input name="translation" value="{{ row.translation }}" placeholder="rendering" size="14">
+            <input name="note" value="{{ row.note }}" placeholder="note" size="14">
+            <button class="btn small" type="submit">Save</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No candidates in this report.</p>
+  {% endif %}
+</section>
+{% endblock %}

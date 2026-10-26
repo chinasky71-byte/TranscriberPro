@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h2>Glossary</h2>
+  {% if error %}<p class="alert error">{{ error }}</p>{% endif %}
+  {% if message %}<p class="alert ok">{{ message }}</p>{% endif %}
+  <p class="muted">Reports are produced outside the browser, because building one
+    reads the whole show and runs the Qwen extractor:</p>
+  <pre class="logs">python -c "from glossary_engine.build_glossary_candidates import build_full_report; \
+build_full_report('/media/show', 'showname', report_out='$TP_DATA_DIR/glossary/showname.json')"</pre>
+  {% if reports %}
+  <table class="queue">
+    <thead>
+      <tr><th>Show</th><th>Candidates</th><th>To review</th><th>Decided</th><th>Updated</th><th></th></tr>
+    </thead>
+    <tbody>
+    {% for report in reports %}
+      <tr>
+        <td class="name">{{ report.show }}</td>
+        <td>{{ report.candidates }}</td>
+        <td>{{ report.to_review }}</td>
+        <td>{{ report.decided }}</td>
+        <td>{{ report.updated_at | int }}</td>
+        <td class="actions"><a class="btn small" href="/glossary/{{ report.name }}">Open</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No glossary reports found under the data directory.</p>
+  {% endif %}
+</section>
+{% endblock %}

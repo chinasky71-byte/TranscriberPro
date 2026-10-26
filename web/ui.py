@@ -17,6 +17,7 @@ from web.auth import SESSION_COOKIE, request_token, token_matches
 from web.config_schema import (ENUM_CONFIG_KEYS, MEDIA_ROOTS_KEY, ConfigError,
                                apply_values, read_values)
 from web.ocr_review import OcrSessionError, OcrSessionNotFound
+from web.glossary import GlossaryError, GlossaryNotFound
 from web.paths import compute_roots, validate_media_path
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
@@ -419,11 +420,57 @@ def ocr_delete(request: Request, session_id: str) -> HTMLResponse:
     return RedirectResponse("/ocr", status_code=303)
 
 
+def _glossary_context(request: Request, name: str = "", error: str = "",
+                      message: str = "") -> Dict[str, Any]:
+    store = request.app.state.glossary
+    context: Dict[str, Any] = {
+        "status": _status_context(request),
+        "reports": store.list(),
+        "report": None,
+        "error": error,
+        "message": message,
+    }
+    if name:
+        context["report"] = store.view(name)
+    return context
+
+
+@router.get("/glossary", response_class=HTMLResponse, dependencies=[Depends(_auth)])
+def glossary_page(request: Request) -> HTMLResponse:
+    return _render(request, "glossary.html", _glossary_context(request))
+
+
+@router.get("/glossary/{name}", response_class=HTMLResponse, dependencies=[Depends(_auth)])
+def glossary_report_page(request: Request, name: str) -> HTMLResponse:
+    try:
+        return _render(request, "glossary_report.html", _glossary_context(request, name))
+    except GlossaryNotFound:
+        return _render(request, "glossary.html",
+                       _glossary_context(request, error="Unknown glossary report"))
+
+
+@router.post("/glossary/{name}/terms/{index}", response_class=HTMLResponse,
+             dependencies=[Depends(_auth)])
+def glossary_decide(request: Request, name: str, index: int,
+                    decision: str = Form("pending"), translation: str = Form(""),
+                    note: str = Form("")) -> HTMLResponse:
+    store = request.app.state.glossary
+    try:
+        rows = store.view(name)["rows"]
+        if not 0 <= index < len(rows):
+            raise GlossaryNotFound("unknown term")
+        store.decide(name, rows[index]["term"], decision, translation, note)
+    except GlossaryNotFound:
+        return _render(request, "glossary.html",
+                       _glossary_context(request, error="Unknown glossary report or term"))
+    except GlossaryError as exc:
+        return _render(request, "glossary_report.html",
+                       _glossary_context(request, name, error=str(exc)))
+    return RedirectResponse(f"/glossary/{name}", status_code=303)
+
+
 @router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, next: str = "/") -> HTMLResponse:
-    expected = request.app.state.token
-    if not expected or token_matches(request_token(request), expected):
-        return RedirectResponse("/", status_code=303)
     return _render(request, "login.html", {"error": "", "next": _login_target(next)})
 
 

@@ -17,6 +17,31 @@ Every session that touches the repository must add an entry before the merge.
 - Next step:
 ```
 
+## 2026-10-26 — WebUI Step 6: glossary review, and the library scanner scoped out
+
+- Branch / commits: `feat/webui-glossary`.
+- Goal: review the per-show glossary candidates from the browser.
+- Done: `web/glossary.py` (read-only view of
+  `glossary_engine.build_glossary_candidates` reports plus a
+  `<report>.decisions.json` written next to the report); API
+  `/api/glossary/reports` (list, detail, decide by index); pages `/glossary`
+  and `/glossary/{name}` with per-term decision, rendering and note; nav link.
+- Tests: `linux_tests/test_web_glossary.py` (7 tests) on a fixture report:
+  list/view, decision round trip, decisions file separate from the report,
+  name traversal rejected, pages, login redirect, empty directory.
+- Decisions: the web layer does **not** build reports. `build_full_report()`
+  needs the show folder, an English reference track and the Qwen extractor
+  (long GPU job), and `glossary_engine`'s CLI does not write the full report
+  at all; the page shows the one-line Python call instead and reviewers only
+  read and decide. Library scanner: **not implemented here**, it is a separate
+  FastAPI + SQLite service (`library scanner per server- va su docker/`) with
+  its own data model and a 1290-line Qt widget as the only reference; it needs
+  real media to validate and a decision about where its database lives, so it
+  stays a separate work item (see `docs/webui/PLAN.md`).
+- Known issues: no CSRF token; reports must be produced and copied under
+  `TP_DATA_DIR/glossary/` by hand; no bulk approve.
+- Next step: Step 7, optional PyQt.
+
 ## 2026-10-26 — WebUI Step 5: OCR review
 
 - Branch / commits: `feat/webui-ocr`.
