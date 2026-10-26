@@ -22,14 +22,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-dir", default=os.environ.get("TP_DATA_DIR", ""))
     parser.add_argument("--models-dir", default=os.environ.get("TP_MODELS_DIR", ""))
     parser.add_argument("--token", default=None, help="override TP_WEB_TOKEN")
+    parser.add_argument("--no-auth", action="store_true",
+                        help="serve without any authentication (only on a private network: "
+                             "VPN, SSH tunnel or TLS proxy)")
     args = parser.parse_args(argv)
 
-    token = (args.token or token_from_env() or "").strip() or None
-    if not is_loopback(args.host) and not token:
+    no_auth = args.no_auth or os.environ.get("TP_WEB_NO_AUTH", "").strip().lower() in ("1", "true", "yes", "on")
+    token = None if no_auth else ((args.token or token_from_env() or "").strip() or None)
+    if not no_auth and not is_loopback(args.host) and not token:
         print("Refusing to bind a non-loopback address without a token.", file=sys.stderr)
         print("Set TP_WEB_TOKEN or pass --token. Generate one with:", file=sys.stderr)
         print("  python -c \"import secrets; print(secrets.token_urlsafe(32))\"", file=sys.stderr)
+        print("To run without authentication on purpose: --no-auth (private network only).", file=sys.stderr)
         return 2
+    if no_auth:
+        print("WARNING: authentication OFF (--no-auth). Anyone who can reach this port can "
+              "queue jobs and change settings. Use a VPN, an SSH tunnel or a TLS proxy.")
 
     data_dir = Path(args.data_dir).expanduser() if args.data_dir else Path.home() / ".transcriberpro"
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -58,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     app = create_app(manager, token=token, config=config)
 
-    print(f"WebUI on http://{args.host}:{args.port}  (auth: {'on' if token else 'off'})")
+    print(f"WebUI on http://{args.host}:{args.port}  (auth: {'on' if token else 'OFF'})")
     print(f"data: {data_dir}")
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
     return 0

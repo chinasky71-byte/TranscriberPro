@@ -24,7 +24,7 @@ videos, configure jobs and monitor the pipeline. The pipeline stays headless
 | Decision | Value |
 |---|---|
 | Bind address | `0.0.0.0` (remote access allowed) |
-| Auth | bearer token **required** when the host is not loopback; `TP_WEB_TOKEN` env var |
+| Auth | bearer token via `TP_WEB_TOKEN`; **optional** — `--no-auth` (or `TP_WEB_NO_AUTH=1`) serves without it and the dashboard shows a permanent warning |
 | Input | paths under configured `allowed_media_roots`; no upload in v1 |
 | UI stack | FastAPI + Jinja2 + **HTMX + Alpine.js**, no Node build |
 | GUI | frozen; removed after WebUI parity |
@@ -102,7 +102,7 @@ Errors: JSON `{error: {code, message}}`; no stack traces, no secrets.
 
 | Page | Contents | Phase |
 |---|---|---|
-| Dashboard | backend, GPU/VRAM, version, queue counters, active job | MVP (done) |
+| Dashboard | **system status** (backend + stamp, GPU ok/problem, torch/HIP/CUDA/ctranslate2 versions, work dir and free space, auth state), version, queue counters, active job | MVP + Step 10 (done) |
 | Queue | add path, **file picker with multi-select**, per-file overrides, `skip_existing`, start/stop/cancel, progress, phase, log tail | MVP + Step 9 (done) |
 | Job detail | steps, logs, output path | MVP (logs panel; no separate page) |
 | History | finished jobs, status filter, duration, output path, log | Step 4 (done) |
@@ -116,7 +116,10 @@ Mobile-friendly layout; no external CDN assets.
 
 ## 8. Security
 
-- Bind `0.0.0.0`; **require `TP_WEB_TOKEN`** unless bound to loopback.
+- Bind `0.0.0.0`; a token is required unless bound to loopback **or** started
+  with `--no-auth`, which is meant for a private network (VPN/Twingate), an SSH
+  tunnel or a TLS proxy. Without a token the dashboard shows an unmissable
+  warning and `/login` redirects to `/`.
 - Constant-time token comparison; token accepted via `Authorization: Bearer`
   or an HttpOnly session cookie after a login form.
 - CSRF protection for state-changing requests.

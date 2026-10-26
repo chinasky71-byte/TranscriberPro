@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -61,6 +62,34 @@ def _app_version() -> str:
         return ""
 
 
+def _system_status(config: Any) -> Dict[str, Any]:
+    """Backend installato, GPU disponibile, spazio del TMPDIR: quello che serve per capire
+    a colpo d'occhio se questo host puo' elaborare, senza aprire un terminale."""
+    from utils import backend_preflight
+    try:
+        preflight = backend_preflight.report()
+    except Exception as exc:                                  # pragma: no cover - difensivo
+        preflight = {"backend": "", "ok": False, "problems": [str(exc)], "runtime": {}, "stamp_path": ""}
+    tmpdir = os.environ.get("TMPDIR", "/tmp")
+    try:
+        usage = shutil.disk_usage(tmpdir)
+        tmp = {"path": tmpdir, "free_mib": usage.free // (1024 * 1024),
+               "total_mib": usage.total // (1024 * 1024)}
+    except OSError:
+        tmp = {"path": tmpdir, "free_mib": 0, "total_mib": 0}
+    return {
+        "backend": preflight.get("backend", ""),
+        "gpu_ok": bool(preflight.get("ok")),
+        "problems": list(preflight.get("problems") or []),
+        "torch": preflight.get("runtime", {}).get("torch", ""),
+        "runtime": preflight.get("runtime", {}).get("runtime", ""),
+        "devices": preflight.get("runtime", {}).get("devices", 0),
+        "ctranslate2": preflight.get("runtime", {}).get("ctranslate2", ""),
+        "stamp_path": preflight.get("stamp_path", ""),
+        "tmpdir": tmp,
+    }
+
+
 def _gpu_status() -> Dict[str, Any]:
     try:
         report = detect_gpus()
@@ -96,6 +125,7 @@ def create_app(manager: JobManager, token: Optional[str] = None,
     app.state.token = token
     app.state.config = config
     app.state.gpu = _gpu_status()
+    app.state.system = _system_status(config)
     app.state.ocr = ocr_service or OcrReviewService(env_root(config))
     app.state.glossary = glossary_store or GlossaryStore(glossary_root(config))
 
@@ -129,6 +159,7 @@ def create_app(manager: JobManager, token: Optional[str] = None,
             "data_dir": str(getattr(config, "CONFIG_DIR", "")),
             "models_dir": str(MODELS_ROOT),
             "auth_enabled": bool(app.state.token),
+            "system": app.state.system,
         }
 
     @app.get("/api/jobs", dependencies=auth)

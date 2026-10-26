@@ -27,6 +27,33 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-26 — WebUI: system status on the landing page, token removed (Step 10)
+
+- Branch / commits: `feat/webui-system-status`.
+- Goal: make the state of the machine visible where the work starts, and run
+  the UI without a token on a private network while keeping the mechanism.
+- Done: `_system_status()` in `web/app.py` (backend stamp, GPU verdict from
+  `utils/backend_preflight.py`, torch/HIP/CUDA/ctranslate2 versions, device
+  count, `TMPDIR` with free space) exposed in `/api/status` and rendered by
+  `_status.html` as a "System" card with two conditional alerts — GPU not
+  usable (with the `./install.sh --verify-only` remedy) and "No authentication";
+  `web/main.py` gains `--no-auth` / `TP_WEB_NO_AUTH=1`, which serves without a
+  token on any interface, prints a warning at startup and no longer refuses the
+  bind; `/login` redirects to `/` when no token is configured; `--no-auth` in
+  `web/README.md`, SPEC §3/§7/§8 and `docs/STATUS.md`.
+- Tests and results: `test_web_ui.py` +4 (system card with backend/versions/work
+  dir, GPU-problem alert with the remedy, no-auth warning plus `/login`
+  redirect, `/api/status` payload). Suite: 720 passed, 11 skipped, 0 failed.
+- Decisions / ADRs: no ADR. The token stays in the code (it can be re-enabled
+  with one environment variable) but the reference deployment runs with
+  `--no-auth` behind Twingate; the warning is part of the page, not a hidden
+  note, because without auth anyone reaching the port can queue jobs.
+- Known issues: `/api/status` runs the cached preflight probe, so the first
+  request after five minutes can take a couple of seconds; the "System" card
+  shows the discrete GPU only (the iGPU appears in `/api/status`).
+- Next step: merge the three backend branches, push, and re-run one episode to
+  confirm the UI status and the preflight agree with a real job.
+
 ## 2026-10-26 — Runtime preflight: a GPU job no longer starts on a CPU venv
 
 - Branch / commits: `feat/gpu-preflight`.

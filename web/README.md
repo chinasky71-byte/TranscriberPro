@@ -13,17 +13,28 @@ venv/bin/pip install -r requirements-web.txt
 ```
 
 ```bash
-export TP_WEB_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 export TP_MEDIA_ROOTS="/media:/srv/media"     # os.pathsep-separated
 export TP_DATA_DIR="$HOME/.transcriberpro"
 export TP_MODELS_DIR="/srv/transcriberpro/models"
 
+# with a token (recommended when the port is reachable by others)
+export TP_WEB_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 venv/bin/python -m web.main --host 0.0.0.0 --port 8080
+
+# without authentication, on a private network only (VPN/Twingate, SSH tunnel,
+# TLS proxy): the dashboard shows a permanent warning
+venv/bin/python -m web.main --host 0.0.0.0 --port 8080 --no-auth
 ```
 
-A non-loopback host **refuses to start** without a token. Generate one as
-above; the token is accepted as `Authorization: Bearer <token>` and, for SSE
-only, as `?token=<token>`.
+A non-loopback host **refuses to start** without a token unless `--no-auth` (or
+`TP_WEB_NO_AUTH=1`) is given. The token is accepted as
+`Authorization: Bearer <token>` and, for SSE only, as `?token=<token>`; without
+a token `/login` redirects to `/`.
+
+The dashboard shows the system status: backend from `venv/.tp-backend`, whether
+the GPU answers (`utils/backend_preflight.py`), the torch/HIP/CUDA/ctranslate2
+versions, the work directory with its free space, and the auth state. Jobs are
+refused when the GPU does not answer (per-job "Allow CPU" overrides it).
 
 ## Environment
 
