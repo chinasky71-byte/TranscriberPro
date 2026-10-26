@@ -20,6 +20,8 @@ from web.auth import request_token, token_matches
 from web.config_schema import ConfigError, read_values, apply_values
 from web.config_schema import SAFE_CONFIG_KEYS, SECRET_CONFIG_KEYS  # re-exported
 from web.events import SSEBridge
+from web.glossary import GlossaryError, GlossaryNotFound, GlossaryStore
+from web.glossary import env_root as glossary_root
 from web.ocr_review import (OcrReviewService, OcrSessionError, OcrSessionNotFound,
                             env_root)
 from web.paths import compute_roots, validate_media_path
@@ -41,6 +43,12 @@ class OcrSessionIn(BaseModel):
 class OcrEventIn(BaseModel):
     text: str = ""
     verified: bool = False
+
+
+class GlossaryDecisionIn(BaseModel):
+    decision: str = "pending"
+    translation: str = ""
+    note: str = ""
 
 
 def _app_version() -> str:
@@ -68,7 +76,8 @@ def _gpu_status() -> Dict[str, Any]:
 
 def create_app(manager: JobManager, token: Optional[str] = None,
                config: Any = None,
-               ocr_service: Optional[OcrReviewService] = None) -> FastAPI:
+               ocr_service: Optional[OcrReviewService] = None,
+               glossary_store: Optional[GlossaryStore] = None) -> FastAPI:
     config = config or get_config()
 
     @asynccontextmanager
@@ -87,6 +96,7 @@ def create_app(manager: JobManager, token: Optional[str] = None,
     app.state.config = config
     app.state.gpu = _gpu_status()
     app.state.ocr = ocr_service or OcrReviewService(env_root(config))
+    app.state.glossary = glossary_store or GlossaryStore(glossary_root(config))
 
     def require_auth(request: Request) -> None:
         expected = app.state.token
@@ -284,6 +294,36 @@ def create_app(manager: JobManager, token: Optional[str] = None,
         except OcrSessionNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc))
         return {"removed": session_id}
+
+    @app.get("/api/glossary/reports", dependencies=auth)
+    def glossary_reports() -> List[Dict[str, Any]]:
+        return app.state.glossary.list()
+
+    @app.get("/api/glossary/reports/{name}", dependencies=auth)
+    def glossary_report(name: str) -> Dict[str, Any]:
+        try:
+            return app.state.glossary.view(name)
+        except GlossaryNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+
+    @app.put("/api/glossary/reports/{name}/terms/{index}", dependencies=auth)
+    def glossary_decide(name: str, index: int,
+                        payload: GlossaryDecisionIn) -> Dict[str, Any]:
+        try:
+            rows = app.state.glossary.view(name)["rows"]
+        except GlossaryNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        if not 0 <= index < len(rows):
+            raise HTTPException(status_code=404, detail="unknown term")
+        try:
+            decision = app.state.glossary.decide(
+                name, rows[index]["term"], payload.decision,
+                payload.translation, payload.note)
+        except GlossaryNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except GlossaryError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return {"term": rows[index]["term"], **decision}
 
     @app.get("/api/config", dependencies=auth)
     def read_config() -> Dict[str, Any]:
