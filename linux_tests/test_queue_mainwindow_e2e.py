@@ -69,9 +69,13 @@ def test_mainwindow_coda_completa_dall_avvio_alla_fine(qt, tmp_path, monkeypatch
     pump(qt, lambda: False, 0.3)
 
     assert statuses() == ['completed', 'failed', 'completed']
-    assert (mw.completed_count, mw.error_count) == (2, 1)
+    assert (mw.queue_service.completed_count, mw.queue_service.error_count) == (2, 1)
     assert mw.processing_queue == [] and mw.start_btn.isEnabled() is True and mw.stop_btn.isEnabled() is False
     assert mw.history_widget.total_count() == 2                                       # solo i completati
-    log = mw.log_text.toPlainText() if hasattr(mw, 'log_text') else ''
-    assert tr('worker_completed').format(filename='a_ok.mkv') in log or log == ''
+    log = mw.log_text.toPlainText()
+    # il log a video e' quello di sempre (Log Sintetico: le righe del figlio non compaiono): intestazioni, esito, riepilogo
+    assert tr('worker_file_header').format(current=1, total=3, filename='a_ok') .split(':')[0] in log
+    assert 'Downloading: modello.bin' not in log and '@@TPEV@@' not in log and 'STUB_STDERR' not in log
+    assert tr('worker_completed').format(filename='a_ok.mkv') in log and tr('worker_failed').format(filename='b_fail.mkv') in log
+    assert tr('worker_done_header') in log
     mw.close()
