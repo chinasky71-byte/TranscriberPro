@@ -280,10 +280,10 @@ that runs a sequential, one-file-at-a-time pipeline. Three ideas shape the whole
 | Canary-Qwen ASR | `core/engines/canary_cli.py` in `venv_canary` | NeMo cannot share the main venv; optional |
 | Per-show glossary | `core/glossary_builder_cli.py` in `venv_glossary` | SimAlign/LaBSE conflict with the main venv's `transformers`; the Qwen channel is delegated back to the main venv by `glossary_engine/glossary_qwen_bridge.py` |
 | Subtitle sync (one pair) | `core/sync_cli.py` | Fresh CUDA context per pair for the batch queue |
-| Environment checks | `core/env_check_cli.py` | Settings-dialog diagnostics that need torch/pyannote run outside the GUI |
+| Environment checks | `core/env_check_cli.py` | Diagnostics of the translation-model dialog that need torch/pyannote run outside the GUI |
 
-**Import rule.** No module imported by `import utils` (or by `core/utils` at module level) may import PyQt6, torch or
-onnxruntime at module level; `tests` under `linux_tests/` enforce it (`test_import_utils_no_heavy_deps.py`,
+**Import rule.** No module imported by `import utils` at module level (directly or through `utils/__init__.py`) may import PyQt6, torch,
+onnxruntime or llama_cpp; `tests` under `linux_tests/` enforce it (`test_import_utils_no_heavy_deps.py`,
 `test_import_pesanti.py`). OS-specific code (`Scripts/python.exe`, `taskkill`, `CREATE_NO_WINDOW`, …) lives only in
 `utils/platform_compat.py` (`test_platform_lint.py`).
 
@@ -300,8 +300,8 @@ onnxruntime at module level; `tests` under `linux_tests/` enforce it (`test_impo
  4.2 forced alignment · 4.5 diarization + SubtitleFormatter                    │
     ▼                                                                         │
  5  SubtitleCleaner (overlaps, markup)  ◄───────────────────────────────────┘
- 5.5 unload Whisper/Demucs, cuBLAS cleanup, wait for VRAM to settle
- 6  translation (if source ≠ target language)  ── see below
+ 5.5 unload Whisper/Demucs, cuBLAS cleanup
+ 6  translation (if source ≠ target): wait for VRAM to settle, then translate ── see below
  6.5 gender correction v2 (Italian output that was translated, opt-in)
  7  save .srt · 8 OpenSubtitles upload (opt-in) · 9 mux/finalize, cleanup
 ```
@@ -315,7 +315,7 @@ skipped for API translators.
 `EngineRouter.plan()` picks the engine without loading anything; a failure of Canary or Qwen3 at any point falls back to
 faster-whisper, so a new engine can never fail a file. Rules, in order:
 
-1. Language with a specialised Whisper (`whisper_model_by_language`: French, German) → faster-whisper with that model.
+1. Language with a specialised Whisper (`whisper_model_by_language`: French, German, and Spanish with the standard large-v3, so it stays on faster-whisper instead of Qwen3) → faster-whisper with that model.
 2. English and Canary-Qwen available → Canary (`canary_enabled`).
 3. Language covered by Qwen3-ASR ∩ Qwen3-ForcedAligner (11 languages) → Qwen3-ASR (`qwen3_enabled`).
 4. Undefined language → Qwen3 auto-detect; if the detected language is outside the aligner set, one re-transcription with
@@ -336,7 +336,7 @@ ctranslate2's GPU context before torch (otherwise the first faster-whisper infer
 
 | Key | Engine | Notes |
 |---|---|---|
-| `nllb` / `nllb_finetuned` | `NLLBTranslator` / `NLLBFineTunedTranslator` | Local, singleton model reused across files; fine-tuned is the fallback for everything else |
+| `nllb` / `nllb_finetuned` | `NLLBTranslator` / `NLLBFineTunedTranslator` | Local, singleton model reused across files; NLLB base is the factory fallback (missing library or key); fine-tuned is the fallback for non-English sources and for GPUs without room for the LLM |
 | `llm` (`aya` is a legacy alias) | `LLMSubtitleTranslator` → `core/llm_subtitle_translator/` | TranslateGemma-12B, English source only |
 | `claude`, `openai` | `ClaudeTranslator`, `OpenAITranslator` | Cloud, no GPU; missing library or key → NLLB |
 | `opensubtitles` | `utils/opensubtitles_ai_translator.py` | Cloud, uses the OpenSubtitles account |
@@ -351,7 +351,7 @@ ASR language is passed on to the translators.
 | Order | Condition | Path |
 |---|---|---|
 | 1 | CUDA/ROCm and free VRAM ≥ 20 GiB | `bf16` (transformers) |
-| 2 | CUDA, free VRAM ≥ 10.5 GiB, `gguf_before_nf4` off | `nf4` (bitsandbytes) |
+| 2 | CUDA, free VRAM ≥ 10.5 GiB, `llm_translator_gguf_before_nf4` off | `nf4` (bitsandbytes) |
 | 3 | CUDA/ROCm/Vulkan and a GGUF fits (weights + KV cache + compute buffer) | `gguf:<quant>` — Q4_K_M ≥ 10 GiB free, IQ3_M ≥ 7.5 GiB, via llama.cpp in the worker subprocess |
 | 4 | CUDA, free VRAM ≥ 10.5 GiB | `nf4` (fallback when no GGUF is usable) |
 | 5 | otherwise | NLLB fine-tuned, with the reason written in the log |
@@ -380,7 +380,7 @@ unknown-gender speakers are left untouched. It is opt-in (`gender_correction_ena
 
 `utils/gpu_detect.py` (stdlib only) finds NVIDIA, AMD, Intel and Apple GPUs from nvidia-smi/NVML, sysfs, the Windows
 registry, lspci, rocm-smi and vulkaninfo, de-duplicates them and returns `recommended_backend()` ∈ `cuda | rocm | vulkan | cpu`
-and the usable VRAM. The same functions are used by the installer, so install-time and run-time agree. `install.sh
+and the usable VRAM. The same functions are used by the installer; `--gpu-backend=auto` never picks ROCm by itself (it falls back to Vulkan), ROCm must be requested explicitly. `install.sh
 --gpu-backend=auto|cuda|rocm|vulkan|cpu` (Linux) and `install.ps1` (Windows; ROCm is Linux-only) install matching torch, ctranslate2 and
 llama-cpp-python wheels. Vulkan runs llama.cpp on the GPU
 (glossary, GGUF translator) while the rest stays on CPU.
