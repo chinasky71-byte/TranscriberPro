@@ -28,7 +28,8 @@ class JobManager:
                  progress_factory: Callable[[str], Any] = FileProgress,
                  hub: Optional[EventHub] = None,
                  load_persisted: bool = True,
-                 keep_alive: bool = False):
+                 keep_alive: bool = False,
+                 preflight: Optional[Callable[[Job], tuple]] = None):
         self.target_language = target_language
         self.persist_path = Path(persist_path) if persist_path else None
         self.log_dir = Path(log_dir) if log_dir else None
@@ -45,6 +46,10 @@ class JobManager:
         self._stopping = threading.Event()
         self._wake = threading.Event()
         self._keep_alive = keep_alive
+        # preflight(job) -> (ok, message): deciso PRIMA di lanciare il processo.
+        # Un job GPU su un venv senza backend funzionante deve fallire in un
+        # secondo, non dopo mezz'ora di CPU (v. docs/adr/ADR-007).
+        self.preflight = preflight
         self._state = "finished"
         self.started = time.time()
 
@@ -177,6 +182,21 @@ class JobManager:
                 self._state = "finished"
 
     def _run_one(self, job: Job) -> None:
+        if self.preflight is not None:
+            try:
+                allowed, reason = self.preflight(job)
+            except Exception as exc:                      # il preflight non deve fermare la coda
+                allowed, reason = True, f"preflight non eseguibile: {exc}"
+            if not allowed:
+                with self._lock:
+                    self._cancel.pop(job.id, None)
+                    job.status = FAILED
+                    job.error = reason
+                    job.finished_at = time.time()
+                self.hub.log(job.id, reason)
+                self.hub.publish(job.id, "status", status=job.status, job=job.to_dict())
+                self._save()
+                return
         overrides = dict(job.overrides)
         target = overrides.get("target_language") or self.target_language
         cancel_event = threading.Event()

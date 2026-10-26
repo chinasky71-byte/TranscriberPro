@@ -6,6 +6,8 @@
 #   ./install.sh                rileva l'hardware e installa: CUDA su NVIDIA, ROCm su GPU AMD supportate. Nessun altro backend.
 #                               Senza --backend decide da solo; se l'hardware non e' supportato si ferma e lo dice (niente fallback silenziosi).
 #   ./install.sh --backend=cuda|rocm|auto   forza il backend (auto = rilevamento, il default)
+#   ./install.sh --verify-only              riverifica il venv esistente (import di torch/ctranslate2 + GPU) e riscrive
+#                               venv/.tp-backend, senza installare nulla: il rimedio quando il timbro manca o e' vecchio
 #   ./install.sh --force-backend            accetta un backend diverso dall'hardware rilevato: serve solo al cross-build dei
 #                               container (immagine NVIDIA costruita su un host AMD) e per i test; in tutti gli altri casi e' un errore
 #   ./install.sh --system-deps  installa anche i pacchetti di sistema con sudo e rilancia da solo lo script (un solo rilancio); se sudo non
@@ -33,7 +35,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CHECK=0; SYSDEPS=0; YES=0; WITHMODELS=0; WITHGUI=0; QWENSIZE=auto; BACKEND="auto"; FORCE_BACKEND=0; LLAMA_IDX=cuda; ROCM=0; GGUF=""; GGUFDIR=""
+CHECK=0; VERIFY_ONLY=0; SYSDEPS=0; YES=0; WITHMODELS=0; WITHGUI=0; QWENSIZE=auto; BACKEND="auto"; FORCE_BACKEND=0; LLAMA_IDX=cuda; ROCM=0; GGUF=""; GGUFDIR=""
 for a in "$@"; do
   case "$a" in
     --check) CHECK=1 ;;
@@ -47,6 +49,7 @@ for a in "$@"; do
     --backend=*) BACKEND="${a#--backend=}" ;;
     --gpu-backend=*) BACKEND="${a#--gpu-backend=}" ;;   # alias storico
     --force-backend) FORCE_BACKEND=1 ;;
+    --verify-only) VERIFY_ONLY=1 ;;
     -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
     *) echo "Opzione sconosciuta: $a"; exit 2 ;;
   esac
@@ -61,6 +64,78 @@ warn() { printf '  [!!]  %s\n' "$*"; }
 bad()  { printf '  [KO]  %s\n' "$*"; }
 ask()  { [ "$YES" = "1" ] && return 0; read -r -p "$1 [s/N] " r; case "$r" in s|S|si|SI|y|Y|yes) return 0 ;; *) return 1 ;; esac; }
 have() { command -v "$1" >/dev/null 2>&1; }
+
+# ----------------------------------------------------------------------------------------------
+# Verifica reale: un'installazione non e' riuscita finche' torch/ctranslate2 non vedono davvero la
+# GPU. Se il backend e' cuda/rocm e il device non risponde, lo script FALLISCE e non scrive il
+# timbro, cosi' non resta in giro un venv che sembra a posto e poi gira su CPU.
+# ----------------------------------------------------------------------------------------------
+check_backend() {
+  "$VPY" - "$BACKEND" <<'PYEOF'
+import sys
+backend = sys.argv[1]
+try:
+    import torch
+except Exception as exc:                                   # noqa: BLE001
+    print(f"KO  import torch fallito: {exc}")
+    raise SystemExit(1)
+version = torch.__version__
+runtime = torch.version.hip or torch.version.cuda or ''
+available = bool(torch.cuda.is_available())
+devices = torch.cuda.device_count() if available else 0
+print(f"  torch {version} | runtime {runtime or '-'} | cuda/hip disponibile: {available} | device: {devices}")
+bad = []
+if backend == 'rocm':
+    if not torch.version.hip:
+        bad.append("torch non e' la ruota ROCm (version.hip vuoto)")
+    if not available:
+        bad.append("torch.cuda.is_available() e' False: ROCm non vede la GPU")
+elif backend == 'cuda':
+    if not torch.version.cuda:
+        bad.append("torch non e' la ruota CUDA (version.cuda vuoto)")
+    if not available:
+        bad.append("torch.cuda.is_available() e' False: il driver NVIDIA non risponde")
+if backend in ('rocm', 'cuda'):
+    try:
+        import ctranslate2
+        n = ctranslate2.get_cuda_device_count()
+        print(f"  ctranslate2 {ctranslate2.__version__} | device GPU: {n}")
+        if n < 1:
+            bad.append("ctranslate2 non vede alcun device GPU (Whisper girerebbe su CPU)")
+    except Exception as exc:                               # noqa: BLE001
+        print(f"  [!!]  ctranslate2 non verificabile: {exc}")
+for line in bad:
+    print(f"KO  {line}")
+raise SystemExit(1 if bad else 0)
+PYEOF
+}
+write_stamp() {
+  {
+    echo "backend=$BACKEND"
+    echo "torch=$("$VPY" -c 'import torch;print(torch.__version__)' 2>/dev/null)"
+    echo "torchaudio=$("$VPY" -c 'import torchaudio;print(torchaudio.__version__)' 2>/dev/null)"
+    # ctranslate2 va importato DOPO torch (le sue librerie HIP dipendono dal runtime di torch)
+    echo "ctranslate2=$("$VPY" -c 'import torch, ctranslate2;print(ctranslate2.__version__)' 2>/dev/null)"
+    echo "llama_backend=$LLAMA_IDX"
+    echo "requirements=$(basename "$REQ")"
+    echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } > "$STAMP"
+}
+
+verify_and_stamp() {
+  echo; echo "== Verifica del backend installato"
+  if check_backend; then
+    ok "backend $BACKEND verificato: la GPU risponde"
+    write_stamp
+    ok "backend scritto in $STAMP"
+    return 0
+  fi
+  bad "Installazione NON riuscita: il backend $BACKEND non funziona su questa macchina."
+  bad "Controlla i messaggi qui sopra (driver, gruppi render/video, /dev/kfd, indice delle ruote) e rilancia ./install.sh --backend=$BACKEND."
+  rm -f "$STAMP"
+  return 1
+}
+
 
 case "$GGUF" in ''|auto|q4|iq3|q3|none) ;; *) echo "[KO] --gguf deve essere auto, q4, iq3, q3 o none"; exit 2 ;; esac
 case "$BACKEND" in
@@ -134,6 +209,17 @@ case "$BACKEND" in
   cuda) ok "cuda  NVIDIA — requirements.txt (torch +cu126)" ;;
 esac
 [ "$FORCE_BACKEND" = "1" ] && warn "--force-backend: procedo anche se l'hardware rilevato e' '${DETECTED:-niente}' (cross-build/test)"
+
+if [ "$VERIFY_ONLY" = "1" ]; then
+  # Riscrive il timbro verificando il venv esistente: nessun pip, nessun pacchetto di sistema.
+  VENV="${TP_INSTALL_VENV:-$ROOT/venv}"
+  STAMP="$VENV/.tp-backend"
+  [ -x "$VENV/bin/python" ] || { bad "Nessun venv in $VENV: niente da verificare (lancia ./install.sh)"; exit 2; }
+  VPY="$VENV/bin/python"
+  REQ="requirements-rocm.txt"; [ "$BACKEND" = "cuda" ] && REQ="requirements.txt"
+  verify_and_stamp || exit 1
+  exit 0
+fi
 
 MISSING=()
 
@@ -358,69 +444,7 @@ if [ "$ROCM" = "1" ]; then
   WV="$(sed -n 's/^[[:space:]]*whisperx==\([0-9.]*\).*/\1/p' "$ROOT/requirements.txt" | head -1)"
   "$VPY" -m pip install --no-deps "whisperx==$WV" || warn "whisperx $WV non installato: l'allineamento parola per parola non funzionera'."
 fi
-# ----------------------------------------------------------------------------------------------
-# Verifica reale: un'installazione non e' riuscita finche' torch/ctranslate2 non vedono davvero la
-# GPU. Se il backend e' cuda/rocm e il device non risponde, lo script FALLISCE e non scrive il
-# timbro, cosi' non resta in giro un venv che sembra a posto e poi gira su CPU.
-# ----------------------------------------------------------------------------------------------
-echo; echo "== Verifica del backend installato"
-check_backend() {
-  "$VPY" - "$BACKEND" <<'PYEOF'
-import sys
-backend = sys.argv[1]
-try:
-    import torch
-except Exception as exc:                                   # noqa: BLE001
-    print(f"KO  import torch fallito: {exc}")
-    raise SystemExit(1)
-version = torch.__version__
-runtime = torch.version.hip or torch.version.cuda or ''
-available = bool(torch.cuda.is_available())
-devices = torch.cuda.device_count() if available else 0
-print(f"  torch {version} | runtime {runtime or '-'} | cuda/hip disponibile: {available} | device: {devices}")
-bad = []
-if backend == 'rocm':
-    if not torch.version.hip:
-        bad.append("torch non e' la ruota ROCm (version.hip vuoto)")
-    if not available:
-        bad.append("torch.cuda.is_available() e' False: ROCm non vede la GPU")
-elif backend == 'cuda':
-    if not torch.version.cuda:
-        bad.append("torch non e' la ruota CUDA (version.cuda vuoto)")
-    if not available:
-        bad.append("torch.cuda.is_available() e' False: il driver NVIDIA non risponde")
-if backend in ('rocm', 'cuda'):
-    try:
-        import ctranslate2
-        n = ctranslate2.get_cuda_device_count()
-        print(f"  ctranslate2 {ctranslate2.__version__} | device GPU: {n}")
-        if n < 1:
-            bad.append("ctranslate2 non vede alcun device GPU (Whisper girerebbe su CPU)")
-    except Exception as exc:                               # noqa: BLE001
-        print(f"  [!!]  ctranslate2 non verificabile: {exc}")
-for line in bad:
-    print(f"KO  {line}")
-raise SystemExit(1 if bad else 0)
-PYEOF
-}
-if check_backend; then
-  ok "backend $BACKEND verificato: la GPU risponde"
-  {
-    echo "backend=$BACKEND"
-    echo "torch=$("$VPY" -c 'import torch;print(torch.__version__)' 2>/dev/null)"
-    echo "torchaudio=$("$VPY" -c 'import torchaudio;print(torchaudio.__version__)' 2>/dev/null)"
-    echo "ctranslate2=$("$VPY" -c 'import ctranslate2;print(ctranslate2.__version__)' 2>/dev/null)"
-    echo "llama_backend=$LLAMA_IDX"
-    echo "requirements=$(basename "$REQ")"
-    echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  } > "$STAMP"
-  ok "backend scritto in $STAMP"
-else
-  bad "Installazione NON riuscita: il backend $BACKEND non funziona su questa macchina."
-  bad "Controlla i messaggi qui sopra (driver, gruppi render/video, /dev/kfd, indice delle ruote) e rilancia ./install.sh --backend=$BACKEND."
-  rm -f "$STAMP"
-  exit 1
-fi
+verify_and_stamp || exit 1
 
 ok "ambiente principale pronto"
 

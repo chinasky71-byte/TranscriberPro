@@ -37,8 +37,9 @@ ROCm 7.0, torch 2.10.0+rocm7.0 + ctranslate2 4.8.4 ROCm (verify with
   validation, `picker_start_dir`) and OCR review (bitmap next to the OCR text,
   corrections, sidecar SRT). Glossary review reads `glossary_engine` reports.
   Server-rendered with HTMX + Alpine, assets vendored locally.
-- **Install policy (ADR-007)**: two supported backends, CUDA and ROCm on
-  AMD RDNA3/RDNA4/CDNA. `install.sh` detects the hardware (`auto` is the
+- **Install policy and preflight (ADR-007)**: two supported backends, CUDA and
+  ROCm on AMD RDNA3/RDNA4/CDNA; a job whose GPU does not answer fails in a
+  second with the remedy (`allow_cpu` per job to override). `install.sh` detects the hardware (`auto` is the
   default), refuses anything else instead of falling back, verifies the
   installed backend by importing torch/ctranslate2, and stamps the result in
   `venv/.tp-backend`; a mismatched re-run refuses to replace torch. CPU and
