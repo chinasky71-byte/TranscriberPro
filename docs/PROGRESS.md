@@ -17,6 +17,36 @@ Every session that touches the repository must add an entry before the merge.
 - Next step:
 ```
 
+## 2026-10-26 — WebUI Step 4: settings and history
+
+- Branch / commits: `feat/webui-settings`.
+- Goal: config editing and a history view from the browser, with no JSON
+  access required.
+- Done: `web/config_schema.py` (whitelist + value validation + secret
+  masking, shared by API and UI); `GET /api/history` gains `status` and
+  `limit`; `PUT /api/config` validates every value before `Config.set`;
+  `GET /api/models` reads `MODEL_SPECS` without loading weights; new pages
+  `/history` (filter, duration, output) and `/settings` (grouped form,
+  write-only secrets, `clear:` checkbox, draft redisplay on error); nav links
+  and fieldset/textarea styles.
+- Tests: `test_web_api.py` +5 (history filter/limit, invalid values, secret
+  clear, models registry), `test_web_ui.py` +6 (history page and filter,
+  settings render and secret masking, save, validation error keeps nothing,
+  secret never echoed, auth redirect). Full suite: 635 passed, 2 failed — the
+  two `test_install_retry.py` failures are the documented local-venv issue and
+  fail identically on the unmodified branch (verified with `git stash`).
+- Real validation: server on `127.0.0.1:8098`, `TP_DATA_DIR=/tmp/tp-data`,
+  token auth; `/settings` 200, config PUT accepted, invalid value 400,
+  `/api/models` lists the registry; `samples/prova_amd_test.mp4` queued over
+  HTTP and finished `done` in ~285 s with `prova_amd_test.it.srt`; history
+  filter and page list the job. Server stopped afterwards.
+- Decisions: one schema module for the API and the UI so the two write paths
+  cannot drift; `allowed_media_roots` must be existing absolute directories;
+  an empty secret field never overwrites, the `clear:` checkbox removes.
+- Known issues: no CSRF token (SameSite=Lax only, as recorded in Step 3);
+  history is in memory + `jobs.json`, not a separate archive.
+- Next step: Step 5, OCR review page.
+
 ## 2026-10-25 — Documentation sync (handoff)
 
 - Branch / commits: `docs/progress-sync`; commit `92c2580`, merged as `31bd740`.

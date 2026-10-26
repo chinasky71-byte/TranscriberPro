@@ -1,0 +1,50 @@
+{% if error %}<p class="alert error">{{ error }}</p>{% endif %}
+{% if message %}<p class="alert ok">{{ message }}</p>{% endif %}
+
+<form method="post" action="/settings" class="stack">
+  {% for title, fields in groups %}
+  <fieldset class="group">
+    <legend>{{ title }}</legend>
+    {% for kind, key, label in fields %}
+      {% set current = draft[key] if key in draft else values[key] %}
+      {% if kind == 'bool' %}
+        <label class="checks"><input type="checkbox" name="{{ key }}" value="true"
+          {% if current %}checked{% endif %}> {{ label }}</label>
+      {% elif kind == 'enum' %}
+        <label>{{ label }}
+          <select name="{{ key }}">
+            {% for choice in choices[key] %}
+            <option value="{{ choice }}" {% if current == choice %}selected{% endif %}>{{ choice }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      {% elif kind == 'number' %}
+        <label>{{ label }}
+          <input type="number" name="{{ key }}" min="0" max="100" step="0.1"
+                 value="{{ current }}">
+        </label>
+      {% elif kind == 'roots' %}
+        <label>{{ label }}
+          <textarea name="{{ key }}" rows="3" spellcheck="false"
+                    placeholder="/media{{ pathsep }}/srv/media">{{ current }}</textarea>
+        </label>
+      {% elif kind == 'secret' %}
+        {% set is_set = current.is_set if current is mapping else false %}
+        <label>{{ label }} <span class="badge {{ 'done' if is_set else 'queued' }}">{{ 'set' if is_set else 'not set' }}</span>
+          <input type="password" name="secret:{{ key }}" autocomplete="new-password"
+                 placeholder="{{ 'replace the stored value' if is_set else 'not set' }}">
+        </label>
+        {% if is_set %}
+        <label class="checks"><input type="checkbox" name="clear:{{ key }}" value="true">
+          Clear stored value</label>
+        {% endif %}
+      {% else %}
+        <label>{{ label }}
+          <input type="text" name="{{ key }}" value="{{ current }}" spellcheck="false">
+        </label>
+      {% endif %}
+    {% endfor %}
+  </fieldset>
+  {% endfor %}
+  <button class="btn primary" type="submit">Save settings</button>
+</form>

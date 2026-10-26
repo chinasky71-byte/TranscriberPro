@@ -14,43 +14,13 @@ from pydantic import BaseModel
 
 from core.jobs.manager import JobManager
 from core.jobs.models import TERMINAL
-from utils.config import get_config
+from utils.config import Config, get_config
 from utils.gpu_detect import detect_gpus
 from web.auth import request_token, token_matches
+from web.config_schema import ConfigError, read_values, apply_values
+from web.config_schema import SAFE_CONFIG_KEYS, SECRET_CONFIG_KEYS  # re-exported
 from web.events import SSEBridge
 from web.paths import compute_roots, validate_media_path
-
-SAFE_CONFIG_KEYS = {
-    "language",
-    "allowed_media_roots",
-    "transcription_engine_mode",
-    "whisper_model",
-    "use_gpu",
-    "target_language",
-    "translation_model",
-    "llm_translator_model",
-    "llm_translator_gguf_enabled",
-    "translation_max_untranslated_pct",
-    "enable_diarization",
-    "dialogue_style_enabled",
-    "gender_correction_enabled",
-    "punctuation_restore_mode",
-    "model_cache_cleanup_enabled",
-    "opensubtitles_upload_enabled",
-    "mux_subtitle_into_video",
-    "replace_mislabeled_italian_track",
-}
-
-SECRET_CONFIG_KEYS = {
-    "huggingface_token",
-    "claude_api_key",
-    "openai_api_key",
-    "opensubtitles_password",
-    "opensubtitles_api_key",
-    "opensubtitles_xmlrpc_password",
-    "library_scanner_api_key",
-}
-
 
 class JobIn(BaseModel):
     path: str
@@ -182,8 +152,44 @@ def create_app(manager: JobManager, token: Optional[str] = None,
         return {"lines": text[-lines:]}
 
     @app.get("/api/history", dependencies=auth)
-    def history() -> List[Dict[str, Any]]:
-        return [job for job in manager.snapshot() if job["status"] in TERMINAL]
+    def history(job_status: Optional[str] = Query(None, alias="status"),
+                limit: int = Query(100, ge=1, le=1000)) -> List[Dict[str, Any]]:
+        """Finished jobs, newest first.
+
+        `status` narrows the list to one terminal state; `limit` caps the
+        payload (the queue can be long after a batch).
+        """
+        jobs = [job for job in manager.snapshot() if job["status"] in TERMINAL]
+        if job_status:
+            if job_status not in TERMINAL:
+                raise HTTPException(status_code=400,
+                                    detail=f"status must be one of {sorted(TERMINAL)}")
+            jobs = [job for job in jobs if job["status"] == job_status]
+        jobs.sort(key=lambda job: job.get("finished_at") or job.get("created_at") or 0.0,
+                  reverse=True)
+        return jobs[:limit]
+
+    @app.get("/api/models", dependencies=auth)
+    def models() -> Dict[str, Any]:
+        """Model and engine choices the UI may offer.
+
+        Reads the registry only: no weights are loaded and no GPU is touched.
+        """
+        payload: Dict[str, Any] = {
+            "transcription_engine_modes": list(Config.VALID_TRANSCRIPTION_ENGINE_MODES),
+            "translation_models": list(Config.VALID_TRANSLATION_MODELS),
+            "llm_models": [],
+            "error": "",
+        }
+        try:
+            from core.llm_subtitle_translator.engine import MODEL_SPECS
+            payload["llm_models"] = [
+                {"key": key, "label": spec.label, "model_id": spec.model_id}
+                for key, spec in MODEL_SPECS.items()
+            ]
+        except Exception as exc:  # optional module, never break the page
+            payload["error"] = str(exc)
+        return payload
 
     @app.get("/api/events", dependencies=auth)
     async def events(job_id: Optional[str] = None, after: int = 0) -> StreamingResponse:
@@ -200,22 +206,18 @@ def create_app(manager: JobManager, token: Optional[str] = None,
 
     @app.get("/api/config", dependencies=auth)
     def read_config() -> Dict[str, Any]:
-        values = {}
-        for key in sorted(SAFE_CONFIG_KEYS):
-            values[key] = config.get(key)
-        for key in sorted(SECRET_CONFIG_KEYS):
-            values[key] = {"is_set": bool(config.get(key))}
-        return values
+        return read_values(config)
 
     @app.put("/api/config", dependencies=auth)
     def update_config(payload: ConfigIn = Body(...)) -> Dict[str, Any]:
-        unknown = [key for key in payload.values if key not in SAFE_CONFIG_KEYS
-                   and key not in SECRET_CONFIG_KEYS]
+        unknown = [key for key in payload.values
+                   if key not in SAFE_CONFIG_KEYS and key not in SECRET_CONFIG_KEYS]
         if unknown:
             raise HTTPException(status_code=400, detail=f"keys not writable: {unknown}")
-        for key, value in payload.values.items():
-            config.set(key, value, save=True)
-        return read_config()
+        try:
+            return apply_values(config, payload.values)
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next):
