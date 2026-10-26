@@ -21,7 +21,7 @@ Regole (con il percorso GGUF acceso, che e' il default; con `llm_translator_gguf
 10-20 GiB (nel banco di fase 3 Q4_K_M e' non inferiore a NF4 con margine 3 punti e ~14 volte piu' veloce; prova reale su Windows
 del proprietario) e NF4 resta il ripiego. Spento = regola storica (NF4 prima del GGUF), provata uguale al motore storico per VRAM
 libera >= 10,5 GiB; e' anche l'opzione per FORZARE NF4 senza una nuova versione.
-Con la scelta automatica si considerano solo Q4_K_M (>= gguf_min_free_gib['Q4_K_M'], 10 GiB) e IQ3_M (>= 7,5 GiB): Q3_K_M,
+Con la scelta automatica si considerano solo Q4_K_M (>= gguf_min_free_gib['Q4_K_M'], 10 GiB) e IQ3_M (>= 7,3 GiB): Q3_K_M,
 piu' grande e non migliore di IQ3_M nel banco, resta selezionabile solo chiedendola per nome.
 "Entra" = pesi del GGUF + ingombro di esecuzione (KV cache + buffer di calcolo) <= VRAM libera. Niente offload parziale:
 un modello a meta' su GPU e meta' su CPU e' piu' lento di NLLB e non e' stato misurato.
@@ -47,7 +47,17 @@ AUTO_QUANTS = ('Q4_K_M', 'IQ3_M')
 # Soglie minime di VRAM LIBERA (GiB) per quantizzazione, scelte dal proprietario in linea di principio partendo dal picco misurato
 # (Q4_K_M +8,33 GiB, IQ3_M +6,65 GiB): sono un pavimento; vale il maggiore fra questo e l'ingombro stimato (che cresce con
 # n_parallel). Configurabili. Una RTX 3060 da 12 GB con il desktop ha ~11,3 GiB liberi: cade su Q4_K_M.
-DEFAULT_GGUF_MIN_FREE_GIB = {'Q4_K_M': 10.0, 'IQ3_M': 7.5}
+# IQ3_M 7,3 (era 7,5, una stima: pesi 5,27 + KV 0,75 + buffer 0,8 + margine 0,4 = 7,22): MISURATO il 26/10/2026 su Windows 11,
+# RTX 3060 12 GB con la VRAM libera limitata da un processo a parte (scheda da 8 GB simulata), motore di produzione
+# (GGUFSubprocessEngine, n_parallel 4, ctx 512), VRAM dedicata con nvidia-smi ogni 0,25 s e memoria GPU condivisa di Windows con
+# typeperf. IQ3_M a 7,3 GiB liberi: Deadpool 2 (600 righe) picco +6.786 MiB, margine 853 MiB, condivisa max 286 MiB, 5,25 righe/s;
+# The Ark S03E12 (655 blocchi, glossario di 16 termini, produzione) picco +7.102 MiB, margine 540 MiB, condivisa max 292 MiB,
+# 2,59 blocchi/s, 253 s, 655/655 completati. A 7,0 GiB liberi (stessa puntata): picco +7.291 MiB, margine 229 MiB, Windows sposta
+# ~1,8 GiB in RAM (condivisa max 1.846 MiB), 1,03 blocchi/s, 636 s (2,5 volte piu' lento: non fallisce ma perde il vantaggio).
+# Il punto di rottura sta fra 7,0 e 7,3 (la prova a 6,8 non e' partita): NON scendere sotto 7,3. Q4_K_M senza zavorra:
+# Deadpool 2 picco +8.397 MiB, margine 2.394 MiB, 4,96 righe/s. NON misurato: scheda da 8 GB reale, Linux, AMD/Vulkan, altre VRAM
+# libere; i tempi dipendono da banda e core della 3060. Risultati: Desktop\gguf_bench\vram8\results\ del PC del proprietario.
+DEFAULT_GGUF_MIN_FREE_GIB = {'Q4_K_M': 10.0, 'IQ3_M': 7.3}
 
 # Dimensione dei pesi (GiB) per quantizzazione: MISURATA sui file veri del 12B (fase 2, `verify`).
 QUANT_WEIGHTS_GIB = {'Q4_K_M': 6.80, 'Q3_K_M': 5.60, 'IQ3_M': 5.27}
