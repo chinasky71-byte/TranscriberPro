@@ -60,7 +60,7 @@ anthropic==0.84.0
 openai==2.26.0
 
 # --- GUI ---
-PyQt6==6.10.2   # PyQt6-Qt6 e PyQt6-sip arrivano come dipendenze
+# GUI (PyQt6) e' opzionale: requirements-gui.txt — l'interfaccia e' la WebUI (ADR-002)
 
 # --- OCR sottotitoli bitmap (PGS / VOBSUB; pgsreader e vobsub sono vendorizzati in core/vendor/) ---
 pytesseract==0.3.13
@@ -180,8 +180,6 @@ pydantic_core==2.41.5
 pydub==0.25.1
 Pygments==2.19.2
 pyparsing==3.3.2
-PyQt6-Qt6==6.10.2
-PyQt6_sip==13.11.1
 python-dateutil==2.9.0.post0
 python-multipart==0.0.32
 pytorch-lightning==2.6.1

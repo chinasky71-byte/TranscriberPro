@@ -140,4 +140,4 @@ Mobile-friendly layout; no external CDN assets.
 | Token exposure on LAN | require token; document TLS/VPN; never log it |
 | OCR review images | serve only from the job temp dir, with content type |
 | GPU contention with the Qt GUI | GUI frozen; one job at a time |
-| PyQt remains a dependency | make it optional in Step 7 |
+| PyQt remains a dependency | resolved in Step 7: Qt lives in `requirements-gui.txt`, `main.py` exits with a message pointing at the WebUI |
