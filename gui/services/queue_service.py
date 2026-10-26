@@ -2,11 +2,14 @@
 """
 QueueService: la coda di elaborazione senza widget.
 
+Usa (non possiede: la coda e' di `core.jobs.job_queue.JobQueue`, senza Qt)
+  - `queue`: la JobQueue, creata qui con un lock sul `queue_mutex` (QMutex) che le viste gia' usano con QMutexLocker;
+  - `processing_queue` (la lista di path della JobQueue), `job_overrides` (il suo dizionario) e `queue_mutex`, passati PER
+    RIFERIMENTO al ProcessingWorker. INVARIANTE v3.5 (core/jobs/job_queue.py): lista, dizionario e mutex nascono una volta sola e
+    NON vengono mai riassegnati/ricreati; il riordino scrive IN PLACE; mutazioni e letture decisionali stanno sotto lock, i
+    segnali si emettono DOPO aver rilasciato il lock.
 Possiede
-  - `processing_queue` (lista di path) e `queue_mutex`, passati PER RIFERIMENTO al ProcessingWorker.
-    INVARIANTE v3.5 (gui/workers.py): la lista e il mutex nascono qui e NON vengono mai riassegnati/ricreati
-    (niente `processing_queue = [...]`, niente QMutex() per run); il riordino scrive IN PLACE (`[:] = ...`);
-    mutazioni e letture decisionali stanno sotto QMutexLocker, i segnali si emettono DOPO aver rilasciato il lock.
+
   - avvio/arresto del ProcessingWorker e inoltro dei suoi segnali alla vista
   - contatori e statistiche (completati, errori, ETA, tempo trascorso)
   - FileSizeWorker / FolderScanWorker
@@ -27,12 +30,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-from PyQt6.QtCore import (QCoreApplication, QMutex, QMutexLocker, QObject, QThread, QTimer,
+from PyQt6.QtCore import (QCoreApplication, QMutex, QObject, QThread, QTimer,
                           pyqtSignal)
 
 from gui.services.formatting import EN_DASH, format_elapsed, format_eta
 from gui.services.job_model import JobRecord, JobStatus, KIND_OCR, is_reorderable
-from gui.workers import FileSizeWorker, FolderScanWorker, ProcessingWorker
+from core.jobs.job_queue import JobQueue
+from gui.workers import FileSizeWorker, FolderScanWorker, ProcessingWorker, QMutexLock
 from utils.logger import setup_logger
 
 logger = setup_logger()
@@ -94,12 +98,13 @@ class QueueService(QObject):
     def __init__(self, worker_factory: Callable = ProcessingWorker, parent=None):
         super().__init__(parent)
         self.worker_factory = worker_factory
-        # INVARIANTE v3.5: creati una volta sola, mai riassegnati
-        self.processing_queue: List[str] = []
+        # INVARIANTE v3.5: creati una volta sola, mai riassegnati. La coda e' una JobQueue (core/jobs) con lock sul QMutex.
         self.queue_mutex = QMutex()
+        self.queue = JobQueue(lock=QMutexLock(self.queue_mutex))
+        self.processing_queue: List[str] = self.queue.items
         # eccezioni per file {path: {chiave: valore}} (utils/job_overrides.py): stesso mutex e stessa vita di processing_queue;
-        # il worker le toglie nello stesso istante in cui prende il file (get_and_remove_next_file)
-        self.job_overrides: Dict[str, dict] = {}
+        # il worker le toglie nello stesso istante in cui prende il file (JobQueue.take_next)
+        self.job_overrides: Dict[str, dict] = self.queue.overrides
         self.is_processing = False
         self.glossary_active = False
         self.sync_active = False
@@ -143,8 +148,7 @@ class QueueService(QObject):
         return counts
 
     def remaining(self) -> int:
-        with QMutexLocker(self.queue_mutex):
-            return len(self.processing_queue)
+        return len(self.queue)
 
     @staticmethod
     def can_reorder(record: JobRecord) -> bool:
@@ -171,15 +175,12 @@ class QueueService(QObject):
         sizes = sizes or {}
         added: List[str] = []
         records: List[JobRecord] = []
-        with QMutexLocker(self.queue_mutex):
-            for f in paths:
-                if only_files and not Path(f).is_file():
-                    continue
-                if f not in self.processing_queue and not self.is_active(f):
-                    self.processing_queue.append(f)
-                    self.job_overrides.pop(f, None)
-                    records.append(JobRecord.new(f, sizes.get(f, '')))
-                    added.append(f)
+        for f in paths:
+            if only_files and not Path(f).is_file():
+                continue
+            if self.queue.add(f, accept=lambda p: not self.is_active(p)):
+                records.append(JobRecord.new(f, sizes.get(f, '')))
+                added.append(f)
         for rec in records:
             self.job_added.emit(rec)
         self.remaining_changed.emit(self.remaining())
@@ -188,12 +189,9 @@ class QueueService(QObject):
     def enqueue_scanned(self, path: str, size: str = '') -> bool:
         """Un file trovato dalla scansione di una cartella (stessa regola: niente doppioni)."""
         self._check_thread()
-        with QMutexLocker(self.queue_mutex):
-            if path in self.processing_queue or self.is_active(path):
-                return False
-            self.processing_queue.append(path)
-            self.job_overrides.pop(path, None)
-            rec = JobRecord.new(path, size)
+        if not self.queue.add(path, accept=lambda p: not self.is_active(p)):
+            return False
+        rec = JobRecord.new(path, size)
         self.job_added.emit(rec)
         self.remaining_changed.emit(self.remaining())
         return True
@@ -260,15 +258,8 @@ class QueueService(QObject):
         """Riscrive processing_queue secondo l'ordine dato. False se la riga trascinata e' gia' stata presa
         dal worker (spostamento annullato). I path non citati restano in fondo, nel loro ordine."""
         self._check_thread()
-        with QMutexLocker(self.queue_mutex):
-            if moved_path not in self.processing_queue:
-                return False
-            in_queue = set(self.processing_queue)
-            ordered = [p for p in ordered_paths if p in in_queue]
-            seen = set(ordered)
-            ordered += [p for p in self.processing_queue if p not in seen]
-            # in place: il worker tiene un riferimento alla stessa lista
-            self.processing_queue[:] = ordered
+        if not self.queue.reorder(ordered_paths, moved_path):     # sul posto: il worker tiene un riferimento alla stessa lista
+            return False
         self.queue_reordered.emit()
         return True
 
@@ -277,11 +268,8 @@ class QueueService(QObject):
         `processing_queue`: gia' preso dal worker (in lavorazione: per fermarlo c'e' Stop), gia' finito o non della coda.
         La lista si modifica IN PLACE sotto il lock (il worker ne tiene un riferimento); i segnali dopo il rilascio."""
         self._check_thread()
-        with QMutexLocker(self.queue_mutex):
-            if path not in self.processing_queue:
-                return False
-            self.processing_queue.remove(path)
-            self.job_overrides.pop(path, None)
+        if not self.queue.remove(path):
+            return False
         note = getattr(self.worker, 'note_removed', None) if self.is_processing else None
         if note is not None:
             note()
@@ -297,37 +285,20 @@ class QueueService(QObject):
         self._check_thread()
         if value is not None and clean_value(key, value) is None:
             return []
-        changed: List[str] = []
-        with QMutexLocker(self.queue_mutex):
-            for p in paths:
-                if p not in self.processing_queue:
-                    continue
-                cur = dict(self.job_overrides.get(p, {}))
-                if value is None:
-                    cur.pop(key, None)
-                else:
-                    cur[key] = value
-                if cur:
-                    self.job_overrides[p] = cur
-                else:
-                    self.job_overrides.pop(p, None)
-                changed.append(p)
+        changed = self.queue.set_override(paths, key, value)
         if changed:
             self.job_overrides_changed.emit(list(changed))
         return changed
 
     def overrides_of(self, path: str) -> dict:
-        with QMutexLocker(self.queue_mutex):
-            return dict(self.job_overrides.get(path, {}))
+        return self.queue.overrides_of(path)
 
     def clear(self) -> bool:
         """Svuota coda e lista. Rifiutato (False) se l'elaborazione e' in corso."""
         self._check_thread()
         if self.is_processing:
             return False
-        with QMutexLocker(self.queue_mutex):
-            self.processing_queue.clear()
-            self.job_overrides.clear()
+        self.queue.clear()
         self.jobs_cleared.emit()
         return True
 

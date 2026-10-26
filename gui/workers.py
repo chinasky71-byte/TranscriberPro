@@ -26,15 +26,13 @@ FUNZIONALITÀ MANTENUTE:
 ✅ Cancellazione pulita
 """
 
-from PyQt6.QtCore import QThread, pyqtSignal, QMutex, QMutexLocker
+from PyQt6.QtCore import QThread, pyqtSignal, QMutex
 from pathlib import Path
 from typing import List, Optional
-from datetime import datetime
-import re
 
-from core.jobs.file_runner import FileHooks, FileRunner, kill_tree
+from core.jobs.engine import QueueEngine, QueueListener
+from core.jobs.job_queue import JobQueue
 from utils.logger import setup_logger
-from utils.translations import tr
 
 logger = setup_logger()
 
@@ -184,12 +182,32 @@ class FolderScanWorker(QThread):
         self.scan_done.emit(found)
 
 
+class QMutexLock:
+    """Adattatore: un QMutex usato come lock di `core.jobs.job_queue.JobQueue` (`with lock:`). E' lo STESSO QMutex che le viste
+    usano con QMutexLocker, quindi coda, servizio e viste si sincronizzano come prima. Non e' ricorsivo (come il QMutex)."""
+
+    def __init__(self, mutex: QMutex):
+        self.mutex = mutex
+
+    def __enter__(self):
+        self.mutex.lock()
+        return self
+
+    def __exit__(self, *exc):
+        self.mutex.unlock()
+        return False
+
+
 class ProcessingWorker(QThread):
     """
-    Worker thread per elaborazione video
-    Con supporto per aggiunta dinamica file e sincronizzazione corretta coda
+    Worker thread per elaborazione video: adattatore Qt di `core.jobs.engine.QueueEngine`.
+
+    Il ciclo, l'elaborazione di ogni file (sottoprocesso `core.pipeline_cli`), i contatori, l'anteprima dei passi, la cronologia e
+    la pulizia delle cache a fine coda stanno nel motore (senza Qt, condiviso con la coda headless). Qui restano solo
+    l'interfaccia verso la GUI, identica a prima: gli stessi 11 segnali, emessi nello stesso thread (questo QThread) e nello
+    stesso ordine, e gli stessi attributi usati da QueueService.
     """
-    
+
     progress = pyqtSignal(int)
     log_message = pyqtSignal(str)
     finished = pyqtSignal()
@@ -197,11 +215,11 @@ class ProcessingWorker(QThread):
     file_failed = pyqtSignal(str)          # (file_path) — emesso quando pipeline ritorna False
     file_started = pyqtSignal(str)         # (file_path)
     file_progress = pyqtSignal(str, int)   # (file_path, percent 0-100)
-    file_steps = pyqtSignal(str, object)   # (file_path, PipelineSnapshot): anteprima dei passi (gui/services/step_plan.py)
+    file_steps = pyqtSignal(str, object)   # (file_path, PipelineSnapshot): anteprima dei passi (core/jobs/step_plan.py)
     file_history_entry = pyqtSignal(dict)  # emesso dopo ogni file completato con successo
     error = pyqtSignal(str)
     queue_updated = pyqtSignal(int)
-    
+
     def __init__(self, processing_queue: List[str], queue_mutex: QMutex):
         """
         Args:
@@ -209,285 +227,96 @@ class ProcessingWorker(QThread):
             queue_mutex: Mutex condiviso con MainWindow per thread-safety
         """
         super().__init__()
-        
-        # ========================================
-        # v3.5: Coda CONDIVISA con mutex condiviso
-        # ========================================
-        self.processing_queue = processing_queue  # ✅ Riferimento condiviso
-        self.queue_mutex = queue_mutex  # ✅ Mutex condiviso con UI
-        
-        self.is_cancelled = False
-        self._current_proc = None     # subprocess pipeline_cli in corso (isolamento)
-        self.job_overrides = {}       # {path: eccezioni}: dizionario di QueueService (stesso mutex); vuoto se il worker e' usato da solo
-        self._current_overrides = {}  # eccezioni del file in lavorazione, prese insieme al file
+        self.processing_queue = processing_queue      # riferimento condiviso
+        self.queue_mutex = queue_mutex                # mutex condiviso con la UI
+        # La coda del motore avvolge la STESSA lista e lo STESSO mutex (nessuna copia); le eccezioni per file sono il dizionario di
+        # QueueService (stesso mutex), assegnato da chi crea il worker; vuoto se il worker e' usato da solo.
+        self._queue = JobQueue(lock=QMutexLock(queue_mutex), items=processing_queue, overrides={})
+        self._engine = QueueEngine(self._queue, _SignalListener(self), cleanup_caches=True)
 
-        # Contatori per statistiche
-        self.completed_files = 0
-        self.failed_files = 0
-        self.total_files_at_start = 0
-    
+    # ------------------------------------------------------------------ compatibilita' (attributi storici)
+    @property
+    def job_overrides(self) -> dict:
+        return self._queue.overrides
+
+    @job_overrides.setter
+    def job_overrides(self, value: dict):
+        self._queue.overrides = value
+
+    @property
+    def is_cancelled(self) -> bool:
+        return self._engine.is_cancelled
+
+    @is_cancelled.setter
+    def is_cancelled(self, value: bool):
+        self._engine.is_cancelled = value
+
+    @property
+    def completed_files(self) -> int:
+        return self._engine.completed_files
+
+    @property
+    def failed_files(self) -> int:
+        return self._engine.failed_files
+
+    @property
+    def total_files_at_start(self) -> int:
+        return self._engine.total_files_at_start
+
     def note_removed(self, n: int = 1):
-        """Un file ancora in attesa e' stato tolto dalla coda mentre il worker lavora: il totale usato per la percentuale e per
-        l'intestazione 'File N/totale' scende di n (altrimenti la barra non arriva piu' al 100%)."""
-        self.total_files_at_start = max(1, self.total_files_at_start - n)
+        """Un file ancora in attesa e' stato tolto dalla coda mentre il worker lavora: il totale per la percentuale scende di n."""
+        self._engine.note_removed(n)
 
     def get_total_files(self) -> int:
-        """
-        Ottiene totale file in coda in modo thread-safe
-        
-        Returns:
-            Numero file in coda
-        """
-        with QMutexLocker(self.queue_mutex):
-            return len(self.processing_queue)
-    
+        """Numero file in coda, in modo thread-safe."""
+        return len(self._queue)
+
     def get_and_remove_next_file(self) -> Optional[str]:
-        """
-        ✅ v3.5: Ottiene E RIMUOVE primo file dalla coda in modo atomico thread-safe
-        
-        IMPORTANTE: Questa operazione è atomica - prende E rimuove in un'unica operazione
-        protetta dal mutex, eliminando race conditions.
-        
-        Returns:
-            Path del prossimo file, o None se coda vuota
-        """
-        with QMutexLocker(self.queue_mutex):
-            if len(self.processing_queue) > 0:
-                # ✅ ATOMICO: Prendi E rimuovi in una sola operazione
-                file_path = self.processing_queue[0]
-                self.processing_queue.pop(0)
-                self._current_overrides = dict(self.job_overrides.pop(file_path, None) or {})   # nello stesso lock: nessuna modifica a meta'
-                return file_path
-            return None
-    
+        """Prende E rimuove il primo file dalla coda in un'unica operazione atomica (con le sue eccezioni)."""
+        item = self._queue.take_next()
+        return item[0] if item else None
+
     def run(self):
-        """
-        Esegue elaborazione con supporto aggiunta dinamica file
-        
-        CARATTERISTICHE v3.5:
-        - Prende E rimuove atomicamente il primo elemento dalla coda
-        - Elimina race condition con UI
-        - Continua finchè coda non è vuota
-        - Thread-safe con QMutex condiviso
-        """
-        # Salva il totale iniziale per statistiche
-        self.total_files_at_start = self.get_total_files()
-        self.log_message.emit(tr('worker_start').format(n=self.total_files_at_start))
-        
-        # ========================================
-        # LOOP DINAMICO v3.5: Prende e rimuove atomicamente
-        # ========================================
-        while not self.is_cancelled:
-            # ✅ OPERAZIONE ATOMICA: Prendi E rimuovi file dalla coda
-            video_path = self.get_and_remove_next_file()
-            
-            # Se non ci sono più file, termina
-            if video_path is None:
-                break
-            
-            filename = Path(video_path).name
-            files_processed = self.completed_files + self.failed_files
-            
-            # Log progresso
-            self.log_message.emit(
-                f"\n{'='*70}\n"
-                f"{tr('worker_file_header').format(current=files_processed+1, total=self.total_files_at_start, filename=filename)}\n"
-                f"{'='*70}"
-            )
-            
-            # Notifica UI: file iniziato
-            self.file_started.emit(video_path)
-
-            # Elabora file
-            success = self._process_single_file(video_path)
-            
-            if success:
-                self.completed_files += 1
-                # Emetti segnale per aggiornare UI (file già rimosso dalla coda)
-                self.file_completed.emit(video_path)
-            else:
-                self.failed_files += 1
-                self.file_failed.emit(video_path)
-
-            # Calcola progresso basato su file elaborati vs totale iniziale
-            files_processed = self.completed_files + self.failed_files
-            progress_percentage = min(100, int((files_processed / self.total_files_at_start) * 100))
-            self.progress.emit(progress_percentage)
-            
-            # Emetti aggiornamento coda (per UI)
-            remaining = self.get_total_files()
-            self.queue_updated.emit(remaining)
-        
-        # Log finale
-        if self.is_cancelled:
-            self.log_message.emit(tr('worker_cancelled_user'))
-        else:
-            self.log_message.emit(
-                f"\n{'='*70}\n"
-                f"{tr('worker_done_header')}\n"
-                f"{tr('worker_stats_completed').format(n=self.completed_files)}\n"
-                f"{tr('worker_stats_failed').format(n=self.failed_files)}\n"
-                f"{tr('worker_stats_total').format(n=self.completed_files + self.failed_files)}\n"
-                f"{'='*70}"
-            )
-
-        # Cache modelli HF/torch: pulizia UNA volta sola qui, a coda conclusa
-        # (fine naturale o "Ferma"). Prima stava in pipeline._cleanup() e
-        # girava a ogni file, riscaricando gli stessi modelli decine di volte.
-        # cache_cleaner importa solo shutil/pathlib (e in modo lazy config/engine
-        # dell'LLM, senza torch): nessun costo ML nel processo GUI.
-        try:
-            from utils.cache_cleaner import cleanup_non_italian_caches
-
-            def _cache_log(m):
-                self.log_message.emit(m)   # log a schermo
-                logger.info(m)             # e nel file di log
-
-            res = cleanup_non_italian_caches(log_callback=_cache_log)
-            if res['removed']:
-                _cache_log(
-                    f"🗑️ Cache modelli liberata a fine coda: "
-                    f"{len(res['removed'])} elementi")
-            if res['failed']:
-                logger.warning(
-                    f"Cache cleanup parziale: {len(res['failed'])} "
-                    f"elementi non rimossi")
-        except Exception as e:
-            logger.warning(f"Errore cache cleanup a fine coda: {e}")
-
-        self.finished.emit()
-    
-    def _process_single_file(self, video_path: str) -> bool:
-        """
-        Elabora un file in subprocess ISOLATO (core.pipeline_cli).
-
-        L'isolamento evita l'accumulo di RAM su code lunghe (ogni film gira
-        in un processo che muore a fine elaborazione) e tiene torch fuori
-        dal processo GUI. Il vecchio percorso legacy in-process (flag
-        'pipeline_subprocess_isolation') è stato ritirato: caricava lo stack
-        ML nel processo GUI.
-        """
-        return self._process_single_file_subprocess(video_path)
-
-    def _process_single_file_subprocess(self, video_path: str) -> bool:
-        """Elabora il film in un subprocess isolato (core.pipeline_cli). Lo spawn, la lettura dell'output, l'esito e la pulizia
-        sono in core/jobs/file_runner.py (unica copia, usata anche dalla coda headless): qui restano i segnali verso la GUI."""
-        filename = Path(video_path).name
-
-        from utils.config import get_config
-        from utils.job_overrides import clean as _clean_ov
-        overrides = _clean_ov(getattr(self, '_current_overrides', None))
-        target_language = overrides.get('target_language') or get_config().get_target_language()
-        # Avanzamento del file: fasi pesate per durata reale + barra interna di fase (core/jobs/file_progress.py).
-        from core.jobs.file_progress import FileProgress
-        _file_progress = FileProgress(target_language)
-        # Anteprima dei passi (Log Sintetico): gira SEMPRE, cosi' spuntando la casella a meta' file lo stato e' gia' vero.
-        from core.jobs.step_plan import StepTracker, PlanOptions
-        try:
-            _steps = StepTracker(video_path, PlanOptions.from_config(get_config(), target_language, overrides))
-            self.file_steps.emit(video_path, _steps.snapshot())
-        except Exception:
-            _steps = None
-
-        def _steps_emit(changed=True):
-            if _steps is not None and changed:
-                try:
-                    self.file_steps.emit(video_path, _steps.snapshot())
-                except Exception:
-                    pass
-        files_done = self.completed_files + self.failed_files
-
-        worker = self
-
-        class _Hooks(FileHooks):
-            def on_spawn(self, proc):
-                worker._current_proc = proc
-
-            def on_text(self, line):
-                worker.log_message.emit(line)
-
-            def on_noise(self, line):
-                # rumore che alcune librerie scrivono su STDOUT bypassando il logging (torch.hub): solo nel file di log
-                logger.info(f"[child-stdout] {line}")
-
-            def on_event(self, kind, fields):
-                # evento strutturato: muove l'anteprima dei passi (la barra del file l'ha gia' mossa il runner)
-                if _steps is not None:
-                    try:
-                        _steps_emit(_steps.feed_event(kind, fields))
-                    except Exception:
-                        pass
-
-            def on_progress(self, value, phase, changed):
-                if changed:
-                    worker.file_progress.emit(video_path, value)
-
-            def on_stderr(self, line):
-                # stderr del figlio (tqdm, warning di librerie): SOLO nel file di log, MAI a schermo
-                logger.info(f"[child-stderr] {line}")
-
-        self.log_message.emit(tr('worker_start_single'))
-        try:
-            result = FileRunner().run(
-                video_path, target_language, files_done, progress=_file_progress, hooks=_Hooks(), overrides=overrides,
-                is_cancelled=lambda: self.is_cancelled, ipc_prefix="tp_pipe_", feed_diag_progress=False,
-                converting_cleanup='cancelled', raise_on_spawn_error=False)
-        finally:
-            self._current_proc = None
-
-        if result.spawn_error is not None:
-            self.log_message.emit(
-                tr('worker_critical_error').format(filename=filename, error=result.spawn_error))
-            logger.error(f"Spawn pipeline_cli fallito: {result.spawn_error}")
-            if _steps is not None:
-                _steps.mark_failed()
-                _steps_emit()
-            return False
-
-        if result.cancelled:
-            if _steps is not None:
-                _steps.mark_stopped()
-                _steps_emit()
-            self.log_message.emit(tr('worker_cancelled_file').format(filename=filename))
-            return False
-
-        success = result.success
-        last_output_path = result.output or ''
-        _duration = result.duration
-
-        if _steps is not None:
-            (_steps.mark_completed if success else _steps.mark_failed)()
-            _steps_emit()
-
-        if success:
-            self.log_message.emit(tr('worker_completed').format(filename=filename))
-            try:
-                self.file_history_entry.emit({
-                    'name': Path(video_path).name,
-                    'date_iso': datetime.now().isoformat(timespec='seconds'),
-                    'src_lang': 'auto',
-                    'dst_lang': target_language,
-                    'duration_seconds': round(_duration),
-                    'size_bytes': Path(video_path).stat().st_size,
-                    'srt_path': last_output_path,
-                    'video_path': video_path,
-                })
-            except Exception:
-                pass
-            return True
-
-        self.log_message.emit(tr('worker_failed').format(filename=filename))
-        self.log_message.emit(tr('worker_hint'))
-        return False
-
-    def _kill_proc_tree(self, proc):
-        """Uccide il subprocess e TUTTI i discendenti (ffmpeg, gender_corrector_cli). Copia unica in core/jobs/file_runner.py."""
-        kill_tree(proc)
+        """Esegue la coda con supporto all'aggiunta dinamica di file (vedi QueueEngine.run)."""
+        self._engine.run()
 
     def cancel(self):
-        """Richiesta di cancellazione dal main thread: kill dell'albero del
-        subprocess pipeline in corso."""
-        self.is_cancelled = True
-        proc = self._current_proc
-        if proc is not None:
-            self._kill_proc_tree(proc)
+        """Richiesta di cancellazione dal main thread: kill dell'albero del subprocess pipeline in corso."""
+        self._engine.cancel()
+
+
+class _SignalListener(QueueListener):
+    """Ganci del motore -> segnali del ProcessingWorker (stesso thread: quello del QThread)."""
+
+    def __init__(self, worker: ProcessingWorker):
+        self._w = worker
+
+    def on_log(self, text):
+        self._w.log_message.emit(text)
+
+    def on_progress(self, percent):
+        self._w.progress.emit(percent)
+
+    def on_file_started(self, path):
+        self._w.file_started.emit(path)
+
+    def on_file_progress(self, path, percent):
+        self._w.file_progress.emit(path, percent)
+
+    def on_file_steps(self, path, snapshot):
+        self._w.file_steps.emit(path, snapshot)
+
+    def on_file_completed(self, path):
+        self._w.file_completed.emit(path)
+
+    def on_file_failed(self, path):
+        self._w.file_failed.emit(path)
+
+    def on_history(self, entry):
+        self._w.file_history_entry.emit(entry)
+
+    def on_queue_updated(self, remaining):
+        self._w.queue_updated.emit(remaining)
+
+    def on_finished(self):
+        self._w.finished.emit()
