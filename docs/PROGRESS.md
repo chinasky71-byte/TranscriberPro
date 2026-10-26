@@ -27,6 +27,36 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-26 — ASR knobs measured: batch and chunk length are not a speed lever
+
+- Branch / commits: `docs/asr-ab-measurements`.
+- Goal: answer, with numbers instead of intuition, whether the ASR half of the
+  wall time can be shortened by configuration alone (bigger batch, longer
+  chunks) without touching the model.
+- Done: `bench/asr_ab.py` (harness: one variant per run, isolated `TP_DATA_DIR`,
+  phase timings from `@@TPEV@@`, `build_config`/`parse_events`/`phase_timeline`
+  as pure functions) and `bench/asr_ab_variants.json`;
+  `docs/benchmarks/2026-10-26-asr-knobs.md` with method, table and conclusion;
+  `docs/STATUS.md` records the outcome so nobody repeats the experiment.
+- Tests and results: `linux_tests/test_bench_asr_ab.py` (config building,
+  profile lock, event parsing, timeline, summary, CLI validation). Measurement
+  on a fixed 10-minute clip, four runs: current config ASR 64.3 s; profile
+  balanced (batch 8) 63.6 s; profile batch (batch 8) 65.1 s; chunk 45 s
+  **221.5 s**. Battery of the full episode stays as recorded (25 and 27 minutes
+  for 134 and 144 minutes of audio).
+- Decisions / ADRs: no ADR, and **no configuration change**: the current
+  `chunk 20/10/25` + profile `maximum` + batch 2 is the best of the four tested.
+  The free VRAM is not a lever (the engine is compute-bound per chunk), and
+  longer chunks are 3.4x slower because generation is autoregressive. One
+  trap documented: `transcription_profile_locked` defaults to true and makes the
+  profile read-only, so the first A/B measured the same configuration four
+  times; the harness forces it to false and the guard test pins that.
+- Known issues: output is not bit-exact across runs (bfloat16 + batched
+  generation): three runs of the same variant produced 553, 554 and 556 cues, so
+  future comparisons must treat a few-cue difference as noise.
+- Next step: the remaining levers are structural (overlap Demucs with ASR) or
+  model-level (needs a human reference set); both are out of scope for now.
+
 ## 2026-10-26 — Temp folders of killed jobs no longer stay in RAM
 
 - Branch / commits: `fix/temp-cleanup`.

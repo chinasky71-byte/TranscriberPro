@@ -23,7 +23,11 @@ ROCm 7.0, torch 2.10.0+rocm7.0 + ctranslate2 4.8.4 ROCm (verify with
   single sequential pass, so the storage is not a bottleneck — see
   `docs/PROGRESS.md`, 2026-10-26.
 - **Benchmark harness**: `bench/` with hardware fingerprint, ASR and
-  translation suites, sanitized export into `docs/benchmarks/`.
+  translation suites, sanitized export into `docs/benchmarks/`, plus
+  `bench/asr_ab.py` for A/B on a fixed clip. Measured and rejected: a bigger
+  ASR batch (no effect) and longer chunks (3.4x slower) — see
+  `docs/benchmarks/2026-10-26-asr-knobs.md`; the current ASR configuration is
+  the measured optimum.
 - **Architecture baseline**: layers, contracts, runtime policy, platform
   services, events, config, security, testing, extension guide.
 - **Job service**: `core/jobs/` owns the queue (manager, process runner, event
