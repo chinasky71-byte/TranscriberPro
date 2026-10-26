@@ -3,7 +3,7 @@
 Updated: 2026-10-26
 Line: `development` (active product); `master` is legacy (ADR-006)
 Branch: `development` · last merge: `d17f601` (test isolation)
-WebUI: **not running** (start it with the command in `web/README.md`)
+WebUI: **not running** (start it with the command in `web/README.md`; `--no-auth` for a private network)
 Environment: Ubuntu 26.04, Radeon RX 9060 XT 16 GB (gfx1200, RDNA4),
 ROCm 7.0, torch 2.10.0+rocm7.0 + ctranslate2 4.8.4 ROCm (verify with
 `venv/bin/python -c "import torch;print(torch.cuda.is_available())"`), venv
@@ -29,9 +29,10 @@ ROCm 7.0, torch 2.10.0+rocm7.0 + ctranslate2 4.8.4 ROCm (verify with
 - **Job service**: `core/jobs/` owns the queue (manager, process runner, event
   hub, persistence, progress). `core.queue_runner` is a thin client; the
   headless pipeline was validated end to end after the extraction.
-- **Web UI + API**: FastAPI app in `web/` with token auth (bearer + HttpOnly
-  session cookie), path validation, jobs, SSE, config, history and a read-only
-  file picker. Pages: dashboard and queue (add form, **file picker with
+- **Web UI + API**: FastAPI app in `web/` with optional token auth (bearer +
+  HttpOnly session cookie; `--no-auth` for private networks, warning on the
+  dashboard), a system status card (backend stamp, GPU verdict, versions, work
+  dir), path validation, jobs, SSE, config, history and a read-only file picker. Pages: dashboard and queue (add form, **file picker with
   multi-select and `skip_existing`**, cancel, remove, logs), history with a
   status filter, settings (whitelisted keys, write-only secrets, value
   validation, `picker_start_dir`) and OCR review (bitmap next to the OCR text,

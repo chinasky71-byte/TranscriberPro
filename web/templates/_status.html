@@ -1,8 +1,25 @@
-<h2>Status</h2>
+{% set sys = status.system or {} %}
+<h2>System</h2>
+
+{% if not status.auth_enabled %}
+<p class="alert error"><strong>No authentication.</strong> Anyone who can reach
+this port can read the media paths and queue jobs. Keep it on a private network
+(VPN/Twingate), an SSH tunnel or behind a TLS proxy; set <code>TP_WEB_TOKEN</code>
+to require a token again.</p>
+{% endif %}
+{% if sys and not sys.gpu_ok %}
+<p class="alert error"><strong>GPU not usable.</strong>
+{{ sys.problems | join('; ') }}<br>
+Remedy: <code>./install.sh --verify-only</code> (or <code>./install.sh</code>).
+Jobs will be refused until this is fixed; per-job "Allow CPU" overrides it.</p>
+{% endif %}
+
 <dl class="facts">
   <dt>Version</dt><dd>{{ status.version }}</dd>
-  <dt>Backend</dt><dd>{{ status.backend }}</dd>
-  <dt>GPU</dt><dd>{{ status.gpu_name }}{% if status.vram_mib %} · {{ status.vram_mib }} MiB{% endif %}</dd>
+  <dt>Backend</dt><dd>{{ sys.backend or status.backend }}{% if sys.gpu_ok %} · <span class="badge done">GPU ok</span>{% else %} · <span class="badge failed">no GPU</span>{% endif %}</dd>
+  <dt>GPU</dt><dd>{{ status.gpu_name }}{% if status.vram_mib %} · {{ status.vram_mib }} MiB{% endif %}{% if status.gpu_count > 1 %} (+{{ status.gpu_count - 1 }} more){% endif %}</dd>
+  <dt>Runtime</dt><dd>torch {{ sys.torch or '?' }}{% if sys.runtime %} · HIP/CUDA {{ sys.runtime }}{% endif %}{% if sys.ctranslate2 %} · ctranslate2 {{ sys.ctranslate2 }}{% endif %}{% if sys.devices %} · {{ sys.devices }} device{% endif %}</dd>
+  <dt>Work dir</dt><dd><code>{{ status.tmp.path or '?' }}</code>{% if status.tmp.free_mib %} · {{ status.tmp.free_mib }} MiB free{% endif %}</dd>
   <dt>Manager</dt><dd>{{ status.manager_state }}</dd>
   <dt>Queue</dt>
   <dd>{{ status.counts.queued }} queued · {{ status.counts.running }} running ·

@@ -98,15 +98,21 @@ def _status_context(request: Request) -> Dict[str, Any]:
     jobs = app.state.manager.snapshot()
     gpu = app.state.gpu or {}
     gpus = gpu.get("gpus") or []
+    system = getattr(app.state, "system", {}) or {}
     return {
         "version": app.state.version,
         "backend": gpu.get("backend", "unknown"),
         "gpu_name": gpus[0]["name"] if gpus else "no GPU",
         "vram_mib": gpus[0].get("vram_mib") if gpus else None,
+        "gpu_count": len(gpus),
         "manager_state": app.state.manager.state,
         "counts": _counts(jobs),
         "total": len(jobs),
         "auth_enabled": bool(app.state.token),
+        # stato del sistema: backend installato, GPU viva, spazio in /dev/shm
+        "system": system,
+        "tmp": system.get("tmpdir") or {},
+        "tuned": bool(system.get("backend")),
     }
 
 
@@ -523,6 +529,8 @@ def glossary_decide(request: Request, name: str, index: int,
 
 @router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, next: str = "/") -> HTMLResponse:
+    if not request.app.state.token:                 # accesso senza autenticazione
+        return RedirectResponse("/", status_code=303)
     return _render(request, "login.html", {"error": "", "next": _login_target(next)})
 
 
