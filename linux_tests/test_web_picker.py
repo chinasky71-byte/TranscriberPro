@@ -236,7 +236,7 @@ def test_picker_checkboxes_belong_to_the_add_form(tmp_path, library):
     with TestClient(app) as client:
         page = client.get("/").text
         assert 'name="paths"' in _listing(client, str(library))  # checkboxes in the partial
-        assert "<details class=\"picker-wrap\">" in page   # opens without JavaScript
+        assert "<details class=\"picker-wrap\" open>" in page  # open, no JavaScript
         assert "<summary class=\"btn\">Choose files" in page
         assert 'hx-get="/ui/browse"' in page             # listing loaded by HTMX
         assert 'name="skip_existing"' in page

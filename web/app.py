@@ -360,6 +360,11 @@ def create_app(manager: JobManager, token: Optional[str] = None,
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self'; "
             "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")
+        # Pages and partials are rendered per request: a cached copy shows a UI
+        # that no longer matches the server (and hid a new feature once).
+        # Static assets keep their own caching rules.
+        if not request.url.path.startswith("/static"):
+            response.headers.setdefault("Cache-Control", "no-store")
         return response
 
     from web.ui import router as ui_router

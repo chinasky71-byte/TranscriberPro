@@ -10,7 +10,7 @@
     <label>Media path
       <input name="path" placeholder="/media/film.mkv" autocomplete="off">
     </label>
-    <details class="picker-wrap">
+    <details class="picker-wrap" open>
       <summary class="btn">Choose files…</summary>
       <div id="picker" class="picker-body"
            hx-get="/ui/browse" hx-trigger="load" hx-swap="innerHTML"></div>

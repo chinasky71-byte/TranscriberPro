@@ -59,7 +59,10 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
   folder outside the roots is ignored rather than rejected: the setting cannot
   brick the picker. The panel is a native `<details>` element, not an Alpine
   toggle: a browser with stale cached HTML or without Alpine still opens the
-  listing, and HTMX only fetches it.
+  listing, and HTMX only fetches it. The `<details>` starts **open**, and every
+  non-static response now carries `Cache-Control: no-store` (`web/app.py`):
+  a page cached before the deploy was showing a UI without the picker, and the
+  server had no header to prevent it.
 - Known issues: the picker does not probe the media (no ffprobe), so duration,
   embedded subtitle tracks and audio languages are not shown; the entry limit
   is a silent cap beyond the notice line. Two robustness items found while
