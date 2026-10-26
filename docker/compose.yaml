@@ -1,0 +1,82 @@
+# Transcriber Pro — compose file (ADR-004).
+#
+# One service per backend; pick one with a profile:
+#
+#   TP_WEB_TOKEN="$(openssl rand -base64 24)" docker compose -f docker/compose.yaml --profile rocm up --build
+#   docker compose -f docker/compose.yaml --profile cuda up --build
+#   docker compose -f docker/compose.yaml --profile cpu  up --build
+#
+# Volumes:
+#   tp-data -> /data    config.json, jobs.json, queue logs, OCR sessions
+#   ./models -> /models model cache (host, read-write: downloads land here)
+#   media    -> /media  media root; the SRT is written next to the video,
+#                       so this mount must be writable
+#
+# The token is mandatory: the server binds 0.0.0.0 and refuses to start
+# without TP_WEB_TOKEN. Never commit it; export it per run or use an .env file
+# that stays outside git.
+
+x-common: &common
+  image: transcriberpro:${TP_TAG:-latest}
+  restart: unless-stopped
+  environment:
+    TP_WEB_TOKEN: ${TP_WEB_TOKEN:?set TP_WEB_TOKEN (see docker/README.md)}
+    TP_DATA_DIR: /data
+    TP_MODELS_DIR: /models
+    TP_MEDIA_ROOTS: /media
+  volumes:
+    - tp-data:/data
+    - ${TP_MODELS_DIR_HOST:-../models}:/models
+    - ${TP_MEDIA_DIR:-../samples}:/media
+  ports:
+    - "${TP_PORT:-8080}:8080"
+
+services:
+  rocm:
+    <<: *common
+    profiles: ["rocm"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        BACKEND: rocm
+    # AMD: the host driver plus the compute and render nodes. No driver and no
+    # ROCm user space are copied into the image.
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+      - render
+    ipc: host
+    security_opt:
+      - seccomp:unconfined
+
+  cuda:
+    <<: *common
+    profiles: ["cuda"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        BACKEND: cuda
+    # NVIDIA: requires the NVIDIA container toolkit on the host.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  cpu:
+    <<: *common
+    profiles: ["cpu"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        BACKEND: cpu
+
+volumes:
+  tp-data:

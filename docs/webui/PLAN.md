@@ -13,7 +13,7 @@ tests, and an update to `docs/STATUS.md` and `docs/PROGRESS.md`.
 | 5 | `feat/webui-ocr` | OCR review page | parity with the Qt dialog | done |
 | 6 | `feat/webui-glossary` | Glossary and library scanner pages | functional parity | glossary review done; library scanner is separate work (see below) |
 | 7 | `feat/pyqt-optional` | Qt removed from default requirements; `--gui` optional | install without Qt | done |
-| 8 | `feat/docker` | Multi-stage Dockerfile, compose rocm/cuda/cpu, volumes | `docker compose up` produces the SRT | pending |
+| 8 | `feat/docker` | Multi-stage Dockerfile, compose rocm/cuda/cpu, volumes | `docker compose up` produces the SRT | artifacts done — image build and GPU run pending (no container daemon on the dev host; see notes) |
 
 ## Step 0 checklist
 
@@ -73,6 +73,19 @@ tests, and an update to `docs/STATUS.md` and `docs/PROGRESS.md`.
   has no Qt.
 
 ## Step 8 notes
+
+- `docker/Dockerfile`: multi-stage, `ARG BACKEND=rocm|cuda|cpu`, runtime stage
+  runs as `tp` (uid 1000), `TP_DATA_DIR=/data`, `TP_MODELS_DIR=/models`,
+  healthcheck on `/api/health`, `CMD python -m web.main --host 0.0.0.0`.
+- `docker/compose.yaml`: one service per backend with `profiles`, `rocm` gets
+  `/dev/kfd`, `/dev/dri`, `video`/`render` groups and `ipc: host`, `cuda` uses
+  the NVIDIA device reservation, `cpu` has no device. `TP_WEB_TOKEN` is
+  mandatory (`:?`), the media mount is read-write because the SRT is written
+  next to the video.
+- Not validated here: the image build (several GB, `docker` daemon not
+  reachable in the development session) and a GPU run inside the container.
+  `docker compose config` validates both the schema and the token guard.
+- Guard tests: `linux_tests/test_docker.py`.
 
 - `rocm` image: `/dev/kfd`, `/dev/dri`, groups `video`/`render`, `ipc: host`.
 - `cuda` image: NVIDIA container runtime.

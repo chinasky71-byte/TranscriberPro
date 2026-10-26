@@ -17,6 +17,29 @@ Every session that touches the repository must add an entry before the merge.
 - Next step:
 ```
 
+## 2026-10-26 — WebUI Step 8: container artifacts
+
+- Branch / commits: `feat/docker`.
+- Goal: ship the WebUI and the pipeline as one image per backend.
+- Done: `docker/Dockerfile` (multi-stage, `ARG BACKEND`, no drivers, no
+  weights, non-root `tp`, `/data` and `/models` volumes, healthcheck,
+  `python -m web.main --host 0.0.0.0`); `docker/compose.yaml` (profiles
+  `rocm`/`cuda`/`cpu`, AMD devices and groups, NVIDIA reservation, mandatory
+  `TP_WEB_TOKEN`); `.dockerignore`; `docker/README.md`.
+- Tests: `linux_tests/test_docker.py` (9 guard tests): one image per backend,
+  unknown backend fails the build, no driver packages, no models/media in the
+  image, no Qt, non-root plus healthcheck, dirs on volumes, compose wiring for
+  AMD and NVIDIA, volumes for data/models/media, build context cleaned.
+  `docker compose -f docker/compose.yaml --profile rocm config` renders (exit
+  0) and refuses to render without `TP_WEB_TOKEN`.
+- Known issues: the images were **not built** here — `docker` daemon not
+  reachable in this session and the rocm/cuda layers are several GB, so the
+  acceptance "`docker compose up` produces the SRT" is still open. `cpu` image
+  builds llama-cpp-python from source (slow) and is a smoke-test target only.
+  `dashboard`/WebUI behind a TLS proxy is documented, not provided.
+- Next step: build the three images on a host with a container daemon, run the
+  rocm profile on the reference machine and record the result here.
+
 ## 2026-10-26 — WebUI Step 7: PyQt optional
 
 - Branch / commits: `feat/pyqt-optional`.
