@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card" id="status" hx-get="/ui/status" hx-trigger="every 3s" hx-swap="innerHTML">
-  {% include "_status.html" %}
+<section class="card hero">
+  <div id="queue" hx-get="/ui/queue" hx-trigger="every 2s" hx-swap="innerHTML">
+    {% include "_queue.html" %}
+  </div>
 </section>
 
 <section class="card">
@@ -46,13 +48,6 @@
     </div>
     <button class="btn primary" type="submit">Add</button>
   </form>
-</section>
-
-<section class="card">
-  <h2>Queue</h2>
-  <div id="queue" hx-get="/ui/queue" hx-trigger="every 2s" hx-swap="innerHTML">
-    {% include "_queue.html" %}
-  </div>
 </section>
 
 <section class="card" id="logs-panel"

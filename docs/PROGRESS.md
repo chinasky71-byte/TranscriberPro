@@ -27,6 +27,43 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-26 — WebUI Step 11: sidebar layout, queue-first dashboard, timings
+
+- Branch / commits: `feat/webui-layout`.
+- Goal: navigation on the left and data on the right, the landing page showing
+  the state of the queue instead of the machine, and real timings while a job
+  runs.
+- Done: `base.html` rewritten as a shell with an `<aside class="sidebar">`
+  (Queue, Status, History, OCR, Glossary, Settings, API, auth pill, logout) and
+  a `<main class="content">`, with the current section highlighted through the
+  new `path` value that `_render` passes to every template; the system card moved
+  to its own `/status` page (`status.html`, new route) which also shows engine,
+  target language, data dir and models dir; the dashboard opens on a hero block
+  with the active job (name, progress bar, phase, **elapsed**, estimated
+  remaining, log/cancel) and the queue counters; the job table gained a **Time**
+  column with elapsed for running jobs and total time for finished ones;
+  `_hms`, `_elapsed_of` and `_eta_of` format the durations (the estimate is
+  labelled and only shown from 5% on); the auth warning became a compact banner
+  on every page; `_queue.html` now takes its context under `queue` so the page
+  and the HTMX partial share one shape; CSS for the shell, the sidebar, the hero
+  and the pills, with the sidebar collapsing to a bar under 760 px.
+- Tests and results: `test_web_ui.py` +5 (sidebar order and active item,
+  queue-first landing with a running job and "12m 34s elapsed", elapsed/total in
+  the table, the helper formatting, `/status` details) and the system-card tests
+  moved to `/status`. Suite: 744 passed, 11 skipped, 0 failed. Verified live: the
+  landing page renders `Nothing running` with the counters, `/status` returns 200
+  with the system facts, and the queue table shows `25m 06s` for the finished
+  episode.
+- Decisions / ADRs: no ADR. The dashboard answers "what is happening now", the
+  Status page answers "can this machine work": two questions, two pages. The
+  estimated remaining time is derived from the achieved percentage, so it is
+  explicitly labelled `est.` and hidden below 5%.
+- Known issues: the estimate is naive (it assumes a constant rate across
+  phases, while Demucs and ASR have different speeds); the logs panel is still a
+  floating card at the bottom of the dashboard.
+- Next step: container validation (Step 8) remains the only open acceptance;
+  otherwise this closes the WebUI work.
+
 ## 2026-10-26 — ASR knobs measured: batch and chunk length are not a speed lever
 
 - Branch / commits: `docs/asr-ab-measurements`.

@@ -64,7 +64,8 @@ Pages:
 
 | Path | Content |
 |---|---|
-| `/` | dashboard, add form, queue, logs panel |
+| `/` | dashboard: current queue (active job with progress, phase and elapsed time), counters, job table with elapsed/total time, add form with the file picker, logs panel |
+| `/status` | system status (backend, GPU verdict, versions, work dir) and processing details |
 | `/history` | finished jobs with `done`/`failed`/`cancelled`/`interrupted` filter |
 | `/ocr` | OCR review: start a session, open one, correct the text, write the SRT |
 | `/settings` | whitelisted config keys and write-only secrets |

@@ -102,7 +102,8 @@ Errors: JSON `{error: {code, message}}`; no stack traces, no secrets.
 
 | Page | Contents | Phase |
 |---|---|---|
-| Dashboard | **system status** (backend + stamp, GPU ok/problem, torch/HIP/CUDA/ctranslate2 versions, work dir and free space, auth state), version, queue counters, active job | MVP + Step 10 (done) |
+| Dashboard | **current queue in the centre**: active job (name, progress bar, phase, **elapsed time** and an estimate), queue counters, then the job table with elapsed (running) or **total time** (finished); add form and file picker below; logs panel | MVP + Step 11 (done) |
+| Status | system status card (backend stamp, GPU verdict and problems, torch/HIP/CUDA/ctranslate2 versions, devices, work dir and free space, auth state) plus engine, target language, data and models directories | Step 11 (done) |
 | Queue | add path, **file picker with multi-select**, per-file overrides, `skip_existing`, start/stop/cancel, progress, phase, log tail | MVP + Step 9 (done) |
 | Job detail | steps, logs, output path | MVP (logs panel; no separate page) |
 | History | finished jobs, status filter, duration, output path, log | Step 4 (done) |
@@ -110,6 +111,10 @@ Errors: JSON `{error: {code, message}}`; no stack traces, no secrets.
 | OCR review | bitmap image + text, approve/correct, sidecar SRT | Step 5 (done) |
 | Glossary | per-show terms, candidates, approve/reject | Step 6 (done; review only, reports are built offline) |
 | Library scanner | scan, filters, bitmap badges, batch OCR | Step 6 (not implemented: separate service, see PLAN.md) |
+
+Layout: **navigation in a left sidebar, data on the right**; on narrow screens
+the sidebar becomes a horizontal bar above the content. The dashboard opens on
+the queue, not on the machine: the system state lives in its own page.
 
 UI language: IT/EN (the interface only; documentation stays English).
 Mobile-friendly layout; no external CDN assets.

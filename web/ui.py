@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
@@ -117,17 +118,31 @@ def _status_context(request: Request) -> Dict[str, Any]:
 
 
 def _queue_context(request: Request, error: str = "", message: str = "") -> Dict[str, Any]:
+    jobs = request.app.state.manager.snapshot()
+    now = time.time()
+    rows = []
+    for job in jobs:
+        row = dict(job)
+        row["elapsed"] = _elapsed_of(job, now)
+        row["total"] = _elapsed_of(job, now) if job.get("finished_at") else ""
+        row["eta"] = _eta_of(job, now)
+        rows.append(row)
+    active = next((row for row in rows if row["status"] == "running"), None)
     return {
-        "jobs": request.app.state.manager.snapshot(),
+        "status": _status_context(request),
+        "jobs": rows,
+        "active": active,
+        "counts": _counts(jobs),
         "error": error,
         "message": message,
-        "counts": _counts(request.app.state.manager.snapshot()),
     }
 
 
 def _render(request: Request, name: str, context: Dict[str, Any]) -> HTMLResponse:
     return TEMPLATES.TemplateResponse(request=request, name=name,
-                                      context={"request": request, **context})
+                                      context={"request": request,
+                                               "path": request.url.path,
+                                               **context})
 
 
 def _settings_context(request: Request, error: str = "", message: str = "",
@@ -181,6 +196,39 @@ async def _read_settings_form(request: Request) -> Dict[str, Any]:
             else:
                 raw[key] = form.get(key) or ""
     return raw
+
+
+def _hms(seconds: float | None) -> str:
+    """Durata leggibile: 42s, 4m 07s, 1h 02m."""
+    if not seconds or seconds < 0:
+        return ""
+    total = int(round(seconds))
+    hours, rest = divmod(total, 3600)
+    minutes, secs = divmod(rest, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m"
+    if minutes:
+        return f"{minutes}m {secs:02d}s"
+    return f"{secs}s"
+
+
+def _elapsed_of(job: Dict[str, Any], now: float | None = None) -> str:
+    """Tempo dall'inizio (job in corso) o durata totale (job concluso)."""
+    start = job.get("started_at")
+    if not start:
+        return ""
+    end = job.get("finished_at") or (now if now is not None else time.time())
+    return _hms(end - start)
+
+
+def _eta_of(job: Dict[str, Any], now: float | None = None) -> str:
+    """Stima grezza dal progresso raggiunto: solo indicativa, per questo 'est.'."""
+    start = job.get("started_at")
+    percent = float(job.get("percent") or 0)
+    if not start or percent < 5 or job.get("finished_at"):
+        return ""
+    elapsed = (now if now is not None else time.time()) - start
+    return "est. " + _hms(elapsed * (100.0 - percent) / percent)
 
 
 def _duration(job: Dict[str, Any]) -> str:
@@ -291,7 +339,7 @@ def ui_status(request: Request) -> HTMLResponse:
 
 @router.get("/ui/queue", response_class=HTMLResponse, dependencies=[Depends(_auth)])
 def ui_queue(request: Request) -> HTMLResponse:
-    return _render(request, "_queue.html", _queue_context(request))
+    return _render(request, "_queue.html", {"queue": _queue_context(request)})
 
 
 @router.post("/ui/jobs", response_class=HTMLResponse, dependencies=[Depends(_auth)])
@@ -321,12 +369,12 @@ def ui_add_job(request: Request,
     selected = [item.strip() for item in [path, *paths] if item and item.strip()]
     if not selected:
         return _render(request, "_queue.html",
-                       _queue_context(request, error="Select at least one media file"))
+                       {"queue": _queue_context(request, error="Select at least one media file")})
 
     try:
         roots = compute_roots(lambda key, default: config.get(key, default))
     except (FileNotFoundError, PermissionError, ValueError) as exc:
-        return _render(request, "_queue.html", _queue_context(request, error=str(exc)))
+        return _render(request, "_queue.html", {"queue": _queue_context(request, error=str(exc))})
 
     queued: List[str] = []
     skipped = 0
@@ -351,21 +399,21 @@ def ui_add_job(request: Request,
         parts.append(f"skipped {skipped} with an existing subtitle")
     message = ", ".join(parts)
     return _render(request, "_queue.html",
-                   _queue_context(request, error="; ".join(errors), message=message))
+                   {"queue": _queue_context(request, error="; ".join(errors), message=message)})
 
 
 @router.post("/ui/jobs/{job_id}/cancel", response_class=HTMLResponse, dependencies=[Depends(_auth)])
 def ui_cancel_job(request: Request, job_id: str) -> HTMLResponse:
     ok = request.app.state.manager.cancel(job_id)
     message = "" if ok else "Job cannot be cancelled"
-    return _render(request, "_queue.html", _queue_context(request, error=message if not ok else ""))
+    return _render(request, "_queue.html", {"queue": _queue_context(request, error=message if not ok else "")})
 
 
 @router.post("/ui/jobs/{job_id}/remove", response_class=HTMLResponse, dependencies=[Depends(_auth)])
 def ui_remove_job(request: Request, job_id: str) -> HTMLResponse:
     ok = request.app.state.manager.remove(job_id)
     message = "" if ok else "Only queued jobs can be removed"
-    return _render(request, "_queue.html", _queue_context(request, error=message if not ok else ""))
+    return _render(request, "_queue.html", {"queue": _queue_context(request, error=message if not ok else "")})
 
 
 @router.get("/history", response_class=HTMLResponse, dependencies=[Depends(_auth)])
@@ -393,6 +441,19 @@ async def settings_save(request: Request) -> HTMLResponse:
                        _settings_context(request, error=str(exc), draft=raw))
     return _render(request, "settings.html",
                    _settings_context(request, message="Settings saved"))
+
+
+@router.get("/status", response_class=HTMLResponse, dependencies=[Depends(_auth)])
+def status_page(request: Request) -> HTMLResponse:
+    config = request.app.state.config
+    from utils.cache_bootstrap import MODELS_ROOT
+    return _render(request, "status.html", {
+        "status": _status_context(request),
+        "engine": config.get("transcription_engine_mode", ""),
+        "target_language": config.get("target_language", ""),
+        "data_dir": str(getattr(config, "CONFIG_DIR", "")),
+        "models_dir": str(MODELS_ROOT),
+    })
 
 
 @router.get("/ocr", response_class=HTMLResponse, dependencies=[Depends(_auth)])
