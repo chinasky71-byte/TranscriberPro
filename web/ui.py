@@ -298,6 +298,7 @@ def ui_add_job(request: Request,
                mux: bool = Form(False),
                upload: bool = Form(False),
                gender: bool = Form(False),
+               allow_cpu: bool = Form(False),
                skip_existing: bool = Form(False)) -> HTMLResponse:
     config = request.app.state.config
     raw = {
@@ -307,6 +308,7 @@ def ui_add_job(request: Request,
         "mux_subtitle_into_video": mux,
         "opensubtitles_upload_enabled": upload,
         "gender_correction_enabled": gender,
+        "allow_cpu": allow_cpu,
     }
     overrides = clean({key: value for key, value in raw.items() if value not in ("", False, None)})
 

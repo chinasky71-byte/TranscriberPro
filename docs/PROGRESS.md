@@ -27,6 +27,40 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-26 — Runtime preflight: a GPU job no longer starts on a CPU venv
+
+- Branch / commits: `feat/gpu-preflight`.
+- Goal: close the second half of the ADR-007 problem — the installer now refuses
+  a wrong backend, but nothing stopped a job from starting on a venv that had
+  been changed by hand afterwards.
+- Done: `utils/backend_preflight.py` reads `venv/.tp-backend`, probes the real
+  libraries in a subprocess (torch version, HIP/CUDA runtime,
+  `cuda.is_available()`, device count, ctranslate2 device count), caches the
+  answer for five minutes and turns it into a verdict plus a remedy sentence;
+  `JobManager` accepts a `preflight(job)` hook and fails the job before spawning
+  the pipeline; `web.main` prints the backend banner at startup and passes the
+  check, `core.queue_runner` does the same for the CLI; new job override
+  `allow_cpu` (checkbox "Allow CPU" in the add form) lets a single job skip the
+  check on purpose; `install.sh --verify-only` re-checks an existing venv and
+  rewrites the stamp without installing anything (the remedy when a stamp is
+  missing), and the stamp now records ctranslate2 by importing it after torch.
+- Tests and results: `linux_tests/test_backend_preflight.py` (11: stamp parsing,
+  healthy/missing/wrong-runtime reports, cache, `allow_cpu`, `use_gpu=false`, the
+  manager failing the job without calling the runner, override sanitising) and
+  two installer tests for `--verify-only`. Suite: 714 passed, 11 skipped, 0
+  failed. On the reference machine `--verify-only` writes `backend=rocm`,
+  `torch=2.10.0+rocm7.0`, `ctranslate2=4.8.4`, and the banner reads
+  `rocm: torch 2.10.0+rocm7.0 (7.0.51831), device 2, ctranslate2 4.8.4`.
+- Decisions / ADRs: ADR-007 extended in practice. The probe is a subprocess
+  because the web server must not import torch; the cache keeps a ten-file queue
+  at one probe. A job that fails the preflight is `failed` with the reason in
+  `error` and in the job log — the same shape the UI already renders.
+- Known issues: the preflight checks `use_gpu` from the config, not the
+  per-engine requirement (a job that would only translate also fails when the
+  GPU is missing); `utils/backend_preflight.py` has no CLI of its own, it is
+  used through the queue.
+- Next step: landing page with the system status and removal of the WebUI token.
+
 ## 2026-10-26 — Installer: automatic backend choice with deny-by-default (ADR-007)
 
 - Branch / commits: `feat/backend-auto`.

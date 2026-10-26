@@ -44,11 +44,17 @@ def main(argv: list[str] | None = None) -> int:
     from web.app import create_app
 
     config = get_config()
+    from utils import backend_preflight
+    from utils.backend_preflight import check_for_job
+    print(f"backend: {backend_preflight.banner()}")
+    for problem in backend_preflight.report()["problems"]:
+        print(f"  [!!] {problem}")
     manager = JobManager(
         target_language=config.get_target_language(),
         persist_path=data_dir / "jobs.json",
         log_dir=data_dir / "queue_logs",
         keep_alive=True,
+        preflight=lambda job: check_for_job(config, job.overrides),
     )
     app = create_app(manager, token=token, config=config)
 

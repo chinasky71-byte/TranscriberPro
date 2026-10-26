@@ -155,3 +155,28 @@ def test_install_sh_non_ha_piu_percorsi_cpu_o_vulkan():
     assert 'case "$BACKEND" in\n  auto|cuda|rocm)' in text
     assert 'TP_INSTALL_VENV' in text                       # isolamento dei test
     assert 'STAMP="$VENV/.tp-backend"' in text              # timbro dentro il venv scelto, non hardcoded
+
+
+def test_verify_only_riscrive_il_timbro_senza_pip(tmp_path):
+    """--verify-only: riverifica il venv esistente e riscrive il timbro, senza installare nulla."""
+    env, log, venv = _make(tmp_path)
+    r = _run(env, '--verify-only')
+    text = (venv / '.tp-backend').read_text(encoding='utf-8') if (venv / '.tp-backend').exists() else ''
+    calls = log.read_text()
+    assert 'pip install' not in calls, calls
+    assert 'requisiti' not in calls
+    # il finto python del venv non importa torch: la verifica puo' solo fallire, ma non deve installare
+    assert r.returncode in (0, 1)
+    if r.returncode == 0:
+        assert 'backend=' in text
+    else:
+        assert 'Verifica del backend installato' in r.stdout and text == ''
+
+
+def test_verify_only_senza_venv_si_ferma(tmp_path):
+    env, _, venv = _make(tmp_path)
+    for entry in (venv / 'bin').iterdir():
+        entry.unlink()
+    (venv / 'bin').rmdir()
+    r = _run(env, '--verify-only')
+    assert r.returncode == 2 and 'Niente da verificare' in r.stdout.replace('niente', 'Niente')
