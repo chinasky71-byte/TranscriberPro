@@ -2,7 +2,7 @@
 
 Updated: 2026-10-26
 Line: `development` (active product); `master` is legacy (ADR-006)
-Branch: `development` · last merge: `4ef8397` (Docker artifacts)
+Branch: `development` · last merge: `d17f601` (test isolation)
 WebUI: **not running** (start it with the command in `web/README.md`)
 Environment: Ubuntu 26.04, Radeon RX 9060 XT 16 GB (gfx1200, RDNA4),
 ROCm 7.0, torch 2.10.0+rocm7.0 + ctranslate2 4.8.4 ROCm (verify with
@@ -16,6 +16,12 @@ ROCm 7.0, torch 2.10.0+rocm7.0 + ctranslate2 4.8.4 ROCm (verify with
 - **ASR**: faster-whisper large-v3 and Qwen3-ASR on ROCm; automatic fallback.
 - **Translation**: NLLB base, NLLB fine-tuned (4-bit), TranslateGemma 12B GGUF
   on Vulkan; HTTP engines for benchmark experiments.
+- **Measured throughput** (reference machine, ROCm, one job at a time): a
+  134-minute episode in 25 min and a 144-minute one in 27 min, i.e. ~5.3x
+  realtime. During a run the GPU is busy at 94% of the samples (96% of them
+  above 80%), VRAM peaks at 7.5 GB of 15.9 GB, and the media is read in a
+  single sequential pass, so the storage is not a bottleneck — see
+  `docs/PROGRESS.md`, 2026-10-26.
 - **Benchmark harness**: `bench/` with hardware fingerprint, ASR and
   translation suites, sanitized export into `docs/benchmarks/`.
 - **Architecture baseline**: layers, contracts, runtime policy, platform
@@ -38,7 +44,8 @@ ROCm 7.0, torch 2.10.0+rocm7.0 + ctranslate2 4.8.4 ROCm (verify with
   a message pointing at the WebUI when Qt is absent.
 - **ADRs** 001–006, support matrix, contributing rules, guard tests.
 - **Tests**: unit/guard tests in `linux_tests/` (bench, boundaries, events,
-  docs links, translation gate, i18n, web API/UI/OCR/glossary, Docker).
+  docs links, translation gate, i18n, web API/UI/picker/OCR/glossary, Docker,
+  install isolation). The suite is fully green: 689 passed, 11 skipped.
 
 ## In progress / next
 

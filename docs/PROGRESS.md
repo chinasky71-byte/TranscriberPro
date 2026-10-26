@@ -27,6 +27,42 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-26 — Session close: throughput measured, GPU verdict, docs sync
+
+- Branch / commits: `docs/session-close` (this entry ships in the same commit).
+- Goal: record what the session proved about performance, close the pending
+  documentation drift and leave the tree ready for the next step.
+- Done: `docs/STATUS.md` gains the measured throughput bullet (per-episode
+  times, GPU occupancy, single-pass read), the current `last merge` and a
+  "suite fully green" line; this entry; the two steps merged earlier today
+  (`3dae384` WebUI Step 9/file picker, `d17f601` test isolation) are the only
+  code changes of the session besides the ROCm environment repair.
+- Tests and results: full suite on `development` after both merges, 689
+  passed, 11 skipped, 0 failed (71 s). Runtime checks: `torch 2.10.0+rocm7.0`,
+  `cuda True`, `ctranslate2 4.8.4`, `use_gpu=true`, picker served, HTML
+  `Cache-Control: no-store`.
+- Measurements (reference machine, one job at a time, AMD RX 9060 XT 16 GB):
+  a 134-minute episode took 25 min; a 144-minute one took 27 min (1619.7 s per
+  the pipeline clock) for 1968 cues; a third run sampled every 2 s showed the
+  GPU at 94% average, 96% of samples at or above 80%, VRAM peak 7.5 GB and only
+  51 MB of reads outside the extraction phase. Conclusion: the workload is
+  GPU-bound, the media read is one sequential pass (~4% of the wall time) and
+  staging a copy on the local disk would add I/O instead of saving time.
+- Decisions / ADRs: no ADR. The pipeline chain (Demucs htdemucs, 20/10/25 s
+  energy chunking with per-engine caps, Qwen3-ASR, punctuation, cleaner) stays
+  untouched: it is the result of months of tuning on the hardest kind of
+  material (music, audience, overlapping speech) and measured results are good.
+  No quality A/B is planned until a human reference exists for the evaluation
+  set; the benchmark's single synthetic clip is not a basis for model choices.
+- Known issues: the reference evaluation set does not exist yet (a 10-minute
+  hand-corrected slice would unlock WER-based comparisons). The cancel path
+  still leaves the `TMPDIR` work folder behind, and the pipeline pre-loads
+  Whisper even when the engine is Qwen3 (a `ctranslate2` without the GPU
+  runtime fails a job that would never use it). The library scanner remains a
+  separate service.
+- Next step: container validation (Step 8 acceptance) on a host with a
+  container daemon; then the two robustness items above.
+
 ## 2026-10-26 — Test isolation: the suite no longer destroys the GPU venv
 
 - Branch / commits: `fix/install-test-isolation`.
