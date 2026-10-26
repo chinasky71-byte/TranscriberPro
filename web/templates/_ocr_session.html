@@ -1,0 +1,21 @@
+{% if error %}<p class="alert error">{{ error }}</p>{% endif %}
+{% if message %}<p class="alert ok">{{ message }}</p>{% endif %}
+
+<div class="row between">
+  <h2>OCR — {{ session.name }}</h2>
+  <div class="actions">
+    <a class="btn small" href="/ocr">All sessions</a>
+    <a class="btn small {% if not flagged %}primary{% endif %}" href="/ocr/{{ session.id }}">all</a>
+    <a class="btn small {% if flagged %}primary{% endif %}"
+       href="/ocr/{{ session.id }}?flagged=1">flagged ({{ session.flagged_count }})</a>
+  </div>
+</div>
+
+<dl class="facts">
+  <dt>Status</dt><dd><span class="badge {{ session.status }}">{{ session.status }}</span></dd>
+  <dt>Track</dt><dd>{{ session.kind or '—' }} · {{ session.language or '—' }}</dd>
+  <dt>Events</dt><dd>{{ session.event_count }} ({{ session.flagged_count }} flagged)</dd>
+  <dt>Output</dt><dd class="name" title="{{ session.srt_path }}">{{ session.srt_path or '—' }}</dd>
+</dl>
+
+{% include "_ocr_session_body.html" %}

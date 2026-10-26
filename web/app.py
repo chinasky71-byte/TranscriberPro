@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -20,6 +20,8 @@ from web.auth import request_token, token_matches
 from web.config_schema import ConfigError, read_values, apply_values
 from web.config_schema import SAFE_CONFIG_KEYS, SECRET_CONFIG_KEYS  # re-exported
 from web.events import SSEBridge
+from web.ocr_review import (OcrReviewService, OcrSessionError, OcrSessionNotFound,
+                            env_root)
 from web.paths import compute_roots, validate_media_path
 
 class JobIn(BaseModel):
@@ -29,6 +31,16 @@ class JobIn(BaseModel):
 
 class ConfigIn(BaseModel):
     values: Dict[str, Any]
+
+
+class OcrSessionIn(BaseModel):
+    path: str
+    language: Optional[str] = None
+
+
+class OcrEventIn(BaseModel):
+    text: str = ""
+    verified: bool = False
 
 
 def _app_version() -> str:
@@ -55,7 +67,8 @@ def _gpu_status() -> Dict[str, Any]:
 
 
 def create_app(manager: JobManager, token: Optional[str] = None,
-               config: Any = None) -> FastAPI:
+               config: Any = None,
+               ocr_service: Optional[OcrReviewService] = None) -> FastAPI:
     config = config or get_config()
 
     @asynccontextmanager
@@ -73,6 +86,7 @@ def create_app(manager: JobManager, token: Optional[str] = None,
     app.state.token = token
     app.state.config = config
     app.state.gpu = _gpu_status()
+    app.state.ocr = ocr_service or OcrReviewService(env_root(config))
 
     def require_auth(request: Request) -> None:
         expected = app.state.token
@@ -203,6 +217,73 @@ def create_app(manager: JobManager, token: Optional[str] = None,
                                  headers={"Cache-Control": "no-cache",
                                           "X-Accel-Buffering": "no",
                                           "Connection": "keep-alive"})
+
+    @app.get("/api/ocr/sessions", dependencies=auth)
+    def ocr_sessions() -> List[Dict[str, Any]]:
+        return app.state.ocr.list()
+
+    @app.post("/api/ocr/sessions", status_code=201, dependencies=auth)
+    def ocr_create(payload: OcrSessionIn) -> Dict[str, Any]:
+        try:
+            roots = compute_roots(lambda key, default: config.get(key, default))
+            path = validate_media_path(payload.path, roots)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        language = (payload.language or "").strip()
+        if language and not re.fullmatch(r"[a-z]{3}", language):
+            raise HTTPException(status_code=400,
+                                detail="language: expected an ISO 639-2 code such as 'ita'")
+        return app.state.ocr.create(str(path), language)
+
+    @app.get("/api/ocr/sessions/{session_id}", dependencies=auth)
+    def ocr_session(session_id: str) -> Dict[str, Any]:
+        try:
+            return {"session": app.state.ocr.get(session_id),
+                    "events": app.state.ocr.events(session_id)}
+        except OcrSessionNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+
+    @app.put("/api/ocr/sessions/{session_id}/events/{index}", dependencies=auth)
+    def ocr_update_event(session_id: str, index: int, payload: OcrEventIn) -> Dict[str, Any]:
+        try:
+            return app.state.ocr.update_event(session_id, index, payload.text,
+                                              payload.verified)
+        except OcrSessionNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except OcrSessionError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @app.get("/api/ocr/sessions/{session_id}/images/{index}", dependencies=auth)
+    def ocr_image(session_id: str, index: int) -> FileResponse:
+        try:
+            path = app.state.ocr.image_path(session_id, index)
+        except OcrSessionNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except OcrSessionError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return FileResponse(path, media_type="image/png",
+                            headers={"Cache-Control": "private, max-age=3600"})
+
+    @app.post("/api/ocr/sessions/{session_id}/srt", dependencies=auth)
+    def ocr_writeback(session_id: str) -> Dict[str, Any]:
+        try:
+            return app.state.ocr.writeback(session_id)
+        except OcrSessionNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except OcrSessionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+
+    @app.delete("/api/ocr/sessions/{session_id}", dependencies=auth)
+    def ocr_delete(session_id: str) -> Dict[str, str]:
+        try:
+            app.state.ocr.delete(session_id)
+        except OcrSessionNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        return {"removed": session_id}
 
     @app.get("/api/config", dependencies=auth)
     def read_config() -> Dict[str, Any]:

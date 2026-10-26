@@ -1,8 +1,8 @@
 # Web API
 
 FastAPI application that exposes the shared job queue and the browser UI.
-Steps 2 (API), 3 (MVP UI) and 4 (settings, history) of `docs/webui/PLAN.md`
-are done; the OCR review page follows in Step 5.
+Steps 2 (API), 3 (MVP UI), 4 (settings, history) and 5 (OCR review) of
+`docs/webui/PLAN.md` are done.
 
 ## Run
 
@@ -55,6 +55,7 @@ Pages:
 |---|---|
 | `/` | dashboard, add form, queue, logs panel |
 | `/history` | finished jobs with `done`/`failed`/`cancelled`/`interrupted` filter |
+| `/ocr` | OCR review: start a session, open one, correct the text, write the SRT |
 | `/settings` | whitelisted config keys and write-only secrets |
 
 Plain HTTP on a LAN exposes both the token and the cookie: use a TLS reverse
@@ -78,6 +79,13 @@ GET    /api/history?status=&limit=
 GET    /api/models
 GET    /api/config
 PUT    /api/config                  {"values": {...}}
+POST   /api/ocr/sessions            {"path": "...", "language": "ita"?}
+GET    /api/ocr/sessions
+GET    /api/ocr/sessions/{id}       session + events
+PUT    /api/ocr/sessions/{id}/events/{index}   {"text": "...", "verified": true}
+GET    /api/ocr/sessions/{id}/images/{index}   PNG bitmap
+POST   /api/ocr/sessions/{id}/srt   write the sidecar SRT
+DELETE /api/ocr/sessions/{id}
 ```
 
 Interactive schema: `/docs`.
@@ -96,3 +104,19 @@ Interactive schema: `/docs`.
   `clear:` checkbox removes it.
 - The queue is persisted in `TP_DATA_DIR/jobs.json`; jobs left `running` at
   startup become `interrupted`.
+
+## OCR review
+
+`POST /api/ocr/sessions` starts `python -m core.ocr_review_job ocr` in a
+subprocess (PIL, tesseract and ffmpeg stay out of the web process). The
+session lives in `TP_DATA_DIR/ocr/<id>/` with `session.json`, `events.json`,
+one PNG per event under `images/` and the worker log; media-derived text and
+bitmaps therefore never enter the project tree.
+
+The data contract is `core/pgs_types.py` (`OcrEvent`, `events_to_srt`), the
+same one the Qt dialog uses. The write-back is always a **sidecar**
+`<video>.<language>.srt` next to the media: the browser review never rewrites
+the video file, like the headless pipeline.
+
+The page polls `/ui/ocr/{id}` while the worker runs and shows the failure
+reason when a file has no PGS/VOBSUB track or tesseract lacks the language.

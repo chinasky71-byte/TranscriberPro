@@ -101,6 +101,10 @@ fieldset.group {
 
 fieldset.group legend { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; padding: 0 6px; }
 
+.ocr-grid { display: grid; grid-template-columns: minmax(220px, 1fr) 1fr; gap: 14px; align-items: start; }
+.ocr-image { max-width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #000; }
+@media (max-width: 720px) { .ocr-grid { grid-template-columns: 1fr; } }
+
 .checks { display: flex; gap: 16px; flex-wrap: wrap; }
 .checks label { display: flex; align-items: center; gap: 6px; color: var(--text); }
 
@@ -125,8 +129,7 @@ fieldset.group legend { color: var(--muted); font-size: 12px; text-transform: up
 .queue { width: 100%; border-collapse: collapse; }
 .queue th, .queue td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .queue th { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
-.queue td.name { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.queue td.phase { color: var(--muted); }
+.queue td.name { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.queue td.phase { color: var(--muted); }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
 .badge {
