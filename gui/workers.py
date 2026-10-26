@@ -30,9 +30,9 @@ from PyQt6.QtCore import QThread, pyqtSignal, QMutex, QMutexLocker
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime
-import time
 import re
 
+from core.jobs.file_runner import FileHooks, FileRunner, kill_tree
 from utils.logger import setup_logger
 from utils.translations import tr
 
@@ -370,14 +370,8 @@ class ProcessingWorker(QThread):
         return self._process_single_file_subprocess(video_path)
 
     def _process_single_file_subprocess(self, video_path: str) -> bool:
-        """Elabora il film in un subprocess isolato (core.pipeline_cli)."""
-        import os
-        import sys
-        import json
-        import shutil
-        import tempfile
-        import subprocess
-
+        """Elabora il film in un subprocess isolato (core.pipeline_cli). Lo spawn, la lettura dell'output, l'esito e la pulizia
+        sono in core/jobs/file_runner.py (unica copia, usata anche dalla coda headless): qui restano i segnali verso la GUI."""
         filename = Path(video_path).name
 
         from utils.config import get_config
@@ -385,10 +379,10 @@ class ProcessingWorker(QThread):
         overrides = _clean_ov(getattr(self, '_current_overrides', None))
         target_language = overrides.get('target_language') or get_config().get_target_language()
         # Avanzamento del file: fasi pesate per durata reale + barra interna di fase (core/jobs/file_progress.py).
-        from gui.file_progress import FileProgress
+        from core.jobs.file_progress import FileProgress
         _file_progress = FileProgress(target_language)
         # Anteprima dei passi (Log Sintetico): gira SEMPRE, cosi' spuntando la casella a meta' file lo stato e' gia' vero.
-        from gui.services.step_plan import StepTracker, PlanOptions
+        from core.jobs.step_plan import StepTracker, PlanOptions
         try:
             _steps = StepTracker(video_path, PlanOptions.from_config(get_config(), target_language, overrides))
             self.file_steps.emit(video_path, _steps.snapshot())
@@ -403,166 +397,63 @@ class ProcessingWorker(QThread):
                     pass
         files_done = self.completed_files + self.failed_files
 
-        # Dir IPC separata dalla temp dir del video (che il cleanup rimuove).
-        ipc_dir = Path(tempfile.mkdtemp(prefix="tp_pipe_"))
-        args_path = ipc_dir / "args.json"
-        result_path = ipc_dir / "result.json"
-        args_path.write_text(json.dumps({
-            "video_path": video_path,
-            "target_language": target_language,
-            "overrides": overrides,
-            "files_processed": files_done,
-            "result_path": str(result_path),
-        }, ensure_ascii=False), encoding='utf-8')
+        worker = self
 
-        project_root = Path(__file__).resolve().parent.parent
-        env = os.environ.copy()
-        # RDNA2: HSA_OVERRIDE_GFX_VERSION=10.3.0 solo per il figlio, solo se rilevata e se l'utente non l'ha gia' impostata
-        from utils.gpu_detect import apply_subprocess_env
-        apply_subprocess_env(env)
-        # PYTHONIOENCODING forza gli std stream del child a UTF-8 (per emoji/accenti
-        # nei messaggi). NON impostiamo PYTHONUTF8=1: attiverebbe la UTF-8 mode
-        # globale, cambiando il default encoding delle subprocess ANNIDATE (ffmpeg,
-        # tool di demucs/pyannote) da cp1252 a UTF-8 strict → UnicodeDecodeError su
-        # metadata in cp1252 (byte 0x8a &c.). In-process il default è cp1252: lo
-        # replichiamo non forzando PYTHONUTF8.
-        env['PYTHONIOENCODING'] = 'utf-8'
-        env['TP_SUBPROCESS'] = '1'   # nel child: niente console handler dei logger
-        env['TQDM_DISABLE'] = '1'    # niente barre di progresso (download modelli)
-        env['TP_EVENTS'] = '1'       # eventi strutturati (utils/events.py): il genitore li toglie dal log
-        creationflags = 0
-        if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP'):
-            creationflags |= subprocess.CREATE_NEW_PROCESS_GROUP
-        if hasattr(subprocess, 'CREATE_NO_WINDOW'):
-            creationflags |= subprocess.CREATE_NO_WINDOW  # nessuna finestra console per il child
+        class _Hooks(FileHooks):
+            def on_spawn(self, proc):
+                worker._current_proc = proc
+
+            def on_text(self, line):
+                worker.log_message.emit(line)
+
+            def on_noise(self, line):
+                # rumore che alcune librerie scrivono su STDOUT bypassando il logging (torch.hub): solo nel file di log
+                logger.info(f"[child-stdout] {line}")
+
+            def on_event(self, kind, fields):
+                # evento strutturato: muove l'anteprima dei passi (la barra del file l'ha gia' mossa il runner)
+                if _steps is not None:
+                    try:
+                        _steps_emit(_steps.feed_event(kind, fields))
+                    except Exception:
+                        pass
+
+            def on_progress(self, value, phase, changed):
+                if changed:
+                    worker.file_progress.emit(video_path, value)
+
+            def on_stderr(self, line):
+                # stderr del figlio (tqdm, warning di librerie): SOLO nel file di log, MAI a schermo
+                logger.info(f"[child-stderr] {line}")
 
         self.log_message.emit(tr('worker_start_single'))
-        _t0 = time.time()
-
         try:
-            proc = subprocess.Popen(
-                [sys.executable, "-m", "core.pipeline_cli", str(args_path)],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd=str(project_root),
-                env=env,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                bufsize=1,
-                creationflags=creationflags,
-            )
-        except Exception as e:
+            result = FileRunner().run(
+                video_path, target_language, files_done, progress=_file_progress, hooks=_Hooks(), overrides=overrides,
+                is_cancelled=lambda: self.is_cancelled, ipc_prefix="tp_pipe_", feed_diag_progress=False,
+                converting_cleanup='cancelled', raise_on_spawn_error=False)
+        finally:
+            self._current_proc = None
+
+        if result.spawn_error is not None:
             self.log_message.emit(
-                tr('worker_critical_error').format(filename=filename, error=str(e)))
-            logger.error(f"Spawn pipeline_cli fallito: {e}", exc_info=True)
-            shutil.rmtree(ipc_dir, ignore_errors=True)
+                tr('worker_critical_error').format(filename=filename, error=result.spawn_error))
+            logger.error(f"Spawn pipeline_cli fallito: {result.spawn_error}")
             if _steps is not None:
                 _steps.mark_failed()
                 _steps_emit()
             return False
 
-        self._current_proc = proc
-
-        # Thread che drena lo stderr del child (tqdm, warning di librerie, logging
-        # esterno) SOLO nel file di log del parent, MAI a schermo. Così il log a
-        # video resta pulito come nel percorso in-process (solo i messaggi _emit
-        # della pipeline arrivano su stdout).
-        import threading
-
-        def _drain_stderr(stream):
-            try:
-                for eline in stream:
-                    eline = eline.rstrip()
-                    if eline:
-                        logger.info(f"[child-stderr] {eline}")
-            except Exception:
-                pass
-
-        stderr_thread = threading.Thread(
-            target=_drain_stderr, args=(proc.stderr,), daemon=True)
-        stderr_thread.start()
-
-        return_code = 1
-        try:
-            # Stream stdout riga per riga → log GUI + progress inline.
-            # Cancel: a ogni riga controlliamo is_cancelled e uccidiamo l'albero.
-            # Rumore che alcune librerie scrivono su STDOUT (non stderr) bypassando
-            # il logging: es. torch.hub "Downloading: ..." per il download modelli.
-            # Va solo nel file di log del parent, mai a schermo.
-            _stdout_noise = ('Downloading:', 'Using cache found in')
-            for line in proc.stdout:
-                if self.is_cancelled:
-                    self._kill_proc_tree(proc)
-                    break
-                line = line.rstrip()
-                if not line:
-                    continue
-                if line.lstrip().startswith(_stdout_noise):
-                    logger.info(f"[child-stdout] {line}")
-                    continue
-                from utils import events as _tp_events
-                _ev = _tp_events.parse_line(line)
-                if _ev is not None:
-                    # evento strutturato: non e' testo per l'utente, muove solo la barra del file
-                    try:
-                        _pct = _file_progress.feed_event(_ev[0], _ev[1]) if _ev[0] else None
-                    except Exception:
-                        _pct = None
-                    if _pct is not None:
-                        self.file_progress.emit(video_path, _pct)
-                    if _steps is not None and _ev[0]:
-                        try:
-                            _steps_emit(_steps.feed_event(_ev[0], _ev[1]))
-                        except Exception:
-                            pass
-                    continue
-                self.log_message.emit(line)
-                # Le righe [DIAG-RAM] contengono "N. Step" ma NON sono boundary
-                # di step: escludile dal match progress (le inoltra comunque a
-                # log_message, che le centralizza nel file di log del parent).
-                if '[DIAG-RAM]' not in line:
-                    try:
-                        _pct = _file_progress.feed(line)
-                    except Exception:
-                        _pct = None      # mai far fallire lo streaming del log per la barra
-                    if _pct is not None:
-                        self.file_progress.emit(video_path, _pct)
-            return_code = proc.wait()
-        finally:
-            self._current_proc = None
-            try:
-                stderr_thread.join(timeout=5)
-            except Exception:
-                pass
-
-        _duration = time.time() - _t0
-
-        if self.is_cancelled:
+        if result.cancelled:
             if _steps is not None:
                 _steps.mark_stopped()
                 _steps_emit()
             self.log_message.emit(tr('worker_cancelled_file').format(filename=filename))
-            # Lo Stop uccide l'albero del subprocess: un remux ffmpeg in corso (sostituzione/mux di un
-            # sottotitolo) lascerebbe `<video>.converting` accanto al video.
-            try:
-                Path(str(video_path) + ".converting").unlink(missing_ok=True)
-            except Exception:
-                pass
-            shutil.rmtree(ipc_dir, ignore_errors=True)
             return False
 
-        # Recupera l'esito da result.json (fallback su exit code).
-        success = (return_code == 0)
-        last_output_path = ''
-        try:
-            if result_path.exists():
-                res = json.loads(result_path.read_text(encoding='utf-8'))
-                success = bool(res.get('success', success))
-                last_output_path = res.get('last_output_path') or ''
-        except Exception:
-            pass
-        shutil.rmtree(ipc_dir, ignore_errors=True)
+        success = result.success
+        last_output_path = result.output or ''
+        _duration = result.duration
 
         if _steps is not None:
             (_steps.mark_completed if success else _steps.mark_failed)()
@@ -590,32 +481,8 @@ class ProcessingWorker(QThread):
         return False
 
     def _kill_proc_tree(self, proc):
-        """Uccide il subprocess e TUTTI i discendenti (ffmpeg, gender_corrector_cli).
-        Su Windows terminate() sul child Python non propaga ai nipoti: serve
-        killare esplicitamente l'albero via psutil."""
-        try:
-            import psutil
-            parent = psutil.Process(proc.pid)
-            for child in parent.children(recursive=True):
-                try:
-                    child.kill()
-                except Exception:
-                    pass
-            parent.kill()
-            try:
-                proc.wait(timeout=5)
-            except Exception:
-                pass
-        except Exception:
-            # Fallback senza psutil: terminate/kill del solo child.
-            try:
-                proc.terminate()
-                proc.wait(timeout=5)
-            except Exception:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
+        """Uccide il subprocess e TUTTI i discendenti (ffmpeg, gender_corrector_cli). Copia unica in core/jobs/file_runner.py."""
+        kill_tree(proc)
 
     def cancel(self):
         """Richiesta di cancellazione dal main thread: kill dell'albero del
