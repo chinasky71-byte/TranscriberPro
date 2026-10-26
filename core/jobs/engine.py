@@ -170,6 +170,16 @@ class QueueEngine:
 
     # -------------------------------------------------------------------------------------------------------- un file
     def _process_file(self, video_path: str, overrides: dict) -> bool:
+        """Un file che solleva un'eccezione non ferma la coda: il file fallisce, con il motivo nel log. (KeyboardInterrupt no.)"""
+        try:
+            return self._process_file_inner(video_path, overrides)
+        except Exception as exc:
+            logger.error(f"Errore elaborando {video_path}: {exc}", exc_info=True)
+            self.listener.on_log(tr('worker_critical_error').format(filename=Path(video_path).name, error=str(exc)))
+            self.listener.on_file_error(video_path, f'{type(exc).__name__}: {exc}')
+            return False
+
+    def _process_file_inner(self, video_path: str, overrides: dict) -> bool:
         """Elabora un file in un subprocess ISOLATO (core.pipeline_cli): l'isolamento evita l'accumulo di RAM su code lunghe
         (ogni film gira in un processo che muore a fine elaborazione) e tiene torch fuori dal processo chiamante."""
         L = self.listener

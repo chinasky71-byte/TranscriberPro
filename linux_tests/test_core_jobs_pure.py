@@ -43,3 +43,51 @@ def test_i_nomi_vecchi_in_gui_sono_alias_degli_stessi_moduli():
     import gui.file_progress as ga
     import gui.services.step_plan as gb
     assert ga is a and gb is b
+
+
+def test_core_utils_e_glossary_engine_non_importano_gui_nemmeno_dentro_le_funzioni():
+    """Regola F4: nessun modulo fuori da gui/ dipende dal pacchetto `gui` (altrimenti gui/ non si potrebbe togliere)."""
+    bad = {}
+    for d in ('core', 'utils', 'glossary_engine'):
+        for p in (ROOT / d).rglob('*.py'):
+            if 'vendor' in p.parts:
+                continue
+            hit = {m for m in _imports(p) if m == 'gui'}
+            if hit:
+                bad[str(p.relative_to(ROOT))] = sorted(hit)
+    assert bad == {}
+
+
+def test_coda_headless_completa_senza_pacchetto_gui_e_senza_qt(tmp_path):
+    """Una coda vera (motore, runner, cronologia, stato JSON) con `gui` e `PyQt6` bloccati: se un import li toccasse fallirebbe."""
+    code = r'''
+import json, subprocess, sys
+sys.modules['gui'] = None
+sys.modules['PyQt6'] = None
+sys.path.insert(0, %(root)r); sys.path.insert(0, %(tests)r)
+import _queue_testkit as kit
+subprocess.Popen = kit.PopenSpy()
+import os
+os.environ['HOME'] = os.environ['USERPROFILE'] = %(home)r
+from utils import config as cfg
+from pathlib import Path
+cfg.Config.CONFIG_DIR = Path(%(home)r) / '.transcriberpro'
+cfg.Config.CONFIG_FILE = cfg.Config.CONFIG_DIR / 'config.json'
+cfg.reset_config()
+import utils.cache_cleaner as cc
+cc.cleanup_non_italian_caches = lambda log_callback=None: {'removed': [], 'failed': []}
+import core.queue_runner as qr
+qr._HOME = Path(%(home)r) / '.transcriberpro'
+qr._gui_running = lambda: False
+v = kit.make_videos(Path(%(vd)r), 'a_ok.mkv', 'b_fail.mkv')
+rc = qr.main([%(vd)r, '--status', %(st)r, '--log-dir', %(logs)r])
+st = json.loads(Path(%(st)r).read_text(encoding='utf-8'))
+print('RESULT', rc, st['completed'], st['failed'], 'gui' in [m for m, x in sys.modules.items() if x is not None])
+'''
+    vd = tmp_path / 'vid'
+    vd.mkdir()
+    src = code % dict(root=str(ROOT), tests=str(ROOT / 'linux_tests'), home=str(tmp_path / 'home'), vd=str(vd),
+                      st=str(tmp_path / 'st.json'), logs=str(tmp_path / 'logs'))
+    r = subprocess.run([sys.executable, '-c', src], capture_output=True, text=True, cwd=str(ROOT))
+    assert 'RESULT 2 1 1 False' in r.stdout, (r.stdout[-600:], r.stderr[-800:])
+    assert (tmp_path / 'home' / '.transcriberpro' / 'history.json').exists()
