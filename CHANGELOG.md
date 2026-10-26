@@ -3,6 +3,16 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.35 — 2026-10-25 — Avanzamento ed ETA del riconoscimento dei parlanti (diarizzazione)
+
+- **Nuovo passo "Riconoscimento parlanti" nella card "Pipeline in corso" (Log Sintetico)**, tra Trascrizione e Traduzione, con percentuale ed ETA come gli altri passi: prima la diarizzazione (circa 5 minuti su una
+  puntata di 165 minuti) non dava nessun segnale. Segue le regole delle altre fasi: disattivato se il riconoscimento parlanti e' spento o manca il token Hugging Face, "non necessario" con sottotitoli
+  gia' nel video, tenuto al 99% finche' inizia il passo successivo. Riga di log aggiornata sul posto ("Riconoscimento parlanti: [███░░░] 30% │ ETA:~3m"), in italiano e in inglese.
+- **Come:** `core/diar_progress.py` trasforma i passi dell'hook di pyannote in una frazione monotona (segmentazione 4%, impronte vocali fino al 94%, poi 97% e 100%): misura su X Factor S20E07 (165 min, GPU):
+  segmentazione 4%, impronte vocali 90%, clustering 3%, finalizzazione 3%; l'avanzamento e il tempo restano entro ~4 punti. Peso 1,0 nella barra complessiva.
+- Se una versione di pyannote non accetta l'hook si ricade sulla chiamata di prima (senza barra). La diarizzazione della correzione di genere non riaccende il passo escluso (revisione Opus).
+- Test nuovi: piano dei passi, percentuale complessiva, riga aggiornata sul posto (IT/EN) e `linux_tests/test_diar_progress.py`.
+
 ## 1.34.34 — 2026-10-25 — Correzioni dalla validazione su GPU AMD (Linux/ROCm) e criterio di successo della traduzione
 
 - **Prima prova reale su AMD** (Radeon RX 9060 XT, ROCm 7.0, Ubuntu): rapporto in `docs/VALIDAZIONE_AMD_2026-10-24.md`. Correzioni: `torchaudio.info` (rimosso da torchaudio 2.9/2.10) sostituito da `soundfile`;

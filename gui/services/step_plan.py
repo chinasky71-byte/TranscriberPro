@@ -31,12 +31,12 @@ FAILED, STOPPED = 'failed', 'stopped'
 EXCLUDED = (DISABLED, NOT_NEEDED)
 
 # Passi del percorso audio/testo e del percorso OCR (ordine di esecuzione)
-AUDIO_STEPS = ('extract', 'demucs', 'asr', 'translate', 'gender', 'save', 'upload', 'mux')
+AUDIO_STEPS = ('extract', 'demucs', 'asr', 'diarize', 'translate', 'gender', 'save', 'upload', 'mux')
 OCR_STEPS = ('ocr_extract', 'ocr_read', 'ocr_translate', 'save', 'upload', 'mux')
 
 # Chiave di traduzione (utils/translations.py) dell'etichetta di ogni passo
 LABEL_KEYS = {
-    'extract': 'step_extract', 'demucs': 'step_demucs', 'asr': 'step_asr', 'translate': 'step_translate',
+    'extract': 'step_extract', 'demucs': 'step_demucs', 'asr': 'step_asr', 'diarize': 'step_diarize', 'translate': 'step_translate',
     'gender': 'step_gender', 'save': 'step_save', 'upload': 'step_upload', 'mux': 'step_mux',
     'ocr_extract': 'step_ocr_extract', 'ocr_read': 'step_ocr_read', 'ocr_translate': 'step_translate',
 }
@@ -46,10 +46,10 @@ EST_TAU = {'save': 1.5, 'upload': 8.0}
 
 # Passi che dopo il 100% del motore hanno ancora lavoro (trascrizione: allineamento, diarizzazione, punteggiatura;
 # traduzione: recupero dei blocchi da rifare): la card li tiene a 99% finche' non inizia il passo successivo.
-HOLD_AT_99 = ('asr', 'translate', 'ocr_translate')
+HOLD_AT_99 = ('asr', 'diarize', 'translate', 'ocr_translate')
 
 # Evento `bar` (gruppo) -> passo che lo riceve (nel percorso OCR la traduzione e' `ocr_translate`)
-_BAR_TO_STEP = {'demucs': 'demucs', 'asr': 'asr', 'translate': 'translate', 'gender': 'gender', 'ocr': 'ocr_read'}
+_BAR_TO_STEP = {'demucs': 'demucs', 'asr': 'asr', 'diarize': 'diarize', 'translate': 'translate', 'gender': 'gender', 'ocr': 'ocr_read'}
 
 _LANG3_TO_2 = {'ita': 'it', 'eng': 'en', 'fra': 'fr', 'fre': 'fr', 'deu': 'de', 'ger': 'de', 'spa': 'es',
                'por': 'pt', 'rus': 'ru', 'jpn': 'ja', 'zho': 'zh', 'chi': 'zh', 'kor': 'ko', 'ara': 'ar',
@@ -73,6 +73,7 @@ class PlanOptions:
     """Cio' che decide il piano senza guardare il file (letto dalla configurazione all'avvio del file)."""
     target_language: str = 'ita'
     gender: bool = False             # correzione di genere avanzata
+    diarize: bool = True             # riconoscimento dei parlanti (acceso E token Hugging Face presente)
     upload: bool = False             # upload OpenSubtitles acceso E credenziali configurate
     mux: bool = False                # "Muxa nel video"
 
@@ -93,8 +94,14 @@ class PlanOptions:
                 upload = bool(config.is_opensubtitles_configured())
             except Exception:
                 upload = False
+        diarize = _get('enable_diarization', False) or _get('dialogue_style_enabled', True)
+        if diarize:
+            try:
+                diarize = bool(config.is_huggingface_token_set())
+            except Exception:
+                diarize = False
         return cls(target_language=target_language, gender=_get('gender_correction_enabled', False),
-                   upload=upload, mux=_get('mux_subtitle_into_video', False))
+                   upload=upload, mux=_get('mux_subtitle_into_video', False), diarize=diarize)
 
 
 @dataclass(frozen=True)
@@ -176,6 +183,8 @@ class StepTracker:
         """Passi esclusi dalle opzioni job (interruttori): 'disattivato'. Il mux compare solo se acceso."""
         if 'gender' in self._status and not self.opt.gender:
             self._status['gender'] = DISABLED
+        if 'diarize' in self._status and not self.opt.diarize:
+            self._status['diarize'] = DISABLED
         if 'upload' in self._status and not self.opt.upload:
             self._status['upload'] = DISABLED
         if not self.opt.mux:
@@ -197,12 +206,14 @@ class StepTracker:
     def _event(self, kind: str, f: dict) -> None:
         if kind == 'phase':
             name = str(f.get('name') or '')
-            if name in ('extract', 'demucs', 'asr', 'translate', 'gender'):
+            if name in ('extract', 'demucs', 'asr', 'diarize', 'translate', 'gender'):
                 if self._route == 'ocr':
                     self._plan_audio()               # un marcatore del percorso audio: l'OCR non e' andato a buon fine
                 self._enter(name)
             elif name == 'clean':
                 self._enter_after('asr')
+                self._enter_after('diarize')
+                self._not_needed('diarize')           # la pulizia segue la diarizzazione: se non e' mai partita, non serve
             elif name in ('ocr_extract', 'ocr_read', 'ocr_translate'):
                 if self._route != 'ocr':
                     self._plan_ocr(translate=name == 'ocr_translate')
@@ -226,7 +237,7 @@ class StepTracker:
         elif kind == 'embedded':
             if self._route == 'ocr':
                 self._plan_audio()
-            self._not_needed('extract', 'demucs', 'asr')
+            self._not_needed('extract', 'demucs', 'asr', 'diarize')
             if self._same_as_target(str(f.get('lang') or '')):
                 self._not_needed('translate', 'gender')
         elif kind == 'skip':
@@ -289,8 +300,9 @@ class StepTracker:
             key = 'ocr_translate'
         if key not in self._status or self._status[key] == DISABLED:
             return
-        if key == 'ocr_read' and self._status[key] != ACTIVE:
-            return                                   # avanzamento di una fase OCR precedente (es. estrazione VOBSUB)
+        if key in ('ocr_read', 'diarize') and self._status[key] != ACTIVE:
+            return                                   # fase OCR precedente (es. estrazione VOBSUB); o diarizzazione della correzione di genere
+                                                     # (il figlio eredita gli eventi) con il passo della pipeline escluso o gia' concluso
         if self._status[key] in (PENDING, NOT_NEEDED):
             self._enter(key)                         # barra senza fase annunciata: il passo e' di fatto in corso
         p = min(max(int(pct), 0), 100)

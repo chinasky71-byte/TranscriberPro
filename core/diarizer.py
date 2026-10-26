@@ -14,6 +14,37 @@ import bisect
 import torch
 from typing import List, Tuple, Dict, Optional, Callable, NamedTuple
 from utils.translations import tr
+from utils.eta import EtaEstimator
+from utils.events import emit as _tp_emit
+from core.diar_progress import DiarProgress
+
+
+class _DiarBar:
+    """Barra della diarizzazione: riga di log (si aggiorna sul posto nella card) ed evento `bar` con ETA, come la correzione di genere.
+
+    `set(frazione)` accetta 0..1 monotona; emette solo quando la percentuale intera cambia. Va creata all'inizio del lavoro."""
+
+    def __init__(self, log: Callable[[str], None]):
+        self._log = log
+        self._eta = EtaEstimator()
+        self._last = -1
+
+    def set(self, fraction: float) -> None:
+        pct = int(max(0.0, min(float(fraction), 1.0)) * 100)
+        if pct <= self._last:
+            return
+        self._last = pct
+        eta_s = None
+        if pct < 100:
+            self._eta.update(pct / 100.0)
+            eta_s = self._eta.eta_seconds()
+        _tp_emit('bar', phase='diarize', pct=pct, eta_s=eta_s)
+        if pct >= 100:
+            self._log(tr('dr_progress_done'))
+        else:
+            bar = '\u2588' * (pct // 10) + '\u2591' * (10 - pct // 10)
+            eta_str = "-" if eta_s is None else (f"~{eta_s}s" if eta_s < 60 else f"~{int(eta_s / 60 + 0.5)}m")
+            self._log(tr('dr_progress_eta').format(bar=bar, progress=pct, eta_str=eta_str))
 
 
 class SpeakerVote(NamedTuple):
@@ -239,7 +270,17 @@ class Diarizer:
         self._effective_min_speakers = min_speakers
         self._effective_max_speakers = max_speakers
 
-        output = self._pipeline(audio_input, **kwargs)
+        # Avanzamento ed ETA: hook di pyannote (segmentazione, impronte vocali, ...) -> barra con ETA nella card del log sintetico.
+        # Se la versione di pyannote non accetta `hook` si ricade sulla chiamata di sempre (senza barra).
+        bar = _DiarBar(self.log)
+        progress = DiarProgress(bar.set)
+        try:
+            output = self._pipeline(audio_input, hook=progress, **kwargs)
+        except TypeError as exc:
+            if 'hook' not in str(exc):
+                raise
+            output = self._pipeline(audio_input, **kwargs)
+        progress.finish()
         # pyannote 4.x: DiarizeOutput con .speaker_diarization; 3.x: Annotation diretta
         annotation = getattr(output, 'speaker_diarization', output)
         result = []
