@@ -1,7 +1,17 @@
 # Progress log
 
-Append-only record of working sessions. The newest entry goes at the top.
-Every session that touches the repository must add an entry before the merge.
+Append-only record of implementation steps and working sessions. The newest
+entry goes at the top.
+
+**Hard rule (`AGENTS.md`): every implementation step is recorded here before
+its branch is merged** — one entry per pull request, not one per session. A
+step is not done until its entry exists: branch and commits, goal, what
+changed, tests and results, decisions, known issues, next step. Entries carry
+a date and, when the step is part of a larger effort, the step number from
+`docs/webui/PLAN.md`.
+
+The shape is enforced by `linux_tests/test_docs_progress.py` (required fields,
+newest-first order, the rule stated in `AGENTS.md` and in this header).
 
 ## Template
 
@@ -16,6 +26,32 @@ Every session that touches the repository must add an entry before the merge.
 - Known issues:
 - Next step:
 ```
+
+## 2026-10-26 — Documentation: SPEC/API sync and the PROGRESS rule
+
+- Branch / commits: `docs/spec-sync` (this entry ships in the same commit).
+- Goal: close the documentation gaps found while checking the session, and make
+  the progress log a hard requirement instead of a habit.
+- Done: `AGENTS.md` Workflow gains the rule "every implementation step is
+  recorded in `docs/PROGRESS.md` before its branch is merged, one entry per
+  PR"; `docs/PROGRESS.md` header restates the rule and now lists every field;
+  `docs/CONTRIBUTING.md` has rule 10 and a PR-readiness item; new guard
+  `linux_tests/test_docs_progress.py` (7 tests: fields, newest-first order,
+  heading format, rule stated in `AGENTS.md`/header, CONTRIBUTING link);
+  retroactive entries for `docs/arch-sync` and `docs/status-close`; SPEC §7
+  marked page by page and §6 completed with the OCR/glossary endpoints and the
+  new parameters; `testing.md` lists the four new test modules.
+- Tests and results: `test_docs_progress.py` 7 passed, docs index/links tests
+  green, full `linux_tests` unchanged apart from the two known
+  `test_install_retry.py` failures.
+- Decisions / ADRs: the guard requires the full template only for entries dated
+  2026-10-26 or later, because the log is append-only and older entries are not
+  rewritten; SPEC §7 uses `done` / `not implemented` instead of a phase number
+  once the phase is over.
+- Known issues: the guard checks structure, not honesty; a step merged without
+  its entry is only caught if someone runs the suite before the next merge.
+- Next step: build and validate the container images on a host with a daemon
+  (Step 8 acceptance), then the library scanner.
 
 ## 2026-10-26 — WebUI Step 8: container artifacts
 
@@ -32,6 +68,10 @@ Every session that touches the repository must add an entry before the merge.
   AMD and NVIDIA, volumes for data/models/media, build context cleaned.
   `docker compose -f docker/compose.yaml --profile rocm config` renders (exit
   0) and refuses to render without `TP_WEB_TOKEN`.
+- Decisions: images carry code and system tools only; no driver, no weights,
+  no Qt; the token is mandatory in compose (`:?`) because the server binds
+  `0.0.0.0`; media is mounted read-write because the SRT is written next to the
+  video.
 - Known issues: the images were **not built** here — `docker` daemon not
   reachable in this session and the rocm/cuda layers are several GB, so the
   acceptance "`docker compose up` produces the SRT" is still open. `cpu` image
@@ -39,6 +79,23 @@ Every session that touches the repository must add an entry before the merge.
   `dashboard`/WebUI behind a TLS proxy is documented, not provided.
 - Next step: build the three images on a host with a container daemon, run the
   rocm profile on the reference machine and record the result here.
+
+## 2026-10-26 — Session close: STATUS handoff
+
+- Branch / commits: `docs/status-close`; commit `f8b0f5c`, merged as `a4ce112`.
+- Goal: make a cold start see Steps 4–8 as finished instead of "next: Step 4".
+- Done: `docs/STATUS.md` rewritten around the new state (merge `4ef8397`,
+  WebUI pages, GUI optional, containers), open items restated as open
+  (container build validation, library scanner, glossary report generation,
+  CSRF, positive OCR run).
+- Tests and results: full `linux_tests` 663 passed, 11 skipped; only the two
+  known `test_install_retry.py` failures, which also fail on the unmodified
+  branch (checked with `git stash`).
+- Decisions / ADRs: no ADR; the STATUS page stays the single place for "what
+  works / what is next", the details live in PROGRESS.
+- Known issues: this step added no PROGRESS entry at the time; it is recorded
+  here retroactively (same day) because the rule was introduced afterwards.
+- Next step: the documentation sync PR (SPEC/API and the PROGRESS rule).
 
 ## 2026-10-26 — WebUI Step 7: PyQt optional
 
@@ -151,6 +208,25 @@ Every session that touches the repository must add an entry before the merge.
 - Known issues: no CSRF token (SameSite=Lax only, as recorded in Step 3);
   history is in memory + `jobs.json`, not a separate archive.
 - Next step: Step 5, OCR review page.
+
+## 2026-10-26 — Architecture pages aligned with the code
+
+- Branch / commits: `docs/arch-sync`; commit `e6c4780`, merged as `01b47e5`.
+- Goal: remove the statements that contradicted the code after WebUI Steps 1–3.
+- Done: `docs/architecture/README.md` (the `core -> gui` exception for
+  `file_progress` is resolved, `web/`/`core/jobs` no longer labelled *target*),
+  `layers.md`, `contracts.md` and `config.md` (no environment override for
+  config keys, only `TP_DATA_DIR`/`TP_MODELS_DIR`), `events.md` (consumer is
+  `core/jobs/progress.py`), `testing.md` (web UI/paths tests, legacy root
+  `unittest` modules that `pytest linux_tests` does not collect), `web/README.md`
+  (Step 3 UI present), `docs/README.md` (`CLAUDE_INTEGRATION.txt` indexed as
+  historical Italian documentation, to be translated as separate work).
+- Tests and results: docs index and link tests 10 passed.
+- Decisions / ADRs: `CLAUDE_INTEGRATION.txt` is indexed, not translated, because
+  a full translation is separate work (documentation rule, point 3).
+- Known issues: the legacy root tests are documented, not moved; they need the
+  GUI removal step.
+- Next step: WebUI Step 4, settings and history.
 
 ## 2026-10-25 — Documentation sync (handoff)
 

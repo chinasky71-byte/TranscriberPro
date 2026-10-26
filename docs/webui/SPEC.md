@@ -79,9 +79,19 @@ semantics); logs are per job and never contain secrets.
 | DELETE | `/api/jobs/{id}` | remove a queued job |
 | GET | `/api/jobs/{id}/logs` | log tail |
 | GET | `/api/events` | SSE stream (`Last-Event-ID` supported) |
-| GET/PUT | `/api/config` | whitelisted keys; secrets as `is_set` / write-only |
-| GET | `/api/history` | completed jobs |
-| GET | `/api/models` | available models / VRAM profile |
+| GET/PUT | `/api/config` | whitelisted keys; value validation (enum, 0–100, existing roots); secrets as `is_set` / write-only |
+| GET | `/api/history` | finished jobs, `?status=` (terminal state) and `?limit=` (1–1000, default 100), newest first |
+| GET | `/api/models` | engine modes, translation models and `MODEL_SPECS` keys; registry only, no weights |
+| POST | `/api/ocr/sessions` | start an OCR review session `{path, language?}` |
+| GET | `/api/ocr/sessions` | list sessions |
+| GET | `/api/ocr/sessions/{id}` | session status plus its events |
+| PUT | `/api/ocr/sessions/{id}/events/{index}` | save corrected text / `verified` |
+| GET | `/api/ocr/sessions/{id}/images/{index}` | the bitmap as `image/png` |
+| POST | `/api/ocr/sessions/{id}/srt` | write the sidecar SRT from the events |
+| DELETE | `/api/ocr/sessions/{id}` | remove the session directory |
+| GET | `/api/glossary/reports` | glossary reports found under `TP_DATA_DIR/glossary` |
+| GET | `/api/glossary/reports/{name}` | report with the decisions attached |
+| PUT | `/api/glossary/reports/{name}/terms/{index}` | save `decision`, `translation`, `note` |
 
 Errors: JSON `{error: {code, message}}`; no stack traces, no secrets.
 
@@ -89,14 +99,14 @@ Errors: JSON `{error: {code, message}}`; no stack traces, no secrets.
 
 | Page | Contents | Phase |
 |---|---|---|
-| Dashboard | backend, GPU/VRAM, version, queue counters, active job | MVP |
-| Queue | add path, per-file overrides, start/stop/cancel, progress, phase, ETA, log tail | MVP |
-| Job detail | steps, logs, output path | MVP |
-| History | completed/failed jobs, open output folder | Step 4 |
-| Settings | general, OCR, translation/models, paths | Step 4 |
-| OCR review | bitmap image + text, approve/correct | Step 5 (done) |
-| Glossary | per-show terms, candidates, approve | Step 6 |
-| Library scanner | scan, filters, bitmap badges, batch OCR | Step 6 |
+| Dashboard | backend, GPU/VRAM, version, queue counters, active job | MVP (done) |
+| Queue | add path, per-file overrides, start/stop/cancel, progress, phase, log tail | MVP (done) |
+| Job detail | steps, logs, output path | MVP (logs panel; no separate page) |
+| History | finished jobs, status filter, duration, output path, log | Step 4 (done) |
+| Settings | general, transcription, translation, media roots, secrets | Step 4 (done; no OCR tab, OCR has its own page) |
+| OCR review | bitmap image + text, approve/correct, sidecar SRT | Step 5 (done) |
+| Glossary | per-show terms, candidates, approve/reject | Step 6 (done; review only, reports are built offline) |
+| Library scanner | scan, filters, bitmap badges, batch OCR | Step 6 (not implemented: separate service, see PLAN.md) |
 
 UI language: IT/EN (the interface only; documentation stays English).
 Mobile-friendly layout; no external CDN assets.
