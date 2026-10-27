@@ -225,6 +225,17 @@ class Qwen3AsrEngine(TranscriptionEngine):
         except Exception as e:
             logger.error(f"Errore durante unload Qwen3: {e}")
 
+    def _context(self) -> str:
+        """Contesto passato al decoder: i nomi propri della serie (core/glossary.py).
+
+        Biasa la decodifica verso i termini giusti invece di correggerli dopo:
+        "Borden" invece di "Bond"/"Potter"/"Burton". Vuoto = comportamento storico.
+        """
+        try:
+            return str(self.config.get('asr_context', '') or '').strip()
+        except Exception:
+            return ""
+
     def _maybe_restore_punctuation(self, words: List[dict], text: str,
                                     language: str, chunk_num: int) -> List[dict]:
         """Applica il ripristino punteggiatura (punto D) se il trigger di
@@ -286,7 +297,8 @@ class Qwen3AsrEngine(TranscriptionEngine):
                 logger.debug(f"[qwen3-lang-retry] chunk {chunk_num} sospetto ({why}): {reason}")
                 return r, text, forced_iso, False
             det_name = lid_lang.split(',')[0].strip()
-            new = self.model.transcribe(audio=chunk_path, language=det_name, return_time_stamps=True)
+            new = self.model.transcribe(audio=chunk_path, language=det_name,
+                                        context=self._context(), return_time_stamps=True)
             new_text = ((new[0].text if new else '') or '').strip()
             if not new_text:
                 logger.debug(f"[qwen3-lang-retry] chunk {chunk_num}: ritrascrizione in '{iso}' vuota, "
@@ -420,6 +432,7 @@ class Qwen3AsrEngine(TranscriptionEngine):
                 results = self.model.transcribe(
                     audio=chunk_path,
                     language=lang_name,
+                    context=self._context(),
                     return_time_stamps=True,
                 )
                 r = results[0]

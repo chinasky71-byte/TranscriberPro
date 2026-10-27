@@ -70,3 +70,25 @@ def test_il_pipeline_attiva_gli_accenti_solo_per_italiano():
     assert "if final_language_639_1 == 'it':" in text
     assert "fix_srt_text(raw)" in text
     assert "italian_accents=_target" not in text          # niente correzione sul testo inglese
+
+
+def test_contesto_asr_dal_glossario():
+    """Il contesto per l'ASR viene dai nomi del glossario, e resta vuoto senza."""
+    text = (ROOT / "core/pipeline.py").read_text(encoding="utf-8")
+    assert "'asr_context': _context" in text
+    engine = (ROOT / "core/engines/qwen3_asr_engine.py").read_text(encoding="utf-8")
+    assert "context=self._context()" in engine
+    from core.engines.qwen3_asr_engine import Qwen3AsrEngine
+    engine_obj = object.__new__(Qwen3AsrEngine)
+
+    class Cfg:
+        def __init__(self, values):
+            self.values = values
+
+        def get(self, key, default=None):
+            return self.values.get(key, default)
+
+    engine_obj.config = Cfg({})
+    assert engine_obj._context() == ""
+    engine_obj.config = Cfg({"asr_context": " Borden, Lizzie "})
+    assert engine_obj._context() == "Borden, Lizzie"
