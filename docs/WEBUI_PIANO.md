@@ -61,3 +61,16 @@ Se P2b mostra che la calibrazione porta il testo sotto il 2%, il criterio 2 si p
 - **P2b** `p2_calibrate_text.py`: scansione di peso, dimensione, spaziatura e spostamento del testo CSS contro le schermate Qt gia' catturate su Windows; dice quanto del 3% e' calibrabile.
 - **P2c** conferma fisica del trascinamento da parte del proprietario, anche con `\\server\share\...` remoto.
 - **Fase 0 / G1** in parallelo (non dipende dal guscio): vedi sopra.
+
+## Esiti P2 su Windows (commit 251b697) e correzione del calibratore (27/10/2026)
+**P2a – avvio di pywebview:** 10 avvii su 10 riusciti (1,92-2,75 s, media 2,03 s; `loaded` a ~0,6 s). Il blocco di oltre 4 minuti non si e' riprodotto. L'avvio realmente a freddo non e' provabile senza riavviare il PC (i WebView2 presenti erano `SearchHost` e `WidgetBoard` di Windows). **Requisito di prodotto:** un controllo di avvio con limite di tempo e un messaggio chiaro (e un nuovo tentativo con un profilo WebView2 pulito).
+
+**P2b – calibrazione del testo (prima versione):** il testo non scendeva sotto il 2% (solo «Avvia» a 100%: 1,49%), con pesi al limite (300) e spostamenti anomali. **Questo risultato non e' attendibile:** il calibratore aveva due errori miei.
+1. La barra era alta **12 px** nel calibratore, mentre Qt la disegna alta **14 px** (la regola generica `QProgressBar { height: 14px }` prevale su quella dell'ID, che la voleva a 12): questo spiega perche' il totale «prima» (4,2-4,5%) non coincideva con P1e (3,0-3,3%): ~1,1 punti erano la barra. Verificato nel cloud sugli stessi dati: con 14 px il «prima» coincide con P1e (2,769% e 2,635%).
+2. Non cercava lo **spostamento verticale** del testo (il titolo Qt centra il testo nel suo riquadro con il padding del QSS): l'ottimizzatore lo compensava con pesi e spostamenti orizzontali irreali.
+
+**Calibratore v2** (`p2_calibrate_text.py`): barra 14 px, spostamento verticale, **profili di rendering** (crenatura, `text-rendering`, glifi a pixel interi, hinting) e segnalazione dei pesi al limite e degli spostamenti anomali. Misura **valida nel cloud** (Qt Linux contro Chromium Linux, stesso sistema): il totale scende da 2,77% a **1,12%** a 100% e da 2,64% a **1,64%** a 150%; per «Aggiungi file» da 9,1% a 2,5% e per «Avvia» da 3,4% a 1,0% a 100%; il titolo da 10,1% a 4,9%. Osservazione: il peso migliore e' **400 per tutti gli elementi**, cioe' Qt (su Linux) **ignora i pesi 500/600 del QSS** e disegna tutto in regular; la dimensione migliore e' ~0,97-0,99 volte quella del QSS; nessun profilo di rendering batte quello predefinito.
+
+**Conseguenza per il criterio pixel:** il testo sembra calibrabile molto piu' di quanto dicesse la prima lettura; l'obiettivo dell'1% sul totale e' vicino a 100% (1,1% su Linux) e a ~1,6% a scale frazionarie. **Il criterio proposto (forme <= 1%, testo con SSIM) resta, ma si irrigidira' se la rimisura su Windows conferma questi numeri.** Va rifatta la misura sul PC Windows con il calibratore v2 (P2b-bis): finche' non c'e', nessuna conclusione definitiva sul testo.
+
+Lezione di metodo: ogni strumento di misura va prima verificato riproducendo un valore gia' noto (qui: il totale «prima» di P1e). Si aggiunge a `tpweb/proto/README.md`.
