@@ -640,11 +640,13 @@ class SubtitleSynchronizer:
             self._log(tr('sy_vocal_separation_failed_using_the'))
             vocals = audio_path
         try:
-            from faster_whisper.audio import decode_audio
-            from faster_whisper.vad import VadOptions, get_speech_timestamps
-            wave = decode_audio(str(vocals), sampling_rate=16000)
-            stamps = get_speech_timestamps(wave, VadOptions(threshold=0.5, min_speech_duration_ms=250,
-                                                            min_silence_duration_ms=300, speech_pad_ms=100))
+            # VAD proprio (core/vad.py, Silero su onnxruntime): nessuna dipendenza da
+            # faster-whisper, che non c'e' piu'. Gli intervalli sono in campioni.
+            from core import vad as vad_module
+            wave = vad_module.decode_audio(Path(vocals), sampling_rate=16000)
+            stamps = vad_module.speech_timestamps(wave, sampling_rate=16000,
+                                                  threshold=0.5, min_speech_ms=250,
+                                                  min_silence_ms=300, pad_ms=100)
         except Exception as e:
             self._log(tr('sy_vad_failed').format(e=e))
             return None
