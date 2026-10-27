@@ -19,6 +19,7 @@ import re
 
 from gui.design_tokens import T
 from gui.styles import load_qss
+from core.services.library_scanner_client import LibraryScannerClient, call_api
 from gui.library_scanner_worker import LibraryScannerWorker
 from gui.widgets import ElideLabel
 from gui.icons import svg_icon
@@ -90,17 +91,7 @@ class _NotifyWorker(QThread):
         self.windows_path = windows_path
 
     def run(self):
-        try:
-            import requests
-            resp = requests.post(
-                f"{self.server_url}/api/videos/notify-subtitle",
-                json={"windows_path": self.windows_path},
-                headers={"X-API-Key": self.api_key},
-                timeout=10,
-            )
-            self.done.emit(resp.status_code == 200)
-        except Exception:
-            self.done.emit(False)
+        self.done.emit(LibraryScannerClient(self.server_url, self.api_key).notify_subtitle(self.windows_path))
 
 
 class _ApiCallWorker(QThread):
@@ -123,17 +114,8 @@ class _ApiCallWorker(QThread):
         self._timeout = timeout
 
     def run(self):
-        try:
-            import requests
-            r = requests.request(
-                self._method, self._url,
-                json=self._json, params=self._params,
-                headers={"X-API-Key": self._api_key},
-                timeout=self._timeout,
-            )
-            self.done.emit(r.status_code, r.text)
-        except Exception as e:
-            self.done.emit(0, str(e))
+        status, text = call_api(self._method, self._url, self._api_key, self._json, self._params, self._timeout)
+        self.done.emit(status, text)
 
 
 class _NumericTableWidgetItem(QTableWidgetItem):
