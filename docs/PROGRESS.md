@@ -27,6 +27,39 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-26 — Reference evaluation: harness and round 1 (clip A)
+
+- Branch / commits: `feat/asr-reference-eval`.
+- Goal: replace "looks good" with a measurement against professional subtitles,
+  in rounds that can be reviewed one at a time.
+- Done: `bench/subtitle_eval.py` (reference extraction and clip cutting with
+  ffmpeg, SRT parsing, shared normalisation, 10-second window alignment,
+  WER/CER/chrF/coverage/silence-insertions/timing offsets, per-window WER,
+  JSON report, CLI); `bench/asr_eval_variants.json` (qwen3 and faster-whisper,
+  English target, `force_audio_transcription`); `bench/asr_ab.py` now takes the
+  target language from the variant and finds the SRT next to the video;
+  `docs/benchmarks/2026-10-26-asr-reference-clip-a.md` with method and results.
+- Tests and results: `linux_tests/test_bench_subtitle_eval.py` (15: timestamp
+  parsing, identical content, tag and punctuation normalisation, different
+  segmentation, silence insertions, missing coverage, WER on a substitution,
+  median offset, bucketing by midpoint, summary, CLI JSON, watermark removal,
+  italic exclusion counted both ways, variant file validity, no personal paths);
+  `test_bench_asr_ab.py` still green. Round 1 on clip A (10 minutes, English
+  reference): **qwen3 WER 9.17%, chrF 94.36, coverage 96.2%, drift 0.29 s**;
+  faster-whisper WER 10.72%, chrF 92.83, coverage 90.4%, drift 0.49 s but **37%
+  faster in the ASR phase**.
+- Decisions / ADRs: no ADR. Two measurement artifacts are now handled inside the
+  harness because they changed the numbers by 3 points: the pipeline watermark
+  (dropped) and italic-only reference cues, i.e. the theme song, which no ASR
+  transcribes (excluded and reported). Absolute WER against human subtitles is
+  not an error rate; it ranks configurations that share the same handicap.
+- Known issues: one clip is not enough to crown a winner, and whisper's gap is
+  coverage (VAD threshold), not transcription quality — a lower-threshold
+  variant must be measured before judging the engine. The Italian reference is
+  untouched: the end-to-end round comes after the three English clips.
+- Next step: optional whisper VAD variant on clip A, then round 2 on clip B and
+  round 3 on clip C.
+
 ## 2026-10-26 — WebUI Step 11: sidebar layout, queue-first dashboard, timings
 
 - Branch / commits: `feat/webui-layout`.

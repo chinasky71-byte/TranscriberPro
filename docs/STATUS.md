@@ -74,8 +74,11 @@ ROCm 7.0, torch 2.10.0+rocm7.0 + ctranslate2 4.8.4 ROCm (verify with
 4. **Glossary report generation** — building a report is still a CLI/offline
    job; the page only reviews it.
 5. **CSRF token** for state-changing requests (currently SameSite=Lax only).
-6. Reference dataset extension (real clips with human Italian references)
-   before any model decision beyond the current sample.
+6. Reference evaluation **started**: one episode with professional SubRip tracks
+   is the reference set, in three 10-minute clips. Round 1 (clip A, English
+   reference) puts qwen3 ahead of faster-whisper on accuracy and coverage —
+   `docs/benchmarks/2026-10-26-asr-reference-clip-a.md`. Clips B and C are next;
+   a model decision needs all three plus the end-to-end (Italian) round.
 
 ## Known issues and limits
 
