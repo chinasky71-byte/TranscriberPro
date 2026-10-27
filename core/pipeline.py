@@ -477,6 +477,20 @@ class ProcessingPipeline:
 
         self.last_output_path = final_output_path
 
+        # Accenti italiani: qui, non nel cleaner (che gira PRIMA della traduzione,
+        # sul testo sorgente). NLLB scrive "e'", "perche'", "cosi'"; la lista
+        # chiusa in core/italian_accents.py li riporta a "è", "perché", "così".
+        if final_language_639_1 == 'it':
+            try:
+                from core.italian_accents import fix_srt_text
+                raw = Path(subtitle_path).read_text(encoding='utf-8-sig', errors='replace')
+                fixed = fix_srt_text(raw)
+                if fixed != raw:
+                    Path(subtitle_path).write_text(fixed, encoding='utf-8-sig')
+                    self._log(tr('pl_italian_accents_fixed'))
+            except Exception as e:
+                logger.warning(f"Correzione accenti italiani saltata: {e}")
+
         try:
             shutil.copy(subtitle_path, final_output_path)
         except PermissionError:
