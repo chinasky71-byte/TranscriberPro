@@ -1,11 +1,11 @@
 # Support matrix
 
-Status as of 2026-10-26. “Tested” means executed on real hardware and recorded;
+Status as of 2026-10-27. “Tested” means executed on real hardware and recorded;
 anything else is best-effort.
 
 | Tier | Platform | Backend | Interface | Tested | Notes |
 |---|---|---|---|---|---|
-| **1** | Linux x86_64 + AMD | ROCm 7.x on RDNA3/RDNA4/CDNA (+ Vulkan for GGUF) | WebUI, CLI | **yes** — RX 9060 XT, gfx1200, Ubuntu 26.04 | reference platform; throughput recorded in `docs/STATUS.md` |
+| **1** | Linux x86_64 + AMD | ROCm 7.x on RDNA3/RDNA4/CDNA (+ Vulkan for GGUF) | WebUI, CLI | **yes** — RX 9060 XT, gfx1200, Ubuntu 26.04 | reference platform; ASR is Qwen3-ASR only (ADR-008) |
 | 2 | Linux x86_64 + NVIDIA | CUDA 12.x | WebUI, CLI | no — CI/community needed | best-effort until a runner exists |
 | not supported | Linux + AMD RDNA2 and older | — | — | — | ROCm 7 does not support them officially; the installer refuses (ADR-007) |
 | not supported | Linux x86_64, no GPU | — | — | — | CPU-only installs were removed (ADR-007): they ran ~10x slower |

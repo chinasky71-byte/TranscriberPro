@@ -118,7 +118,7 @@ def test_le_varianti_di_valutazione_sono_valide():
     import json
     variants = json.loads((ROOT / 'bench' / 'asr_eval_variants.json').read_text(encoding='utf-8'))
     tags = [variant['tag'] for variant in variants]
-    assert tags == ['qwen3', 'whisper']
+    assert tags == ['qwen3']            # ADR-008: un solo engine, niente variante whisper
     for variant in variants:
         config = variant['config']
         assert config['force_audio_transcription'] is True     # altrimenti legge i subs incorporati

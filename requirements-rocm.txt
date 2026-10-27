@@ -1,25 +1,20 @@
 # ============================================================
-# Transcriber Pro - requirements per Linux + GPU AMD (ROCm 7.0)   [FASE F6, NON PROVATO SU HARDWARE AMD]
+# Transcriber Pro - requirements per Linux + GPU AMD (ROCm 7.0)
 # ============================================================
-# Selezionato da `./install.sh --gpu-backend rocm`. Il percorso NVIDIA (requirements.txt) NON e' toccato.
+# Selezionato da `./install.sh --backend=rocm`. Il percorso NVIDIA (requirements.txt) NON e' toccato.
 # Derivato da requirements.txt: stesse versioni esatte, con queste differenze:
-#   - torch / torchaudio 2.10.0+rocm7.0 dall'indice PyTorch (Python 3.11 o 3.12, manylinux_2_28 x86_64).
-#     NON +rocm6.4 (come prevedeva il piano iniziale): la ruota ctranslate2 ROCm 4.8.x e' costruita contro ROCm 7
-#     (libamdhip64.so.7, libhipblas.so.3) e non si importa con le librerie ROCm 6.4 di torch 2.8; con torch 2.10+rocm7.0
-#     importato PRIMA di ctranslate2 (l'app lo fa gia') si importa. torchcodec resta 0.10.0 (e' la serie di torch 2.10);
+#   - torch / torchaudio 2.10.0+rocm7.0 dall'indice PyTorch (Python 3.11 o 3.12, manylinux_2_28 x86_64);
 #   - bitsandbytes 0.50.2 (le ruote Linux da 0.48 portano il backend ROCm);
-#   - llama_cpp_python: NON qui (la ruota Vulkan la installa l'installer, come per --gpu-backend=vulkan);
-#   - nvidia-ml-py: tolto (pynvml non serve su AMD; vedi F7);
-#   - NON in questo file, li installa install.sh PRIMA di questo file:
-#       ctranslate2 4.8.x ROCm (asset `rocm-python-wheels-Linux.zip` della release OpenNMT/CTranslate2, non e' su PyPI),
-#       whisperx==3.8.1 con --no-deps (l'app lo usa solo in core/aligner.py).
-# Prerequisiti di sistema non-pip: driver amdgpu del kernel, utente nei gruppi `render` e `video`, /dev/kfd. ROCm di sistema NON serve
-# per torch (la ruota porta il suo runtime). GPU supportate: vedi la matrice ROCm 7.0 di AMD (RDNA3/4, CDNA).
+#   - llama_cpp_python: NON qui (la ruota Vulkan la installa l'installer);
+#   - nvidia-ml-py: tolto (pynvml non serve su AMD).
+# Prerequisiti di sistema non-pip: driver amdgpu del kernel, utente nei gruppi `render` e `video`, /dev/kfd.
+# ROCm di sistema NON serve per torch (la ruota porta il suo runtime). GPU supportate: matrice ROCm 7.0 di AMD.
+# ADR-008: nessun ctranslate2/whisperx — l'ASR e' solo Qwen3-ASR.
 # ============================================================
 
 --extra-index-url https://download.pytorch.org/whl/rocm7.0
 
-# setuptools: ctranslate2 4.6.0 su Windows importa pkg_resources; qui si tiene lo stesso pin per prudenza.
+# setuptools: pin storico (alcune ruote lo importano nelle proprie installazioni)
 setuptools==70.3.0
 
 # --- GPU stack (ROCm) ---
@@ -27,7 +22,6 @@ torch==2.10.0+rocm7.0
 torchaudio==2.10.0+rocm7.0
 
 # --- Trascrizione (Whisper / Qwen3-ASR) e allineamento ---
-faster-whisper==1.2.1
 qwen-asr==0.0.6
 onnxruntime==1.24.3   # main.py lo importa PRIMA di PyQt6
 

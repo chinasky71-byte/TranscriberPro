@@ -52,7 +52,8 @@ def test_rocm_torch_pins():
 
 def test_rocm_requirements_differ_only_where_declared():
     declared = {'torch', 'torchaudio', 'bitsandbytes'}
-    removed = {'llama-cpp-python', 'nvidia-ml-py', 'whisperx', 'ctranslate2'}
+    # ADR-008: faster-whisper/ctranslate2/whisperx non sono piu' dipendenze
+    removed = {'llama-cpp-python', 'nvidia-ml-py'}
     for name, ver in ROCM.items():
         if name in declared:
             continue
@@ -63,7 +64,8 @@ def test_rocm_requirements_differ_only_where_declared():
 
 def test_nvidia_requirements_untouched():
     text = (ROOT / 'requirements.txt').read_text(encoding='utf-8')
-    assert 'torch==2.8.0+cu126' in text and 'nvidia-ml-py==' in text and 'ctranslate2==4.6.0' in text
+    assert 'torch==2.8.0+cu126' in text and 'nvidia-ml-py==' in text
+    assert 'ctranslate2' not in text and 'faster-whisper' not in text   # ADR-008
 
 
 # --- install.sh --------------------------------------------------------------------------------------------------------
@@ -96,7 +98,9 @@ def test_install_ritira_cpu_e_vulkan():
 def test_install_script_is_executable_and_has_rocm_branch():
     assert os.access(ROOT / 'install.sh', os.X_OK)
     text = (ROOT / 'install.sh').read_text(encoding='utf-8')
-    assert 'rocm-python-wheels-Linux.zip' in text and 'requirements-rocm.txt' in text and 'whisperx==' in text and '--no-deps' in text
+    assert 'requirements-rocm.txt' in text
+    # ADR-008: il wheel ctranslate2 ROCm e whisperx non si installano piu'
+    assert 'rocm-python-wheels-Linux.zip' not in text and 'whisperx==' not in text
 
 
 # --- amd_smoke_test.py -------------------------------------------------------------------------------------------------

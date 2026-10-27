@@ -28,7 +28,6 @@ PATTERNS = {
 }
 
 BASELINE = {
-    'core/engines/canary_cli.py': {'python_exe': 1, 'venv_Scripts': 1},
     'core/gender_selector_cli.py': {'python_exe': 1},
     'core/glossary_builder_cli.py': {'venv_Scripts': 1},
     'glossary_engine/build_glossary_candidates.py': {'venv_Scripts': 2},

@@ -45,6 +45,10 @@ except ImportError as e:
         BALANCED = 'balanced'
 
 
+ENGINE_MODE = 'qwen3'
+LEGACY_ENGINE_MODE = 'auto'
+
+
 class Config:
     """Gestisce configurazione e preferenze utente"""
 
@@ -94,8 +98,7 @@ class Config:
         'transcription_method': 'faster-whisper',
 
         # Sistema multi-engine trascrizione (routing automatico per lingua)
-        'transcription_engine_mode': 'auto',   # 'auto' | 'canary' | 'qwen3' | 'faster-whisper'
-        'canary_enabled': True,                # Canary-Qwen-2.5B (solo inglese, venv dedicato)
+        'transcription_engine_mode': 'qwen3',   # ADR-008: 'qwen3' e basta; 'auto' resta un alias
         'qwen3_enabled': True,                 # Qwen3-ASR-1.7B + ForcedAligner-0.6B
         'qwen3_asr_model_id': 'Qwen/Qwen3-ASR-1.7B',
         'qwen3_aligner_model_id': 'Qwen/Qwen3-ForcedAligner-0.6B',
@@ -115,7 +118,6 @@ class Config:
         # (il VAD di Whisper spesso non rileva affatto il canto) e li divide in sotto-finestre se lunghi.
         'whisper_lang_retry_enabled': True,
         'whisper_lang_retry_accept_langs': ['en'],
-        'canary_model_id': 'nvidia/canary-qwen-2.5b',
         # Pulizia della cache modelli (HF/torch) a fine coda: v. utils/cache_cleaner.py. I modelli dei motori
         # configurati sono comunque preservati; False = non cancella nulla.
         'model_cache_cleanup_enabled': True,
@@ -123,8 +125,6 @@ class Config:
         'replace_mislabeled_italian_track': True,
         # Opzione job: incorpora nel MKV il sottotitolo creato (il sidecar resta accanto al video).
         'mux_subtitle_into_video': False,
-        'canary_python_path': '',              # vuoto = auto (interprete di <progetto>/venv_canary)
-        'canary_batch_size': 8,                # chunk per chiamata a model.generate() nel subprocess
         # faster-whisper: divide i segmenti lunghi sui confini di frase invece che a
         # 80 caratteri / 6 s (core/whisper_sentence_split.py). Blocchi a meta' frase
         # 37-47% -> 6-11%, parole identiche. False = comportamento precedente.
@@ -147,17 +147,13 @@ class Config:
         'ffmpeg_queue_size': 30,
         
         # Whisper model configuration
-        'whisper_model': 'large-v3',
         # VAD di faster-whisper (default = comportamento storico). Alzare la soglia
         # taglia il parlato debole: misurato su una reference umana, v.
         # docs/benchmarks/2026-10-26-asr-reference-clip-a.md
-        'whisper_vad_threshold': 0.5,
-        'whisper_vad_min_silence_ms': 500,
         # Preload di Whisper prima di Demucs: 'always' = comportamento storico
         # (inizializza ctranslate2 a contesto CUDA vergine, evita un abort in
         # caso di fallback tardivo); 'auto' = solo se l'engine pianificato E'
         # faster-whisper (nessuno spreco con qwen3/canary).
-        'whisper_preload_mode': 'always',
         # Modello Whisper specializzato per lingua (ISO 639-1). In modalita' 'auto' queste
         # lingue vanno su faster-whisper con il modello indicato invece che su Qwen3/Canary.
         # Valore: id HF ("utente/repo"), id HF con sottocartella ("utente/repo/sottocartella")
@@ -169,14 +165,6 @@ class Config:
         # candidati nuovi (Canary-1B-v2, Cohere Transcribe, HiTZ) ha superato la soglia della
         # regola. 'large-v3' = il modello Whisper standard, NON uno specializzato: qui la voce
         # serve solo a instradare lo spagnolo su faster-whisper invece che su Qwen3.
-        'whisper_model_by_language': {
-            'fr': 'bofenghuang/whisper-large-v3-french/ctranslate2',
-            # de: primeline/whisper-large-v3-german convertito CT2 float16; il model.bin di
-            # questo repo e' identico byte per byte alla nostra conversione (sha 318956c2...),
-            # repo non gated (reality-interface, stesso file, chiede l'accesso: 401).
-            'de': 'TiMoMuc/whisper-large-v3-german-ct2',
-            'es': 'large-v3',
-        },
         'whisper_device': 'auto',
         'whisper_compute_type': 'auto',
         
@@ -308,7 +296,6 @@ class Config:
         'diarization_word_tolerance_ms': 100,
 
         # Forced Alignment (whisperx + wav2vec2)
-        'enable_forced_alignment': False,
 
         # Durata chunk audio per la trascrizione (v. piano_fix_pipeline_
         # trascrizione punto B) — default = comportamento storico. Cappati
@@ -392,7 +379,9 @@ class Config:
     VALID_PROFILES = ['fast', 'balanced', 'quality', 'maximum', 'batch']
 
     # Engine di trascrizione validi (sistema multi-engine)
-    VALID_TRANSCRIPTION_ENGINE_MODES = ['auto', 'canary', 'qwen3', 'faster-whisper']
+    # ADR-008: un solo engine. 'auto' e i nomi degli engine rimossi restano
+    # accettati e vengono migrati su 'qwen3' alla lettura.
+    VALID_TRANSCRIPTION_ENGINE_MODES = ['qwen3', 'auto']
     
     def __init__(self):
         self.settings: Dict[str, Any] = {}
@@ -710,16 +699,19 @@ class Config:
     # ========================================================================
 
     def get_transcription_engine_mode(self) -> str:
-        """Ottieni la modalità engine di trascrizione corrente
-        ('auto' = routing automatico per lingua)."""
-        mode = self.get('transcription_engine_mode', 'auto')
+        """Engine di trascrizione: sempre `qwen3` (ADR-008).
 
+        `auto` resta accettato come alias storico; i valori delle versioni
+        precedenti (`canary`, `faster-whisper`) vengono migrati su `qwen3` alla
+        lettura, con un avviso, perché quegli engine non esistono più.
+        """
+        mode = str(self.get('transcription_engine_mode', LEGACY_ENGINE_MODE) or LEGACY_ENGINE_MODE)
+        if mode == LEGACY_ENGINE_MODE:
+            return ENGINE_MODE
         if mode not in self.VALID_TRANSCRIPTION_ENGINE_MODES:
-            print(f"⚠️ Engine '{mode}' non valido. Uso 'auto'.")
-            mode = 'auto'
-            self.set('transcription_engine_mode', mode)
-
-        return mode
+            print(f"⚠️ Engine '{mode}' non più disponibile (ADR-008): uso '{ENGINE_MODE}'.")
+        self.set('transcription_engine_mode', ENGINE_MODE)
+        return ENGINE_MODE
 
     def set_transcription_engine_mode(self, mode: str):
         """Imposta la modalità engine di trascrizione con validazione"""

@@ -27,6 +27,46 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-27 — Whisper removed: one ASR engine (ADR-008)
+
+- Branch / commits: `feat/remove-whisper`.
+- Goal: keep only what the pipeline actually uses. The reference evaluation showed
+  qwen3 equal or better than Whisper on both languages of the library, so the
+  second engine, its runtime and everything that existed to keep them apart could
+  go.
+- Done: deleted `faster_whisper_engine.py` (837 lines), `canary_engine.py`,
+  `canary_cli.py`, `aligner.py` (whisperx), `whisper_lang_retry.py`,
+  `ct2_bootstrap.py`; `core/transcriber.py` rewritten as a Qwen3-only facade (no
+  preload, no fallback: an engine error is a job error); `core/engine_router.py`
+  shrunk to a single-engine `plan()` that keeps the pipeline's contract and logs
+  the reason; the pipeline lost the "2.5 preload", the early unload of Whisper, the
+  batched single-file branch, the forced-alignment block and the fatigue counter;
+  `transcription_engine_mode` accepts `qwen3` (and `auto`), migrating `canary` and
+  `faster-whisper` on read with a log line; config lost `whisper_model`,
+  `whisper_model_by_language`, the two VAD keys, `whisper_preload_mode`,
+  `enable_forced_alignment` and every `canary_%` key; `backend_preflight` probes
+  torch only; `requirements*.txt` lost `faster-whisper`, `ctranslate2` and
+  `whisperx`; `install.sh` lost the **ctranslate2 ROCm wheel** download and the
+  `whisperx --no-deps` step, the backend verification no longer asks ctranslate2 and
+  the stamp records torch only; `engine_labels` and the WebUI status card follow.
+- Tests and results: suite green after removing the tests of the deleted pieces and
+  with new guards (no preload, no `whisper_preload_mode`, engine migration). Measured
+  after removal on the 10-minute clips: Italian **11.71% WER** (baseline 11.79%),
+  English **10.01% and 9.59%** on two runs (baseline 9.17%): the spread between two
+  identical runs is 0.42 points, so the difference is inside the noise and has no
+  mechanism — the preload never touched qwen3's output. Wall time 133.1 s against
+  134.4 s (Italian), 94.8/95.2 s against 102.9 s (English).
+- Decisions / ADRs: **ADR-008**. A language outside qwen3's aligner is refused with
+  a clear error instead of being transcribed slowly by Whisper; that is acceptable
+  because the library is Italian and English and both are covered.
+- Known issues: the venv still contains the three packages until it is rebuilt
+  (`pip uninstall` or a fresh `./install.sh`), and the model cache holds
+  `faster-whisper-large-v3` (2.9 GB) until someone deletes it; the stamp will record
+  torch only at the next install. The noise floor of a 10-minute clip is ~0.4 WER
+  points, which is the resolution of every comparison in the benchmark docs.
+- Next step: rebuild the venv from the new requirements on a clean machine (and in
+  the container images) to confirm the install has no hidden whisper dependency.
+
 ## 2026-10-26 — Benchmark appendix: the errors in the text
 
 - Branch / commits: `docs/benchmark-examples`.

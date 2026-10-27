@@ -26,7 +26,7 @@ CACHE_TTL_S = 300.0
 PROBE_CODE = """
 import json
 report = {"torch": "", "runtime": "", "cuda_available": False, "devices": 0,
-          "ctranslate2": "", "ct2_devices": 0, "error": ""}
+          "error": ""}
 try:
     import torch
     report["torch"] = torch.__version__
@@ -35,12 +35,6 @@ try:
     report["devices"] = torch.cuda.device_count() if report["cuda_available"] else 0
 except Exception as exc:
     report["error"] = "torch: %s" % exc
-try:
-    import ctranslate2
-    report["ctranslate2"] = ctranslate2.__version__
-    report["ct2_devices"] = ctranslate2.get_cuda_device_count()
-except Exception as exc:
-    report["error"] = (report["error"] + " | " if report["error"] else "") + "ctranslate2: %s" % exc
 print(json.dumps(report))
 """
 
@@ -68,7 +62,7 @@ def read_stamp(path: Optional[Path] = None) -> Dict[str, str]:
 
 def _probe() -> Dict[str, Any]:
     result: Dict[str, Any] = {"torch": "", "runtime": "", "cuda_available": False, "devices": 0,
-                              "ctranslate2": "", "ct2_devices": 0, "error": ""}
+                              "error": ""}
     try:
         done = subprocess.run([sys.executable, "-c", PROBE_CODE], capture_output=True,
                               text=True, timeout=PROBE_TIMEOUT_S)
@@ -110,8 +104,6 @@ def report(force: bool = False) -> Dict[str, Any]:
             problems.append("torch non vede la GPU (cuda.is_available() = False)")
         elif runtime.get("devices", 0) < 1:
             problems.append("nessun device GPU visibile a torch")
-        if runtime.get("ctranslate2") and runtime.get("ct2_devices", 0) < 1:
-            problems.append("ctranslate2 non vede la GPU: Whisper girerebbe su CPU")
         del expected
     if runtime.get("error") and not problems:
         problems.append(runtime["error"])
@@ -155,5 +147,5 @@ def banner() -> str:
     if current["ok"]:
         return (f"{current['backend'] or 'cpu'}: torch {runtime.get('torch', '?')} "
                 f"({runtime.get('runtime') or 'nessun runtime GPU'}), "
-                f"device {runtime.get('devices', 0)}, ctranslate2 {runtime.get('ctranslate2') or '?'}")
+                f"device {runtime.get('devices', 0)}")
     return "GPU non disponibile — " + "; ".join(current["problems"])

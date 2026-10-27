@@ -66,15 +66,8 @@ def _suppress_subprocess_windows() -> None:
 
 
 def main(argv: list) -> int:
-    # Su ROCm ctranslate2 deve inizializzare il contesto GPU prima di
-    # qualunque chiamata torch.cuda (Demucs, controlli VRAM): altrimenti la
-    # prima inferenza Whisper va in SIGSEGV. Vedi utils/ct2_bootstrap.py.
-    try:
-        from utils.ct2_bootstrap import ensure_ct2_initialized
-        ensure_ct2_initialized()
-    except Exception:
-        pass
-
+    # Nessun bootstrap di ctranslate2: con ADR-008 (solo Qwen3-ASR) non c'e' piu'
+    # un secondo runtime GPU da inizializzare prima di torch.
     if len(argv) < 2:
         _emit(tr('gcl_error_cli_args_json_argument'))
         return 2
