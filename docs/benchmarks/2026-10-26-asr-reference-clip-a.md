@@ -278,6 +278,47 @@ translator *does* invent a rendering for (invented names, machines, places), and
 it cannot repair a name the ASR misheard: that needs a post-ASR correction, which
 is a different feature.
 
+## Round 7 — names: fuzzy matching rejected, ASR context adopted
+
+Three routes were on the table for the name problem: fuzzy matching after the
+ASR, an extra AI pass over the transcript, or biasing the ASR itself.
+
+**Fuzzy matching is not viable**, and one measurement settles it. Comparing every
+capitalised token of the transcript with the 43 cast names by edit distance:
+
+```
+'Would' ~ 'Lourd' (2)   'Well' ~ 'Ella' (2)    'Thank' ~ 'Hall' (3)
+'They' ~ 'Abby' (3)     'Sister' ~ 'Reiter' (3)  'Bomb' ~ 'Emma' (3)
+```
+
+The real errors (`Bond` -> `Borden`, distance 3) live in the same distance band as
+dozens of common words: at any threshold that catches them, the corrector rewrites
+half the dialogue. A dictionary filter could remove some of it, but the risk is
+structural, not tunable.
+
+**Biasing the ASR works.** `Qwen3ASRModel.transcribe()` accepts a `context`
+string, so the pipeline now loads the glossary before transcription and passes the
+cast names to the decoder (`core/` pipeline + `qwen3_asr_engine._context()`), with
+a config override `asr_context`. Measured on both clips:
+
+| Clip | Names, reference | Names without context | Names with context |
+|---|---|---|---|
+| A | Borden x2, Lizzie x4, Maggie x1 | Borden x1 + **Barton** (wrong) | **identical to the reference** |
+| B | Borden x5, Bridget x3, Lizzie x1, Maggie x4 | Borden x3 + **Bond, Burton** (wrong) | Borden x11, Bridget x5, Maggie x6, plus **Báthory, Wuornos, Manchester, Morse, Nance, Abby, Andrew, Emma** spelled correctly in the song |
+
+The `Bond -> Borden` and `Burton -> Borden` errors disappear; clip B's song, which
+enumerates the show's murderers, is now transcribed with the right names. One
+error survives (`Barden` once).
+
+Cost: WER 9.17% -> 9.45% on clip A and 7.88% -> 8.41% on clip B, chrF -0.2 on
+clip B — inside the noise of a single clip, and the price of a visible quality
+gain. The ASR phase took 46.6 s -> 60.0 s on clip B and did not change on clip A;
+that needs a second sample before it is called real.
+
+**The extra AI pass is not needed**: it was proposed to disambiguate names the ASR
+gets wrong, and the ASR now gets them right at the source, for free and without a
+second model in the loop.
+
 ## Next
 
 - Round 3: clip C (40:00–50:00), the tie-break with the same two variants.

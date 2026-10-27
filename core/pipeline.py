@@ -1030,6 +1030,23 @@ class ProcessingPipeline:
                         _use_batched = False
 
                     step3_label = "Demucs + BatchedInferencePipeline" if _use_batched else "Demucs + Chunking"
+                    # Contesto per l'ASR: i nomi della serie (glossario) biasano il
+                    # decoder verso "Borden" invece di "Bond"/"Potter"/"Burton".
+                    # Caricato qui, prima della trascrizione, non solo in traduzione.
+                    try:
+                        from core.glossary import load_glossary, show_key_from_path
+                        _key = ((self.metadata or {}).get('id')
+                                or self.config.get('glossary_id')
+                                or show_key_from_path(self.video_path))
+                        _names = load_glossary(_key) if _key else {}
+                        if _names:
+                            _context = ", ".join(list(_names)[:60])
+                            self.config.set_overlay({**(getattr(self.config, '_overlay', {}) or {}),
+                                                     'asr_context': _context})
+                            self._log(tr('pl_asr_context_from_glossary').format(n=len(_names)))
+                    except Exception as e:
+                        logger.warning(f"Contesto ASR dal glossario non applicato: {e}")
+
                     self._ev('phase', name='demucs')
                     self._log(tr('pl_3_processing_audio').format(step3_label=step3_label))
                     if self._audio_processor is None:

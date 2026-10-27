@@ -47,6 +47,42 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
   illustrate the failure modes, they do not quantify them — the tables do that.
 - Next step: none for the ASR question; the evaluation is closed and documented.
 
+## 2026-10-26 — Names: fuzzy matching rejected, ASR context adopted
+
+- Branch / commits: `feat/asr-context-names`.
+- Goal: decide how to fix proper names after the reference evaluation showed them
+  as the remaining visible error, judging three routes: fuzzy post-processing, an
+  extra AI pass, or biasing the ASR.
+- Done: measurement that rejects fuzzy matching (capitalised tokens of the
+  transcripts compared with the 43 cast names: `Would`~`Lourd` at distance 2,
+  `They`~`Abby`, `Thank`~`Hall`, `Bomb`~`Emma` at distance 3, i.e. the real errors
+  share the distance band with ordinary words); the qwen3 engine gained
+  `_context()`, which passes a config string `asr_context` to
+  `transcribe(context=...)`, and the pipeline now loads the glossary **before**
+  transcription and sets `asr_context` with the cast names (up to 60), logging
+  `ASR context: N glossary names`.
+- Tests and results: test for `_context()` and for the pipeline wiring in
+  `linux_tests/test_italian_accents.py` (9 in total now), i18n string
+  `pl_asr_context_from_glossary`. Measured on clip A: without context `Borden x1`
+  plus a wrong `Barton`, with context `Borden x2, Lizzie x4, Maggie x1` — identical
+  to the reference; WER 9.17% -> 9.45%, chrF 94.36 -> 94.46. On clip B: without
+  context `Borden x3` plus wrong `Bond` and `Burton`; with context `Borden x11`,
+  and the names Báthory, Wuornos, Manchester, Morse, Nance, Abby, Andrew, Emma
+  spelled correctly in the song; WER 7.88% -> 8.41%, chrF 94.04 -> 93.80, ASR
+  phase 46.6 s -> 60.0 s.
+- Decisions / ADRs: no ADR. Context biasing is adopted as the mechanism (opt-in:
+  it needs a glossary, so it costs nothing when there is none); fuzzy matching is
+  rejected on measurement, not on taste; the extra AI pass is dropped from the
+  plan because the ASR now gets the names right at the source, without a second
+  model in the loop.
+- Known issues: one error survives (`Barden` once) and the WER/chrF wobble of
+  about half a point must be confirmed on more material; the ASR slowdown on clip
+  B (46.6 -> 60.0 s) is unexplained and may be variance or prompt overhead —
+  worth one more sample before it is treated as a cost. faster-whisper does not
+  receive the context yet (it accepts `initial_prompt`/`hotwords`).
+- Next step: re-measure the context on clip C and on a full episode to settle the
+  speed question; give faster-whisper the same names through `initial_prompt`.
+
 ## 2026-10-26 — Italian accents fixed at the exit, glossary measured in isolation
 
 - Branch / commits: `feat/italian-accents`.
