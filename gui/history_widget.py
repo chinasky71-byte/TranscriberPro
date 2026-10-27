@@ -4,8 +4,10 @@ HistoryWidget — Fase 4A Tronco 2
 
 QTableWidget con ricerca, stat tile, persistenza JSON e bottoni azione per
 aprire .srt / cartella video direttamente dalla cronologia.
+
+La LOGICA (caricamento/salvataggio di history.json, statistiche, testi delle celle, ricerca) sta in
+core/services/history_service.py (senza Qt, condivisa con la web UI): qui resta solo la vista.
 """
-import json
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
@@ -16,6 +18,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
 
+from core.services.history_service import (HistoryRow, HistoryService, actions_of, format_bytes, matches,
+                                           row_of)
 from gui.theme import set_flat
 from utils.translations import tr
 
@@ -26,9 +30,14 @@ class HistoryWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._entries: list[dict] = []
+        self._svc = HistoryService(self.HISTORY_FILE)
         self._build_ui()
         self.load()
+
+    @property
+    def _entries(self) -> list:
+        """Compatibilita': la lista delle voci e' quella del servizio."""
+        return self._svc.entries
 
     # ------------------------------------------------------------------
     # Costruzione UI
@@ -107,19 +116,15 @@ class HistoryWidget(QWidget):
 
     def append_entry(self, entry: dict):
         """Aggiunge voce, persiste e aggiorna tabella + stat."""
-        self._entries.append(entry)
-        self._save()
+        self._svc.path = Path(self.HISTORY_FILE)
+        self._svc.append(entry)
         self._add_row(entry)
         self._update_stats()
 
     def load(self):
         """Carica history.json al boot."""
-        try:
-            if self.HISTORY_FILE.exists():
-                with open(self.HISTORY_FILE, 'r', encoding='utf-8') as f:
-                    self._entries = json.load(f)
-        except Exception:
-            self._entries = []
+        self._svc.path = Path(self.HISTORY_FILE)
+        self._svc.load()
 
         self._table.setRowCount(0)
         for entry in self._entries:
@@ -127,19 +132,15 @@ class HistoryWidget(QWidget):
         self._update_stats()
 
     def total_count(self) -> int:
-        return len(self._entries)
+        return self._svc.total_count()
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
 
     def _save(self):
-        try:
-            self.HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.HISTORY_FILE, 'w', encoding='utf-8') as f:
-                json.dump(self._entries, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        self._svc.path = Path(self.HISTORY_FILE)
+        self._svc.save()
 
     def _add_row(self, entry: dict):
         # Blocca temporaneamente il sort per evitare re-index durante insert
@@ -147,31 +148,9 @@ class HistoryWidget(QWidget):
         row = self._table.rowCount()
         self._table.insertRow(row)
 
-        # Colonna 0: Nome file
-        self._table.setItem(row, 0, QTableWidgetItem(entry.get('name', '')))
-
-        # Colonna 1: Data
-        date_iso = entry.get('date_iso', '')
-        self._table.setItem(row, 1, QTableWidgetItem(date_iso[:16].replace('T', ' ')))
-
-        # Colonna 2: Lingua  src→dst
-        src = entry.get('src_lang', 'auto')
-        dst = entry.get('dst_lang', '')
-        self._table.setItem(row, 2, QTableWidgetItem(f"{src}→{dst}" if dst else src))
-
-        # Colonna 3: Durata elaborazione
-        secs = int(entry.get('duration_seconds', 0))
-        m, s = divmod(secs, 60)
-        h, m = divmod(m, 60)
-        self._table.setItem(
-            row, 3,
-            QTableWidgetItem(f"{h}h {m:02d}m {s:02d}s" if h else f"{m}m {s:02d}s")
-        )
-
-        # Colonna 4: Dimensione file sorgente
-        self._table.setItem(row, 4, QTableWidgetItem(
-            self._fmt_bytes(entry.get('size_bytes', 0))
-        ))
+        cells = row_of(entry).as_tuple()          # nome, data, lingua, durata, dimensione (testi: core/services/history_service.py)
+        for col, text in enumerate(cells):
+            self._table.setItem(row, col, QTableWidgetItem(text))
 
         # Colonna 5: Bottoni azione
         self._table.setCellWidget(row, 5, self._make_actions(entry))
@@ -185,8 +164,7 @@ class HistoryWidget(QWidget):
         lay.setContentsMargins(6, 3, 6, 3)
         lay.setSpacing(5)
 
-        srt = entry.get('srt_path', '')
-        folder = str(Path(entry['video_path']).parent) if entry.get('video_path') else ''
+        srt, folder = actions_of(entry)
 
         btn_srt = QPushButton(tr('hist_open_srt'))
         btn_srt.setObjectName("historyActionBtn")
@@ -209,34 +187,16 @@ class HistoryWidget(QWidget):
 
     @staticmethod
     def _fmt_bytes(n: int) -> str:
-        for unit in ('B', 'KB', 'MB', 'GB'):
-            if n < 1024:
-                return f'{n:.0f} {unit}'
-            n /= 1024
-        return f'{n:.1f} TB'
+        return format_bytes(n)
 
     def _update_stats(self):
-        total = len(self._entries)
-        total_bytes = sum(e.get('size_bytes', 0) for e in self._entries)
-        total_secs = int(sum(e.get('duration_seconds', 0) for e in self._entries))
-
-        self._tile_total._value_lbl.setText(str(total))  # type: ignore[attr-defined]
-
-        tb = float(total_bytes)
-        for unit in ('B', 'KB', 'MB', 'GB', 'TB'):
-            if tb < 1024:
-                break
-            tb /= 1024
-        self._tile_size._value_lbl.setText(f'{tb:.1f} {unit}')  # type: ignore[attr-defined]
-
-        m, s = divmod(total_secs, 60)
-        h, m = divmod(m, 60)
-        self._tile_time._value_lbl.setText(f'{h}h {m:02d}m')  # type: ignore[attr-defined]
+        st = self._svc.stats()
+        self._tile_total._value_lbl.setText(str(st.total))  # type: ignore[attr-defined]
+        self._tile_size._value_lbl.setText(st.size_text)  # type: ignore[attr-defined]
+        self._tile_time._value_lbl.setText(st.time_text)  # type: ignore[attr-defined]
 
     def _apply_search(self, text: str):
-        text = text.strip().lower()
         for row in range(self._table.rowCount()):
-            name  = (self._table.item(row, 0) or QTableWidgetItem()).text().lower()
-            lang  = (self._table.item(row, 2) or QTableWidgetItem()).text().lower()
-            match = not text or text in name or text in lang
-            self._table.setRowHidden(row, not match)
+            name = (self._table.item(row, 0) or QTableWidgetItem()).text()
+            lang = (self._table.item(row, 2) or QTableWidgetItem()).text()
+            self._table.setRowHidden(row, not matches(text, HistoryRow(name, '', lang, '', '')))
