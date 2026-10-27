@@ -47,6 +47,70 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
   illustrate the failure modes, they do not quantify them — the tables do that.
 - Next step: none for the ASR question; the evaluation is closed and documented.
 
+## 2026-10-26 — WebUI: build the fixed-rendering glossary from the browser
+
+- Branch / commits: `feat/glossary-ui` (same branch as the TMDB seeding).
+- Goal: stop hand-editing JSON — the glossary that feeds the ASR context and the
+  translator is created from `/glossary`, either from a TMDB id or from a cast
+  list pasted the way the show's credits are written.
+- Done: `web/glossary.py` gains `parse_cast_text()` (handles `Actor as Character`,
+  a line ending with `as` whose character sits on the next line, descriptions after
+  a comma, `[n]` notes, quoted aliases used as separate entries, generic roles
+  dropped), `list_fixed_glossaries()` and `write_fixed_glossary()`;
+  `build_from_tmdb()` reuses `core.glossary.ensure_glossary` and explains the
+  missing-key case instead of failing silently; `POST /glossary/build` renders the
+  page with the outcome; `/glossary` now lists the glossaries in use (key, source,
+  term count, path) above the form and the report review.
+- Tests and results: `linux_tests/test_web_glossary_build.py` (8: parsing of a
+  real credits block including the wrapped `as` line and the `"Maggie"` alias,
+  plain-name lists, generic roles dropped, page renders the form and the empty
+  state, manual creation writes `manual_<key>.json` and shows up in the list,
+  missing show key explains itself, TMDB without a key explains the remedy,
+  non-numeric id rejected). `test_glossary_from_cast.py` (6) covers the seeding
+  module. Suite: 796 passed, 11 skipped, 0 failed.
+- Decisions / ADRs: no ADR. Two sources, one file format: TMDB when a key exists,
+  pasted cast otherwise, and the pasted list is what covers names TMDB does not
+  list (in clip B the song's murderers came from outside the cast). The page shows
+  the *show key* prominently because that string must match what the pipeline
+  derives from the folder, and a mismatch is the one silent failure mode left.
+- Known issues: no preview of the parsed terms before saving (the page shows the
+  count only); the show key is free text, so a typo creates a glossary the
+  pipeline will never read; TMDB path untested end to end because this machine
+  has no API key.
+- Next step: with a key available, exercise the TMDB path; optionally add a
+  "preview parsed cast" button and a dropdown of the show keys the pipeline can
+  derive from the configured media roots.
+
+## 2026-10-26 — Glossary built from the TMDB cast, automatically
+
+- Branch / commits: `feat/glossary-from-tmdb-cast`.
+- Goal: remove the last manual step — with a TMDB id the glossary should build
+  itself from the cast, and feed both the ASR context and the translation.
+- Done: `core/glossary.py::cast_to_terms()` (TMDB `{character: gender}` ->
+  `{character: character}`, dropping placeholders like `Himself`/`Narrator` and
+  names shorter than three characters) and `ensure_glossary()`, which builds and
+  saves the file **once per show**, never overwrites an existing one (manual edits
+  win) and never raises: a network or key problem leaves the previous behaviour.
+  The pipeline calls it before transcription when `metadata['id']` exists, so the
+  same names reach the qwen3 decoder (`asr_context`) and the translator
+  (`translation_glossary`).
+- Tests and results: `linux_tests/test_glossary_from_cast.py` (6: builds from the
+  cast and writes `tmdb_<id>.json`, does not overwrite and does not even call
+  TMDB when a glossary exists, empty cast writes nothing, network error is logged
+  and ignored, placeholders and short names dropped, pipeline wiring).
+- Decisions / ADRs: no ADR. The cast fetch already existed for the gender
+  corrector (`get_cast_info`), so this is wiring, not new capability: TMDB ids
+  were never unavailable in principle, only unused for the glossary. The manual
+  path (`glossary_id`, `manual_<slug>.json`) stays for shows without a TMDB id or
+  for names TMDB does not list (in clip B, the song's murderers — Báthory,
+  Wuornos, Manchester — come from outside the cast).
+- Known issues: TMDB returns the main cast only (`max_cast` 15, configurable), so
+  minor characters still need a manual entry; the seeded file has no provenance
+  marker, so it is indistinguishable from a hand-written one — acceptable because
+  it is never overwritten.
+- Next step: with a TMDB key on this machine, confirm the whole path end to end
+  (id -> cast -> glossary -> asr context -> translated names).
+
 ## 2026-10-26 — Names: fuzzy matching rejected, ASR context adopted
 
 - Branch / commits: `feat/asr-context-names`.

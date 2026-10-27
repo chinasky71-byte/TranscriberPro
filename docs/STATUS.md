@@ -85,7 +85,9 @@ ROCm 7.0, torch 2.10.0+rocm7.0 + ctranslate2 4.8.4 ROCm (verify with
    a human translation rewards under-transcription, so the engine with the best
    WER there was the one that lost 4% of the dialogue. The Italian output now goes
    through an accent fix (`core/italian_accents.py`, `e'` -> `è`), worth 4.5 WER
-   points on the end-to-end round.
+   points on the end-to-end round. Proper names are fixed at the source: the
+   glossary is passed to the ASR decoder as context (Borden instead of Bond /
+   Burton), and with a TMDB id the glossary builds itself from the cast.
 
 ## Known issues and limits
 

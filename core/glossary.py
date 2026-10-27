@@ -130,3 +130,51 @@ def show_key_from_path(video_path) -> str:
     if re.match(r"(?i)^(season|stagione)\s*\d+$", folder.name) and folder.parent.name:
         folder = folder.parent
     return _slug(folder.name) if folder.name else ""
+
+
+def cast_to_terms(cast: dict) -> Dict[str, str]:
+    """`{personaggio: genere}` (TMDB) -> `{personaggio: personaggio}` per il glossario.
+
+    Il cast TMDB dà i nomi dei **personaggi** (`Lizzie Borden`), cioè le forme che
+    compaiono nel parlato; gli attori non servono. Si scartano i nomi troppo corti
+    o i segnaposto dei crediti (`Himself`, `Narrator`).
+    """
+    skip = {"himself", "herself", "narrator", "unknown", "self", "voice"}
+    terms: Dict[str, str] = {}
+    for name, _gender in (cast or {}).items():
+        text = str(name or "").strip()
+        if len(text) < 3 or text.lower() in skip:
+            continue
+        terms[text] = text
+    return terms
+
+
+def ensure_glossary(tmdb_id, client, media_type: str = "tv", season=None, episode=None,
+                    overwrite: bool = False, log=None) -> Dict[str, str]:
+    """Costruisce il glossario dal cast TMDB se non esiste ancora.
+
+    Una volta per serie: il file resta e non viene sovrascritto (le correzioni a
+    mano dell'utente hanno la precedenza). Nessuna eccezione: un glossario che non
+    si riesce a costruire lascia il comportamento di prima.
+    """
+    existing = load_glossary(tmdb_id)
+    if existing and not overwrite:
+        return existing
+    try:
+        cast = client.get_cast_info(tmdb_id, media_type, season=season, episode=episode)
+    except Exception as exc:                       # rete, chiave, formato: non e' un errore fatale
+        if log:
+            log(f"Glossary from the TMDB cast not built: {exc}")
+        return existing
+    terms = cast_to_terms(cast or {})
+    if not terms:
+        return existing
+    try:
+        save_glossary(tmdb_id, terms)
+    except Exception as exc:
+        if log:
+            log(f"Glossary from the TMDB cast not saved: {exc}")
+        return existing
+    if log:
+        log(f"Glossary built from the TMDB cast: {len(terms)} characters")
+    return terms
