@@ -20,6 +20,8 @@ import re
 from gui.design_tokens import T
 from gui.styles import load_qss
 from core.services import library_actions as LA
+from core.services import library_rows as LR
+from core.services.library_scanner_client import LibraryScannerClient, call_api
 from gui.library_scanner_worker import LibraryScannerWorker
 from gui.widgets import ElideLabel
 from gui.icons import svg_icon
@@ -51,33 +53,10 @@ def _badge_btn_qss(bg: str, hover: str | None = None) -> str:
     return qss
 
 # ── Italian audio detection ───────────────────────────────────────────────────
-# (?<![a-zA-Z]) / (?![a-zA-Z]) gestisce separatori come punto, trattino,
-# underscore, parentesi — più robusto di \b che tratta _ come parola
-_IT_TAGS_RE = re.compile(
-    r'(?<![a-zA-Z])(ita|nuita|italian|italiano)(?![a-zA-Z])',
-    re.IGNORECASE,
-)
-_FOREIGN_TAGS_RE = re.compile(
-    r'(?<![a-zA-Z])(eng|nueng|english|fra|french|fre|spa|spanish|ger|german|deu|'
-    r'por|portuguese|rus|russian|jpn|japanese|kor|korean|chi|chinese|nld|dutch)(?![a-zA-Z])',
-    re.IGNORECASE,
-)
-
-
-def _detect_italian(filename: str) -> str:
-    """
-    Rileva la lingua audio dal filename tramite tag espliciti.
-
-    Ritorna:
-        'ita'     – italiano confermato (tag esplicito nel filename)
-        'foreign' – lingua straniera confermata (tag esplicito, no italiano)
-        'unknown' – nessun tag lingua trovato
-    """
-    if _IT_TAGS_RE.search(filename):
-        return 'ita'
-    if _FOREIGN_TAGS_RE.search(filename):
-        return 'foreign'
-    return 'unknown'
+# La logica vive in core/services/library_rows.py (senza Qt); i nomi storici restano disponibili qui.
+_IT_TAGS_RE = LR.IT_TAGS_RE
+_FOREIGN_TAGS_RE = LR.FOREIGN_TAGS_RE
+_detect_italian = LR.detect_italian
 
 
 class _NotifyWorker(QThread):
@@ -91,17 +70,7 @@ class _NotifyWorker(QThread):
         self.windows_path = windows_path
 
     def run(self):
-        try:
-            import requests
-            resp = requests.post(
-                f"{self.server_url}/api/videos/notify-subtitle",
-                json={"windows_path": self.windows_path},
-                headers={"X-API-Key": self.api_key},
-                timeout=10,
-            )
-            self.done.emit(resp.status_code == 200)
-        except Exception:
-            self.done.emit(False)
+        self.done.emit(LibraryScannerClient(self.server_url, self.api_key).notify_subtitle(self.windows_path))
 
 
 class _ApiCallWorker(QThread):
@@ -124,17 +93,8 @@ class _ApiCallWorker(QThread):
         self._timeout = timeout
 
     def run(self):
-        try:
-            import requests
-            r = requests.request(
-                self._method, self._url,
-                json=self._json, params=self._params,
-                headers={"X-API-Key": self._api_key},
-                timeout=self._timeout,
-            )
-            self.done.emit(r.status_code, r.text)
-        except Exception as e:
-            self.done.emit(0, str(e))
+        status, text = call_api(self._method, self._url, self._api_key, self._json, self._params, self._timeout)
+        self.done.emit(status, text)
 
 
 class _NumericTableWidgetItem(QTableWidgetItem):
@@ -467,9 +427,8 @@ class LibraryScannerWidget(QFrame):
         self.import_all_btn.setEnabled(len(self.videos_data) > 0)
 
     def _on_stats_loaded(self, stats: dict):
-        without = stats.get('without_subs', 0)
-        total = stats.get('total_files', 0)
-        self.stats_label.setText(tr('files_stats').format(without=without, total=total))
+        text, without = LR.stats_text(stats)
+        self.stats_label.setText(text)
         self._update_badge(without)
 
     def _on_error(self, message: str):
@@ -529,9 +488,7 @@ class LibraryScannerWidget(QFrame):
             self.video_table.setItem(row, 0, name_item)
 
             # Colonna 1: Tipo
-            media_type = video.get('media_type', '')
-            type_text = tr('film_type') if media_type == 'movie' else tr('tv_series_type') if media_type == 'tvshow' else media_type
-            type_item = QTableWidgetItem(type_text)
+            type_item = QTableWidgetItem(LR.type_text(video.get('media_type', '')))
             type_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.video_table.setItem(row, 1, type_item)
 
@@ -539,18 +496,18 @@ class LibraryScannerWidget(QFrame):
             days = video.get('days_without_subs', 0)
             days_item = _NumericTableWidgetItem(str(days))
             days_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            if days > 30:
+            days_cls = LR.days_class(days)
+            if days_cls == 'danger':
                 days_item.setForeground(QColor(T.legacy_pink))
-            elif days > 14:
+            elif days_cls == 'warn':
                 days_item.setForeground(QColor(T.legacy_mat_amber))
             self.video_table.setItem(row, 2, days_item)
 
             # Colonna 3: badge formato subtitle problematico
-            has_bitmap = video.get('has_only_bitmap_subs', False)
-            has_ass    = video.get('has_italian_convertible_subs', False)
-            if has_bitmap:
+            kind_of_badge = LR.badge_kind(video)
+            if kind_of_badge == 'bitmap':
                 badge_widget = self._create_sub_badge(video)
-            elif has_ass:
+            elif kind_of_badge == 'ass':
                 badge_widget = self._create_ass_badge(video)
             else:
                 badge_widget = set_flat(QWidget())
@@ -574,7 +531,7 @@ class LibraryScannerWidget(QFrame):
         self._prev_format_filter = fmt
         # ASS/SSA usa un endpoint diverso: serve refresh dal server.
         # Stessa cosa quando si torna da ASS/SSA a un altro filtro.
-        if fmt == 'assssa' or prev == 'assssa':
+        if LR.reload_on_format_change(prev, fmt):
             if self.is_loaded:
                 self.refresh_data()
         else:
@@ -592,27 +549,12 @@ class LibraryScannerWidget(QFrame):
         for row in range(self.video_table.rowCount()):
             days_item = self.video_table.item(row, 2)
             days = int(days_item.text()) if days_item else 0
-            hide = min_days > 0 and days < min_days
-            if not hide and fmt:
-                name_item = self.video_table.item(row, 0)
-                row_fmt = name_item.data(Qt.ItemDataRole.UserRole + 1) if name_item else None
-                has_ass = name_item.data(Qt.ItemDataRole.UserRole + 3) if name_item else False
-                if fmt == 'nosrt':
-                    if row_fmt is not None:
-                        hide = True
-                elif fmt == 'assssa':
-                    if not has_ass:
-                        hide = True
-                else:
-                    # Filtri bitmap (pgs/vobsub): mostra SOLO i file che necessitano
-                    # davvero OCR (has_only_bitmap_subs). Un file con stream PGS ma sub
-                    # testo ITA presente (es. Dumbo, La fabbrica di cioccolato) ha
-                    # bitmap_format='pgs' ma has_only_bitmap_subs=False → non è un job OCR
-                    # e non deve apparire qui (coerenza col badge ASS/SSA mostrato in tabella).
-                    only_bitmap = name_item.data(Qt.ItemDataRole.UserRole + 4) if name_item else False
-                    # 'mixed' soddisfa sia PGS sia VOBSUB
-                    if not only_bitmap or not (row_fmt == fmt or row_fmt == 'mixed'):
-                        hide = True
+            name_item = self.video_table.item(row, 0)
+            hide = LR.is_row_hidden(
+                days, min_days, fmt,
+                name_item.data(Qt.ItemDataRole.UserRole + 1) if name_item else None,
+                name_item.data(Qt.ItemDataRole.UserRole + 3) if name_item else False,
+                name_item.data(Qt.ItemDataRole.UserRole + 4) if name_item else False)
             self.video_table.setRowHidden(row, hide)
             if not hide:
                 visible_count += 1
@@ -648,11 +590,7 @@ class LibraryScannerWidget(QFrame):
     @staticmethod
     def _badge_label_kind(fmt):
         """Mappa bitmap_format → (etichetta badge, kind per il motore OCR)."""
-        if fmt == 'vobsub':
-            return "VOB", "vobsub"
-        if fmt == 'mixed':
-            return "MIX", "pgs"   # default PGS per i misti (la traccia PGS è preferibile)
-        return "PGS", "pgs"
+        return LR.badge_label_kind(fmt)
 
     def _create_ass_badge(self, video: dict) -> QWidget:
         """Badge cliccabile per file con sottotitoli ASS/SSA embedded convertibili in SRT."""
@@ -1221,12 +1159,7 @@ class LibraryScannerWidget(QFrame):
             self.refresh_data()
 
     def _get_selected_type(self) -> str:
-        index = self.type_combo.currentIndex()
-        if index == 1:
-            return 'movie'
-        if index == 2:
-            return 'tvshow'
-        return ''
+        return LR.selected_media_type(self.type_combo.currentIndex())
 
     # ========================================================================
     # UTILITY
