@@ -16,6 +16,7 @@ when touched (documentation hard rule).
 | [`PROGRESS.md`](PROGRESS.md) | append-only session log | authoritative |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | branch model, PR, session protocol, releases | authoritative |
 | [`SUPPORT_MATRIX.md`](SUPPORT_MATRIX.md) | supported platforms and tiers | authoritative |
+| [`HANDOFF_SINGLE_TRANSLATION_ENGINE.md`](HANDOFF_SINGLE_TRANSLATION_ENGINE.md) | resume point for the single-translation-engine work (ADR-009) | authoritative |
 
 ## Architecture
 
