@@ -82,7 +82,7 @@ def test_successo(qt, monkeypatch):
         ('log_message', ('\n3. Allineamento',)), ('file_progress', ('/v/Film.mkv', 80)),
         ('log_message', ('nome "1. Titolo.synced.it.srt" nel mezzo',)),
         ('progress', (90,)), ('file_progress', ('/v/Film.mkv', 90)),
-        ('output_ready', ('/out/Film.it.synced.it.srt',)), ('file_completed', ('/v/Film.mkv',)),
+        ('output_ready', (str(Path('/out/Film.it.synced.it.srt')),)), ('file_completed', ('/v/Film.mkv',)),
         ('finished', ()),
     ]
     assert all(not e[2] for e in ev)

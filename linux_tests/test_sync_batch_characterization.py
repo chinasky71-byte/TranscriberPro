@@ -105,7 +105,9 @@ def test_ambiente_del_figlio(qt, tmp_path):
     w, ev = run_worker(qt, [pair(tmp_path, 'a.mkv')])
     logs = [a[0] for a in names(ev, 'log_message')]
     env = json.loads(next(l for l in logs if l.startswith('STUB_ENV '))[len('STUB_ENV '):])
-    assert env == {'TP_SUBPROCESS': '1', 'TQDM_DISABLE': '1', 'PYTHONIOENCODING': 'utf-8', 'PYTHONUTF8': None}
+    import os
+    # PYTHONUTF8 non lo imposta il worker: arriva (o no) dall'ambiente del processo padre
+    assert env == {'TP_SUBPROCESS': '1', 'TQDM_DISABLE': '1', 'PYTHONIOENCODING': 'utf-8', 'PYTHONUTF8': os.environ.get('PYTHONUTF8')}
 
 
 def test_avvio_fallito(qt, tmp_path, monkeypatch):

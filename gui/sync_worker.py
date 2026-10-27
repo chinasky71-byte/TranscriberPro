@@ -6,14 +6,24 @@ File: gui/sync_worker.py
 Adattatore Qt sul motore senza Qt `core/jobs/sync_single.py` (`SyncRunner`): resta un QThread con gli stessi segnali, emessi dal thread
 del worker nello stesso ordine di prima.
 """
+import weakref
+
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from core.jobs.sync_single import STEP_PCT, STEP_RE, SyncListener, SyncRunner
 
 
+
 class _SignalListener(SyncListener):
+    """Riferimento DEBOLE al worker: niente ciclo worker -> motore -> listener -> worker (un QThread in un ciclo viene distrutto solo dal
+    garbage collector ciclico, in un momento qualsiasi)."""
+
     def __init__(self, worker: 'SyncWorker'):
-        self._w = worker
+        self._ref = weakref.ref(worker)
+
+    @property
+    def _w(self):
+        return self._ref()
 
     def on_started(self, video):
         self._w.file_started.emit(video)

@@ -7,6 +7,7 @@ Adattatore Qt sul motore senza Qt `core/jobs/sync_batch.py` (`SyncBatchEngine`):
 thread del worker nello stesso ordine di prima. Il ciclo, il sottoprocesso `core.sync_cli` per coppia, l'ambiente, l'avanzamento e
 l'annullamento (kill dell'albero) vivono nel motore.
 """
+import weakref
 from typing import List
 
 from PyQt6.QtCore import QThread, pyqtSignal
@@ -15,8 +16,15 @@ from core.jobs.sync_batch import SyncBatchEngine, SyncBatchListener, kill_proc_t
 
 
 class _SignalListener(SyncBatchListener):
+    """Riferimento DEBOLE al worker: niente ciclo worker -> motore -> listener -> worker (un QThread in un ciclo viene distrutto solo dal
+    garbage collector ciclico, in un momento qualsiasi)."""
+
     def __init__(self, worker: 'SyncBatchWorker'):
-        self._w = worker
+        self._ref = weakref.ref(worker)
+
+    @property
+    def _w(self):
+        return self._ref()
 
     def on_log(self, text):
         self._w.log_message.emit(text)
@@ -52,7 +60,8 @@ class SyncBatchWorker(QThread):
     def __init__(self, pairs: List, parent=None):
         super().__init__(parent)
         self._pairs = list(pairs)
-        self._engine = SyncBatchEngine(self._pairs, _SignalListener(self), cli_module=lambda: self.CLI_MODULE)
+        ref = weakref.ref(self)
+        self._engine = SyncBatchEngine(self._pairs, _SignalListener(self), cli_module=lambda: ref().CLI_MODULE)
 
     @property
     def is_cancelled(self) -> bool:
