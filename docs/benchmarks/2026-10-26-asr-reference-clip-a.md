@@ -1,4 +1,4 @@
-# ASR against a human reference — clips A and B (2026-10-26)
+# ASR against a human reference — clips A, B and C (2026-10-26)
 
 First round of the reference-based evaluation: instead of a synthetic clip, the
 output is compared with the **professional subtitles already inside the file**.
@@ -116,6 +116,57 @@ Read together:
   either engine;
 - clip B is dominated by songs (226 of 975 words), so the two clips test
   different material: B is the "noisy/musical" case, A the dialogue case.
+
+## Round 3 — clip C (40:00–50:00) and the verdict
+
+Clip C has 91 cues but **335 of its words are italic** (music), so after the
+italic rule only 284 words of dialogue remain: the noisiest measurement of the
+three. The same two variants, same harness.
+
+| Clip | Reference words | qwen3 WER | whisper WER | qwen3 coverage | whisper coverage | qwen3 drift | whisper drift | qwen3 ASR | whisper ASR |
+|---|---|---|---|---|---|---|---|---|---|
+| A | 709 | 9.17% | **8.89%** | **96.2%** | 94.2% | **0.29 s** | 0.55 s | 41.5 s | **25.9 s** |
+| B | 749 | **7.88%** | 8.41% | **93.6%** | 91.5% | **0.16 s** | 0.46 s | 46.6 s | **32.4 s** |
+| C | 284 | **11.97%** | 14.44% | 83.3% | **87.5%** | **0.20 s** | 1.07 s | 45.3 s | **22.2 s** |
+| **weighted** | **1742** | 6.95%* | 8.60%* | — | — | — | — | **133.4 s** | **80.5 s** |
+
+\* matched-window WER, weighted by reference words.
+
+## Decision
+
+The criteria fixed before round 3 were: Whisper becomes the default only if, on
+clips B and C, its WER is no worse than qwen3 by more than one point, coverage
+stays at or above 93%, extra words do not double qwen3's, and the 25% speed
+advantage holds.
+
+| Criterion | Clip B | Clip C | Outcome |
+|---|---|---|---|
+| WER within 1 point | +0.53 ✅ | **+2.47 ❌** | fails |
+| Coverage >= 93% | 91.5% ❌ | 87.5% ❌ | fails |
+| Extra words | 7 vs 7 ✅ | 3 vs 7 ✅ | ok |
+| >= 25% faster ASR | yes ✅ | yes ✅ | ok |
+
+**qwen3 stays the default engine.** Whisper keeps a consistent and real
+advantage in speed (**-40% of the ASR phase**, about four minutes per episode)
+and a slightly better result on one clip, but it loses accuracy where the
+material is harder and it covers less speech on two clips of three; on clip C its
+alignment degrades too (median 1.07 s, p90 5.32 s against 0.20 s / 3.03 s).
+
+Both engines remain available: `transcription_engine_mode` is a setting, so
+Whisper is one click away when speed matters more than the last points of
+accuracy, and the VAD knobs added in round 1b stay useful in that case.
+
+## Caveats worth keeping
+
+- Clip C is thin evidence: 284 words of dialogue against 335 of lyrics. Its
+  coverage numbers (83–87%) say more about the material than about the engines.
+- The clips were picked by cue count, which turned out to correlate with music
+  rather than with dialogue. A future round should pick windows by *spoken* words
+  only, if the question is ever reopened.
+- The end-to-end round with the Italian reference is still not done: it measures
+  ASR + translation together and could change the ranking, because the two
+  engines punctuate and segment differently, and the translator consumes that
+  text.
 
 ## Next
 

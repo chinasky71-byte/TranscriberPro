@@ -74,11 +74,14 @@ ROCm 7.0, torch 2.10.0+rocm7.0 + ctranslate2 4.8.4 ROCm (verify with
 4. **Glossary report generation** — building a report is still a CLI/offline
    job; the page only reviews it.
 5. **CSRF token** for state-changing requests (currently SameSite=Lax only).
-6. Reference evaluation **started**: one episode with professional SubRip tracks
-   is the reference set, in three 10-minute clips. Round 1 (clip A, English
-   reference) puts qwen3 ahead of faster-whisper on accuracy and coverage —
-   `docs/benchmarks/2026-10-26-asr-reference-clip-a.md`. Clips B and C are next;
-   a model decision needs all three plus the end-to-end (Italian) round.
+6. Reference evaluation **done for the ASR choice**: one episode with
+   professional SubRip tracks, three 10-minute clips, qwen3 against
+   faster-whisper with a tuned VAD. Weighted over 1742 reference words qwen3 has
+   the lower error (6.95% vs 8.60%) and better alignment; Whisper's ASR phase is
+   40% faster but its coverage stays below 93% on two clips of three. **qwen3
+   stays the default**; Whisper remains a per-install choice —
+   `docs/benchmarks/2026-10-26-asr-reference-clip-a.md`. The end-to-end (Italian
+   reference) round is still open.
 
 ## Known issues and limits
 
