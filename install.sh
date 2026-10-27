@@ -95,7 +95,6 @@ elif backend == 'cuda':
         bad.append("torch non e' la ruota CUDA (version.cuda vuoto)")
     if not available:
         bad.append("torch.cuda.is_available() e' False: il driver NVIDIA non risponde")
-if backend in ('rocm', 'cuda'):
 for line in bad:
     print(f"KO  {line}")
 raise SystemExit(1 if bad else 0)

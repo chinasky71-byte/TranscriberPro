@@ -3,3 +3,7 @@
 # Versioni provate il 2026-09-26. venv_comet (COMET / CometKiwi per mt_eval) e' un ambiente a parte, non lockato qui.
 sacrebleu==2.6.0     # chrF / BLEU in mt_eval
 vastai==1.5.5        # noleggio GPU per il training (vast.ai)
+
+# Test suite (`venv/bin/python -m pytest linux_tests`): non erano tracciati in nessun
+# file, quindi un venv ricostruito non poteva eseguire i test.
+pytest==9.1.1
