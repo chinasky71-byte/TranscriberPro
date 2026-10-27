@@ -1,0 +1,80 @@
+{
+  "system": "Linux 6.18.44-fc-v165",
+  "soglia_per_pixel": 24,
+  "scale": {
+    "1.0": {
+      "qt_px": [
+        360,
+        150
+      ],
+      "dpr_qt": 1.0,
+      "immagine": {
+        "qt": [
+          150,
+          360
+        ],
+        "web": [
+          150,
+          360
+        ],
+        "identiche_dimensioni": true
+      },
+      "totale_pixel_diversi_pct": 2.769,
+      "regioni": {
+        "titolo": {
+          "pixel_diversi_pct": 10.13,
+          "diff_medio": 12.88
+        },
+        "primario": {
+          "pixel_diversi_pct": 9.11,
+          "diff_medio": 9.64
+        },
+        "avvia": {
+          "pixel_diversi_pct": 3.41,
+          "diff_medio": 3.61
+        },
+        "barra": {
+          "pixel_diversi_pct": 0.31,
+          "diff_medio": 0.22
+        }
+      }
+    },
+    "1.5": {
+      "qt_px": [
+        540,
+        225
+      ],
+      "dpr_qt": 1.5,
+      "immagine": {
+        "qt": [
+          225,
+          540
+        ],
+        "web": [
+          225,
+          540
+        ],
+        "identiche_dimensioni": true
+      },
+      "totale_pixel_diversi_pct": 2.635,
+      "regioni": {
+        "titolo": {
+          "pixel_diversi_pct": 9.2,
+          "diff_medio": 12.37
+        },
+        "primario": {
+          "pixel_diversi_pct": 9.07,
+          "diff_medio": 11.42
+        },
+        "avvia": {
+          "pixel_diversi_pct": 3.54,
+          "diff_medio": 4.18
+        },
+        "barra": {
+          "pixel_diversi_pct": 0.35,
+          "diff_medio": 0.23
+        }
+      }
+    }
+  }
+}
