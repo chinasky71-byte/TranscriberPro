@@ -18,7 +18,7 @@ Jobs will be refused until this is fixed; per-job "Allow CPU" overrides it.</p>
   <dt>Version</dt><dd>{{ status.version }}</dd>
   <dt>Backend</dt><dd>{{ sys.backend or status.backend }}{% if sys.gpu_ok %} · <span class="badge done">GPU ok</span>{% else %} · <span class="badge failed">no GPU</span>{% endif %}</dd>
   <dt>GPU</dt><dd>{{ status.gpu_name }}{% if status.vram_mib %} · {{ status.vram_mib }} MiB{% endif %}{% if status.gpu_count > 1 %} (+{{ status.gpu_count - 1 }} more){% endif %}</dd>
-  <dt>Runtime</dt><dd>torch {{ sys.torch or '?' }}{% if sys.runtime %} · HIP/CUDA {{ sys.runtime }}{% endif %}{% if sys.ctranslate2 %} · ctranslate2 {{ sys.ctranslate2 }}{% endif %}{% if sys.devices %} · {{ sys.devices }} device{% endif %}</dd>
+  <dt>Runtime</dt><dd>torch {{ sys.torch or '?' }}{% if sys.runtime %} · HIP/CUDA {{ sys.runtime }}{% endif %}{% if sys.devices %} · {{ sys.devices }} device{% endif %}</dd>
   <dt>Work dir</dt><dd><code>{{ status.tmp.path or '?' }}</code>{% if status.tmp.free_mib %} · {{ status.tmp.free_mib }} MiB free{% endif %}</dd>
   <dt>Manager</dt><dd>{{ status.manager_state }}</dd>
   <dt>Queue</dt>

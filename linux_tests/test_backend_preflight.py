@@ -20,7 +20,7 @@ from utils.job_overrides import clean  # noqa: E402
 GOOD = {"torch": "2.10.0+rocm7.0", "runtime": "7.0", "cuda_available": True, "devices": 2,
         "ctranslate2": "4.8.4", "ct2_devices": 2, "error": ""}
 CPU_ONLY = {"torch": "2.8.0+cpu", "runtime": "", "cuda_available": False, "devices": 0,
-            "ctranslate2": "4.6.0", "ct2_devices": 0, "error": ""}
+            "error": ""}
 
 
 class FakeConfig:
@@ -79,7 +79,6 @@ def test_report_segnala_venv_cpu(stamp, monkeypatch):
     current = bp.report()
     assert current['ok'] is False
     assert any('non vede la GPU' in p for p in current['problems'])
-    assert any('ctranslate2' in p for p in current['problems'])
     assert 'non disponibile' in bp.banner()
 
 

@@ -13,7 +13,9 @@ ROCm 7.0, torch 2.10.0+rocm7.0 + ctranslate2 4.8.4 ROCm (verify with
 
 - **Headless pipeline**: `core.queue_runner` / `core.pipeline_cli` process a
   video end to end (Demucs, chunking, ASR, clean/format, translation, save).
-- **ASR**: faster-whisper large-v3 and Qwen3-ASR on ROCm; automatic fallback.
+- **ASR**: **Qwen3-ASR only** (ADR-008): faster-whisper, Canary, ctranslate2 and
+  whisperx were removed; the VAD needed by the subtitle synchroniser is ours
+  (`core/vad.py`, Silero on onnxruntime, vendored weights).
 - **Translation**: NLLB base, NLLB fine-tuned (4-bit), TranslateGemma 12B GGUF
   on Vulkan; HTTP engines for benchmark experiments.
 - **Measured throughput** (reference machine, ROCm, one job at a time): a
@@ -54,7 +56,7 @@ ROCm 7.0, torch 2.10.0+rocm7.0 + ctranslate2 4.8.4 ROCm (verify with
   items.
 - **GUI optional**: PyQt6 moved to `requirements-gui.txt`; `main.py` exits with
   a message pointing at the WebUI when Qt is absent.
-- **ADRs** 001–007, support matrix, contributing rules, guard tests.
+- **ADRs** 001–008, support matrix, contributing rules, guard tests.
 - **Tests**: unit/guard tests in `linux_tests/` (bench, boundaries, events,
   docs links, translation gate, i18n, web API/UI/picker/OCR/glossary, Docker,
   install isolation). The suite is fully green: 689 passed, 11 skipped.
@@ -64,10 +66,9 @@ ROCm 7.0, torch 2.10.0+rocm7.0 + ctranslate2 4.8.4 ROCm (verify with
 1. **Container validation** — build the three images on a host with a container
    daemon and run the `rocm` profile on the reference machine (Step 8
    acceptance is still open).
-2. **One robustness item found on a real file** — the pipeline pre-loads
-   Whisper even with `transcription_engine_mode=qwen3`, so a GPU-less
-   `ctranslate2` can fail a job that would never use Whisper. (The orphan
-   `TMPDIR` work folder of cancelled jobs is fixed: `utils/temp_cleanup.py`.)
+2. **Robustness item closed by ADR-008** — the Whisper preload (and the
+   ctranslate2 initialisation order it protected) no longer exists, because
+   Whisper no longer exists.
 3. **Library scanner in the WebUI** — separate FastAPI + SQLite service, needs
    a database location decision and real media to validate (`docs/webui/PLAN.md`,
    Step 6 notes).

@@ -84,7 +84,6 @@ def _system_status(config: Any) -> Dict[str, Any]:
         "torch": preflight.get("runtime", {}).get("torch", ""),
         "runtime": preflight.get("runtime", {}).get("runtime", ""),
         "devices": preflight.get("runtime", {}).get("devices", 0),
-        "ctranslate2": preflight.get("runtime", {}).get("ctranslate2", ""),
         "stamp_path": preflight.get("stamp_path", ""),
         "tmpdir": tmp,
     }

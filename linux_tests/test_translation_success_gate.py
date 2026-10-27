@@ -147,8 +147,3 @@ def test_nllb_device_map_solo_su_rocm():
     assert translator_mod._NLLB_DEVICE_MAP == expected
 
 
-def test_ct2_bootstrap_noop_fuori_da_linux(monkeypatch):
-    import utils.ct2_bootstrap as b
-    monkeypatch.setattr(b, '_done', False)
-    monkeypatch.setattr(b.sys, 'platform', 'win32')
-    assert b.ensure_ct2_initialized() is False

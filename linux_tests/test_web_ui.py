@@ -258,7 +258,7 @@ def test_system_card_mostra_backend_gpu_e_workdir(tmp_path):
     app, _ = _make(tmp_path)
     app.state.system = {
         "backend": "rocm", "gpu_ok": True, "problems": [],
-        "torch": "2.10.0+rocm7.0", "runtime": "7.0.51831", "devices": 2, "ctranslate2": "4.8.4",
+        "torch": "2.10.0+rocm7.0", "runtime": "7.0.51831", "devices": 2,
         "stamp_path": str(tmp_path / ".tp-backend"),
         "tmpdir": {"path": "/dev/shm/tp", "free_mib": 14000, "total_mib": 15000},
     }
@@ -266,7 +266,7 @@ def test_system_card_mostra_backend_gpu_e_workdir(tmp_path):
         page = client.get("/status")
         assert "System" in page.text
         assert "rocm" in page.text and "GPU ok" in page.text
-        assert "2.10.0+rocm7.0" in page.text and "ctranslate2 4.8.4" in page.text
+        assert "2.10.0+rocm7.0" in page.text and "2 device" in page.text
         assert "/dev/shm/tp" in page.text and "14000 MiB free" in page.text
 
 
@@ -275,7 +275,7 @@ def test_system_card_avvisa_se_la_gpu_non_risponde(tmp_path):
     app.state.system = {
         "backend": "rocm", "gpu_ok": False,
         "problems": ["torch non vede la GPU (cuda.is_available() = False)"],
-        "torch": "2.8.0+cpu", "runtime": "", "devices": 0, "ctranslate2": "",
+        "torch": "2.8.0+cpu", "runtime": "", "devices": 0,
         "stamp_path": "", "tmpdir": {"path": "/tmp", "free_mib": 100, "total_mib": 200},
     }
     with TestClient(app) as client:

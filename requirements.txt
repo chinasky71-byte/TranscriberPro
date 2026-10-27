@@ -23,7 +23,7 @@
 # Se l'indice non risponde pip si ferma con un errore chiaro invece di compilare o ripiegare in silenzio su una build CPU.
 --only-binary=llama_cpp_python
 
-# setuptools: ctranslate2 4.6.0 fa `import pkg_resources` incondizionato su Windows. 70.3.0 e' la versione provata
+# setuptools: pin storico, alcune ruote lo importano nelle proprie installazioni
 # (pkg_resources presente). NON aggiornare alla cieca: versioni future potrebbero toglierlo e Whisper non si importa.
 setuptools==70.3.0
 
@@ -33,9 +33,6 @@ torchaudio==2.8.0+cu126   # wheel +cu126 dall'indice PyTorch
 llama_cpp_python==0.3.34   # NON 0.3.35: crash (WinError 0xc000001d) all'init del contesto su CPU Alder Lake; wheel CUDA dal 2o indice
 
 # --- Trascrizione (Whisper / Qwen3-ASR) e allineamento ---
-faster-whisper==1.2.1
-ctranslate2==4.6.0   # NON 4.7.x: crash silenzioso (std::abort) in WhisperModel() dentro un processo PyQt6
-whisperx==3.8.1
 qwen-asr==0.0.6
 onnxruntime==1.24.3   # main.py lo importa PRIMA di PyQt6
 

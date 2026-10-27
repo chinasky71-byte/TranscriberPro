@@ -45,6 +45,7 @@ when touched (documentation hard rule).
 | [`adr/ADR-005-support-matrix.md`](adr/ADR-005-support-matrix.md) | explicit support tiers |
 | [`adr/ADR-006-two-lines.md`](adr/ADR-006-two-lines.md) | legacy master, development product line |
 | [`adr/ADR-007-supported-backends.md`](adr/ADR-007-supported-backends.md) | only CUDA and recent ROCm are supported |
+| [`adr/ADR-008-single-asr-engine.md`](adr/ADR-008-single-asr-engine.md) | one ASR engine: Qwen3-ASR |
 
 ## Active work
 

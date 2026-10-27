@@ -1003,28 +1003,14 @@ class ProcessingPipeline:
                     from core.engine_router import EngineRouter
                     _planned_engine, _plan_reason = EngineRouter.plan(_planned_lang, self.config)
 
-                    # Preload di Whisper: con l'engine pianificato diverso da
-                    # faster-whisper il modello caricato non verrebbe usato. Il
-                    # preload serve a inizializzare ctranslate2 a contesto CUDA
-                    # vergine (v. commento sopra) — con 'auto' lo si salta e
-                    # ctranslate2 resta non inizializzato finché non serve.
-                    _preload_mode = str(self.config.get('whisper_preload_mode', 'always')).lower()
-                    _need_preload = (_preload_mode != 'auto') or _planned_engine == 'faster-whisper'
-                    if _need_preload:
-                        self._log(tr('pl_2_5_pre_loading_whisper'))
-                        if self._transcriber is None:
-                            # language_hint: carica subito il Whisper specializzato
-                            # della lingua (whisper_model_by_language), niente reload
-                            self._transcriber = Transcriber(log_callback=self._log_callback,
-                                                            language_hint=_planned_lang)
-                    else:
-                        self._log(tr('pl_whisper_preload_skipped').format(engine=_planned_engine))
-                    _ENGINE_LABELS = {
-                        'canary': 'Canary-Qwen-2.5B',
-                        'qwen3': 'Qwen3-ASR',
-                        'faster-whisper': 'Faster-Whisper',
-                    }
-                    _engine_label = _ENGINE_LABELS.get(_planned_engine, _planned_engine)
+                    # ADR-008: un solo engine, nessun preload. Qwen3-ASR carica
+                    # quando serve (STEP 4) e non c'e' piu' ctranslate2 da
+                    # inizializzare per primo: il blocco "2.5" e il warm fallback
+                    # sono spariti insieme a Whisper.
+                    _engine_label = 'Qwen3-ASR'
+                    if self._transcriber is None:
+                        self._transcriber = Transcriber(log_callback=self._log_callback,
+                                                        language_hint=_planned_lang)
                     self._log(tr('pl_planned_engine').format(engine_label=_engine_label, plan_reason=_plan_reason))
                     # Riga letta dalla GUI (tessera "Modello" della Diagnostica).
                     try:
@@ -1034,13 +1020,10 @@ class ProcessingPipeline:
                         logger.debug(f"Etichetta modello trascrizione non disponibile: {_e}")
 
                     # STEP 3: Processing audio (separazione vocale + chunking)
-                    try:
-                        from faster_whisper import BatchedInferencePipeline
-                        _use_batched = (_planned_engine == 'faster-whisper')
-                    except ImportError:
-                        _use_batched = False
-
-                    step3_label = "Demucs + BatchedInferencePipeline" if _use_batched else "Demucs + Chunking"
+                    # Il chunking e' l'unica modalita': qwen3 ragiona per chunk
+                    # (cap 150 s) e il percorso "file unico" era di Whisper.
+                    _use_batched = False
+                    step3_label = "Demucs + Chunking"
                     # Contesto per l'ASR: i nomi della serie (glossario) biasano il
                     # decoder verso "Borden" invece di "Bond"/"Potter"/"Burton".
                     # Caricato qui, prima della trascrizione, non solo in traduzione.
@@ -1119,9 +1102,6 @@ class ProcessingPipeline:
                                                             language_hint=_planned_lang)
                             
 
-                        # Inietta fatigue counter per OOM prevention
-                        if self._files_processed_in_batch > 0:
-                            self._transcriber.set_files_processed(self._files_processed_in_batch)
 
                         subtitle_path = self.file_handler.get_temp_path(
                             self.video_path, 
@@ -1160,29 +1140,6 @@ class ProcessingPipeline:
                         # Aggiorna _last_segments con timestamp precisi
                         # che verranno poi usati dalla diarization.
                         # ================================================
-                        enable_forced_alignment = self.config.get('enable_forced_alignment', False)
-                        if enable_forced_alignment and len(chunk_list) == 1:
-                            vocals_path_align = str(chunk_list[0][0])
-                            from core.aligner import ForcedAligner
-                            from core.transcriber import save_srt_file
-                            aligner = ForcedAligner(self._log)
-                            try:
-                                device_align = "cuda" if torch.cuda.is_available() else "cpu"
-                                loaded = aligner.load(detected_lang_639_1, device_align)
-                                if loaded:
-                                    self._log(tr('pl_forced_alignment_in_progress'))
-                                    aligned_segs = aligner.align(
-                                        list(self._transcriber._last_segments),
-                                        vocals_path_align,
-                                    )
-                                    self._transcriber._last_segments = aligned_segs
-                                    save_srt_file(aligned_segs, subtitle_path)
-                                    self._log(tr('pl_timestamps_realigned_with_phoneme_precision'))
-                            except Exception as e:
-                                self._log(tr('pl_forced_alignment_failed_whisper_timestamps').format(e=e))
-                            finally:
-                                aligner.unload()
-
                         # ================================================
                         # STEP 4.5: Speaker Diarization
                         #

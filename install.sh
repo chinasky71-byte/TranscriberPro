@@ -6,7 +6,7 @@
 #   ./install.sh                rileva l'hardware e installa: CUDA su NVIDIA, ROCm su GPU AMD supportate. Nessun altro backend.
 #                               Senza --backend decide da solo; se l'hardware non e' supportato si ferma e lo dice (niente fallback silenziosi).
 #   ./install.sh --backend=cuda|rocm|auto   forza il backend (auto = rilevamento, il default)
-#   ./install.sh --verify-only              riverifica il venv esistente (import di torch/ctranslate2 + GPU) e riscrive
+#   ./install.sh --verify-only              riverifica il venv esistente (import di torch + GPU) e riscrive
 #                               venv/.tp-backend, senza installare nulla: il rimedio quando il timbro manca o e' vecchio
 #   ./install.sh --force-backend            accetta un backend diverso dall'hardware rilevato: serve solo al cross-build dei
 #                               container (immagine NVIDIA costruita su un host AMD) e per i test; in tutti gli altri casi e' un errore
@@ -24,11 +24,11 @@
 #
 # Backend supportati (decisione esplicita, v. ADR-007):
 #   cuda  NVIDIA su Linux: requirements.txt (torch +cu126), llama-cpp-python ruota CUDA
-#   rocm  AMD con ROCm 7.0 su RDNA3/RDNA4/CDNA: requirements-rocm.txt (torch +rocm7.0), ctranslate2 ROCm dalla release
-#         OpenNMT/CTranslate2, whisperx --no-deps, llama-cpp-python ruota Vulkan. Non installa ROCm di sistema: la ruota di torch
+#   rocm  AMD con ROCm 7.0 su RDNA3/RDNA4/CDNA: requirements-rocm.txt (torch +rocm7.0) e
+#         llama-cpp-python ruota Vulkan (ADR-008: nessun ctranslate2/whisperx). Non installa ROCm di sistema: la ruota di torch
 #         porta il suo runtime; controlla /dev/kfd, i gruppi render/video e il driver amdgpu e dice cosa fare. Python 3.11 o 3.12.
 #   RDNA2 e precedenti, nessuna GPU, Vulkan e CPU non sono supportati: lo script si ferma.
-#   Al termine l'installazione viene verificata davvero (import di torch/ctranslate2 e device visibile) e il backend scelto
+#   Al termine l'installazione viene verificata davvero (import di torch e device visibile) e il backend scelto
 #   viene scritto in venv/.tp-backend: rilanciare lo script con un backend diverso non sostituisce piu' torch in silenzio.
 #
 # Non copia ne' scrive mai credenziali. Non va lanciato come root (il venv deve essere dell'utente).
@@ -57,7 +57,7 @@ done
 
 if [ "$(id -u)" = "0" ]; then echo "[KO] Non lanciare come root: il venv deve essere dell'utente (sudo viene chiesto solo per i pacchetti)."; exit 2; fi
 [ "$(uname -s)" = "Linux" ] || { echo "[KO] Questo script e' per Linux."; exit 2; }
-[ "$(uname -m)" = "x86_64" ] || echo "[!!] Architettura $(uname -m): le ruote di torch/ctranslate2 pinnate sono per x86_64."
+[ "$(uname -m)" = "x86_64" ] || echo "[!!] Architettura $(uname -m): le ruote di torch pinnate sono per x86_64."
 
 ok()   { printf '  [OK]  %s\n' "$*"; }
 warn() { printf '  [!!]  %s\n' "$*"; }
@@ -66,7 +66,7 @@ ask()  { [ "$YES" = "1" ] && return 0; read -r -p "$1 [s/N] " r; case "$r" in s|
 have() { command -v "$1" >/dev/null 2>&1; }
 
 # ----------------------------------------------------------------------------------------------
-# Verifica reale: un'installazione non e' riuscita finche' torch/ctranslate2 non vedono davvero la
+# Verifica reale: un'installazione non e' riuscita finche' torch non vede davvero la
 # GPU. Se il backend e' cuda/rocm e il device non risponde, lo script FALLISCE e non scrive il
 # timbro, cosi' non resta in giro un venv che sembra a posto e poi gira su CPU.
 # ----------------------------------------------------------------------------------------------
@@ -96,14 +96,6 @@ elif backend == 'cuda':
     if not available:
         bad.append("torch.cuda.is_available() e' False: il driver NVIDIA non risponde")
 if backend in ('rocm', 'cuda'):
-    try:
-        import ctranslate2
-        n = ctranslate2.get_cuda_device_count()
-        print(f"  ctranslate2 {ctranslate2.__version__} | device GPU: {n}")
-        if n < 1:
-            bad.append("ctranslate2 non vede alcun device GPU (Whisper girerebbe su CPU)")
-    except Exception as exc:                               # noqa: BLE001
-        print(f"  [!!]  ctranslate2 non verificabile: {exc}")
 for line in bad:
     print(f"KO  {line}")
 raise SystemExit(1 if bad else 0)
@@ -114,8 +106,6 @@ write_stamp() {
     echo "backend=$BACKEND"
     echo "torch=$("$VPY" -c 'import torch;print(torch.__version__)' 2>/dev/null)"
     echo "torchaudio=$("$VPY" -c 'import torchaudio;print(torchaudio.__version__)' 2>/dev/null)"
-    # ctranslate2 va importato DOPO torch (le sue librerie HIP dipendono dal runtime di torch)
-    echo "ctranslate2=$("$VPY" -c 'import torch, ctranslate2;print(ctranslate2.__version__)' 2>/dev/null)"
     echo "llama_backend=$LLAMA_IDX"
     echo "requirements=$(basename "$REQ")"
     echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -199,13 +189,13 @@ case "$BACKEND" in
 esac
 
 case "$BACKEND" in
-  rocm) ROCM=1; LLAMA_IDX=vulkan ;;   # torch/ctranslate2 su ROCm; llama-cpp-python resta sulla ruota Vulkan (non esiste una ruota ROCm)
+  rocm) ROCM=1; LLAMA_IDX=vulkan ;;   # torch su ROCm; llama-cpp-python resta sulla ruota Vulkan (non esiste una ruota ROCm)
   cuda) ROCM=0; LLAMA_IDX=cuda ;;
 esac
 
 echo; echo "== Backend"
 case "$BACKEND" in
-  rocm) ok "rocm  $( [ -n "$amd_name" ] && printf '%s' "$amd_name" )${amd_gfx:+ ($amd_gfx)} — torch 2.10.0+rocm7.0 + ctranslate2 ROCm" ;;
+  rocm) ok "rocm  $( [ -n "$amd_name" ] && printf '%s' "$amd_name" )${amd_gfx:+ ($amd_gfx)} — torch 2.10.0+rocm7.0" ;;
   cuda) ok "cuda  NVIDIA — requirements.txt (torch +cu126)" ;;
 esac
 [ "$FORCE_BACKEND" = "1" ] && warn "--force-backend: procedo anche se l'hardware rilevato e' '${DETECTED:-niente}' (cross-build/test)"
@@ -235,7 +225,7 @@ else
 fi
 
 if [ "$ROCM" = "1" ]; then
-  ok "Backend ROCm: torch/ctranslate2 su GPU, llama-cpp-python sulla ruota Vulkan"
+  ok "Backend ROCm: torch su GPU, llama-cpp-python sulla ruota Vulkan"
   [ -n "$amd_name$amd_family" ] && ok "GPU AMD: ${amd_name:-AMD}${amd_gfx:+ ($amd_gfx)}${amd_family:+ — famiglia $amd_family}"
   if [ -e "$KFD" ]; then
     if [ -r "$KFD" ] && [ -w "$KFD" ]; then ok "/dev/kfd accessibile"
@@ -408,23 +398,7 @@ if [ -n "$LV" ]; then
   fi
 fi
 if [ "$ROCM" = "1" ]; then
-  # ctranslate2 ROCm: non e' su PyPI, sta nella release di OpenNMT/CTranslate2 (rocm-python-wheels-Linux.zip). Va installato PRIMA, cosi' pip
-  # considera soddisfatta la dipendenza di faster-whisper e non scarica la ruota CUDA di PyPI.
-  PYTAG="cp$("$VPY" -c 'import sys;print("%d%d" % sys.version_info[:2])')"
-  CT2DIR="$(mktemp -d /tmp/tp_ct2rocm.XXXXXX)"; trap 'rm -rf "$CT2DIR"' EXIT
-  echo "  ctranslate2 ROCm (release piu' recente di OpenNMT/CTranslate2, ruota $PYTAG)"
-  if curl -fsSL --retry 3 -o "$CT2DIR/w.zip" "https://github.com/OpenNMT/CTranslate2/releases/latest/download/rocm-python-wheels-Linux.zip" \
-     && "$VPY" - "$CT2DIR" "$PYTAG" <<'PYEOF'
-import sys, zipfile, glob, os
-d, tag = sys.argv[1], sys.argv[2]
-z = zipfile.ZipFile(d + '/w.zip')
-names = [n for n in z.namelist() if n.endswith('.whl') and ('-%s-%s-' % (tag, tag)) in os.path.basename(n) and 'manylinux' in n]
-if not names: sys.exit('nessuna ruota ctranslate2 ROCm per ' + tag)
-open(d + '/path.txt', 'w').write(z.extract(names[0], d))
-PYEOF
-  then
-    "$VPY" -m pip install --no-deps "$(cat "$CT2DIR/path.txt")" || { bad "installazione ctranslate2 ROCm fallita"; exit 1; }
-  else bad "ctranslate2 ROCm non scaricata/estratta: Whisper non usera' la GPU AMD. Scarica a mano rocm-python-wheels-Linux.zip da github.com/OpenNMT/CTranslate2/releases"; exit 1; fi
+  # ADR-008: nessun ctranslate2/whisperx da scaricare — l'ASR e' solo Qwen3-ASR.
   REQ="$ROOT/requirements-rocm.txt"
 fi
 if [ "$WITHGUI" = "1" ]; then
@@ -438,11 +412,6 @@ echo "  pip install -r $(basename "$REQ")  (puo' richiedere diversi minuti e alc
 if [ -n "$REQGUI" ]; then
   echo "  pip install -r requirements-gui.txt  (GUI desktop opzionale)"
   "$VPY" -m pip install -r "$REQGUI" || warn "GUI non installata: l'interfaccia resta la WebUI (python -m web.main)."
-fi
-if [ "$ROCM" = "1" ]; then
-  # whisperx senza dipendenze (l'app lo usa solo in core/aligner.py; le sue dipendenze sono gia' in requirements-rocm.txt)
-  WV="$(sed -n 's/^[[:space:]]*whisperx==\([0-9.]*\).*/\1/p' "$ROOT/requirements.txt" | head -1)"
-  "$VPY" -m pip install --no-deps "whisperx==$WV" || warn "whisperx $WV non installato: l'allineamento parola per parola non funzionera'."
 fi
 verify_and_stamp || exit 1
 

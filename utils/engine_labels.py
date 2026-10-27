@@ -45,24 +45,10 @@ def whisper_label(spec: Optional[str]) -> str:
 
 
 def model_display(engine: str, config, lang: Optional[str] = None) -> str:
-    """Modello realmente usato da `engine` ('canary'|'qwen3'|'faster-whisper')."""
-    if engine == 'qwen3':
-        return short_model_name(config.get('qwen3_asr_model_id', 'Qwen/Qwen3-ASR-1.7B')) or 'Qwen3-ASR'
-    if engine == 'canary':
-        return short_model_name(config.get('canary_model_id', 'nvidia/canary-qwen-2.5b')) or 'Canary-Qwen'
-    spec = None
-    if lang:   # la GUI passa lang=None: niente import di torch nel processo GUI
-        try:
-            from core.engines.faster_whisper_engine import FasterWhisperEngine
-            spec = FasterWhisperEngine.language_model_spec(config, lang)
-        except Exception:
-            pass
-    return whisper_label(spec or config.get('whisper_model', 'large-v3'))
+    """Modello usato dall'engine: con ADR-008 c'e' solo Qwen3-ASR."""
+    return short_model_name(config.get('qwen3_asr_model_id', 'Qwen/Qwen3-ASR-1.7B')) or 'Qwen3-ASR'
 
 
 def idle_model_label(config) -> str:
     """Valore della tessera "Modello" quando non si sta elaborando."""
-    mode = config.get_transcription_engine_mode()
-    if mode == 'auto':
-        return 'Auto (per lingua)'
-    return model_display(mode, config)
+    return model_display('qwen3', config)
