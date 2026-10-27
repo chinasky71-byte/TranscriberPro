@@ -27,6 +27,36 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-26 — Reference evaluation round 3 (clip C): qwen3 stays the default
+
+- Branch / commits: `feat/asr-reference-round3`.
+- Goal: tie-break between qwen3 and whisper-0.25 with a third clip and apply the
+  decision rule fixed before the measurement.
+- Done: clip C cut at 40:00 with its references; both variants run and scored;
+  the benchmark document gained the three-clip table, the criteria table and the
+  verdict.
+- Tests and results: no new tests (harness already covered); suite green.
+  Clip C (284 reference words after ignoring 335 italic ones): qwen3 WER 11.97%,
+  matched 9.36%, coverage 83.3%, drift 0.20 s, ASR 45.3 s; whisper-0.25
+  WER 14.44%, matched 12.64%, coverage 87.5%, drift 1.07 s (p90 5.32 s),
+  ASR 22.2 s. Weighted over the three clips (1742 reference words):
+  qwen3 matched-WER **6.95%**, whisper **8.60%**; whisper's ASR phase is
+  **40% faster** (80.5 s vs 133.4 s on 30 minutes of audio).
+- Decisions / ADRs: **qwen3 remains the default engine**. The rule (no worse than
+  one WER point on B and C, coverage >= 93%, extra words not doubled, >= 25%
+  faster) fails on two counts: clip C WER is 2.47 points worse and coverage stays
+  below 93% on both B and C. Whisper's speed advantage is real and remains
+  available as a per-install choice (`transcription_engine_mode`) with the VAD
+  knobs from round 1b. No defaults changed.
+- Known issues: clip C is thin evidence (335 words of lyrics against 284 of
+  dialogue) and its coverage numbers say more about the material than about the
+  engines; the clips were selected by cue count, which correlates with music
+  rather than dialogue. The end-to-end round with the Italian reference is still
+  missing and could reorder the two engines, because translation consumes text
+  that the two engines punctuate differently.
+- Next step: optional end-to-end round on the Italian reference, then a full
+  episode on qwen3 to confirm the per-episode time.
+
 ## 2026-10-26 — Reference evaluation round 2 (clip B) and a metric fix
 
 - Branch / commits: `feat/asr-reference-round2`.
