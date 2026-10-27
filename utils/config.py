@@ -361,17 +361,13 @@ class Config:
         # 'qwen' o 'nllb_ft' forzano la scelta.
         'reservoir_engine': 'auto',
 
-        # Subtitle Synchronization ("Anchor & Match" pipeline)
-        'sync_src_language':           'en',   # lingua embedded anchor (ISO 639-1) — usata solo se non rilevabile dallo stream/da Whisper
-        'sync_llm_window_size':        20,     # anchor per finestra Qwen
-        'sync_allow_whisper_fallback': True,   # fallback Whisper se no embedded subs
-        # Modello Qwen per il matching S3: se vuoto, ricade su
-        # 'gender_correction_model_path' (stesso Qwen2.5-14B-Q4_K) per
-        # compatibilità con chi l'ha già configurato — ma è un accoppiamento
-        # fragile: se l'utente cambia/svuota quel percorso per la correzione
-        # di genere, la sincronizzazione degrada silenziosamente al fallback
-        # posizionale. Impostare questa chiave per svincolarli.
-        'sync_qwen_model_path':        '',
+        # Subtitle Synchronization ("Anchor & Match" pipeline).
+        # ADR-009: allineamento SOLO temporale. Le chiavi del percorso 'llm'
+        # (sync_llm_window_size, sync_qwen_model_path, sync_engine) sono state
+        # rimosse insieme a NLLB e al matcher Qwen: restano innocue in un
+        # config.json esistente, semplicemente non le legge piu' nessuno.
+        'sync_src_language':           'en',   # lingua della traccia embedded usata per gli anchor (ISO 639-1)
+        'sync_allow_whisper_fallback': True,   # se il video non ha sottotitoli usabili: anchor dai tempi del parlato (VAD)
         'sync_max_offset_sec':         30,     # tolleranza di desync massima attesa (± secondi)
     }
     
