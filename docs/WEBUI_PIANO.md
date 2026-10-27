@@ -29,3 +29,35 @@ Criteri di decisione:
 - **Sicurezza:** tutti i test di `p1_security_tests.py` passano (nel cloud: 7 passati, 1 saltato perche' la VM ha solo il loopback).
 - **Memoria:** il guscio non deve aggiungere piu' di ~250 MB rispetto alla GUI Qt a riposo (soglia proposta, da rivedere con i dati).
 - **Pixel:** prima misura su Windows, senza esito pass/fail: serve a calibrare il criterio e a vedere dove Qt e Chromium divergono. Nel cloud (Linux): le forme (bordi, barra) combaciano (barra 0,3% di pixel diversi), il testo no (Qt su Linux non applica i pesi 500/600 del font variabile Inter Tight, Chromium si').
+
+## Esiti P1 su Windows (27/10/2026, commit fada9d2; rapporto: `tpweb/proto/results/P1_RAPPORTO_WINDOWS.md`)
+| Criterio | Soglia | Misura | Esito |
+|---|---|---|---|
+| Sicurezza | tutti i test | 8 passati, 0 saltati | OK |
+| Flusso di eventi (Edge) | 5.000/5.000, p95 < 300 ms, attivita' lunga < 400 ms | 5.000/5.000, p95 118 ms, 0 attivita' lunghe | OK |
+| Percorsi dei file trascinati (pywebview, lato Python) | assoluti per ogni caso | locale, accenti/spazi, 3 insieme, UNC `\\localhost\C$\...`, unita' mappata `W:` (SMB reale): tutti corretti | OK (con riserve sotto) |
+| Dialoghi nativi | funzionanti | file multipli e cartella OK | OK |
+| Memoria | <= Qt a riposo + 250 MB | Qt 227 MB; pywebview 439 MB a riposo (+212 MB), 549 MB dopo il banco | OK, margine stretto |
+| Pixel | prima misura, nessun pass/fail | 3,3% / 3,2% / 3,0% a 100/125/150%; forme combaciano, testo no | da calibrare (P2b) |
+
+**Guscio: pywebview (WebView2).** Il percorso del file trascinato arriva solo lato Python (`pywebviewFullPath`, `null` nella pagina): il guscio lo consegna al backend, che e' un componente di prodotto da progettare.
+
+### Riserve e voci aperte
+- Trascinamento fatto con mouse simulato dalla sessione locale da Esplora risorse reale: serve **conferma fisica** del proprietario (1 minuto).
+- Il percorso UNC provato e' `\\localhost\C$`: manca un `\\server\share\...` remoto senza lettera di unita'.
+- **Blocco** della prima esecuzione automatica di pywebview (oltre 4 minuti, poi ripetuta senza problemi): non spiegato -> P2a (avvio ripetuto con tappe e limite di tempo). Nel prodotto servira' comunque un timeout di avvio con messaggio.
+- Margine di memoria stretto (+212 su +250) con una pagina minima: la UI vera e' piu' pesante; rimisurare con la UI reale e rivedere la soglia o ridurre il consumo di WebView2.
+- Pixel: nelle immagini a 125% e 150% si vede (osservazione da confermare) che il titolo Qt parte ~3 px CSS piu' a destra di quello web, che «Aggiungi file» e' ~6% piu' largo in web, e che a 125% la barra ha un lieve scarto agli estremi arrotondati. Il testo di Chromium e' piu' pieno.
+
+### Proposta di criterio pixel (da approvare)
+L'obiettivo «meno dell'1% di pixel diversi per schermata» con tolleranza per canale e' probabilmente irraggiungibile sul testo: Qt e Chromium rasterizzano i glifi con gamma e antialiasing diversi. Proposta, da confermare dopo P2b:
+1. **Forme** (bordi, raggi, riempimenti, barre, tabelle): <= 1% di pixel diversi, rettangolo per rettangolo.
+2. **Testo**: stessa posizione e stessa larghezza del riquadro del testo entro ±1 px, peso percepito entro una tolleranza misurata (inchiostro medio per riga), e **SSIM >= 0,97** per elemento; i pixel diversi % restano un dato riportato, non un pass/fail.
+3. **Schermata intera:** SSIM >= 0,985 a 100/125/150%.
+Se P2b mostra che la calibrazione porta il testo sotto il 2%, il criterio 2 si puo' irrigidire.
+
+## P2 – prossime misure (sessione locale)
+- **P2a** `p2_pywebview_startup.py`: 10 avvii consecutivi + 1 a freddo, con tappe (`loaded`, primo `evaluate_js`) e limite di 45 s; se uno si blocca, a che tappa e con quali processi.
+- **P2b** `p2_calibrate_text.py`: scansione di peso, dimensione, spaziatura e spostamento del testo CSS contro le schermate Qt gia' catturate su Windows; dice quanto del 3% e' calibrabile.
+- **P2c** conferma fisica del trascinamento da parte del proprietario, anche con `\\server\share\...` remoto.
+- **Fase 0 / G1** in parallelo (non dipende dal guscio): vedi sopra.
