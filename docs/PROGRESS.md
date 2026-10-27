@@ -47,6 +47,37 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
   illustrate the failure modes, they do not quantify them — the tables do that.
 - Next step: none for the ASR question; the evaluation is closed and documented.
 
+## 2026-10-26 — Italian source: cast glossary in the ASR context, and where it stops
+
+- Branch / commits: `feat/glossary-first-names`.
+- Goal: measure the ASR context on an Italian source with a real cast, and check
+  whether the name error of the previous run gets fixed.
+- Done: `web/glossary.py::parse_cast_text()` now also emits the **individual first
+  and last names** (particles like `Da`, `de`, `van` excluded), because dialogue
+  says "Richie" and not "Richie Stevenson": the MobLand credits produce 48 terms
+  instead of 22. The cast was written through the WebUI code path
+  (`write_fixed_glossary`, `manual_mobland.json`) and the clip was re-run with
+  `glossary_id: mobland`.
+- Tests and results: parser test updated for the extra single names; suite green.
+  Measured on the same 10-minute Italian clip: WER 11.79% -> 11.79%, CER 6.31% ->
+  **6.10%**, chrF 94.21 -> **94.50**, drift median 0.72 s -> **0.60 s**, ASR 75.6 s
+  -> 79.4 s. Names: **2 of 7** `Ricci` occurrences became `Richie` — precisely the
+  two where the surname follows (`Richie Stevenson`, `Richie dice`); the vocatives
+  (`Ricci, ho parlato con...`) stayed, because the Italian dub pronounces the name
+  the way Italians spell "Ricci" and a prompt hint loses against the model's
+  orthographic prior.
+- Decisions / ADRs: no ADR. The context costs nothing on Italian material (unlike
+  the English round, where it moved WER by half a point) and improves chrF and
+  alignment, so it stays; but it is not a complete fix for names that the dub
+  pronounces like a common Italian word.
+- Known issues: five `Ricci` remain in one clip; the honest next step is a
+  **declared** mishearing map (`Ricci -> Richie`) applied to the transcript
+  deterministically, which is different from fuzzy matching (no guessing) and
+  composes with the context. The alignment gap on Italian (0.72 s median against
+  0.16-0.29 s on English) is still a single-clip observation.
+- Next step: implement the declared mishearing map in the glossary file and the
+  UI, then re-measure; and run a second window to confirm the alignment figure.
+
 ## 2026-10-26 — First measurement on Italian source (no translation)
 
 - Branch / commits: `docs/italian-source-measurement`.

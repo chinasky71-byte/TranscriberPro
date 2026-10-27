@@ -77,9 +77,43 @@ Patterns:
 - The ASR phase is slower than on English for the same 10 minutes (75.6 s vs
   ~45 s): Italian output carries more tokens per second of speech.
 
+## Second run: the cast as ASR context
+
+The show's cast was pasted in the WebUI form (the parser produced 48 terms: full
+names, quoted aliases, and the individual first and last names, because dialogue
+says "Richie", not "Richie Stevenson"). The same clip was run again with the
+glossary active — confirmed in the log: `ASR context: 48 glossary names given to
+the decoder` — with the Italian audio and no translation.
+
+| Run | WER | CER | chrF | Coverage | Drift median | ASR |
+|---|---|---|---|---|---|---|
+| without glossary | 11.79% | 6.31% | 94.21 | 100% | 0.72 s | 75.6 s |
+| with 48 names | 11.79% | **6.10%** | **94.50** | 100% | **0.60 s** | 79.4 s |
+
+The context costs nothing here (unlike the English round, where it moved WER by
+half a point) and improves chrF and alignment slightly. But on the name that
+mattered it is only half a fix:
+
+```
+reference   Richie Stevenson continua a chiamare...     →  qwen3 with context: Richie Stevenson...
+reference   Richie dice che Tommy era con Eddie.        →  qwen3 with context: Richie dice che...
+reference   Ricci, noi non lavoriamo così.              →  qwen3 with context: Ricci, ...   (5 left)
+```
+
+Two of the seven occurrences flipped to `Richie` — exactly those where the surname
+follows. The vocatives (`Ricci, ho parlato con...`) stayed: the Italian dub
+pronounces the name the way Italians spell "Ricci", and a soft hint in the prompt
+loses against the language model's own orthographic prior.
+
 ## Next
 
 - Repeat on a second window of the same episode to see whether the alignment gap
   and the WER hold.
-- Paste the show's cast in the WebUI form and re-run the same clip: the visible
-  name error ("Ricci" for "Richie") is exactly what the ASR context addresses.
+- Name correction as a **declared** mapping: the context fixes about a third of the
+  occurrences, so the next step is letting the show declare the mishearings
+  explicitly (`Ricci -> Richie`) and applying them to the transcript
+  deterministically — no guessing, no dictionary, and it composes with the context
+  rather than replacing it.
+- A second window of the episode, to confirm the alignment gap (0.72 s median on
+  Italian against 0.16-0.29 s on English) before it is treated as a property of the
+  language rather than of this clip.

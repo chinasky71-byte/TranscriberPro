@@ -73,8 +73,9 @@ def test_parse_cast_text_dalle_schede(tmp_path):
 
 def test_parse_cast_text_senza_as(tmp_path):
     terms = fixed.parse_cast_text("Lizzie Borden\nAbby Borden\nBorden")
-    assert terms == {"Lizzie Borden": "Lizzie Borden", "Abby Borden": "Abby Borden",
-                     "Borden": "Borden"}
+    # il nome completo e anche i singoli nomi: nei dialoghi si dice "Lizzie"
+    for name in ("Lizzie Borden", "Abby Borden", "Borden", "Lizzie", "Abby"):
+        assert terms.get(name) == name
 
 
 def test_parse_scarta_ruoli_generici():
