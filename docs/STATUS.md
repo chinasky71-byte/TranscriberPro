@@ -5,9 +5,10 @@ Line: `development` (active product); `master` is legacy (ADR-006)
 Branch: `development` · last merge: `d17f601` (test isolation)
 WebUI: **not running** (start it with the command in `web/README.md`; `--no-auth` for a private network)
 Environment: Ubuntu 26.04, Radeon RX 9060 XT 16 GB (gfx1200, RDNA4),
-ROCm 7.0, torch 2.10.0+rocm7.0 + ctranslate2 4.8.4 ROCm (verify with
-`venv/bin/python -c "import torch;print(torch.cuda.is_available())"`), venv
-~16 GB, model cache ~33 GB
+ROCm 7.0, torch 2.10.0+rocm7.0 only — no ctranslate2/whisperx (ADR-008);
+verify with `venv/bin/python -c "import torch;print(torch.cuda.is_available())"`.
+venv ~15 GB, model cache ~33 GB (still holds 2.9 GB of Whisper weights that
+nothing reads).
 
 ## What works
 

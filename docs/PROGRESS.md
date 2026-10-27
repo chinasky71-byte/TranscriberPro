@@ -27,6 +27,35 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-27 — Venv rebuilt from the new requirements (no Whisper)
+
+- Branch / commits: `fix/venv-rebuild-notes`.
+- Goal: prove that the requirements really are self-sufficient after removing
+  Whisper — a claim a rebuilt environment can settle in ten minutes.
+- Done: `venv/` deleted and rebuilt with `./install.sh --backend=rocm --yes`;
+  `install.sh` fixed: removing the ctranslate2 probe left an `if backend in
+  ('rocm','cuda'):` with no body, so the post-install verification died with an
+  `IndentationError` after a full install; `pytest` added to
+  `requirements-dev.txt` (it was installed by hand before, so a fresh venv could
+  not run the suite).
+- Tests and results: new venv 15 GB, `faster-whisper`, `ctranslate2` and
+  `whisperx` **not installed** (0 matches), `torch 2.10.0+rocm7.0` with
+  `cuda True`, `qwen-asr 0.0.6`, `demucs 4.0.1`, `llama_cpp_python 0.3.34`
+  (Vulkan), `onnxruntime 1.24.3`, our VAD loads. `--verify-only` writes the stamp
+  (backend rocm, torch, torchaudio, llama, requirements, date — no ctranslate2).
+  Suite: 797 passed, 15 skipped (the extra 4 are the PyQt6 scanner tests, correctly
+  skipped without the optional GUI), 0 failed. End-to-end on the rebuilt venv:
+  MobLand Italian clip **WER 11.87%**, chrF 94.33, coverage 100% — equal to the
+  11.71-11.87% of the previous venv.
+- Decisions / ADRs: no ADR. The rebuild is the acceptance for ADR-008: the install
+  no longer touches ctranslate2, whisperx or any Whisper wheel, and the pipeline
+  runs the same.
+- Known issues: the Hugging Face cache still holds `faster-whisper-large-v3`
+  (2.9 GB) and `faster-whisper-tiny`; nothing reads them any more, but deleting them
+  is a housekeeping decision, not a code one.
+- Next step: rebuild the Docker images from the new requirements (Step 8
+  acceptance), which is now simpler: no ctranslate2 wheel to fetch.
+
 ## 2026-10-27 — Whisper removed: one ASR engine (ADR-008)
 
 - Branch / commits: `feat/remove-whisper`.
