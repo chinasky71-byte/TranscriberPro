@@ -3,6 +3,14 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.41 — 2026-10-28 — G4: Library Scanner fuori dalla GUI (PR #48, #49, #50)
+
+- **Client:** `LibraryScannerClient` e `call_api` (chiamate HTTP al server, messaggi d'errore identici, nuovi tentativi solo per errori di rete) in `core/services/library_scanner_client.py`.
+- **Righe e azioni:** `library_rows` (tipo di sottotitolo, badge, classi per giorni, filtri, righe nascoste, statistiche, tipo selezionato) e `library_actions` (piano di importazione, richieste ASS e Superpower, risposte, testi di avanzamento, strategia) in `core/services/`. `LibraryScannerWidget` e `LibraryScannerWorker` restano la vista, con gli stessi segnali.
+- **GUI invariata, nessun file di dati cambia formato.**
+- **Verifica:** test di caratterizzazione scritti sul vecchio codice (94 test) e passati identici su master e sul nuovo; prova su Windows con server vero in sola lettura (risultati identici a master) e GUI vera con finto server (tabella, ordinamento, import, badge ASS, revisione OCR, Superpower, chiusura durante il batch senza processi orfani); SRT automatici identici a master.
+- Scopo: base per la futura GUI web (`docs/WEBUI_PIANO.md`); nessun cambiamento visibile all'utente.
+
 ## 1.34.40 — 2026-10-28 — G3: revisione OCR, profilo e modello di traduzione fuori dalla GUI (PR #44, #45, #46)
 
 - **Revisione OCR:** `OcrRunEngine` (OCR dei sottotitoli bitmap PGS/VobSub nei modi ocr e writeback, rami review e auto, esiti per formato non supportato, lingua senza tessdata, annullamento ed errori) in `core/jobs/ocr_run.py`; `ocr_review_service` (etichette e pallini di confidenza, contatore, filtro "solo dubbi", prossimo dubbio con giro completo, "verificato", corsivo, riga di info) in `core/services/`. `OcrWorker` e `OcrReviewDialog` restano la vista.
