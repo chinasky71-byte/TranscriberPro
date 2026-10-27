@@ -1,0 +1,126 @@
+{
+  "system": "Windows 10",
+  "soglia_per_pixel": 24,
+  "scale": {
+    "1.0": {
+      "totale_prima_pct": 4.483,
+      "elementi": {
+        "titolo": {
+          "prima_pct": 13.21,
+          "dopo_pct": 12.15,
+          "migliori": {
+            "peso": 300,
+            "dimensione_x": 0.97,
+            "letter_spacing_px": -0.3,
+            "spostamento_px": -4.0
+          },
+          "peso_qss_originale": 600
+        },
+        "primario": {
+          "prima_pct": 11.29,
+          "dopo_pct": 8.1,
+          "migliori": {
+            "peso": 350,
+            "dimensione_x": 0.97,
+            "letter_spacing_px": 0.0,
+            "spostamento_px": 0.0
+          },
+          "peso_qss_originale": 500
+        },
+        "avvia": {
+          "prima_pct": 2.74,
+          "dopo_pct": 1.49,
+          "migliori": {
+            "peso": 550,
+            "dimensione_x": 0.99,
+            "letter_spacing_px": 0.0,
+            "spostamento_px": 0.0
+          },
+          "peso_qss_originale": 600
+        }
+      },
+      "totale_dopo_pct": 3.956,
+      "barra_pct": 0.704
+    },
+    "1.25": {
+      "totale_prima_pct": 4.345,
+      "elementi": {
+        "titolo": {
+          "prima_pct": 12.69,
+          "dopo_pct": 11.83,
+          "migliori": {
+            "peso": 300,
+            "dimensione_x": 1.01,
+            "letter_spacing_px": -0.4,
+            "spostamento_px": 0.5
+          },
+          "peso_qss_originale": 600
+        },
+        "primario": {
+          "prima_pct": 10.63,
+          "dopo_pct": 9.1,
+          "migliori": {
+            "peso": 400,
+            "dimensione_x": 1.01,
+            "letter_spacing_px": 0.0,
+            "spostamento_px": 0.0
+          },
+          "peso_qss_originale": 500
+        },
+        "avvia": {
+          "prima_pct": 3.42,
+          "dopo_pct": 2.67,
+          "migliori": {
+            "peso": 500,
+            "dimensione_x": 1.02,
+            "letter_spacing_px": -0.1,
+            "spostamento_px": 0.0
+          },
+          "peso_qss_originale": 600
+        }
+      },
+      "totale_dopo_pct": 4.0,
+      "barra_pct": 0.703
+    },
+    "1.5": {
+      "totale_prima_pct": 4.206,
+      "elementi": {
+        "titolo": {
+          "prima_pct": 11.97,
+          "dopo_pct": 10.94,
+          "migliori": {
+            "peso": 300,
+            "dimensione_x": 0.99,
+            "letter_spacing_px": 0.2,
+            "spostamento_px": 3.0
+          },
+          "peso_qss_originale": 600
+        },
+        "primario": {
+          "prima_pct": 10.32,
+          "dopo_pct": 7.65,
+          "migliori": {
+            "peso": 450,
+            "dimensione_x": 0.99,
+            "letter_spacing_px": 0.0,
+            "spostamento_px": 0.0
+          },
+          "peso_qss_originale": 500
+        },
+        "avvia": {
+          "prima_pct": 2.83,
+          "dopo_pct": 2.38,
+          "migliori": {
+            "peso": 500,
+            "dimensione_x": 1.01,
+            "letter_spacing_px": 0.0,
+            "spostamento_px": 0.0
+          },
+          "peso_qss_originale": 600
+        }
+      },
+      "totale_dopo_pct": 3.754,
+      "barra_pct": 0.638
+    }
+  }
+}

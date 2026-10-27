@@ -1,0 +1,371 @@
+{
+  "system": "Windows 10",
+  "runs": [
+    {
+      "n": 1,
+      "durata_s": 1.95,
+      "tappe": [
+        {
+          "stage": "processo",
+          "t": 0.0
+        },
+        {
+          "stage": "server",
+          "t": 0.022
+        },
+        {
+          "stage": "finestra_creata",
+          "t": 0.022
+        },
+        {
+          "stage": "gui_avviata",
+          "t": 0.347
+        },
+        {
+          "stage": "loaded",
+          "t": 0.629
+        },
+        {
+          "stage": "evaluate_js",
+          "t": 0.63,
+          "risultato": 2
+        },
+        {
+          "stage": "fine",
+          "t": 1.001
+        }
+      ],
+      "esito": "OK"
+    },
+    {
+      "n": 2,
+      "durata_s": 2.75,
+      "tappe": [
+        {
+          "stage": "processo",
+          "t": 0.0
+        },
+        {
+          "stage": "server",
+          "t": 0.022
+        },
+        {
+          "stage": "finestra_creata",
+          "t": 0.022
+        },
+        {
+          "stage": "gui_avviata",
+          "t": 0.357
+        },
+        {
+          "stage": "loaded",
+          "t": 0.639
+        },
+        {
+          "stage": "evaluate_js",
+          "t": 0.64,
+          "risultato": 2
+        },
+        {
+          "stage": "fine",
+          "t": 1.782
+        }
+      ],
+      "esito": "OK"
+    },
+    {
+      "n": 3,
+      "durata_s": 1.97,
+      "tappe": [
+        {
+          "stage": "processo",
+          "t": 0.0
+        },
+        {
+          "stage": "server",
+          "t": 0.022
+        },
+        {
+          "stage": "finestra_creata",
+          "t": 0.022
+        },
+        {
+          "stage": "gui_avviata",
+          "t": 0.35
+        },
+        {
+          "stage": "loaded",
+          "t": 0.628
+        },
+        {
+          "stage": "evaluate_js",
+          "t": 0.629,
+          "risultato": 2
+        },
+        {
+          "stage": "fine",
+          "t": 1.04
+        }
+      ],
+      "esito": "OK"
+    },
+    {
+      "n": 4,
+      "durata_s": 1.96,
+      "tappe": [
+        {
+          "stage": "processo",
+          "t": 0.0
+        },
+        {
+          "stage": "server",
+          "t": 0.023
+        },
+        {
+          "stage": "finestra_creata",
+          "t": 0.023
+        },
+        {
+          "stage": "gui_avviata",
+          "t": 0.347
+        },
+        {
+          "stage": "loaded",
+          "t": 0.621
+        },
+        {
+          "stage": "evaluate_js",
+          "t": 0.622,
+          "risultato": 2
+        },
+        {
+          "stage": "fine",
+          "t": 1.031
+        }
+      ],
+      "esito": "OK"
+    },
+    {
+      "n": 5,
+      "durata_s": 1.96,
+      "tappe": [
+        {
+          "stage": "processo",
+          "t": 0.0
+        },
+        {
+          "stage": "server",
+          "t": 0.022
+        },
+        {
+          "stage": "finestra_creata",
+          "t": 0.022
+        },
+        {
+          "stage": "gui_avviata",
+          "t": 0.349
+        },
+        {
+          "stage": "loaded",
+          "t": 0.626
+        },
+        {
+          "stage": "evaluate_js",
+          "t": 0.627,
+          "risultato": 2
+        },
+        {
+          "stage": "fine",
+          "t": 1.005
+        }
+      ],
+      "esito": "OK"
+    },
+    {
+      "n": 6,
+      "durata_s": 1.92,
+      "tappe": [
+        {
+          "stage": "processo",
+          "t": 0.0
+        },
+        {
+          "stage": "server",
+          "t": 0.022
+        },
+        {
+          "stage": "finestra_creata",
+          "t": 0.022
+        },
+        {
+          "stage": "gui_avviata",
+          "t": 0.346
+        },
+        {
+          "stage": "loaded",
+          "t": 0.621
+        },
+        {
+          "stage": "evaluate_js",
+          "t": 0.622,
+          "risultato": 2
+        },
+        {
+          "stage": "fine",
+          "t": 1.012
+        }
+      ],
+      "esito": "OK"
+    },
+    {
+      "n": 7,
+      "durata_s": 1.93,
+      "tappe": [
+        {
+          "stage": "processo",
+          "t": 0.0
+        },
+        {
+          "stage": "server",
+          "t": 0.022
+        },
+        {
+          "stage": "finestra_creata",
+          "t": 0.022
+        },
+        {
+          "stage": "gui_avviata",
+          "t": 0.347
+        },
+        {
+          "stage": "loaded",
+          "t": 0.622
+        },
+        {
+          "stage": "evaluate_js",
+          "t": 0.622,
+          "risultato": 2
+        },
+        {
+          "stage": "fine",
+          "t": 1.003
+        }
+      ],
+      "esito": "OK"
+    },
+    {
+      "n": 8,
+      "durata_s": 1.94,
+      "tappe": [
+        {
+          "stage": "processo",
+          "t": 0.0
+        },
+        {
+          "stage": "server",
+          "t": 0.022
+        },
+        {
+          "stage": "finestra_creata",
+          "t": 0.022
+        },
+        {
+          "stage": "gui_avviata",
+          "t": 0.349
+        },
+        {
+          "stage": "loaded",
+          "t": 0.637
+        },
+        {
+          "stage": "evaluate_js",
+          "t": 0.638,
+          "risultato": 2
+        },
+        {
+          "stage": "fine",
+          "t": 1.022
+        }
+      ],
+      "esito": "OK"
+    },
+    {
+      "n": 9,
+      "durata_s": 2.01,
+      "tappe": [
+        {
+          "stage": "processo",
+          "t": 0.0
+        },
+        {
+          "stage": "server",
+          "t": 0.022
+        },
+        {
+          "stage": "finestra_creata",
+          "t": 0.022
+        },
+        {
+          "stage": "gui_avviata",
+          "t": 0.359
+        },
+        {
+          "stage": "loaded",
+          "t": 0.646
+        },
+        {
+          "stage": "evaluate_js",
+          "t": 0.647,
+          "risultato": 2
+        },
+        {
+          "stage": "fine",
+          "t": 1.025
+        }
+      ],
+      "esito": "OK"
+    },
+    {
+      "n": 10,
+      "durata_s": 1.92,
+      "tappe": [
+        {
+          "stage": "processo",
+          "t": 0.0
+        },
+        {
+          "stage": "server",
+          "t": 0.022
+        },
+        {
+          "stage": "finestra_creata",
+          "t": 0.022
+        },
+        {
+          "stage": "gui_avviata",
+          "t": 0.343
+        },
+        {
+          "stage": "loaded",
+          "t": 0.618
+        },
+        {
+          "stage": "evaluate_js",
+          "t": 0.619,
+          "risultato": 2
+        },
+        {
+          "stage": "fine",
+          "t": 1.002
+        }
+      ],
+      "esito": "OK"
+    }
+  ],
+  "riassunto": {
+    "ok": 10,
+    "bloccati": 0,
+    "durata_max_ok_s": 2.75,
+    "durata_media_ok_s": 2.03
+  }
+}
