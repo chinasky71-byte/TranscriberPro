@@ -247,6 +247,37 @@ deliverable, not a translation error. It is also cheap to fix, because the forms
 are a fixed list (`e'`, `si'`, `perche'`, `cosi'`, `piu'`, `puo'`, `gia'`,
 `qualita'`, ...) and the exceptions are known (`un po'`, `d'accordo`).
 
+## Round 6 — the accent fix, measured, and the glossary isolated
+
+Two follow-ups from round 5.
+
+**Accents.** `core/italian_accents.py` maps the apostrophe forms to accented
+letters from a closed list (`e'`->`è`, `perche'`->`perché`, `cosi'`->`così`,
+`piu'`->`più`, `citta'`->`città`, ...), preserving capitals, and leaves the
+legitimate apostrophes alone (`un po'`, `d'accordo`, `va'`, `sta'`, `fa'`,
+`vent'anni`). It runs **at the exit of the pipeline**, not in the cleaner: the
+cleaner runs before translation, on the source language, which is why the first
+attempt changed nothing (a useful reminder that the step order matters more than
+the code).
+
+| Italian round, clip A | WER | CER | chrF |
+|---|---|---|---|
+| without the fix | 64.21% | 45.66% | 74.14 |
+| with the fix | **59.76%** | **42.91%** | **75.34** |
+
+Four and a half WER points and nearly three CER points were a rendering defect,
+not translation quality. Apostrophes in the output: 36 -> 13 (the reference has
+12), accented characters 13 -> 37 (the reference has 42).
+
+**Glossary, isolated.** `bench/glossary_check.py` translates the reference lines
+that contain cast names twice — with an empty glossary and with the 38-term one —
+so only the translator is measured. Result: **7 of 7 names kept in both cases,
+0 of 7 lines changed**. NLLB does not mangle proper names, so the glossary has
+nothing to correct on this show. The glossary remains useful for terms a
+translator *does* invent a rendering for (invented names, machines, places), and
+it cannot repair a name the ASR misheard: that needs a post-ASR correction, which
+is a different feature.
+
 ## Next
 
 - Round 3: clip C (40:00–50:00), the tie-break with the same two variants.

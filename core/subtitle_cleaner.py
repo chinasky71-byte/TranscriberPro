@@ -668,13 +668,16 @@ class SubtitleCleaner:
             return ""
     
     @staticmethod
-    def clean_file(input_path: Path, output_path: Path = None) -> Path:
+    def clean_file(input_path: Path, output_path: Path = None,
+                   italian_accents: bool = False) -> Path:
         """
         Metodo statico per pulire un file SRT
         
         Args:
             input_path: Path file input
             output_path: Path file output (None = sovrascrivi)
+            italian_accents: converte `e'`/`perche'`/`cosi'` nelle forme accentate
+                (solo per l'italiano; lista chiusa, v. core/italian_accents.py)
         
         Returns:
             Path al file pulito
@@ -689,12 +692,27 @@ class SubtitleCleaner:
         
         # Pipeline completa con algoritmo conservativo
         cleaner.clean().fix_overlaps().renumber()
+        if italian_accents:
+            cleaner.fix_italian_accents()
         
         if cleaner.save(output_path):
             return output_path
         else:
             return input_path
     
+    def fix_italian_accents(self) -> 'SubtitleCleaner':
+        """Apostrofi -> accenti nell'italiano prodotto dai traduttori (lista chiusa)."""
+        from core.italian_accents import fix_text
+        changed = 0
+        for subtitle in getattr(self, 'subtitles', []) or []:
+            fixed = fix_text(subtitle.text)
+            if fixed != subtitle.text:
+                changed += 1
+                subtitle.text = fixed
+        if changed:
+            logger.info(f"  Accenti italiani corretti su {changed} righe")
+        return self
+
     def get_overlap_stats(self) -> Dict[str, any]:
         """Ottieni statistiche overlap fix"""
         return self.overlap_stats.copy()

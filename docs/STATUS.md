@@ -83,7 +83,9 @@ ROCm 7.0, torch 2.10.0+rocm7.0 + ctranslate2 4.8.4 ROCm (verify with
    `docs/benchmarks/2026-10-26-asr-reference-clip-a.md`. The end-to-end round
    (Italian reference) confirmed it and taught the important lesson: WER against
    a human translation rewards under-transcription, so the engine with the best
-   WER there was the one that lost 4% of the dialogue.
+   WER there was the one that lost 4% of the dialogue. The Italian output now goes
+   through an accent fix (`core/italian_accents.py`, `e'` -> `è`), worth 4.5 WER
+   points on the end-to-end round.
 
 ## Known issues and limits
 

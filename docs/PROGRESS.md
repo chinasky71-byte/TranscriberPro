@@ -47,6 +47,43 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
   illustrate the failure modes, they do not quantify them — the tables do that.
 - Next step: none for the ASR question; the evaluation is closed and documented.
 
+## 2026-10-26 — Italian accents fixed at the exit, glossary measured in isolation
+
+- Branch / commits: `feat/italian-accents`.
+- Goal: two follow-ups from round 5 — repair the apostrophe-for-accent defect and
+  find out whether the glossary does anything at all.
+- Done: `core/italian_accents.py` (closed-list mapping with capitalisation
+  handling and a `KEEP` set for the legitimate apostrophes: `un po'`,
+  `d'accordo`, `va'`, `sta'`, `fa'`, `da'`, `di'`, `be'`, `vent'anni`), applied in
+  `ProcessingPipeline._finalize_output` when the final language is Italian — the
+  cleaner runs **before** translation, so the first attempt had modified the
+  English text and changed nothing; `SubtitleCleaner.clean_file(...,
+  italian_accents)` stays available as a helper; i18n string
+  `pl_italian_accents_fixed`; `bench/glossary_check.py` (translates the reference
+  lines containing glossary terms with and without the glossary, reports kept
+  terms and changed lines).
+- Tests and results: `linux_tests/test_italian_accents.py` (8: mapping,
+  capitals, legitimate apostrophes untouched, SRT timestamps preserved, count,
+  cleaner flag, the pipeline applies it only for Italian at the exit) and
+  `linux_tests/test_bench_glossary_check.py` (5). Measured on clip A, Italian
+  target: WER **64.21% -> 59.76%**, CER 45.66% -> 42.91%, chrF 74.14 -> 75.34;
+  apostrophes 36 -> 13 (reference 12), accented characters 13 -> 37 (reference
+  42). Glossary in isolation: 7/7 names kept with and without the glossary, 0/7
+  lines changed.
+- Decisions / ADRs: no ADR. The accent fix is a post-processing step on the
+  delivered text, not a translator change: it is deterministic, it cannot alter
+  meaning, and it applies only when the final language is Italian. The glossary
+  stays in the product (it is what fixes invented terms), but the measurements
+  say it is not the lever for this show: NLLB already keeps proper names, and the
+  names it would need to fix are lost at the ASR stage, before translation.
+- Known issues: the accent list is closed on purpose, so a word outside it stays
+  as the translator wrote it; `e'` as an imperative (`va' e'`?) would be wrong,
+  but the forms in `KEEP` cover the real cases seen in the corpus. The post-ASR
+  name correction is still unimplemented and unmeasured.
+- Next step: if names matter, a post-ASR correction pass against the glossary
+  (edit distance with a tight threshold) measured on the English reference, where
+  the errors actually are; otherwise this closes the Italian side.
+
 ## 2026-10-26 — Glossary without TMDB, and the accent defect in the Italian output
 
 - Branch / commits: `feat/glossary-offline`.
