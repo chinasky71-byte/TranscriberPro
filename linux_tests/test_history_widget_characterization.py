@@ -139,7 +139,8 @@ def test_pulsanti_azione(qt, hfile, monkeypatch):
     assert [b.isEnabled() for b in rows['Épisode è.mkv']] == [True, True]
     for b in rows['Heat (1995).mkv']:
         b.click()
-    assert opened == ['/v/Heat.it.srt', str(Path('/v/Heat (1995).mkv').parent)]
+    # Qt restituisce sempre '/': si confrontano i percorsi normalizzati (su Windows str(Path) usa '\\')
+    assert [Path(o) for o in opened] == [Path('/v/Heat.it.srt'), Path('/v/Heat (1995).mkv').parent]
 
 
 def test_ordine_di_inserimento_e_conteggio_nel_titolo_scheda(qt, hfile):
