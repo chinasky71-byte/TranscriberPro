@@ -62,11 +62,33 @@ in both cases).
    subtitle condenses and rephrases. These numbers rank configurations that share
    the same handicap; they do not grade the engine.
 
+## Round 1b — Whisper with a looser VAD
+
+The VAD thresholds were hardcoded (`threshold=0.5`, `min_silence_duration_ms=500`);
+they are now config keys (`whisper_vad_threshold`, `whisper_vad_min_silence_ms`,
+**defaults unchanged**) so the hypothesis could be tested instead of assumed.
+
+| Variant | WER | WER (matched) | chrF | Coverage | Missing words | Extra words | ASR time |
+|---|---|---|---|---|---|---|---|
+| qwen3 | 9.17% | 8.78% | 94.36 | **96.2%** | 3 | 9 | 41.5 s |
+| whisper 0.50 (default) | 10.72% | 9.16% | 92.83 | 90.4% | 21 | 1 | 26.2 s |
+| whisper 0.35 | 10.44% | 10.19% | 93.34 | 92.3% | 12 | 2 | 26.2 s |
+| **whisper 0.25** | **8.89%** | **7.98%** | **94.43** | 94.2% | 7 | 2 | **25.9 s** |
+
+- The coverage gap was indeed the VAD: 21 missing words at 0.5, 7 at 0.25.
+- At 0.25 Whisper matches qwen3 on accuracy (0.3 points of WER, below the
+  resolution of one clip) and keeps its **37% faster ASR phase**.
+- qwen3 still covers more: 96.2% vs 94.2% and 3 missing words vs 7.
+- No hallucination penalty from the looser threshold on this clip (2 extra
+  words), but that is exactly what clips B and C must confirm: a threshold this
+  low is one step from transcribing music and audience noise.
+- Production defaults stay at 0.5/500: the knob exists, the change is not
+  decided.
+
 ## Next
 
-- Round 2: same two variants on clip B (20:00–30:00, the densest stretch), then
-  clip C (40:00–50:00).
-- Before that, one Whisper variant with a lower VAD threshold on clip A: it
-  costs three minutes and tells whether point 3 is real.
+- Round 2: qwen3 and **whisper at 0.25** on clip B (20:00–30:00, the densest
+  stretch), then clip C (40:00–50:00). The looser VAD is the one thing that must
+  be validated on material that is not a quiet dramatic scene.
 - The Italian reference (index 22) is reserved for the end-to-end round: it
   measures translation as well, and it must be read as a relative ranking.

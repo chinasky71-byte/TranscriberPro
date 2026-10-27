@@ -87,6 +87,23 @@ class FasterWhisperEngine(TranscriptionEngine):
         )
         self.batch_size_for_transcription = None  # None finché BatchedInferencePipeline non disponibile
 
+    def _vad_parameters(self) -> dict:
+        """Soglie del VAD lette dalla config (default: 0.5 / 500 ms, il comportamento storico).
+
+        Una soglia alta taglia il parlato debole: su una reference umana la copertura
+        scende e le battute spariscono — v. docs/benchmarks/2026-10-26-asr-reference-clip-a.md.
+        """
+        try:
+            threshold = float(self.config.get('whisper_vad_threshold', 0.5))
+        except (TypeError, ValueError):
+            threshold = 0.5
+        try:
+            min_silence = int(self.config.get('whisper_vad_min_silence_ms', 500))
+        except (TypeError, ValueError):
+            min_silence = 500
+        return dict(min_silence_duration_ms=max(0, min_silence),
+                    threshold=min(1.0, max(0.0, threshold)))
+
     # ------------------------------------------------------------------
     # Capability detection
     # ------------------------------------------------------------------
@@ -347,7 +364,7 @@ class FasterWhisperEngine(TranscriptionEngine):
                 dummy_audio,
                 language="en",
                 vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=500)
+                vad_parameters=self._vad_parameters(),
             )
 
             _ = list(segments)
@@ -467,7 +484,7 @@ class FasterWhisperEngine(TranscriptionEngine):
                 segments, info = self.faster_whisper_model.transcribe(
                     str(chunk_path),
                     vad_filter=True,
-                    vad_parameters=dict(min_silence_duration_ms=500, threshold=0.5),
+                    vad_parameters=self._vad_parameters(),
                     **transcribe_kwargs
                 )
 
@@ -628,7 +645,7 @@ class FasterWhisperEngine(TranscriptionEngine):
                         segments, info = self.faster_whisper_model.transcribe(
                             str(chunk_path),
                             vad_filter=True,
-                            vad_parameters=dict(min_silence_duration_ms=500, threshold=0.5),
+                            vad_parameters=self._vad_parameters(),
                             **transcribe_kwargs
                         )
                     else:
