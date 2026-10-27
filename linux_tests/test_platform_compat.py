@@ -5,6 +5,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
@@ -144,6 +146,7 @@ def test_notify_linux_usa_notify_send_se_c_e_e_non_fa_nulla_altrimenti(monkeypat
     assert len(calls) == 1                                  # senza notify-send: nessun errore e nessun processo
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='solo POSIX: su Windows os.kill(pid, 0) termina il processo')
 def test_process_alive_posix():
     import os
     assert pc.process_alive(os.getpid(), windows=False) is True
