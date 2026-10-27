@@ -74,3 +74,17 @@ Se P2b mostra che la calibrazione porta il testo sotto il 2%, il criterio 2 si p
 **Conseguenza per il criterio pixel:** il testo sembra calibrabile molto piu' di quanto dicesse la prima lettura; l'obiettivo dell'1% sul totale e' vicino a 100% (1,1% su Linux) e a ~1,6% a scale frazionarie. **Il criterio proposto (forme <= 1%, testo con SSIM) resta, ma si irrigidira' se la rimisura su Windows conferma questi numeri.** Va rifatta la misura sul PC Windows con il calibratore v2 (P2b-bis): finche' non c'e', nessuna conclusione definitiva sul testo.
 
 Lezione di metodo: ogni strumento di misura va prima verificato riproducendo un valore gia' noto (qui: il totale «prima» di P1e). Si aggiunge a `tpweb/proto/README.md`.
+
+## P2b-bis: misura SSIM sulle immagini Windows (sessione cloud)
+
+SSIM (grigio, finestra 7) fra Qt e Chromium, dalle immagini pubblicate dalla sessione locale (prima/dopo la calibrazione del testo):
+
+| Scala | Schermata | Titolo | Pulsante primario | Avvia | Barra |
+|---|---|---|---|---|---|
+| 100% prima → dopo | 0,953 → **0,986** | 0,75 → 0,94 | 0,86 → 0,96 | 0,98 → 0,98 | 1,000 |
+| 125% prima → dopo | 0,953 → **0,988** | 0,77 → 0,95 | 0,85 → 0,96 | 0,96 → 0,99 | 0,997 |
+| 150% prima → dopo | 0,956 → **0,973** | 0,79 → 0,89 | 0,87 → 0,91 | 0,97 → 0,96 | 1,000 |
+
+Lettura: forme (barra) praticamente identiche; il testo non scende sotto ~2% di pixel diversi perché Qt (DirectWrite) e Chromium (Skia) rasterizzano diversamente i glifi, non per un parametro CSS. Con SSIM la schermata supera 0,985 a 100% e 125%, non a 150%.
+
+**Criterio rivisto proposto (da approvare):** forme ≤1% di pixel diversi; testo valutato per posizione (bbox ±1 px), larghezza (±1 px) e SSIM per elemento ≥0,95 (≥0,90 a 150%); schermata SSIM ≥0,985 a 100% e 125%, ≥0,97 a 150%. Da indagare: arrotondamento ai pixel interi a scale frazionarie (barra 125% 2,19%).
