@@ -27,6 +27,32 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-26 — Reference evaluation round 4 (end-to-end, Italian)
+
+- Branch / commits: `feat/asr-reference-ita`.
+- Goal: the last open question of the evaluation — does translation change the
+  ranking between the two engines?
+- Done: clip A run end to end (target `ita`, NLLB) with both engines and scored
+  against the Italian professional track; document updated with the round, the
+  warning about the metric and the example comparison.
+- Tests and results: no new code paths (harness already covered); suite green.
+  qwen3 + NLLB: WER 63.18%, chrF 74.11, coverage 100%, words 658 (1.13x the
+  reference), drift 0.22 s, ASR 41.4 s. whisper-0.25 + NLLB: WER 60.45%,
+  chrF 73.11, coverage 96.0%, words 590 (1.01x), drift 0.49 s, ASR 25.9 s.
+- Decisions / ADRs: **no change**, qwen3 stays the default. The round also
+  produced the most important methodological finding of the whole evaluation:
+  WER against a human *translation* rewards under-transcription, because the
+  reference condensed the speech while the pipeline translates everything. The
+  engine with the best WER here (whisper, 1.01x words) is the one that lost 4%
+  of the dialogue (96% coverage against 100%). Ranking on this round would have
+  rewarded silence; chrF, coverage and drift all point to qwen3.
+- Known issues: one clip only for the end-to-end round, and the Italian reference
+  is a translation of the English subtitle, not of the audio: part of the gap
+  (60%+ WER, chrF ~74) is the distance between two translators, not an error.
+- Next step: none for this question. The evaluation set exists and is documented;
+  reopening it means better clip selection (by spoken words, not cue count) and,
+  if wanted, a hand-corrected transcript instead of a subtitle track.
+
 ## 2026-10-26 — Reference evaluation round 3 (clip C): qwen3 stays the default
 
 - Branch / commits: `feat/asr-reference-round3`.
