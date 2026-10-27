@@ -1,0 +1,28 @@
+{
+  "lines": 5000,
+  "msgs": 5103,
+  "batches": 70,
+  "domLines": 5000,
+  "latency_ms": {
+    "avg": 114.75684702127745,
+    "p50": 114.89009857177734,
+    "p95": 117.89059638977051,
+    "max": 126.36637687683105
+  },
+  "longtasks": {
+    "count": 0,
+    "max_ms": 0,
+    "total_ms": 0
+  },
+  "js_heap_mb": 3.45721435546875,
+  "browser": "156.0.4314.42",
+  "wall_s": 12.08,
+  "python_cpu_s": 0.12,
+  "params": {
+    "burst": 5000,
+    "rate": 10.0,
+    "seconds": 10.0,
+    "channel": "msedge"
+  },
+  "system": "Windows 10 / Python 3.11.9"
+}

@@ -1,0 +1,8 @@
+{
+  "system": "Windows 10",
+  "idle_s": 30,
+  "totale_mb": 226.6,
+  "per_processo_mb": {
+    "python.exe": 226.6
+  }
+}
