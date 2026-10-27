@@ -12,5 +12,7 @@ pywebview PyQt6==6.10.2` (e `PyQt6-WebEngine==6.10.0` solo per il guscio di rise
 | `p1_pywebview.py` | **Windows**, con una persona | percorsi dei file trascinati, dialoghi nativi, banco SSE nella finestra vera, memoria |
 | `p1_qtwebengine.py` | **Windows**, solo se pywebview non basta | guscio di riserva con Qt WebEngine |
 | `p1_qt_baseline_mem.py` | **Windows** | memoria della GUI Qt attuale a riposo (termine di confronto) |
+| `p2_calibrate_text.py` | **Windows** | quanto del testo e' calibrabile in CSS contro le schermate Qt gia' catturate |
+| `p2_pywebview_startup.py` | **Windows** | avvio ripetuto di pywebview, con tappe e limite di tempo (indaga il blocco) |
 
 Risultati in `results/` (JSON + immagini). Le misure di `*_linux.json` sono quelle del cloud e servono solo a provare gli strumenti.
