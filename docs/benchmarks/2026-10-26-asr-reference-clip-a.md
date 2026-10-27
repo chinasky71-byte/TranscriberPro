@@ -168,6 +168,43 @@ accuracy, and the VAD knobs added in round 1b stay useful in that case.
   engines punctuate and segment differently, and the translator consumes that
   text.
 
+## Round 4 — end-to-end against the Italian reference (clip A)
+
+Same clip, target `ita`, translation NLLB, compared with the **Italian**
+professional track (`ref-ita.srt`, 584 words after normalisation). This measures
+ASR + translation together, which is what the product actually delivers.
+
+| Variant | WER | chrF | Coverage | Words (ratio to reference) | Extra words | Drift median | ASR | Wall |
+|---|---|---|---|---|---|---|---|---|
+| qwen3 + NLLB | 63.18% | **74.11** | **100.0%** | 658 (**1.13x**) | 12 | **0.22 s** | 41.4 s | 124.5 s |
+| whisper-0.25 + NLLB | **60.45%** | 73.11 | 96.0% | 590 (**1.01x**) | 2 | 0.49 s | **25.9 s** | 99.6 s |
+
+**The WER of this round must not be used to rank the engines**, and the reason is
+visible in the table: the reference is a *human translation of a human subtitle*,
+which already condensed the speech, while the pipeline translates everything it
+hears. Whisper's better WER comes with the word ratio closest to the reference
+(1.01x) **because it under-transcribes** — 96% coverage against 100%: 4% of the
+speech is missing, and missing speech cannot be counted as a wording error.
+
+Read with the metrics that do not reward silence:
+
+- **chrF**: qwen3 74.11 vs whisper 73.11 — qwen3 slightly ahead;
+- **coverage**: 100% vs 96% — qwen3 ahead;
+- **alignment**: median drift 0.22 s vs 0.49 s, p90 2.18 s vs 3.30 s — qwen3 ahead.
+
+So the end-to-end round does not reorder the engines: it confirms they are close
+on the wording of the translation and that qwen3 delivers more of the dialogue,
+slightly better placed. The earlier verdict stands — **qwen3 stays the default**.
+
+Example of what the two produce (same window):
+
+    ref  : e, quando torno a casa, devo rilassarmi, per così dire.
+    qwen3: Beh, devo rilassarmi, per così dire.
+    whis : Devo rilassarmi, per così dire.
+
+Both drop the opening clause because the clip starts mid-sentence there; neither
+invents content.
+
 ## Next
 
 - Round 3: clip C (40:00–50:00), the tie-break with the same two variants.

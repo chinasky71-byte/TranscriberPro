@@ -80,8 +80,10 @@ ROCm 7.0, torch 2.10.0+rocm7.0 + ctranslate2 4.8.4 ROCm (verify with
    the lower error (6.95% vs 8.60%) and better alignment; Whisper's ASR phase is
    40% faster but its coverage stays below 93% on two clips of three. **qwen3
    stays the default**; Whisper remains a per-install choice —
-   `docs/benchmarks/2026-10-26-asr-reference-clip-a.md`. The end-to-end (Italian
-   reference) round is still open.
+   `docs/benchmarks/2026-10-26-asr-reference-clip-a.md`. The end-to-end round
+   (Italian reference) confirmed it and taught the important lesson: WER against
+   a human translation rewards under-transcription, so the engine with the best
+   WER there was the one that lost 4% of the dialogue.
 
 ## Known issues and limits
 
