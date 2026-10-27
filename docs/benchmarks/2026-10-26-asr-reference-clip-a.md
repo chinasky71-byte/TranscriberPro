@@ -205,6 +205,48 @@ Example of what the two produce (same window):
 Both drop the opening clause because the clip starts mid-sentence there; neither
 invents content.
 
+## Round 5 — glossary with the cast names, and the accent defect
+
+The glossary mechanism (`~/.transcriberpro/glossary/`, fixed rendering per
+proper name, applied at translation time) needed a TMDB id that does not exist on
+this machine (no API key), so it was extended: `glossary_id` in the config, file
+`manual_<slug>.json`, and a key derived from the show folder
+(`<...>/Monster (2022)/Season 4/x.mkv` -> `monster-2022`). A 38-entry glossary
+with the cast names was created for the episode and the run confirms it is
+loaded: `Active glossary: 38 terms`.
+
+Effect on clip A, Italian target, qwen3 only:
+
+| Run | WER | chrF | Coverage |
+|---|---|---|---|
+| without glossary | 63.18% | 74.11 | 100% |
+| with glossary | 63.36% | 74.20 | 100% |
+
+**No measurable difference**, and the reason is not the glossary's fault:
+
+1. the names appear six times in ten minutes (Lizzie x4, Maggie, Borden);
+2. NLLB already keeps proper names as they are, so a name->same-name entry has
+   nothing to fix;
+3. the visible name errors of this episode (Borden -> Bond / Potter / Burton)
+   happen at the **ASR** stage: the translator never sees "Borden". A glossary
+   cannot repair a mishearing.
+
+**The real defect this round found is elsewhere: accents.** The Italian output
+uses apostrophes where Italian needs accented letters.
+
+```
+reference : Sì, madre.          perché   così   è
+qwen3     : Sì, mamma.          perche'  cosi'  e'
+```
+
+Counted on clip A: the output has **49 apostrophe-instead-of-accent forms and 13
+accented characters**, the reference has 12 and 42. Folding accents and final
+apostrophes on both sides drops the measured WER from **64.21% to 59.97%**: about
+four points of the end-to-end score is a systematic rendering defect of the
+deliverable, not a translation error. It is also cheap to fix, because the forms
+are a fixed list (`e'`, `si'`, `perche'`, `cosi'`, `piu'`, `puo'`, `gia'`,
+`qualita'`, ...) and the exceptions are known (`un po'`, `d'accordo`).
+
 ## Next
 
 - Round 3: clip C (40:00–50:00), the tie-break with the same two variants.

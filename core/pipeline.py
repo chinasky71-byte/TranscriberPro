@@ -804,9 +804,12 @@ class ProcessingPipeline:
             # Glossario a resa fissa per la serie (core/glossary.py):
             # {} se non esiste, nessun cambio di comportamento.
             translation_glossary = {}
-            if self.metadata and self.metadata.get('id'):
-                from core.glossary import load_glossary
-                translation_glossary = load_glossary(self.metadata['id'])
+            from core.glossary import load_glossary, show_key_from_path
+            glossary_key = ((self.metadata or {}).get('id')
+                            or self.config.get('glossary_id')
+                            or show_key_from_path(self.video_path))
+            if glossary_key:
+                translation_glossary = load_glossary(glossary_key)
                 if translation_glossary:
                     self._log(tr('pl_active_glossary_terms').format(n=len(translation_glossary)))
 

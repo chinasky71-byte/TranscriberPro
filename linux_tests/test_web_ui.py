@@ -409,3 +409,27 @@ def test_vad_knobs_in_settings(tmp_path):
         too_long = client.post("/settings", data=dict(form, whisper_vad_min_silence_ms="5000"))
         assert "between 0 and 2000" in too_long.text
         assert config.get("whisper_vad_threshold") == 0.35      # niente salvato sull'errore
+
+
+def test_glossary_path_tmdb_e_manuale(tmp_path, monkeypatch):
+    from core import glossary as gl
+    monkeypatch.setattr(gl, "_glossary_dir", lambda: tmp_path)
+    assert gl.glossary_path(1234).name == "tmdb_1234.json"
+    assert gl.glossary_path("monster-2022").name == "manual_monster-2022.json"
+    assert gl.glossary_path("Monster (2022)").name == "manual_monster-2022.json"
+    (tmp_path / "manual_monster-2022.json").write_text('{"Borden": "Borden"}', encoding='utf-8')
+    assert gl.load_glossary("monster-2022") == {"Borden": "Borden"}
+    assert gl.load_glossary("") == {}
+    assert gl.load_glossary(None) == {}
+
+
+def test_show_key_dalla_cartella(tmp_path):
+    from core.glossary import show_key_from_path
+    season = tmp_path / "Monster (2022)" / "Season 4"
+    season.mkdir(parents=True)
+    video = season / "episodio.mkv"
+    video.write_text("x", encoding="utf-8")
+    assert show_key_from_path(video) == "monster-2022"
+    other = tmp_path / "Film.mkv"
+    other.write_text("x", encoding="utf-8")
+    assert show_key_from_path(other) == tmp_path.name.lower().replace("_", "-")

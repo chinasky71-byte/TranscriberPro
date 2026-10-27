@@ -47,6 +47,40 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
   illustrate the failure modes, they do not quantify them — the tables do that.
 - Next step: none for the ASR question; the evaluation is closed and documented.
 
+## 2026-10-26 — Glossary without TMDB, and the accent defect in the Italian output
+
+- Branch / commits: `feat/glossary-offline`.
+- Goal: use the per-show glossary on a machine without a TMDB key, load the cast
+  names of the evaluated episode and measure whether they change anything.
+- Done: `core/glossary.py` accepts a non-numeric key (`manual_<slug>.json` next
+  to the existing `tmdb_<id>.json`) and gains `show_key_from_path()`, which
+  derives the show key from the media folder (`Monster (2022)/Season 4/x.mkv` ->
+  `monster-2022`); `utils/config.py` gets `glossary_id` for an explicit key; the
+  pipeline uses TMDB id, else `glossary_id`, else the folder key;
+  `bench/asr_ab.py` now writes the full pipeline log next to each run
+  (`log-<tag>.txt`), which is how the glossary activation was verified; a
+  38-entry cast glossary was written to `~/.transcriberpro/glossary/`
+  (outside the repository, 0600).
+- Tests and results: two tests for the manifest (`glossary_path` numeric vs
+  manual, `load_glossary` with a missing key, `show_key_from_path` with and
+  without a `Season N` level); suite green. Run: clip A, Italian target, qwen3
+  only, glossary active (log: `Active glossary: 38 terms`): WER 63.36% vs 63.18%
+  without, chrF 74.20 vs 74.11 — **no effect**, explained in the document (names
+  appear six times, NLLB already keeps them, and the real name errors happen at
+  the ASR stage where the translator never sees "Borden").
+- Decisions / ADRs: no ADR. The glossary stays a translation-time tool; making it
+  repair ASR mishearings would need a post-ASR correction pass, which is a
+  different feature and must be measured against the same reference.
+- Known issues: **found a systematic defect in the Italian output**: apostrophes
+  where Italian needs accented letters (`e'`, `si'`, `perche'`, `cosi'`). Counted
+  on clip A: 49 such forms and 13 accented characters in the output against 12 and
+  42 in the reference; folding accents drops the measured WER from 64.21% to
+  59.97%, so about four points of the end-to-end score is this defect, not
+  translation. Fix is cheap (fixed word list plus known exceptions like `un po'`)
+  but not implemented yet.
+- Next step: implement the accent normalisation in the subtitle post-processing
+  and re-measure the Italian round; then decide on a post-ASR name correction.
+
 ## 2026-10-26 — Reference evaluation round 4 (end-to-end, Italian)
 
 - Branch / commits: `feat/asr-reference-ita`.

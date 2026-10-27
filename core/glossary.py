@@ -29,8 +29,22 @@ def _glossary_dir() -> Path:
     return Path.home() / '.transcriberpro' / 'glossary'
 
 
+def _slug(value: str) -> str:
+    """Nome file stabile: minuscole, alfanumerici e trattini."""
+    import re
+    return re.sub(r"[^a-z0-9]+", "-", str(value).strip().lower()).strip("-") or "sconosciuto"
+
+
 def glossary_path(tmdb_id: Union[int, str]) -> Path:
-    return _glossary_dir() / f"tmdb_{tmdb_id}.json"
+    """`tmdb_<id>.json` per un id TMDB, `manual_<slug>.json` per una chiave locale.
+
+    La seconda forma serve a usare il glossario senza chiave TMDB: si sceglie a
+    mano un nome (la serie), es. `glossary_id: "monster-2022"`.
+    """
+    key = str(tmdb_id).strip()
+    if key.isdigit():
+        return _glossary_dir() / f"tmdb_{key}.json"
+    return _glossary_dir() / f"manual_{_slug(key)}.json"
 
 
 def load_glossary(tmdb_id: Optional[Union[int, str]]) -> Dict[str, str]:
@@ -99,3 +113,20 @@ def merge_glossary(tmdb_id: Union[int, str], new_terms: Dict[str, str]) -> Path:
                          encoding='utf-8')
     tmp_path.replace(path)
     return path
+
+
+def show_key_from_path(video_path) -> str:
+    """Chiave di glossario dedotta dalla cartella della serie.
+
+    `<...>/Monster (2022)/Season 4/x.mkv` -> `monster-2022`: così il glossario
+    funziona anche senza TMDB, mettendo i file in ~/.transcriberpro/glossary/.
+    """
+    from pathlib import Path as _Path
+    try:
+        folder = _Path(str(video_path)).resolve().parent
+    except Exception:
+        return ""
+    import re
+    if re.match(r"(?i)^(season|stagione)\s*\d+$", folder.name) and folder.parent.name:
+        folder = folder.parent
+    return _slug(folder.name) if folder.name else ""
