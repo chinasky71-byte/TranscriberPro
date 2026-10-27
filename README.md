@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.34.39-orange)
+![Version](https://img.shields.io/badge/Version-1.34.40-orange)
 
 AI-powered desktop application for automatic subtitle transcription, translation, and bitmap OCR from video files.
 
@@ -467,6 +467,7 @@ This project is licensed under the MIT License.
 ### v1.24.0 - v1.30.2
 Six weeks of work on translation/transcription quality for non-English sources, condensed here; full detail,
 measurement methodology and decision rules for every claim below are in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.40** — OCR review, transcription profile and translation-model dialog logic moved out of the GUI (`core/jobs/`, `core/services/`, no Qt): same GUI and behaviour (verified with real PGS/VobSub files: identical SRT and muxed MKV), groundwork for a future web UI. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.39** — Subtitle Sync and Glossary logic moved out of the GUI (`core/jobs/`, `core/services/`, no Qt): same GUI and behaviour (verified with real files: identical synced SRT and queue results), groundwork for a future web UI. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.38** — Settings, history and metadata logic moved out of the GUI (`core/services/`, no Qt): same GUI and behaviour, groundwork for a future web UI. Details in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.37** — Queue refactoring: one engine (`core/jobs/`) shared by the GUI and the headless queue; same GUI, headless queue now logs like the GUI, writes the history and the step preview. Details in [CHANGELOG.md](CHANGELOG.md).
@@ -1256,6 +1257,7 @@ Questo progetto è distribuito con licenza MIT.
 ### v1.24.0 - v1.30.2
 Sei settimane di lavoro sulla qualità di traduzione/trascrizione per le sorgenti non inglesi, condensate qui; il
 dettaglio completo, la metodologia di misura e le regole di decisione per ogni affermazione sono in [CHANGELOG.md](CHANGELOG.md).
+- **v1.34.40** — Logica di revisione OCR, profilo di trascrizione e dialogo del modello di traduzione spostata fuori dalla GUI (`core/jobs/`, `core/services/`, senza Qt): GUI e comportamento invariati (verificato con file PGS/VobSub reali: SRT e MKV con mux identici), base per una futura web UI. Dettagli in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.39** — Logica di Sync SRT e Glossario spostata fuori dalla GUI (`core/jobs/`, `core/services/`, senza Qt): GUI e comportamento invariati (verificato con file reali: SRT sincronizzato e risultati della coda identici), base per una futura web UI. Dettagli in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.38** — Logica di impostazioni, cronologia e metadati spostata fuori dalla GUI (`core/services/`, senza Qt): GUI e comportamento invariati, base per una futura web UI. Dettagli in [CHANGELOG.md](CHANGELOG.md).
 - **v1.34.37** — Refactoring della coda: un solo motore (`core/jobs/`) per la GUI e per la coda headless; GUI invariata, la coda headless ora logga come la GUI, scrive la cronologia e l'anteprima dei passi. Dettagli in [CHANGELOG.md](CHANGELOG.md).
