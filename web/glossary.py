@@ -184,12 +184,19 @@ def parse_cast_text(text: str) -> Dict[str, str]:
     """
     terms: Dict[str, str] = {}
     skip = {"himself", "herself", "narrator", "unknown", "self", "voice",
-            "guest", "recurring", "main", "cast", "characters"}
+            "guest", "recurring", "main", "cast", "characters",
+            # intestazioni tipiche di una lista italiana
+            "conduzione", "giudici", "ospiti", "regia", "presentatori",
+            "presentatore", "presentatrice", "conduttori", "conduttore",
+            "cast and characters", "main cast", "recurring cast"}
 
     particles = {"da", "de", "di", "del", "della", "dei", "van", "von", "la", "le", "los", "the", "mc"}
 
     def add(name: str) -> None:
-        cleaned = re.sub(r"\s*\([^)]*\)", "", name).strip(" -\t\"'")
+        # via i bullet degli elenchi copiati da una pagina (•, ·, *, –, —) e i
+        # numeri di lista; poi le note fra parentesi
+        name = re.sub(r"^\s*(?:[•·*\-–—]+|\d+[.)])\s*", "", name)
+        cleaned = re.sub(r"\s*\([^)]*\)", "", name).strip(" -\t\"'·•")
         cleaned = re.sub(r"^(as|e|and)\s+", "", cleaned, flags=re.IGNORECASE).strip()
         if len(cleaned) < 3 or cleaned.lower() in skip or len(cleaned.split()) > 6:
             return
