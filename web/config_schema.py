@@ -63,8 +63,6 @@ SAFE_CONFIG_KEYS = {
 
 SECRET_CONFIG_KEYS = {
     "huggingface_token",
-    "claude_api_key",
-    "openai_api_key",
     "opensubtitles_password",
     "opensubtitles_api_key",
     "opensubtitles_xmlrpc_password",

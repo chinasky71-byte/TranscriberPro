@@ -199,12 +199,9 @@ class Config:
         'translation_max_untranslated_pct': 80.0,
         'target_language': 'ita',     # ISO 639-2 lingua target sottotitoli
 
-        # Claude API (cloud-based translation)
-        'claude_api_key': '',  # API key Anthropic per Claude
-
-        # OpenAI API (cloud-based translation)
-        'openai_api_key': '',
-        'openai_model': 'gpt-4o-mini',
+        # Le chiavi dei motori cloud (claude_api_key, openai_api_key,
+        # openai_model) sono state rimosse con ADR-009 insieme ai motori.
+        # Restano innocue in un config.json esistente: non le legge nessuno.
         
         # Traduttore LLM locale: quale modello occupa lo slot. Le chiavi
         # 'aya_model_path' e 'aya_model_download_status' sono state rimosse il
@@ -559,10 +556,11 @@ class Config:
         """
         Verifica se sono presenti le credenziali per la REST API di
         opensubtitles.com a prescindere dall'implementazione preferita per
-        l'upload. Usato dal motore di traduzione "OpenSubtitles AI"
-        (core/translator.py, OpenSubtitlesAITranslator), che è sempre REST e
-        richiede sempre l'api_key — a differenza di is_opensubtitles_configured(),
-        che per l'upload la richiede solo se 'xmlrpc' non è selezionato.
+        l'upload: la REST richiede sempre l'api_key, mentre
+        is_opensubtitles_configured() la richiede solo se 'xmlrpc' non è
+        selezionato. (Il motore di traduzione "OpenSubtitles AI" che usava
+        questo metodo è stato rimosso con ADR-009; la GUI congelata lo legge
+        ancora.)
         """
         return bool(
             self.get('opensubtitles_username', '')
@@ -641,10 +639,6 @@ class Config:
             safe_settings['opensubtitles_api_key'] = '***HIDDEN***'
         if 'huggingface_token' in safe_settings and safe_settings['huggingface_token']:
             safe_settings['huggingface_token'] = '***HIDDEN***'
-        if 'claude_api_key' in safe_settings and safe_settings['claude_api_key']:
-            safe_settings['claude_api_key'] = '***HIDDEN***'
-        if 'openai_api_key' in safe_settings and safe_settings['openai_api_key']:
-            safe_settings['openai_api_key'] = '***HIDDEN***'
         if 'library_scanner_api_key' in safe_settings and safe_settings['library_scanner_api_key']:
             safe_settings['library_scanner_api_key'] = '***HIDDEN***'
         
@@ -748,8 +742,7 @@ class Config:
     # METODI HELPER per Translation Models (MODIFICATO v4.2)
     # ========================================================================
     
-    VALID_TRANSLATION_MODELS = ['nllb', 'nllb_finetuned', 'llm', 'claude',
-                                'opensubtitles', 'openai']
+    VALID_TRANSLATION_MODELS = ['nllb', 'nllb_finetuned', 'llm']
 
     # Valori salvati da versioni precedenti e il loro equivalente attuale. La
     # migrazione avviene alla lettura: chi aveva scelto Aya si ritrova il ramo
@@ -871,93 +864,6 @@ class Config:
         
         return (True, "")
     
-    # ========================================================================
-    # METODI HELPER per Claude API (v5.0)
-    # ========================================================================
-    
-    def get_claude_api_key(self) -> str:
-        """Ottieni API key Claude/Anthropic"""
-        return self.get('claude_api_key', '')
-    
-    def set_claude_api_key(self, api_key: str):
-        """
-        Imposta API key Claude/Anthropic
-        
-        Args:
-            api_key: API key da Anthropic Console
-        """
-        api_key = api_key.strip()
-        
-        is_valid, error = self.validate_claude_api_key(api_key)
-        if not is_valid and api_key:
-            logger.warning(f"⚠️ API key Claude potrebbe non essere valida: {error}")
-        
-        self.set('claude_api_key', api_key)
-        logger.info(f"✅ API key Claude {'configurata' if api_key else 'rimossa'}")
-    
-    def is_claude_api_key_set(self) -> bool:
-        """Verifica se API key Claude è configurata"""
-        api_key = self.get_claude_api_key()
-        return bool(api_key and api_key.strip() and len(api_key) > 20)
-    
-    def validate_claude_api_key(self, api_key: str) -> tuple:
-        """
-        Valida formato API key Claude/Anthropic
-        
-        Returns:
-            (is_valid: bool, error_message: str)
-        """
-        if not api_key or not api_key.strip():
-            return (False, "API key vuota")
-        
-        api_key = api_key.strip()
-        
-        # Le API key Anthropic iniziano con 'sk-ant-'
-        if not api_key.startswith('sk-ant-'):
-            return (False, "API key deve iniziare con 'sk-ant-'")
-        
-        # Lunghezza minima ragionevole
-        if len(api_key) < 40:
-            return (False, "API key troppo corta (minimo 40 caratteri)")
-        
-        # Verifica caratteri validi (alfanumerici + underscore + trattino)
-        if not all(c.isalnum() or c in '_-' for c in api_key):
-            return (False, "API key contiene caratteri non validi")
-        
-        return (True, "")
-    
-    # ========================================================================
-    # METODI HELPER per OpenAI API
-    # ========================================================================
-
-    def get_openai_api_key(self) -> str:
-        return self.get('openai_api_key', '')
-
-    def set_openai_api_key(self, api_key: str):
-        api_key = api_key.strip()
-        self.set('openai_api_key', api_key)
-
-    def is_openai_api_key_set(self) -> bool:
-        key = self.get_openai_api_key()
-        return bool(key and len(key) > 20)
-
-    def validate_openai_api_key(self, api_key: str) -> tuple:
-        """Le chiavi OpenAI iniziano con 'sk-' (legacy) o 'sk-proj-' (project keys)."""
-        if not api_key or not api_key.strip():
-            return (False, "API key vuota")
-        key = api_key.strip()
-        if not (key.startswith('sk-') or key.startswith('sk-proj-')):
-            return (False, "API key deve iniziare con 'sk-' o 'sk-proj-'")
-        if len(key) < 30:
-            return (False, "API key troppo corta")
-        return (True, "")
-
-    def get_openai_model(self) -> str:
-        return self.get('openai_model', 'gpt-4o-mini')
-
-    def set_openai_model(self, model: str):
-        self.set('openai_model', model)
-
     # `get_translation_model` e `set_translation_model` erano definiti DUE
     # volte in questo file, e in Python vince l'ultima definizione: la coppia
     # che stava qui — senza validazione — sovrascriveva silenziosamente quella

@@ -68,8 +68,6 @@ SETTINGS_GROUPS = (
     )),
     ("Secrets", (
         ("secret", "huggingface_token", "Hugging Face token"),
-        ("secret", "claude_api_key", "Claude API key"),
-        ("secret", "openai_api_key", "OpenAI API key"),
         ("secret", "opensubtitles_password", "OpenSubtitles password"),
         ("secret", "opensubtitles_api_key", "OpenSubtitles API key"),
         ("secret", "opensubtitles_xmlrpc_password", "OpenSubtitles XML-RPC password"),

@@ -789,14 +789,11 @@ class ProcessingPipeline:
 
             self._ev('phase', name='translate')
             self._log(tr('pl_6_translation').format(src=source_language_639_1, dst=target_language_639_1))
-            # ✅ FIX TRANSLATOR SELECTION: Usa il metodo corretto per leggere il modello dalla config
-            # Leggi il modello di traduzione selezionato dall'utente
             selected_model = self.config.get_translation_model()
             self._log(tr('pl_selected_translation_model').format(model=selected_model.upper()))
 
-            # Solo i motori che caricano su GPU (non API) aspettano che il driver restituisca la VRAM degli ASR.
-            if selected_model not in ('claude', 'openai', 'opensubtitles'):
-                self._wait_vram_settled()
+            # Il motore carica su GPU: si aspetta che il driver restituisca la VRAM degli ASR.
+            self._wait_vram_settled()
 
             # Contesto dell'opera per il traduttore: titolo e trama sono
             # già in self.metadata e aiutano soprattutto sui nomi propri e

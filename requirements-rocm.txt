@@ -42,8 +42,6 @@ accelerate==1.12.0
 peft==0.20.0
 bitsandbytes==0.50.2   # ruote Linux con backend ROCm
 huggingface_hub==0.36.2
-anthropic==0.84.0
-openai==2.26.0
 
 # --- GUI ---
 # GUI (PyQt6) e' opzionale: requirements-gui.txt — l'interfaccia e' la WebUI (ADR-002)
