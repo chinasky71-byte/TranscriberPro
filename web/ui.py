@@ -16,8 +16,8 @@ from core.jobs.models import TERMINAL
 from utils.job_overrides import clean
 from web import browse
 from web.auth import SESSION_COOKIE, request_token, token_matches
-from web.config_schema import (ENUM_CONFIG_KEYS, MEDIA_ROOTS_KEY, START_DIR_KEY,
-                               ConfigError, apply_values, read_values)
+from web.config_schema import (ENUM_CONFIG_KEYS, MEDIA_ROOTS_KEY, NUMBER_CONFIG_KEYS,
+                               START_DIR_KEY, ConfigError, apply_values, read_values)
 from web.ocr_review import OcrSessionError, OcrSessionNotFound
 from web.glossary import GlossaryError, GlossaryNotFound
 from web.paths import compute_roots, validate_media_path
@@ -42,6 +42,8 @@ SETTINGS_GROUPS = (
     ("Transcription", (
         ("enum", "transcription_engine_mode", "ASR engine mode"),
         ("text", "whisper_model", "Whisper model"),
+        ("number", "whisper_vad_threshold", "Whisper VAD threshold (0-1)"),
+        ("number", "whisper_vad_min_silence_ms", "Whisper VAD minimum silence (ms)"),
         ("enum", "punctuation_restore_mode", "Punctuation restoration"),
         ("bool", "enable_diarization", "Diarization"),
         ("bool", "dialogue_style_enabled", "Netflix dialogue style"),
@@ -155,6 +157,7 @@ def _settings_context(request: Request, error: str = "", message: str = "",
         "status": _status_context(request),
         "groups": SETTINGS_GROUPS,
         "choices": ENUM_CONFIG_KEYS,
+        "numbers": NUMBER_CONFIG_KEYS,
         "values": values,
         "draft": _draft_view(draft or {}),
         "error": error,

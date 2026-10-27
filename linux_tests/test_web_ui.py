@@ -84,6 +84,8 @@ SETTINGS_FORM = {
     "target_language": "ita",
     "use_gpu": "true",
     "model_cache_cleanup_enabled": "true",
+    "whisper_vad_threshold": "0.5",
+    "whisper_vad_min_silence_ms": "500",
 }
 
 
@@ -386,3 +388,24 @@ def test_status_page_mostra_i_dettagli_di_elaborazione(tmp_path):
         assert "Engine" in page and "auto" in page            # valore della fixture
         assert "Target language" in page and "ita" in page
         assert "Work dir" in page and "Models dir" in page
+
+
+def test_vad_knobs_in_settings(tmp_path):
+    app, _ = _make(tmp_path)
+    config = app.state.config
+    form = dict(SETTINGS_FORM, allowed_media_roots=str(tmp_path),
+                whisper_vad_threshold="0.35", whisper_vad_min_silence_ms="300")
+    with TestClient(app) as client:
+        page = client.get("/settings").text
+        assert 'name="whisper_vad_threshold"' in page and 'step="0.05"' in page
+        assert 'name="whisper_vad_min_silence_ms"' in page and 'max="2000"' in page
+        saved = client.post("/settings", data=form)
+        assert "Settings saved" in saved.text
+        assert config.get("whisper_vad_threshold") == 0.35
+        assert config.get("whisper_vad_min_silence_ms") == 300
+        for bad in ("1.5", "-0.1"):
+            rejected = client.post("/settings", data=dict(form, whisper_vad_threshold=bad))
+            assert "between 0 and 1" in rejected.text
+        too_long = client.post("/settings", data=dict(form, whisper_vad_min_silence_ms="5000"))
+        assert "between 0 and 2000" in too_long.text
+        assert config.get("whisper_vad_threshold") == 0.35      # niente salvato sull'errore

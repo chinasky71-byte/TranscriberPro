@@ -26,6 +26,15 @@ from utils.config import Config
 MEDIA_ROOTS_KEY = "allowed_media_roots"
 START_DIR_KEY = "picker_start_dir"
 PERCENT_KEY = "translation_max_untranslated_pct"
+VAD_THRESHOLD_KEY = "whisper_vad_threshold"
+VAD_MIN_SILENCE_KEY = "whisper_vad_min_silence_ms"
+
+# chiavi numeriche con i loro limiti (min, max, passo per l'input)
+NUMBER_CONFIG_KEYS = {
+    PERCENT_KEY: (0.0, 100.0, "0.1"),
+    VAD_THRESHOLD_KEY: (0.0, 1.0, "0.05"),
+    VAD_MIN_SILENCE_KEY: (0, 2000, "50"),
+}
 TARGET_LANGUAGE_KEY = "target_language"
 
 SAFE_CONFIG_KEYS = {
@@ -34,6 +43,8 @@ SAFE_CONFIG_KEYS = {
     START_DIR_KEY,
     "transcription_engine_mode",
     "whisper_model",
+    VAD_THRESHOLD_KEY,
+    VAD_MIN_SILENCE_KEY,
     "use_gpu",
     TARGET_LANGUAGE_KEY,
     "translation_model",
@@ -199,8 +210,11 @@ def normalise_values(values: Mapping[str, Any]) -> Dict[str, Any]:
             cleaned[key] = as_media_roots(value)
         elif key == START_DIR_KEY:
             cleaned[key] = as_start_dir(value)
-        elif key == PERCENT_KEY:
-            cleaned[key] = as_number(key, value, 0.0, 100.0)
+        elif key in NUMBER_CONFIG_KEYS:
+            if value is None or (isinstance(value, str) and not value.strip()):
+                continue                      # campo vuoto = lascia il valore attuale
+            low, high, _step = NUMBER_CONFIG_KEYS[key]
+            cleaned[key] = as_number(key, value, low, high)
         elif key == TARGET_LANGUAGE_KEY:
             text = value.strip() if isinstance(value, str) else ""
             if not _TARGET_LANGUAGE_RE.match(text):

@@ -145,6 +145,11 @@ class Config:
         
         # Whisper model configuration
         'whisper_model': 'large-v3',
+        # VAD di faster-whisper (default = comportamento storico). Alzare la soglia
+        # taglia il parlato debole: misurato su una reference umana, v.
+        # docs/benchmarks/2026-10-26-asr-reference-clip-a.md
+        'whisper_vad_threshold': 0.5,
+        'whisper_vad_min_silence_ms': 500,
         # Modello Whisper specializzato per lingua (ISO 639-1). In modalita' 'auto' queste
         # lingue vanno su faster-whisper con il modello indicato invece che su Qwen3/Canary.
         # Valore: id HF ("utente/repo"), id HF con sottocartella ("utente/repo/sottocartella")

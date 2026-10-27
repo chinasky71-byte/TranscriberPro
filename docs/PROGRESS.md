@@ -27,6 +27,35 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-26 — Whisper VAD as a config knob (round 1b of the reference eval)
+
+- Branch / commits: `feat/whisper-vad-knobs`.
+- Goal: make the VAD thresholds configurable so the Whisper coverage gap could be
+  tested instead of assumed, without changing the shipped defaults.
+- Done: `utils/config.py` gains `whisper_vad_threshold` (0.5) and
+  `whisper_vad_min_silence_ms` (500); `core/engines/faster_whisper_engine.py`
+  reads them through one `_vad_parameters()` helper used at all three call sites
+  (a guard test fails if a hardcoded threshold comes back);
+  `web/config_schema.py` gets a `NUMBER_CONFIG_KEYS` table with per-key bounds
+  (0-1, 0-2000 ms) and treats an empty value as "leave it alone";
+  `/settings` renders both keys with their own min/max/step.
+- Tests and results: `linux_tests/test_whisper_vad.py` (5: defaults unchanged,
+  values from config, out-of-range clamped, broken values ignored, no hardcoded
+  threshold left) and a settings round-trip test with the validation errors.
+  Suite: full green. Measurement on clip A: Whisper with `threshold=0.25` moves
+  from **10.72% to 8.89% WER** and its coverage from 90.4% to 94.2% (missing
+  words 21 -> 7), keeping its 37% faster ASR phase (25.9 s vs 41.5 s for qwen3).
+  At 0.25 Whisper matches qwen3 on accuracy within the resolution of one clip;
+  qwen3 still covers slightly more (96.2%, 3 missing words).
+- Decisions / ADRs: no ADR and **no default change**: the knobs exist with the
+  historical values, because a threshold of 0.25 on material with music and
+  audience noise is exactly the setting that could start transcribing noise.
+  Clips B and C must confirm it before anything moves.
+- Known issues: one clip cannot separate 8.89% from 9.17%; the hypothesis that a
+  low VAD threshold is safe on this material is still untested.
+- Next step: round 2 on clip B with qwen3 and whisper-0.25, then round 3 on
+  clip C.
+
 ## 2026-10-26 — Reference evaluation: harness and round 1 (clip A)
 
 - Branch / commits: `feat/asr-reference-eval`.
