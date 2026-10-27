@@ -47,6 +47,32 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
   illustrate the failure modes, they do not quantify them — the tables do that.
 - Next step: none for the ASR question; the evaluation is closed and documented.
 
+## 2026-10-26 — First measurement on Italian source (no translation)
+
+- Branch / commits: `docs/italian-source-measurement`.
+- Goal: measure the configuration used for Italian material — Italian audio,
+  Italian target, no translation — which the English-source rounds could not
+  isolate.
+- Done: `docs/benchmarks/2026-10-26-italian-source-mobland.md` with method,
+  result, sampled examples and observations; the clip (30:00-40:00, the densest
+  window of a 59-minute episode with an Italian dub and four SubRip tracks) and
+  its reference were cut with the harness and are kept outside the repository.
+- Tests and results: one run, qwen3 only: **WER 11.79%, CER 6.31%, chrF 94.21,
+  coverage 100%** (0 words missing, 0 extra), 1 197 output words against 1 196 of
+  reference (1.00x), drift median 0.72 s / p90 3.13 s, ASR 75.6 s for 10 minutes.
+  The same pipeline on an English source translated to Italian scored 59.76% WER:
+  the gap is the translation step.
+- Decisions / ADRs: no ADR. This is the reference figure for the Italian workflow:
+  ~12% WER against a professional subtitle with complete coverage, no hallucination
+  and no lost lines.
+- Known issues: the alignment is measurably worse than on English (0.72 s median
+  against 0.16-0.29 s) — one clip, so not yet a conclusion; a name error appears
+  ("Richie" -> "Ricci") because no glossary was active, and this episode has no
+  TMDB key, so the cast must be pasted manually; window spill inflates the WER of
+  short reference cues.
+- Next step: a second window on the same episode, then the same clip with the
+  cast pasted in the WebUI to measure the ASR context on Italian names.
+
 ## 2026-10-26 — WebUI: build the fixed-rendering glossary from the browser
 
 - Branch / commits: `feat/glossary-ui` (same branch as the TMDB seeding).
