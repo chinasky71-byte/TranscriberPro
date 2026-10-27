@@ -1,0 +1,187 @@
+{
+  "system": "Windows 10 / Python 3.11.9",
+  "pywebview": "?",
+  "python_drops": [
+    [
+      {
+        "name": "video1.mp4",
+        "fullPath": "C:\\Users\\<utente>\\Desktop\\P1_prova_file\\locale\\video1.mp4",
+        "size": 200
+      }
+    ],
+    [
+      {
+        "name": "Città è caffè perché.mkv",
+        "fullPath": "C:\\Users\\<utente>\\Desktop\\P1_prova_file\\locale\\Città è caffè perché.mkv",
+        "size": 200
+      }
+    ],
+    [
+      {
+        "name": "multi b.mkv",
+        "fullPath": "C:\\Users\\<utente>\\Desktop\\P1_prova_file\\locale\\multi b.mkv",
+        "size": 200
+      },
+      {
+        "name": "multi c.mkv",
+        "fullPath": "C:\\Users\\<utente>\\Desktop\\P1_prova_file\\locale\\multi c.mkv",
+        "size": 200
+      },
+      {
+        "name": "multi a.mkv",
+        "fullPath": "C:\\Users\\<utente>\\Desktop\\P1_prova_file\\locale\\multi a.mkv",
+        "size": 200
+      }
+    ],
+    [
+      {
+        "name": "su rete UNC.mkv",
+        "fullPath": "\\\\localhost\\C$\\Users\\<utente>\\Desktop\\P1_prova_file\\unc\\su rete UNC.mkv",
+        "size": 200
+      }
+    ],
+    [
+      {
+        "name": "7.Women.and.a.Murder.2021.ITALIAN.720p.WEBRip.800MB.[H265]-GalaxyR.mkv",
+        "fullPath": "W:\\7 Women and a Murder (2021)\\7.Women.and.a.Murder.2021.ITALIAN.720p.WEBRip.800MB.[H265]-GalaxyR.mkv",
+        "size": 497128309
+      }
+    ]
+  ],
+  "passi_umani": true,
+  "drop_handler": "registrato",
+  "memoria_a_riposo": {
+    "totale_mb": 438.9,
+    "per_processo_mb": {
+      "python.exe": 119.7,
+      "msedgewebview2.exe": 319.2
+    },
+    "n_processi": 7
+  },
+  "banco_sse": {
+    "lines": 5000,
+    "msgs": 5104,
+    "batches": 72,
+    "domLines": 5000,
+    "latency_ms": {
+      "avg": 113.66266044890246,
+      "p50": 114.17651176452637,
+      "p95": 116.53947830200195,
+      "max": 125.09870529174805
+    },
+    "longtasks": {
+      "count": 0,
+      "max_ms": 0,
+      "total_ms": 0
+    }
+  },
+  "memoria_dopo_banco": {
+    "totale_mb": 549.0,
+    "per_processo_mb": {
+      "python.exe": 168.0,
+      "msedgewebview2.exe": 381.0
+    },
+    "n_processi": 7
+  },
+  "pagina": {
+    "drops": [
+      {
+        "n": 1,
+        "files": [
+          {
+            "name": "video1.mp4",
+            "size": 200,
+            "path": null,
+            "fullPath": null
+          }
+        ],
+        "types": [
+          "Files"
+        ]
+      },
+      {
+        "n": 1,
+        "files": [
+          {
+            "name": "Città è caffè perché.mkv",
+            "size": 200,
+            "path": null,
+            "fullPath": null
+          }
+        ],
+        "types": [
+          "Files"
+        ]
+      },
+      {
+        "n": 3,
+        "files": [
+          {
+            "name": "multi b.mkv",
+            "size": 200,
+            "path": null,
+            "fullPath": null
+          },
+          {
+            "name": "multi c.mkv",
+            "size": 200,
+            "path": null,
+            "fullPath": null
+          },
+          {
+            "name": "multi a.mkv",
+            "size": 200,
+            "path": null,
+            "fullPath": null
+          }
+        ],
+        "types": [
+          "Files"
+        ]
+      },
+      {
+        "n": 1,
+        "files": [
+          {
+            "name": "su rete UNC.mkv",
+            "size": 200,
+            "path": null,
+            "fullPath": null
+          }
+        ],
+        "types": [
+          "Files"
+        ]
+      },
+      {
+        "n": 1,
+        "files": [
+          {
+            "name": "7.Women.and.a.Murder.2021.ITALIAN.720p.WEBRip.800MB.[H265]-GalaxyR.mkv",
+            "size": 497128309,
+            "path": null,
+            "fullPath": null
+          }
+        ],
+        "types": [
+          "Files"
+        ]
+      }
+    ],
+    "dialogs": [
+      {
+        "kind": "pick_files",
+        "result": [
+          "C:\\Users\\<utente>\\Desktop\\P1_prova_file\\locale\\multi a.mkv",
+          "C:\\Users\\<utente>\\Desktop\\P1_prova_file\\locale\\multi b.mkv"
+        ]
+      },
+      {
+        "kind": "pick_folder",
+        "result": [
+          "C:\\Users\\<utente>\\Desktop\\P1_prova_file\\locale"
+        ]
+      }
+    ]
+  }
+}
