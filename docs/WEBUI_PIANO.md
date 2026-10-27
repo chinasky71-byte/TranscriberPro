@@ -88,3 +88,5 @@ SSIM (grigio, finestra 7) fra Qt e Chromium, dalle immagini pubblicate dalla ses
 Lettura: forme (barra) praticamente identiche; il testo non scende sotto ~2% di pixel diversi perché Qt (DirectWrite) e Chromium (Skia) rasterizzano diversamente i glifi, non per un parametro CSS. Con SSIM la schermata supera 0,985 a 100% e 125%, non a 150%.
 
 **Criterio rivisto proposto (da approvare):** forme ≤1% di pixel diversi; testo valutato per posizione (bbox ±1 px), larghezza (±1 px) e SSIM per elemento ≥0,95 (≥0,90 a 150%); schermata SSIM ≥0,985 a 100% e 125%, ≥0,97 a 150%. Da indagare: arrotondamento ai pixel interi a scale frazionarie (barra 125% 2,19%).
+
+**Decisione del proprietario:** criterio rivisto del testo approvato; pywebview confermato come guscio (fallback Qt WebEngine). Requisito di prodotto: watchdog all'avvio (timeout + nuovo tentativo).
