@@ -990,15 +990,9 @@ class ProcessingPipeline:
                     # prima di caricare l'engine nuovo.
                     # ================================================
                     self._ev('phase', name='extract')
-                    self._log(tr('pl_2_5_pre_loading_whisper'))
                     _planned_lang = self.LANG_MAP_639_2_TO_639_1.get(source_language_639_2)
                     if _planned_lang == 'und':
                         _planned_lang = None
-                    if self._transcriber is None:
-                        # language_hint: carica subito il Whisper specializzato
-                        # della lingua (whisper_model_by_language), niente reload
-                        self._transcriber = Transcriber(log_callback=self._log_callback,
-                                                        language_hint=_planned_lang)
 
                     # ── Pianificazione engine (sistema multi-engine) ──
                     # Decide QUI (prima di Demucs) l'engine per la lingua
@@ -1008,6 +1002,23 @@ class ProcessingPipeline:
                     # Canary max ~40s per input).
                     from core.engine_router import EngineRouter
                     _planned_engine, _plan_reason = EngineRouter.plan(_planned_lang, self.config)
+
+                    # Preload di Whisper: con l'engine pianificato diverso da
+                    # faster-whisper il modello caricato non verrebbe usato. Il
+                    # preload serve a inizializzare ctranslate2 a contesto CUDA
+                    # vergine (v. commento sopra) — con 'auto' lo si salta e
+                    # ctranslate2 resta non inizializzato finché non serve.
+                    _preload_mode = str(self.config.get('whisper_preload_mode', 'always')).lower()
+                    _need_preload = (_preload_mode != 'auto') or _planned_engine == 'faster-whisper'
+                    if _need_preload:
+                        self._log(tr('pl_2_5_pre_loading_whisper'))
+                        if self._transcriber is None:
+                            # language_hint: carica subito il Whisper specializzato
+                            # della lingua (whisper_model_by_language), niente reload
+                            self._transcriber = Transcriber(log_callback=self._log_callback,
+                                                            language_hint=_planned_lang)
+                    else:
+                        self._log(tr('pl_whisper_preload_skipped').format(engine=_planned_engine))
                     _ENGINE_LABELS = {
                         'canary': 'Canary-Qwen-2.5B',
                         'qwen3': 'Qwen3-ASR',

@@ -47,6 +47,37 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
   illustrate the failure modes, they do not quantify them — the tables do that.
 - Next step: none for the ASR question; the evaluation is closed and documented.
 
+## 2026-10-26 — Why Whisper is preloaded with qwen3, and why it stays
+
+- Branch / commits: `feat/whisper-preload-optional`.
+- Goal: answer "why load Whisper when the engine is qwen3?" with the code's own
+  reason and with a measurement, instead of removing it on instinct.
+- Done: documented the reason found in the code — `ctranslate2` initialises CUDA
+  lazily, and initialising it *after* PyTorch/Demucs has used the GPU ends in a
+  silent `std::abort`, so Whisper is loaded before Demucs to initialise it with a
+  virgin context (and doubles as a warm fallback); added the config key
+  `whisper_preload_mode` (`always`, the historical behaviour, or `auto`, which
+  loads it only when the planned engine is faster-whisper) and moved the engine
+  planning **before** the preload so the decision can be made; i18n string
+  `pl_whisper_preload_skipped`.
+- Tests and results: `test_i18n_texts.py` and the scan keep the new string
+  honest; suite green. Measured on the Italian clip with `auto`: the log confirms
+  `⏭️ Whisper preload skipped: engine planned is qwen3`, the job completes
+  normally (qwen3 never needs ctranslate2) and the wall time is 136.2 s against
+  134.4 s — the 2.1 s preload disappears into run-to-run variance.
+- Decisions / ADRs: **the default stays `always`**. The saving is 2.1 s and
+  ~1.5 GB of VRAM churn per episode, but the preload protects a real path: qwen3
+  raises `LanguageNotAlignable` for languages outside the aligner's set and the
+  router re-transcribes with faster-whisper *after* Demucs, which is exactly the
+  late-initialisation case the preload exists for. `auto` is available for
+  benchmarking or for installations that accept that risk.
+- Known issues: the failure that started this investigation — a broken
+  ctranslate2 killing a qwen3 job — is not solved by `auto`; it is solved earlier,
+  by the installer verification (ADR-007) and the runtime preflight, which refuse
+  the venv before a job starts.
+- Next step: none. If the fallback path is ever removed, `auto` becomes the right
+  default and the preload can go.
+
 ## 2026-10-26 — Italian source: cast glossary in the ASR context, and where it stops
 
 - Branch / commits: `feat/glossary-first-names`.

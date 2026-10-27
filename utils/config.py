@@ -153,6 +153,11 @@ class Config:
         # docs/benchmarks/2026-10-26-asr-reference-clip-a.md
         'whisper_vad_threshold': 0.5,
         'whisper_vad_min_silence_ms': 500,
+        # Preload di Whisper prima di Demucs: 'always' = comportamento storico
+        # (inizializza ctranslate2 a contesto CUDA vergine, evita un abort in
+        # caso di fallback tardivo); 'auto' = solo se l'engine pianificato E'
+        # faster-whisper (nessuno spreco con qwen3/canary).
+        'whisper_preload_mode': 'always',
         # Modello Whisper specializzato per lingua (ISO 639-1). In modalita' 'auto' queste
         # lingue vanno su faster-whisper con il modello indicato invece che su Qwen3/Canary.
         # Valore: id HF ("utente/repo"), id HF con sottocartella ("utente/repo/sottocartella")

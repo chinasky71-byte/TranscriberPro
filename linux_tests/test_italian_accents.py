@@ -92,3 +92,12 @@ def test_contesto_asr_dal_glossario():
     assert engine_obj._context() == ""
     engine_obj.config = Cfg({"asr_context": " Borden, Lizzie "})
     assert engine_obj._context() == "Borden, Lizzie"
+
+
+def test_preload_di_whisper_configurabile():
+    """`whisper_preload_mode=auto` salta il caricamento quando l'engine non e' whisper."""
+    text = (ROOT / "core/pipeline.py").read_text(encoding="utf-8")
+    assert "_preload_mode = str(self.config.get('whisper_preload_mode'" in text
+    assert "_need_preload = (_preload_mode != 'auto') or _planned_engine == 'faster-whisper'" in text
+    from utils.config import Config
+    assert Config.DEFAULTS.get("whisper_preload_mode") == "always"   # default invariato
