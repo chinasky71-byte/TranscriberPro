@@ -3,6 +3,28 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.37 — 2026-10-27 — Refactoring della coda: un solo motore per la GUI e per la coda headless (PR #34)
+
+- **La coda non e' piu' della GUI: vive in `core/jobs/`** (senza Qt e senza `gui`): `JobQueue` (lista, eccezioni per file, lock, prelievo atomico),
+  `FileRunner` (unica copia di: avvio di `core.pipeline_cli`, lettura dell'output, esito, kill dell'albero dei processi, pulizia di
+  `<video>.converting`), `QueueEngine` (ciclo, contatori, avanzamento, anteprima dei passi, cronologia, pulizia cache a fine coda),
+  `FileProgress`/`StepTracker` (spostati da `gui/`: i vecchi nomi sono alias dello stesso modulo) e `history_store`.
+- **La GUI non cambia:** `ProcessingWorker` e `QueueService` sono adattatori sul motore, con gli stessi 11 segnali, nello stesso ordine e nello stesso
+  thread; aspetto e comportamento identici (confermato dall'utente). Un file che solleva un'eccezione non ferma piu' la coda: il file fallisce, con il
+  motivo nel log. Le tre copie di "uccidi l'albero dei processi" sono diventate una.
+- **Coda headless (`python -m core.queue_runner`) allineata alla GUI:** log con etichetta `[INFO]`/`[WARNING]`/`[ERROR]` e stessi testi della GUI
+  (`<data>_queue.log` per l'intero flusso, `<data>_NNN.log` per il file N), voci in `history.json` per i file completati, anteprima dei passi in
+  `queue_status.json` (`current.steps`), pulizia delle cache dei modelli a fine coda (`--keep-caches` per evitarla), eccezioni per file.
+- **Prova del 27/10/2026 (Windows 11, RTX 3060, venv di produzione):** headless con la vera pipeline (coda di 2 clip con una rovinata, esiti e codici di
+  uscita come la produzione; log senza righe di librerie ne' eventi; cronologia solo per i completati; lock con codice 3; lock stantio riconosciuto; Ctrl+C
+  simulato: codice 130 in 0,3 s, nessun processo orfano ne' `.converting` ne' cartelle `tp_*`) e GUI (coda normale, Stop a meta' file senza orfani,
+  coda dinamica: rimozione, riordino, eccezioni, aggiunta, no doppioni; file sparito prima del suo turno; aspetto identico). I `.it.srt` non sono identici
+  byte per byte tra due giri della stessa clip (nemmeno tra due giri della produzione): audio e trascrizione non sono deterministici.
+  Non provati: il tasto Ctrl+C vero in un terminale e l'avviso di blocco con un'attivita' fuori coda.
+- **Test:** nuovi test di caratterizzazione identici sul vecchio e sul nuovo codice (`linux_tests/test_queue_*`, `test_core_jobs_*`); i test locali che
+  innestavano il finto su `ProcessingWorker._process_single_file` ora usano `QueueEngine._process_file_inner`. Su Windows due test del cloud
+  (`test_motore_senza_qt_ciclo_completo`, `test_motore_eccezione_in_un_file_non_ferma_la_coda`) confrontano percorsi con separatori di Linux.
+
 ## 1.34.36 — 2026-10-26 — Soglia IQ3_M abbassata a 7,3 GiB (misura su RTX 3060 con VRAM limitata a 7,3 GiB)
 
 - **`DEFAULT_GGUF_MIN_FREE_GIB['IQ3_M']` e `llm_translator_gguf_iq3_min_free_gb` da 7,5 a 7,3 GiB.** Con il desktop di Windows (~0,65 GiB) una scheda da 8 GB ha ~7,2-7,4 GiB liberi: con 7,5 finiva su NLLB fine-tuned anche se il GGUF ci sta. Il 7,5 era una stima (pesi 5,27 + KV 0,75 + buffer 0,8 + margine 0,4 = 7,2-7,5), ora e' una misura. Q4_K_M resta a 10,0; nessun'altra soglia toccata.
