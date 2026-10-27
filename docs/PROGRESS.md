@@ -27,6 +27,37 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-26 — Reference evaluation round 2 (clip B) and a metric fix
+
+- Branch / commits: `feat/asr-reference-round2`.
+- Goal: test qwen3 against whisper-0.25 on the densest stretch of the episode,
+  and fix what the first round got wrong.
+- Done: the harness now ignores **italic-only windows on both sides** (songs and
+  off-screen voices): transcribing the lyrics earns nothing, skipping them costs
+  nothing, and the ignored words/windows are reported
+  (`excluded_italic.windows`); clip B cut at 20:00 and its two references
+  extracted from the cut; both variants run on it; both clips re-scored under the
+  new rule for comparability.
+- Tests and results: new guard test for the italic rule (a variant that
+  transcribes a song neither gains nor loses). Suite: full green. Clip B results
+  (reference 749 words, 226 of them ignored as italic): qwen3 **WER 7.88%**,
+  matched 4.30%, chrF 94.04, coverage 93.6%, drift 0.16 s, ASR 46.6 s;
+  whisper-0.25 WER 8.41%, matched 7.65%, chrF 93.62, coverage 91.5%, drift
+  0.46 s, ASR 32.4 s. Clip A unchanged after re-scoring (qwen3 9.17%,
+  whisper-0.25 8.89%).
+- Decisions / ADRs: no ADR. The metric change was necessary for honesty: the
+  earlier version penalised qwen3 twice for transcribing songs and made clip B
+  look like a 133-word fabrication problem that did not exist (7 extra words
+  after the fix, the same as whisper). Clip B is not a dialogue-outside-music
+  test after all: 226 of its 975 words are lyrics, which makes it the "musical
+  material" case and leaves the tie-break to clip C.
+- Known issues: two clips still disagree on accuracy (A favours whisper by 0.28
+  points, B favours qwen3 by 0.53 with a much larger matched-WER gap), so the
+  engine choice is not decided; whisper's speed advantage (30-37% of the ASR
+  phase) is consistent, its coverage disadvantage is too.
+- Next step: clip C (40:00–50:00) as the tie-break, then the end-to-end round
+  with the Italian reference.
+
 ## 2026-10-26 — Whisper VAD as a config knob (round 1b of the reference eval)
 
 - Branch / commits: `feat/whisper-vad-knobs`.

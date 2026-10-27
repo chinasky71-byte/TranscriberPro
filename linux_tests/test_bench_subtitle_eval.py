@@ -148,3 +148,18 @@ def test_corsivi_esclusi_e_contati(tmp_path):
     with_italic = ev.evaluate(parsed, ev.cues(hyp), exclude_italic_reference=False)
     assert with_italic['excluded_italic']['cues'] == 0
     assert with_italic['coverage']['coverage_pct'] < result['coverage']['coverage_pct']
+
+
+def test_finestre_corsive_ignorate_da_entrambi_i_lati(tmp_path):
+    """Chi trascrive una canzone non guadagna, chi la salta non viene penalizzato."""
+    ref = _srt(tmp_path, 'ref.srt', [('00:00:05,000', '00:00:08,000', 'parlato'),
+                                     ('00:00:15,000', '00:00:18,000', '<i>la la la</i>')])
+    hyp = _srt(tmp_path, 'hyp.srt', [('00:00:05,000', '00:00:08,000', 'parlato'),
+                                     ('00:00:15,000', '00:00:18,000', 'la la la')])
+    result = ev.evaluate(ev.cues(ref), ev.cues(hyp))
+    assert result['silence']['extra_words'] == 0          # la canzone non conta come "extra"
+    assert result['coverage']['coverage_pct'] == 100.0
+    assert result['excluded_italic']['windows'] == 1
+    # senza esclusione la canzone entra nella reference e viene confrontata
+    with_italic = ev.evaluate(ev.cues(ref), ev.cues(hyp), exclude_italic_reference=False)
+    assert with_italic['excluded_italic']['windows'] == 0
