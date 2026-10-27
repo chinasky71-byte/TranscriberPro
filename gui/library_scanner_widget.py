@@ -19,6 +19,7 @@ import re
 
 from gui.design_tokens import T
 from gui.styles import load_qss
+from core.services import library_actions as LA
 from core.services import library_rows as LR
 from core.services.library_scanner_client import LibraryScannerClient, call_api
 from gui.library_scanner_worker import LibraryScannerWorker
@@ -618,14 +619,13 @@ class LibraryScannerWidget(QFrame):
         """Avvia la conversione ASS/SSA→SRT sul server Library Scanner.
         video_ids vuota = converti tutti i pending (stessa semantica del server).
         La POST gira in un _ApiCallWorker: il thread GUI non aspetta il server."""
-        url     = self.config.get('library_scanner_url', '').strip().rstrip('/')
-        api_key = self.config.get('library_scanner_api_key', '').strip()
+        url, api_key = LA.clean_credentials(self.config.get('library_scanner_url', ''), self.config.get('library_scanner_api_key', ''))
         if not url or not api_key:
             QMessageBox.warning(self, tr('ls_ass_title'), tr('ls_not_configured'))
             return
         # Corpo vuoto = server converte tutti i pending; IDs specifici = solo quei file
-        body = {"video_ids": video_ids} if video_ids else {}
-        worker = _ApiCallWorker('post', f"{url}/api/subtitles/convert/start",
+        endpoint, body = LA.ass_start_request(url, video_ids)
+        worker = _ApiCallWorker('post', endpoint,
                                 api_key, json_body=body, timeout=10)
         worker.done.connect(
             lambda status, text, vids=list(video_ids):
@@ -635,24 +635,12 @@ class LibraryScannerWidget(QFrame):
         worker.start()
 
     def _on_ass_conversion_reply(self, status: int, text: str, video_ids: list):
-        if status == 200:
-            if video_ids:
-                desc = tr('ls_n_files').format(n=len(video_ids))
-                self._log(tr('ls_ass_log_started').format(desc=desc))
-            else:
-                desc = tr('ls_all_pending')
-                self._log(tr('ls_ass_log_started_all'))
-            QMessageBox.information(
-                self, tr('ls_ass_title'),
-                tr('ls_ass_started_body').format(desc=desc))
-        elif status == 0:
-            self._log(tr('ls_ass_log_conn_err').format(text=text))
-            QMessageBox.warning(self, tr('ls_ass_title'),
-                                tr('ls_conn_err').format(text=text))
+        reply = LA.ass_reply(status, text, video_ids)
+        self._log(reply.log)
+        if reply.level == 'information':
+            QMessageBox.information(self, tr('ls_ass_title'), reply.message)
         else:
-            self._log(tr('ls_ass_log_srv_err').format(status=status))
-            QMessageBox.warning(self, tr('ls_ass_title'),
-                                tr('ls_srv_err').format(status=status, text=text[:200]))
+            QMessageBox.warning(self, tr('ls_ass_title'), reply.message)
 
     def _untrack_api_worker(self, worker):
         try:
@@ -690,7 +678,7 @@ class LibraryScannerWidget(QFrame):
             return
         # Se la pipeline di trascrizione è attiva, rinvia il job per evitare OOM
         if getattr(self.main_window, 'is_processing', False):
-            kind_label = 'VOBSUB' if kind == 'vobsub' else 'PGS'
+            kind_label = LA.job_kind_label(kind)
             self._ocr_deferred_queue.append((windows_path, kind, force_auto))
             self._ocr_add_job(windows_path, kind_label)
             self._ocr_set_status(windows_path, 'queued', 0)
@@ -702,12 +690,10 @@ class LibraryScannerWidget(QFrame):
             return
 
         from gui.ocr_worker import OcrWorker
-        from core.pgs_types import CFG_STRATEGY, DEFAULT_STRATEGY, STRATEGY_AUTO
+        from core.pgs_types import CFG_STRATEGY, DEFAULT_STRATEGY
 
         config = get_config()
-        strategy = STRATEGY_AUTO if force_auto else config.get(CFG_STRATEGY, DEFAULT_STRATEGY)
-        if strategy_override in ('review', 'auto'):
-            strategy = strategy_override
+        strategy = LA.resolve_strategy(force_auto, config.get(CFG_STRATEGY, DEFAULT_STRATEGY), strategy_override)
         self._ocr_strategy_used = strategy
 
         self._ocr_video_path = windows_path
@@ -715,7 +701,7 @@ class LibraryScannerWidget(QFrame):
         self._ocr_name = Path(windows_path).name
         self._log(tr('ls_ocr_started_log').format(kind=kind, strategy=strategy, name=self._ocr_name))
         # Mostra il job nella coda di processamento (display; non in trascrizione)
-        kind_label = 'VOBSUB' if kind == 'vobsub' else 'PGS'
+        kind_label = LA.job_kind_label(kind)
         self._ocr_add_job(windows_path, kind_label)
         self._ocr_set_status(windows_path, 'processing', 0)
 
@@ -732,14 +718,9 @@ class LibraryScannerWidget(QFrame):
 
     def _on_ocr_progress(self, percent: int, label: str):
         """Mostra l'avanzamento dello step corrente (estrazione / OCR)."""
-        name = getattr(self, '_ocr_name', '')
-        if getattr(self, '_ocr_batch_active', False):
-            done = getattr(self, '_ocr_batch_ok', 0) + getattr(self, '_ocr_batch_fail', 0)
-            total = getattr(self, '_ocr_batch_total', 0)
-            prefix = f"OCR batch {min(done + 1, total)}/{total} · "
-        else:
-            prefix = "OCR · "
-        self.ocr_progress_label.setText(f"{prefix}{name} — {label} {percent}%")
+        self.ocr_progress_label.setText(LA.progress_text(
+            getattr(self, '_ocr_name', ''), label, percent, getattr(self, '_ocr_batch_active', False),
+            getattr(self, '_ocr_batch_ok', 0), getattr(self, '_ocr_batch_fail', 0), getattr(self, '_ocr_batch_total', 0)))
         self._ocr_set_status(getattr(self, '_ocr_video_path', ''), 'processing', percent)
 
     def _log(self, msg: str):
@@ -882,8 +863,7 @@ class LibraryScannerWidget(QFrame):
     # ── Superpower: acquisisce tutti i bitmap dalla Library Scanner e li processa localmente ──
     def _superpower_ocr(self):
         """Recupera tutti i file bitmap (PGS/VOBSUB) dalla Library Scanner e li processa qui."""
-        url     = self.config.get('library_scanner_url', '').strip().rstrip('/')
-        api_key = self.config.get('library_scanner_api_key', '').strip()
+        url, api_key = LA.clean_credentials(self.config.get('library_scanner_url', ''), self.config.get('library_scanner_api_key', ''))
         if not url or not api_key:
             QMessageBox.warning(self, "⚡ Superpower", tr('ls_not_configured'))
             return
@@ -899,9 +879,10 @@ class LibraryScannerWidget(QFrame):
         # GET in background (_ApiCallWorker): con il server lento/spento la
         # richiesta sincrona bloccava il thread GUI fino a 15s.
         self._log(tr('ls_sp_list_log'))
-        worker = _ApiCallWorker('get', f"{url}/api/subtitles/list", api_key,
-                                params={"issue_type": "bitmap", "limit": 500},
-                                timeout=15)
+        endpoint, params, timeout = LA.superpower_request(url)
+        worker = _ApiCallWorker('get', endpoint, api_key,
+                                params=params,
+                                timeout=timeout)
         worker.done.connect(self._on_superpower_list_reply)
         worker.finished.connect(lambda w=worker: self._untrack_api_worker(w))
         self._api_workers.append(worker)
@@ -911,32 +892,15 @@ class LibraryScannerWidget(QFrame):
         if getattr(self, '_ocr_worker', None) is not None:
             QMessageBox.information(self, "⚡ Superpower", tr('ls_ocr_running'))
             return
-        if status != 200:
-            err = text if status == 0 else f"HTTP {status}: {text[:200]}"
-            QMessageBox.warning(self, "⚡ Superpower",
-                                tr('ls_sp_list_err').format(err=err))
+        res = LA.parse_superpower_reply(status, text, self._badge_label_kind)
+        if res.kind in ('error', 'bad_reply'):
+            QMessageBox.warning(self, "⚡ Superpower", res.message)
             return
-        try:
-            import json as _json
-            data = _json.loads(text)
-        except Exception as e:
-            QMessageBox.warning(self, "⚡ Superpower",
-                                tr('ls_sp_bad_reply').format(err=e))
-            return
-        items = []
-        for v in data.get("videos", []):
-            fmt = v.get("bitmap_format")
-            if not fmt:
-                continue
-            wp = v.get("windows_path", "")
-            if not wp:
-                continue
-            _, kind = self._badge_label_kind(fmt)
-            items.append((wp, kind))
-        if not items:
+        if res.kind == 'none':
             QMessageBox.information(self, "⚡ Superpower",
                                     tr('ls_sp_none'))
             return
+        items = list(res.items)
         self._ocr_superpower_active = True
         self._log(tr('ls_sp_acquired_log').format(n=len(items)))
         self._start_ocr_batch(items)
@@ -962,7 +926,7 @@ class LibraryScannerWidget(QFrame):
         self._ocr_batch_fail = 0
         # Pre-popola la coda di processamento con tutti i job (stato "in coda").
         for path, kind in items:
-            self._ocr_add_job(path, 'VOBSUB' if kind == 'vobsub' else 'PGS')
+            self._ocr_add_job(path, LA.job_kind_label(kind))
         self._log(tr('ls_batch_started_log').format(n=self._ocr_batch_total))
         self._ocr_batch_advance()
 
@@ -1110,15 +1074,14 @@ class LibraryScannerWidget(QFrame):
         added = 0
         pmap = self._path_rules()
         with QMutexLocker(self.main_window.queue_mutex):
-            for path in paths:
-                path = to_local(path, pmap)   # percorso del server -> file di questo computer (identita' con mappa vuota)
-                qs = getattr(self.main_window, 'queue_service', None)
-                if qs is not None and path and qs.is_active(path):
-                    continue                  # gia' in coda o in lavorazione: il file in corso non e' piu' in processing_queue
-                if path and path not in self.main_window.processing_queue:
-                    self.main_window.processing_queue.append(path)
-                    self.main_window.file_list.addItem(self.main_window._make_file_item(path))
-                    added += 1
+            qs = getattr(self.main_window, 'queue_service', None)
+            # percorso del server -> file di questo computer (identita' con mappa vuota); i file gia' in coda o in lavorazione
+            # (il file in corso non e' piu' in processing_queue) non si aggiungono
+            for path in LA.plan_import(paths, pmap, lambda p: p in self.main_window.processing_queue,
+                                       qs.is_active if qs is not None else None):
+                self.main_window.processing_queue.append(path)
+                self.main_window.file_list.addItem(self.main_window._make_file_item(path))
+                added += 1
 
         if added > 0:
             self.main_window.update_remaining_files_label()
