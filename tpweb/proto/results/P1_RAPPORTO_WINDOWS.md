@@ -98,3 +98,48 @@ Totale schermata prima → dopo: 100% 4,48 → 3,96%; 125% 4,35 → 4,00%; 150% 
 ## Dubbi
 - Il criterio di un testo «sotto il 2%» sembra poco realistico con Chromium e Qt su Windows; conviene probabilmente valutare il testo a parte (come gia' scritto nel piano) con una soglia piu' alta, oppure per forme/posizione/larghezza e non pixel per pixel.
 - L'avvio realmente a freddo (dopo un riavvio del PC o 10+ minuti senza WebView2) non e' stato riprodotto con certezza, vedi sotto.
+
+---
+
+## P2b-bis: calibratore corretto (barra a 14 px reali, spostamento verticale, profili di rendering)
+
+**Verifica dello strumento:** con `--profili predefinito` il «totale prima» e' 3,276 / 3,247 / 2,955% a 100/125/150%, identico a P1e (3,28 / 3,25 / 2,96). Lo strumento e' coerente. (Il confronto di P2b precedente, 4,2-4,5%, era sbagliato per lo strumento, non per Windows.)
+
+### Totale schermata prima → dopo, per profilo e scala
+| Profilo | 100% | 125% | 150% | Media dopo |
+|---|---|---|---|---|
+| predefinito | 3,28 → 2,25 | 3,25 → 2,39 | 2,96 → 2,26 | 2,300 |
+| crenatura_off (migliore) | 3,45 → 2,40 | 3,29 → 2,15 | 3,00 → 2,32 | 2,288 |
+| text_geometricPrecision | 3,28 → 2,25 | 3,25 → 2,39 | 2,96 → 2,26 | 2,300 |
+| text_optimizeSpeed | 3,28 → 2,25 | 3,25 → 2,39 | 2,96 → 2,26 | 2,300 |
+| glifi_a_pixel_interi | 3,28 → 2,25 | 3,25 → 2,39 | 2,96 → 2,26 | 2,300 |
+| hinting_none | 3,28 → 2,25 | 3,25 → 2,39 | 2,96 → 2,26 | 2,300 |
+
+I profili di rendering (`geometricPrecision`, `optimizeSpeed`, glifi a pixel interi, hinting) **non cambiano nulla** (valori identici al predefinito). Solo disattivare la crenatura sposta qualcosa, e di pochissimo (2,288 contro 2,300): il «migliore» e' praticamente un pareggio.
+
+### Profilo migliore (crenatura_off): per elemento, prima → dopo e parametri
+| Scala | Elemento | Prima → Dopo | Peso | Dimensione | Spaziatura | Sposta X | Sposta Y |
+|---|---|---|---|---|---|---|---|
+| 100% | Titolo | 12,63 → 8,69% | 400 | x1,00 | +0,4 px | +2,0 px | +0,5 px |
+| 100% | «Aggiungi file» | 11,49 → 8,10% | 350 | x0,97 | 0 | 0 | 0 |
+| 100% | «Avvia» | 4,35 → 3,02% | 450 | x1,00 | 0 | 0 | 0 |
+| 125% | Titolo | 11,44 → 6,97% | 600 | x1,01 | 0 | +2,5 px | +0,5 px |
+| 125% | «Aggiungi file» | 10,50 → 7,31% | 400 | x1,01 | 0 | 0 | -1,5 px |
+| 125% | «Avvia» | 3,95 → 2,29% | 450 | x0,98 | +0,2 px | 0 | -1,5 px |
+| 150% | Titolo | 10,99 → 8,50% | 500 | x1,00 | +0,3 px | +0,5 px | +0,5 px |
+| 150% | «Aggiungi file» | 10,00 → 7,93% | 450 | x0,99 | 0 | 0 | 0 |
+| 150% | «Avvia» | 3,73 → 2,64% | 450 | x1,01 | 0 | -0,5 px | 0 |
+
+Barra: 0,10% (100%), **2,19% (125%)**, 0,15% (150%): a 125% non e' migliorata rispetto a P1e, quindi non e' un artefatto dello strumento di P2b.
+
+### Risposte
+1. **Peso:** NO, non e' 400 per tutti. Va da 350 a 600 a seconda di elemento e scala; i pulsanti stanno tra 350 e 450 (il QSS dice 500/600), cioe' Qt li disegna piu' leggeri; il titolo oscilla (400/600/500). Nessun peso al limite inferiore della ricerca (300) come in P2b; 600 del titolo a 125% coincide col valore del QSS.
+2. **Spostamento del titolo:** sistematico in verticale (+0,5 px a tutte le scale) e in orizzontale a 100% e 125% (+2,0 e +2,5 px, in linea col cloud: +2,5/+0,5 a 100%), ma NON a 150% (+0,5 px).
+3. **Totale sotto l'1,5%?** NO: 2,40 / 2,15 / 2,32% (profilo migliore). Nessun elemento di testo e' sotto il 2%, tranne «Avvia» a 125% (2,29%, ancora sopra) — nessuno sotto il 2%.
+
+### Immagini `crenatura_off_<scala>_dopo_diff.png`
+La barra e i bordi dei pulsanti sono ora puliti (linee sottili). Sul testo il diff segue il profilo delle lettere ma e' ancora marcato su titolo e «Aggiungi file» (a 150% il titolo ha tratti spessi): e' per lo piu' differenza di rasterizzazione dei contorni, con un residuo di larghezza/peso (il titolo a 150% pare piu' largo in alcune lettere). Nessuna differenza di posizione evidente dopo la calibrazione.
+
+### Anomalie e dubbi
+- Spostamenti verticali di -1,5 px su «Aggiungi file» e «Avvia» a 125% (e 0 alle altre scale): non sistematici, probabile arrotondamento di layout a scala frazionaria; da non portare nel prodotto cosi' come sono.
+- Il guadagno della calibrazione e' modesto (≈1 punto) e i parametri non sono stabili fra scale: per il testo conviene fissare una soglia piu' alta o valutare forme/posizione/larghezza a parte, come previsto dal piano.
