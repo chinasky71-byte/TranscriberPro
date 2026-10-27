@@ -47,6 +47,31 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
   illustrate the failure modes, they do not quantify them — the tables do that.
 - Next step: none for the ASR question; the evaluation is closed and documented.
 
+## 2026-10-26 — Verified the own VAD before removing Whisper
+
+- Branch / commits: `feat/vad-without-whisper`.
+- Goal: prove the new VAD path equivalent before deleting the dependency it
+  replaces, as agreed (tests first, removal after).
+- Done: `docs/benchmarks/2026-10-26-vad-port-verification.md` with the three
+  checks; the clip without subtitle streams and the shifted reference used for the
+  sync test were prepared with the harness tools and kept outside the repository.
+- Tests and results: (1) same audio, old vs new VAD: 154 vs 166 segments, 420.0 vs
+  411.4 s of speech, **98.0% intersection, 0.000 s median start difference**, 0.52
+  vs 0.76 s runtime; (2) synchroniser on a clip with **no subtitle streams** and a
+  reference shifted **+2.5 s**: output within **0.183 s median / 0.21 s max** of the
+  truth, 214 cues preserved, text WER 0.00% (log: `VAD: 168 speech intervals`,
+  `Global alignment: scale 1.00010, offset -2.35 s`); (3) transcription regression:
+  WER 11.79% -> 11.87%, chrF 94.50 -> 94.35, drift 0.60 -> 0.66 s, wall 134.4 ->
+  134.7 s, all inside the noise of this clip.
+- Decisions / ADRs: no ADR yet; ADR-008 ("a single ASR engine") comes with the
+  removal.
+- Known issues: the new VAD splits a few segment boundaries differently and reports
+  ~2% less speech — irrelevant for an anchor that feeds a global alignment, but
+  recorded.
+- Next step: remove `faster-whisper`, `ctranslate2` and `whisperx` together with
+  the router fallback, the preload, the aligner and the installer step; then re-run
+  the same two clips.
+
 ## 2026-10-26 — Why Whisper is preloaded with qwen3, and why it stays
 
 - Branch / commits: `feat/whisper-preload-optional`.
