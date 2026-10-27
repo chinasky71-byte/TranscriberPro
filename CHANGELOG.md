@@ -3,6 +3,13 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.38 — 2026-10-27 — G1: logica di cronologia, metadati e impostazioni fuori dalla GUI (PR #36, #37, #38)
+
+- **Nuovo `core/services/` (senza Qt e senza `gui`, regola verificata da un test):** `HistoryService` (cronologia: caricamento, salvataggio atomico, statistiche, ricerca, formati), `TitleResolver` e `find_poster` (titoli per l'overlay e ricerca locandina), e un servizio per ciascuna scheda di impostazioni: Generali (lingua, Library Scanner), Batch adattivo, OCR, OpenSubtitles. `JobOptionsService` e `SettingsService` si spostano qui (i vecchi nomi in `gui/services` sono alias dello stesso modulo).
+- **GUI invariata:** i widget restano la vista, con gli stessi segnali, testi e chiavi di config. Nessun file di dati cambia formato.
+- **Verifica:** test di caratterizzazione scritti sul vecchio codice e passati identici su master e sul nuovo; 46+ mutazioni mirate tutte rilevate; prova su Windows con GUI vera (home isolata) senza differenze rispetto a master.
+- Scopo: base per la futura GUI web (`docs/WEBUI_PIANO.md`); nessun cambiamento visibile all'utente.
+
 ## 1.34.37 — 2026-10-27 — Refactoring della coda: un solo motore per la GUI e per la coda headless (PR #34)
 
 - **La coda non e' piu' della GUI: vive in `core/jobs/`** (senza Qt e senza `gui`): `JobQueue` (lista, eccezioni per file, lock, prelievo atomico),
