@@ -58,6 +58,8 @@ def build_config(variant: Dict[str, Any]) -> Dict[str, Any]:
     if variant.get("profile"):
         config["transcription_profile"] = variant["profile"]
     config.update(variant.get("config") or {})
+    if variant.get("target_language"):
+        config["target_language"] = variant["target_language"]
     return config
 
 
@@ -102,10 +104,11 @@ def run_variant(video: Path, variant: Dict[str, Any], work_dir: Path,
     work_tmp = Path(tmpdir or work_dir / "tmp") / tag
     shutil.rmtree(work_tmp, ignore_errors=True)
     work_tmp.mkdir(parents=True)
-    for stale in work_dir.glob(f"{video.stem}.*.srt"):
+    for stale in list(video.parent.glob(f"{video.stem}.*.srt")) + list(work_dir.glob(f"{video.stem}.*.srt")):
         stale.unlink()
-    args = {"video_path": str(video), "target_language": "ita", "files_processed": 0,
-            "result_path": str(work_dir / f"result-{tag}.json")}
+    args = {"video_path": str(video),
+            "target_language": build_config(variant).get("target_language", "ita"),
+            "files_processed": 0, "result_path": str(work_dir / f"result-{tag}.json")}
     args_path = data_dir / "args.json"
     args_path.write_text(json.dumps(args), encoding="utf-8")
     env = dict(os.environ)
@@ -120,7 +123,9 @@ def run_variant(video: Path, variant: Dict[str, Any], work_dir: Path,
     parsed = parse_events(process.stdout or [], started)
     process.wait()
     finished = time.time()
-    produced = next(iter(work_dir.glob(f"{video.stem}.*.srt")), None)
+    # la pipeline scrive l'SRT accanto al video: si cerca li', poi in work_dir
+    produced = next(iter(video.parent.glob(f"{video.stem}.*.srt")), None) \
+        or next(iter(work_dir.glob(f"{video.stem}.*.srt")), None)
     kept = work_dir / f"out-{tag}.srt"
     if produced:
         produced.replace(kept)

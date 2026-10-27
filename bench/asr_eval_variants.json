@@ -1,0 +1,7 @@
+[
+  {"tag": "qwen3", "profile": "maximum", "target_language": "eng",
+   "config": {"force_audio_transcription": true}},
+  {"tag": "whisper", "target_language": "eng",
+   "config": {"transcription_engine_mode": "faster-whisper",
+              "force_audio_transcription": true}}
+]
