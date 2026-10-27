@@ -1,4 +1,4 @@
-# ASR against a human reference — clip A (2026-10-26)
+# ASR against a human reference — clips A and B (2026-10-26)
 
 First round of the reference-based evaluation: instead of a synthetic clip, the
 output is compared with the **professional subtitles already inside the file**.
@@ -85,10 +85,42 @@ they are now config keys (`whisper_vad_threshold`, `whisper_vad_min_silence_ms`,
 - Production defaults stay at 0.5/500: the knob exists, the change is not
   decided.
 
+## Round 2 — clip B (20:00–30:00) and a correction to the metric
+
+Clip B was chosen because it has the most cues (162). It turned out to be
+**music-heavy**: 226 of its words sit in italic cues (songs), which the earlier
+version of the harness counted as "extra words" when a variant transcribed them
+and excluded from the reference at the same time. qwen3, which does transcribe
+singing, was therefore penalised twice.
+
+The harness now **ignores italic-only windows on both sides**: transcribing a
+song earns nothing, skipping it costs nothing, and the amount ignored is
+reported. Both clips were re-scored with the same rule.
+
+| Clip | Variant | WER | WER (matched) | chrF | Coverage | Missing words | Extra words | Drift median | ASR time |
+|---|---|---|---|---|---|---|---|---|---|
+| A (709 w) | qwen3 | 9.17% | 8.78% | 94.36 | 96.2% | 3 | 1 | 0.29 s | 41.5 s |
+| A | whisper 0.25 | **8.89%** | **7.98%** | **94.43** | 94.2% | 7 | 0 | 0.55 s | **25.9 s** |
+| B (749 w) | qwen3 | **7.88%** | **4.30%** | **94.04** | **93.6%** | 28 | 7 | **0.16 s** | 46.6 s |
+| B | whisper 0.25 | 8.41% | 7.65% | 93.62 | 91.5% | 30 | 7 | 0.46 s | **32.4 s** |
+
+Read together:
+
+- **qwen3 wins clip B clearly** (matched WER 4.30% vs 7.65%) and keeps a better
+  alignment (0.16 s vs 0.46 s median drift);
+- **whisper-0.25 wins clip A by a hair** (0.28 points, inside the resolution of
+  one clip) and is **30–37% faster in the ASR phase** on both clips;
+- coverage: qwen3 96.2% / 93.6%, whisper 94.2% / 91.5% — the energy gate after
+  Demucs loses less speech than the neural VAD, even at 0.25;
+- extra words are now equal (7 and 7 on clip B): no hallucination advantage for
+  either engine;
+- clip B is dominated by songs (226 of 975 words), so the two clips test
+  different material: B is the "noisy/musical" case, A the dialogue case.
+
 ## Next
 
-- Round 2: qwen3 and **whisper at 0.25** on clip B (20:00–30:00, the densest
-  stretch), then clip C (40:00–50:00). The looser VAD is the one thing that must
-  be validated on material that is not a quiet dramatic scene.
+- Round 3: clip C (40:00–50:00), the tie-break with the same two variants.
+- Then the end-to-end round with the Italian reference, and one full episode on
+  the winner to confirm the per-episode gain.
 - The Italian reference (index 22) is reserved for the end-to-end round: it
   measures translation as well, and it must be read as a relative ranking.

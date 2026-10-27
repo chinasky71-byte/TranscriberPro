@@ -138,12 +138,19 @@ def evaluate(reference: List[Dict[str, Any]], hypothesis: List[Dict[str, Any]],
     keeping them measures something else. The amount excluded is reported.
     """
     italic = [cue for cue in reference if cue.get("italic")]
+    italic_windows = {int(((cue["start"] + cue["end"]) / 2.0) // window_s) for cue in italic}
     if exclude_italic_reference and italic:
         reference = [cue for cue in reference if not cue.get("italic")]
     ref_buckets = bucket_text(reference, window_s)
     hyp_buckets = bucket_text(hypothesis, window_s)
     ref_windows = {index: clean(text) for index, text in ref_buckets.items()}
     hyp_windows = {index: clean(text) for index, text in hyp_buckets.items()}
+    if exclude_italic_reference:
+        # Le finestre con soli corsivi (canzoni, voci fuori campo) escono dal
+        # confronto **da entrambi i lati**: chi le trascrive non guadagna, chi le
+        # salta non viene penalizzato.
+        hyp_windows = {index: text for index, text in hyp_windows.items()
+                       if index not in italic_windows}
     ref_windows = {index: text for index, text in ref_windows.items() if text}
     hyp_windows = {index: text for index, text in hyp_windows.items() if text}
 
@@ -163,6 +170,7 @@ def evaluate(reference: List[Dict[str, Any]], hypothesis: List[Dict[str, Any]],
         "excluded_italic": {
             "cues": len(italic) if exclude_italic_reference else 0,
             "words": len(tokens(_joined(bucket_text(italic, window_s)))) if exclude_italic_reference else 0,
+            "windows": len(italic_windows) if exclude_italic_reference else 0,
         },
         "reference": {
             "cues": len(reference),
