@@ -2,13 +2,42 @@
 """
 SyncWorker — QThread per SubtitleSynchronizer
 File: gui/sync_worker.py
-"""
 
-import re
-import logging
+Adattatore Qt sul motore senza Qt `core/jobs/sync_single.py` (`SyncRunner`): resta un QThread con gli stessi segnali, emessi dal thread
+del worker nello stesso ordine di prima.
+"""
 from PyQt6.QtCore import QThread, pyqtSignal
 
-logger = logging.getLogger(__name__)
+from core.jobs.sync_single import STEP_PCT, STEP_RE, SyncListener, SyncRunner
+
+
+class _SignalListener(SyncListener):
+    def __init__(self, worker: 'SyncWorker'):
+        self._w = worker
+
+    def on_started(self, video):
+        self._w.file_started.emit(video)
+
+    def on_log(self, text):
+        self._w.log_message.emit(text)
+
+    def on_progress(self, pct):
+        self._w.progress.emit(pct)
+
+    def on_file_progress(self, video, pct):
+        self._w.file_progress.emit(video, pct)
+
+    def on_output_ready(self, output_path):
+        self._w.output_ready.emit(output_path)
+
+    def on_completed(self, video):
+        self._w.file_completed.emit(video)
+
+    def on_error(self, message):
+        self._w.error.emit(message)
+
+    def on_finished(self):
+        self._w.finished.emit()
 
 
 class SyncWorker(QThread):
@@ -27,69 +56,30 @@ class SyncWorker(QThread):
     # video in cartelle diverse produceva un percorso che non esisteva.
     output_ready   = pyqtSignal(str)
 
-    _STEP_PCT = {'1': 10, '2': 40, '3': 80, '4': 95}
-    # Ancorato a inizio stringa con match() (non search()): senza l'ancora,
-    # QUALUNQUE messaggio di log contenente "<cifre>. " in un punto
-    # qualsiasi — es. un nome file come "1. Titolo.synced.it.srt" nel log
-    # finale dello step 4 — farebbe combaciare il pattern e far retrocedere
-    # la barra di progresso.
-    _step_re  = re.compile(r'^\n?([1-4])\.\s')
+    _STEP_PCT = STEP_PCT
+    _step_re  = STEP_RE
 
     def __init__(self, video_path: str, external_srt_path: str, output_path: str = None, parent=None):
         super().__init__(parent)
         self.video_path        = video_path
         self.external_srt_path = external_srt_path
         self.output_path       = output_path
-        self._synchronizer     = None
-        self.is_cancelled      = False
+        self._runner = SyncRunner(video_path, external_srt_path, output_path, _SignalListener(self))
 
-    # ── QThread entry point ───────────────────────────────────────────────────
+    @property
+    def _synchronizer(self):
+        return self._runner._synchronizer
+
+    @property
+    def is_cancelled(self) -> bool:
+        return self._runner.is_cancelled
+
+    @is_cancelled.setter
+    def is_cancelled(self, value: bool) -> None:
+        self._runner.is_cancelled = value
 
     def run(self):
-        from core.subtitle_synchronizer import SubtitleSynchronizer
-
-        self.file_started.emit(self.video_path)
-        try:
-            self._synchronizer = SubtitleSynchronizer(
-                video_path        = self.video_path,
-                external_srt_path = self.external_srt_path,
-                output_path       = self.output_path,
-                log_callback      = self._on_log,
-                progress_callback = self._on_progress,
-            )
-            success = self._synchronizer.synchronize()
-
-            if success:
-                self.output_ready.emit(str(self._synchronizer._output_path))
-                self.file_completed.emit(self.video_path)
-            else:
-                if not self.is_cancelled:
-                    self.error.emit("Sincronizzazione fallita — controlla il log per i dettagli.")
-        except Exception as exc:
-            logger.exception("SyncWorker: eccezione non gestita")
-            self.error.emit(str(exc))
-        finally:
-            self.finished.emit()
-
-    # ── Cancellazione ─────────────────────────────────────────────────────────
+        self._runner.run()
 
     def cancel(self):
-        self.is_cancelled = True
-        if self._synchronizer is not None:
-            self._synchronizer.cancel()
-
-    # ── Callbacks da SubtitleSynchronizer ─────────────────────────────────────
-
-    def _on_log(self, msg: str):
-        self.log_message.emit(msg)
-        # Aggiorna file_progress in base al numero di step nel messaggio
-        m = self._step_re.match(msg)
-        if m:
-            step_key = m.group(1)
-            pct = self._STEP_PCT.get(step_key)
-            if pct is not None:
-                self.file_progress.emit(self.video_path, pct)
-
-    def _on_progress(self, pct: int):
-        self.progress.emit(pct)
-        self.file_progress.emit(self.video_path, pct)
+        self._runner.cancel()
