@@ -3270,33 +3270,6 @@ Provide translations as a numbered list matching the input format exactly. DO NO
 # FACTORY E LEGACY FUNCTIONS (DA MANTENERE FUORI DALLE CLASSI)
 # ============================================================================
 
-def route_non_english_away_from_llm(selected_model: Optional[str],
-                                    source_lang_639_1: str) -> Optional[str]:
-    """Instradamento automatico (v1.25.0): se il motore scelto e' TranslateGemma
-    ('llm'/'aya') e la sorgente non e' inglese, ricade su NLLB fine-tuned.
-
-    Funzione condivisa (nessuna dipendenza da ProcessingPipeline/torch a livello
-    di chiamata): usata sia dalla coda principale (`core/pipeline.py`) sia dal
-    percorso OCR bitmap (`core/ocr_auto.py`, condiviso con Library Scanner), che
-    altrimenti passerebbe di nascosto una lingua non inglese a TranslateGemma.
-
-    TranslateGemma e' stato addestrato SEMPRE con source_lang_code "en" (vedi
-    Gemma training/make_dataset.py): su sorgenti diverse dichiara una lingua
-    falsa nel prompt. Misurato il 27/09/2026 su 140 blocchi francesi: NLLB
-    fine-tuned batte sia l'etichetta storica 'en' sia quella vera 'fr' (che
-    dimezza il francese residuo ma peggiora la fluidita' oltre la soglia della
-    regola di misura). Verificato che ogni codice lingua accettato da
-    `LLMSubtitleTranslator.LANGUAGE_CODES` e' anche chiave di
-    `NLLBTranslator.LANGUAGE_CODES` (incluso 'und'): nessun codice orfano.
-    Non tocca la scelta esplicita dell'utente per gli altri motori (NLLB base,
-    Claude, OpenAI, OpenSubtitles): dichiarano gia' la lingua sorgente vera nel
-    loro prompt. Vedi memoria traduzione_non_inglese_2026_09_27.md.
-    """
-    if (selected_model or '').lower() in ('llm', 'aya') and source_lang_639_1 != 'en':
-        return 'nllb_finetuned'
-    return selected_model
-
-
 def get_translator(model_type: Optional[str] = None, context: Optional[str] = None,
                   use_aya: Optional[bool] = None,
                   glossary: Optional[Dict[str, str]] = None) -> BaseTranslator:

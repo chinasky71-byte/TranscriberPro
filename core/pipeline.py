@@ -773,32 +773,25 @@ class ProcessingPipeline:
 
         if source_language_639_1 != target_language_639_1:
 
+            # ADR-009 — UNICO motore di traduzione, e addestrato sulla sola
+            # coppia inglese→italiano: una sorgente non inglese non ha piu'
+            # nessun motore. La traduzione viene RIFIUTATA e dichiarata, mai
+            # degradata in silenzio da un ripiego automatico (stessa regola che
+            # ADR-008 applica alle lingue ASR). Il vecchio instradamento su NLLB
+            # fine-tuned nasceva da una misura del 27/09/2026 su 140 blocchi
+            # francesi: con l'etichetta 'en' il francese restava non tradotto,
+            # con l'etichetta vera la fluidita' peggiorava oltre soglia. Senza
+            # quel motore, nessun output e' meglio di un output peggiore.
+            if source_language_639_1 != 'en':
+                self._log(tr('pl_translation_refused_non_english_source').format(
+                    src=source_language_639_1))
+                return subtitle_path, source_language_639_1, False, True
+
             self._ev('phase', name='translate')
             self._log(tr('pl_6_translation').format(src=source_language_639_1, dst=target_language_639_1))
             # ✅ FIX TRANSLATOR SELECTION: Usa il metodo corretto per leggere il modello dalla config
             # Leggi il modello di traduzione selezionato dall'utente
             selected_model = self.config.get_translation_model()
-
-            # Instradamento automatico (v1.25.0): TranslateGemma ('llm') e' stato
-            # addestrato SEMPRE con source_lang_code "en" (vedi Gemma
-            # training/make_dataset.py), anche sulle coppie non inglesi. Misurato
-            # il 27/09/2026 su 140 blocchi francesi: l'etichetta 'en' storica
-            # lascia molto francese non tradotto; l'etichetta vera 'fr' lo
-            # dimezza ma peggiora la fluidita' oltre la soglia della regola
-            # (GEMBA fluency+style +14,3%) -> NON adottata. NLLB fine-tuned sulla
-            # stessa misura batte entrambe (francese residuo quasi azzerato,
-            # fluidita' comparabile): finche' TranslateGemma non e' addestrato
-            # anche su sorgenti non inglesi, si instrada li' automaticamente.
-            # Non tocca la scelta esplicita dell'utente per gli altri motori
-            # (NLLB base, Claude, OpenAI, OpenSubtitles): quelli dichiarano gia'
-            # la lingua sorgente vera nel loro prompt. Dettagli: memoria
-            # traduzione_non_inglese_2026_09_27.md.
-            _routed = self._route_non_english_away_from_llm(
-                selected_model, source_language_639_1)
-            if _routed != selected_model:
-                self._log(tr('pl_translategemma_is_not_ready_for').format(src=source_language_639_1))
-                selected_model = _routed
-
             self._log(tr('pl_selected_translation_model').format(model=selected_model.upper()))
 
             # Solo i motori che caricano su GPU (non API) aspettano che il driver restituisca la VRAM degli ASR.
@@ -1649,14 +1642,6 @@ class ProcessingPipeline:
             return False
         finally:
             self._ev('step', name='mux', state='done', ok=_mux_ok)
-
-    @staticmethod
-    def _route_non_english_away_from_llm(selected_model: str, source_lang_639_1: str) -> str:
-        """Delega a `core.translator.route_non_english_away_from_llm` (funzione
-        condivisa anche con `core/ocr_auto.py`): vedi la sua docstring per il
-        perche'. Il metodo resta qui solo per comodita' del punto di chiamata."""
-        from core.translator import route_non_english_away_from_llm
-        return route_non_english_away_from_llm(selected_model, source_lang_639_1)
 
     def _convert_639_1_to_639_2(self, lang_639_1: str) -> str:
         """
