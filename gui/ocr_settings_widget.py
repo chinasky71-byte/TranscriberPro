@@ -21,17 +21,12 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal
 import logging
 
+from core.services.ocr_settings_service import OcrSettingsService
 from gui.styles import load_qss
 from utils.config import get_config
 from utils.translations import tr
 
-from core.pgs_types import (
-    CFG_STRATEGY, CFG_LANGUAGE, CFG_CONF_THRESHOLD, CFG_WRITEBACK, CFG_TESSERACT_PATH,
-    CFG_OCR_WORKERS,
-    STRATEGY_REVIEW, STRATEGY_AUTO, WRITEBACK_MUX, WRITEBACK_SIDECAR,
-    DEFAULT_STRATEGY, DEFAULT_LANGUAGE, DEFAULT_CONF_THRESHOLD, DEFAULT_WRITEBACK,
-    DEFAULT_OCR_WORKERS
-)
+from core.pgs_types import STRATEGY_AUTO, WRITEBACK_MUX, WRITEBACK_SIDECAR
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +45,7 @@ class OcrSettingsWidget(QWidget):
         super().__init__(parent)
 
         self.config = get_config()
+        self._svc = OcrSettingsService(self.config)
 
         self.init_ui()
         self.update_status()
@@ -167,11 +163,13 @@ class OcrSettingsWidget(QWidget):
 
     def update_status(self):
         """Carica nei controlli i valori correnti dalla configurazione."""
+        choices = [self.writeback_combo.itemData(i) for i in range(self.writeback_combo.count())]
+        v = self._svc.load(choices)
+
         # Strategia
-        strategy = self.config.get(CFG_STRATEGY, DEFAULT_STRATEGY)
         self.review_radio.blockSignals(True)
         self.auto_radio.blockSignals(True)
-        if strategy == STRATEGY_AUTO:
+        if v.strategy == STRATEGY_AUTO:
             self.auto_radio.setChecked(True)
         else:
             self.review_radio.setChecked(True)
@@ -179,79 +177,60 @@ class OcrSettingsWidget(QWidget):
         self.auto_radio.blockSignals(False)
 
         # Lingua
-        language = self.config.get(CFG_LANGUAGE, DEFAULT_LANGUAGE)
         self.language_input.blockSignals(True)
-        self.language_input.setText(language or DEFAULT_LANGUAGE)
+        self.language_input.setText(v.language)
         self.language_input.blockSignals(False)
 
         # Soglia confidenza
-        threshold = self.config.get(CFG_CONF_THRESHOLD, DEFAULT_CONF_THRESHOLD)
-        try:
-            threshold = int(threshold)
-        except (TypeError, ValueError):
-            threshold = DEFAULT_CONF_THRESHOLD
         self.conf_spin.blockSignals(True)
-        self.conf_spin.setValue(max(0, min(100, threshold)))
+        self.conf_spin.setValue(v.conf_threshold)
         self.conf_spin.blockSignals(False)
 
         # Worker OCR
-        workers = self.config.get(CFG_OCR_WORKERS, DEFAULT_OCR_WORKERS)
-        try:
-            workers = int(workers)
-        except (TypeError, ValueError):
-            workers = DEFAULT_OCR_WORKERS
         self.workers_spin.blockSignals(True)
-        self.workers_spin.setValue(max(0, min(32, workers)))
+        self.workers_spin.setValue(v.workers)
         self.workers_spin.blockSignals(False)
 
         # Write-back
-        writeback = self.config.get(CFG_WRITEBACK, DEFAULT_WRITEBACK)
-        idx = self.writeback_combo.findData(writeback)
-        if idx < 0:
-            idx = self.writeback_combo.findData(DEFAULT_WRITEBACK)
+        idx = self.writeback_combo.findData(v.writeback)
         self.writeback_combo.blockSignals(True)
         self.writeback_combo.setCurrentIndex(max(0, idx))
         self.writeback_combo.blockSignals(False)
 
         # Path Tesseract
-        tesseract_path = self.config.get(CFG_TESSERACT_PATH, '')
         self.tesseract_input.blockSignals(True)
-        self.tesseract_input.setText(tesseract_path or '')
+        self.tesseract_input.setText(v.tesseract_path)
         self.tesseract_input.blockSignals(False)
 
     def on_strategy_changed(self, checked: bool):
         """Handler cambio strategia (collegato al radio 'Revisione mirata')."""
-        strategy = STRATEGY_REVIEW if self.review_radio.isChecked() else STRATEGY_AUTO
-        self.config.set(CFG_STRATEGY, strategy)
+        strategy = self._svc.set_strategy(self.review_radio.isChecked())
         logger.info(f"Strategia OCR: {strategy}")
         self.settings_changed.emit()
 
     def on_language_changed(self):
         """Handler cambio lingua OCR."""
-        language = self.language_input.text().strip() or DEFAULT_LANGUAGE
-        self.config.set(CFG_LANGUAGE, language)
+        language = self._svc.set_language(self.language_input.text())
         logger.info(f"Lingua OCR: {language}")
         self.settings_changed.emit()
 
     def on_conf_threshold_changed(self, value: int):
         """Handler cambio soglia confidenza."""
-        self.config.set(CFG_CONF_THRESHOLD, int(value))
+        self._svc.set_conf_threshold(value)
         self.settings_changed.emit()
 
     def on_workers_changed(self, value: int):
         """Handler cambio numero worker OCR."""
-        self.config.set(CFG_OCR_WORKERS, int(value))
+        self._svc.set_workers(value)
         self.settings_changed.emit()
 
     def on_writeback_changed(self, index: int):
         """Handler cambio modalità write-back."""
-        writeback = self.writeback_combo.itemData(index) or DEFAULT_WRITEBACK
-        self.config.set(CFG_WRITEBACK, writeback)
+        writeback = self._svc.set_writeback(self.writeback_combo.itemData(index))
         logger.info(f"Write-back OCR: {writeback}")
         self.settings_changed.emit()
 
     def on_tesseract_path_changed(self):
         """Handler cambio path Tesseract."""
-        path = self.tesseract_input.text().strip()
-        self.config.set(CFG_TESSERACT_PATH, path)
+        self._svc.set_tesseract_path(self.tesseract_input.text())
         self.settings_changed.emit()
