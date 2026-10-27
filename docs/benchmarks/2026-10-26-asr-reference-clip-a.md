@@ -212,3 +212,105 @@ invents content.
   the winner to confirm the per-episode gain.
 - The Italian reference (index 22) is reserved for the end-to-end round: it
   measures translation as well, and it must be read as a relative ranking.
+
+---
+
+# Appendix — what the numbers look like in the text
+
+Selection from the SRTs already produced for clips A and B (English target,
+Whisper at VAD threshold 0.25). Times are relative to the clip, not to the
+episode.
+
+## 1. Short lines that qwen3 keeps and Whisper drops
+
+```
+clip A, 7:10
+  ref  : Get out! You're fired!
+  qwen3: Get out! You're fired.
+  whis : (nothing)
+
+clip B, 0:40
+  ref  : Drink it.
+  qwen3: Drink it.
+  whis : (nothing)
+```
+
+Short isolated utterances are classified as non-speech by the neural VAD and
+vanish. This is Whisper's structural defect; lowering the threshold reduces it
+(from 21 missing words to 7 on clip A) but does not remove it.
+
+## 2. Proper names: both engines are wrong, differently
+
+```
+clip B, 9:20      ref: - Any dust, Ms. Borden? - I'm not finished.
+  qwen3: Any dust, Miss Bond? I'm not finished.
+  whis : Any dust, Miss Potter? I'm not finished.
+
+clip B, 9:40      ref: That's your footprint, Mrs. Borden. I will clean it up for you...
+  qwen3: That's your footprint. Mrs. Burton, I will clean it up for you...
+  whis : That's your footprint, Mrs. Borland, I will clean it up for you...
+```
+
+Borden becomes Bond / Potter / Burton / Borland. No engine switch fixes this: it
+is what the per-show **glossary** is for, and the glossary is empty today.
+
+## 3. Where Whisper is more accurate word by word
+
+```
+clip A, 2:00
+  ref  : Oh, and look, it's the couch we're to sit on.
+  qwen3: Oh, and lookit's the couch where to sit on.        "we're" -> "where", "look it's" fused
+  whis : Oh, and look, it's the couch we're to sit on.      correct
+
+clip B, 5:00
+  ref  : ...this sort of casket. It's mahogany.
+  qwen3: ...this sort of gasket. Mahogany.                  "casket" -> "gasket"
+  whis : ...this sort of casket.                            correct, but loses "It's mahogany"
+
+clip A, 2:00 (other window)
+  ref  : I also have a dovecote.
+  qwen3: I also have a dove coat.                           both wrong, same rendering
+  whis : I also have a dove coat.
+```
+
+## 4. Where qwen3 spills into the next window — not a real error
+
+```
+clip A, 7:30
+  ref  : It's quite good. That's six maids in a year.
+  qwen3: It's quite good. That's six maids in a year. Yes, Mister Barton. And what about it?
+  whis : quite good. That's six maids in a year.
+```
+
+"Yes, Mister Barton. And what about it?" belongs to the following window. Window
+boundary spill inflates qwen3's WER and explains why its output is 1.13x the
+reference length: part of the measured gap is segmentation, not wrong content.
+
+## 5. Where both stay silent, and that is fine
+
+```
+clip A, 4:20   ref: Mmm. Mmm.    -> both: (nothing)
+clip B, 9:10   ref: Hm.          -> both: (nothing)
+```
+
+Grunts and interjections are transcribed by neither. They still count as errors
+in WER against a human subtitle.
+
+## Patterns
+
+| Pattern | qwen3 | whisper |
+|---|---|---|
+| Short isolated lines | **keeps them** | loses them (VAD) |
+| Boundary spill / longer output | frequent | rare |
+| Rare English words ("casket", "we're") | occasional swaps | **more accurate** |
+| Proper names | wrong | wrong |
+| Interjections and noises | silent | silent |
+
+Two practical consequences:
+
+1. **The glossary is the cheapest win for both engines**: names are the most
+   visible error and need neither GPU time nor an engine change.
+2. **WER rewards whichever engine speaks less**: Whisper wins several windows
+   because it produces nothing where qwen3 produces correct text or spill. That
+   is why the verdict was taken on chrF, coverage and drift together with WER,
+   and why the end-to-end round (round 4) had to be read the same way.
