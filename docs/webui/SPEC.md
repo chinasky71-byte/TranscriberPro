@@ -95,6 +95,7 @@ semantics); logs are per job and never contain secrets.
 | GET | `/api/glossary/reports` | glossary reports found under `TP_DATA_DIR/glossary` |
 | GET | `/api/glossary/reports/{name}` | report with the decisions attached |
 | PUT | `/api/glossary/reports/{name}/terms/{index}` | save `decision`, `translation`, `note` |
+| POST | `/glossary/build` | build a fixed-rendering glossary: `source=tmdb` with `tmdb_id`, or `source=manual` with `show_key` + `cast_text`; writes `tmdb_<id>.json` / `manual_<slug>.json` under the data dir |
 
 Errors: JSON `{error: {code, message}}`; no stack traces, no secrets.
 
@@ -109,7 +110,7 @@ Errors: JSON `{error: {code, message}}`; no stack traces, no secrets.
 | History | finished jobs, status filter, duration, output path, log | Step 4 (done) |
 | Settings | general, transcription, translation, media roots, secrets | Step 4 (done; no OCR tab, OCR has its own page) |
 | OCR review | bitmap image + text, approve/correct, sidecar SRT | Step 5 (done) |
-| Glossary | per-show terms, candidates, approve/reject | Step 6 (done; review only, reports are built offline) |
+| Glossary | **fixed-rendering glossaries** (built from a TMDB id or from a pasted cast list), candidates from reports, approve/reject | Step 6/12 (done; the reports themselves are still built offline) |
 | Library scanner | scan, filters, bitmap badges, batch OCR | Step 6 (not implemented: separate service, see PLAN.md) |
 
 Layout: **navigation in a left sidebar, data on the right**; on narrow screens

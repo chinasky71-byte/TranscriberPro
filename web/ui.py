@@ -19,6 +19,7 @@ from web.auth import SESSION_COOKIE, request_token, token_matches
 from web.config_schema import (ENUM_CONFIG_KEYS, MEDIA_ROOTS_KEY, NUMBER_CONFIG_KEYS,
                                START_DIR_KEY, ConfigError, apply_values, read_values)
 from web.ocr_review import OcrSessionError, OcrSessionNotFound
+from web import glossary as fixed_glossary
 from web.glossary import GlossaryError, GlossaryNotFound
 from web.paths import compute_roots, validate_media_path
 
@@ -548,6 +549,8 @@ def _glossary_context(request: Request, name: str = "", error: str = "",
     context: Dict[str, Any] = {
         "status": _status_context(request),
         "reports": store.list(),
+        "fixed": fixed_glossary.list_fixed_glossaries(),
+        "show_key_hint": _show_key_hint(request),
         "report": None,
         "error": error,
         "message": message,
@@ -555,6 +558,46 @@ def _glossary_context(request: Request, name: str = "", error: str = "",
     if name:
         context["report"] = store.view(name)
     return context
+
+
+def _show_key_hint(request: Request) -> str:
+    """Chiave glossario suggerita: `glossary_id` se impostato, altrimenti vuota.
+
+    Senza TMDB il pipeline ricava la chiave dalla cartella della serie
+    (`Monster (2022)/Season 4/x.mkv` -> `monster-2022`), quindi la stessa forma
+    va usata qui.
+    """
+    return str(request.app.state.config.get("glossary_id", "") or "")
+
+
+@router.post("/glossary/build", response_class=HTMLResponse, dependencies=[Depends(_auth)])
+def glossary_build(request: Request,
+                   source: str = Form("manual"),
+                   tmdb_id: str = Form(""),
+                   show_key: str = Form(""),
+                   cast_text: str = Form(""),
+                   media_type: str = Form("tv")) -> HTMLResponse:
+    """Crea il glossario a resa fissa dal cast TMDB o da un elenco incollato."""
+    try:
+        if source == "tmdb":
+            terms = fixed_glossary.build_from_tmdb(tmdb_id, media_type or "tv")
+            key = str(tmdb_id).strip()
+            message = (f"Glossary built from TMDB id {key}: {len(terms)} characters. "
+                       f"Saved as tmdb_{key}.json")
+        else:
+            key = (show_key or "").strip()
+            if not key:
+                raise fixed_glossary.GlossaryError(
+                    "show key required (the same key the pipeline derives from the folder, "
+                    "e.g. 'monster-2022')")
+            terms = fixed_glossary.parse_cast_text(cast_text)
+            fixed_glossary.write_fixed_glossary(key, terms)
+            message = (f"Glossary saved for '{key}': {len(terms)} characters. "
+                       f"ASR context and translation will use it from the next job.")
+    except fixed_glossary.GlossaryError as exc:
+        return _render(request, "glossary.html",
+                       _glossary_context(request, error=str(exc)))
+    return _render(request, "glossary.html", _glossary_context(request, message=message))
 
 
 @router.get("/glossary", response_class=HTMLResponse, dependencies=[Depends(_auth)])

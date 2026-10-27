@@ -1,7 +1,63 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="card">
-  <h2>Glossary</h2>
+  <h2>Glossaries in use (fixed rendering)</h2>
+  <p class="muted">These are the files the pipeline reads: the names are given to the
+    ASR decoder as context (so it writes <em>Borden</em>, not <em>Bond</em>) and to
+    the translator. They live under the data directory, never in the repository.</p>
+  {% if fixed %}
+  <table class="queue">
+    <thead><tr><th>Key</th><th>Source</th><th>Terms</th><th>File</th></tr></thead>
+    <tbody>
+    {% for item in fixed %}
+      <tr>
+        <td class="name">{{ item.name.replace('tmdb_', '') if item.kind == 'tmdb' else item.name.replace('manual_', '') }}</td>
+        <td>{{ item.kind }}</td>
+        <td>{{ item.terms }}</td>
+        <td class="muted">{{ item.path }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No fixed glossary yet: the ASR works without it, proper names will be guessed.</p>
+  {% endif %}
+
+  <h2>Create one</h2>
+  <form method="post" action="/glossary/build" class="stack">
+    <div class="row">
+      <label>Source
+        <select name="source">
+          <option value="manual">Paste the cast (works offline)</option>
+          <option value="tmdb">TMDB id (needs the API key in Settings)</option>
+        </select>
+      </label>
+      <label>TMDB id
+        <input name="tmdb_id" placeholder="12345" autocomplete="off">
+      </label>
+      <label>Media type
+        <select name="media_type">
+          <option value="tv">TV</option>
+          <option value="movie">Movie</option>
+        </select>
+      </label>
+      <label>Show key
+        <input name="show_key" placeholder="{{ show_key_hint or 'monster-2022' }}" autocomplete="off">
+      </label>
+    </div>
+    <label>Cast list (one line per person, as in the show's credits)
+      <textarea name="cast_text" rows="8" spellcheck="false"
+                placeholder="Ella Beatty as Lizzie Borden&#10;Charlie Hunnam as Andrew Borden&#10;Rebecca Hall as Abby Borden"></textarea>
+    </label>
+    <p class="muted">The show key must match what the pipeline derives from the folder
+      (<code>Show (Year)/Season N/episode.mkv</code> &rarr; <code>show-year</code>) or the
+      <code>glossary_id</code> set in Settings. Lines without "as" are taken as names.</p>
+    <button class="btn primary" type="submit">Create the glossary</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Reports to review</h2>
   {% if error %}<p class="alert error">{{ error }}</p>{% endif %}
   {% if message %}<p class="alert ok">{{ message }}</p>{% endif %}
   <p class="muted">Reports are produced outside the browser, because building one

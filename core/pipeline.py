@@ -1034,8 +1034,17 @@ class ProcessingPipeline:
                     # decoder verso "Borden" invece di "Bond"/"Potter"/"Burton".
                     # Caricato qui, prima della trascrizione, non solo in traduzione.
                     try:
-                        from core.glossary import load_glossary, show_key_from_path
-                        _key = ((self.metadata or {}).get('id')
+                        from core.glossary import ensure_glossary, load_glossary, show_key_from_path
+                        _meta = self.metadata or {}
+                        # Con un TMDB id il glossario si costruisce da solo dai
+                        # personaggi del cast (una volta per serie, poi resta).
+                        if _meta.get('id'):
+                            ensure_glossary(_meta['id'], self.tmdb_client,
+                                            'tv' if _meta.get('season') else 'movie',
+                                            season=_meta.get('season'),
+                                            episode=_meta.get('episode'),
+                                            log=self._log)
+                        _key = (_meta.get('id')
                                 or self.config.get('glossary_id')
                                 or show_key_from_path(self.video_path))
                         _names = load_glossary(_key) if _key else {}
