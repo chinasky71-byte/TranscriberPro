@@ -27,6 +27,26 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-26 — Benchmark appendix: the errors in the text
+
+- Branch / commits: `docs/benchmark-examples`.
+- Goal: make the evaluation readable to someone who will not look at the tables,
+  and keep the qualitative evidence next to the numbers.
+- Done: appendix in `docs/benchmarks/2026-10-26-asr-reference-clip-a.md` with
+  five groups of examples (short lines that qwen3 keeps and Whisper's VAD drops;
+  proper names mangled differently by both; words Whisper gets right and qwen3
+  does not; qwen3's window spill that looks like an error but is segmentation;
+  interjections that neither transcribes), plus a pattern table and the two
+  practical consequences (the glossary is the cheapest win; WER rewards the
+  engine that speaks less).
+- Tests and results: documentation only; docs guard tests green, full suite
+  green.
+- Decisions / ADRs: no ADR. The appendix is evidence, not a new measurement: the
+  texts come from the SRTs produced in rounds 1 and 2.
+- Known issues: the examples are hand-picked from two clips of one episode and
+  illustrate the failure modes, they do not quantify them — the tables do that.
+- Next step: none for the ASR question; the evaluation is closed and documented.
+
 ## 2026-10-26 — Reference evaluation round 4 (end-to-end, Italian)
 
 - Branch / commits: `feat/asr-reference-ita`.
