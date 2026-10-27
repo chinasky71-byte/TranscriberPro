@@ -20,10 +20,11 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QRadioButton,
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QFont
 
+from core.services import transcription_settings_service as TS
 from gui.design_tokens import T
 from gui.styles import load_qss
 from utils.config import get_config
-from utils.transcription_profiles import ProfileConfig, TranscriptionProfile
+from utils.transcription_profiles import TranscriptionProfile
 from utils.translations import tr
 
 
@@ -49,7 +50,8 @@ class ProfileSelectionDialog(QDialog):
     def __init__(self, parent=None, embed=False):
         super().__init__(parent)
         self.config = get_config()
-        self.selected_profile = self.config.get_transcription_profile()
+        self._svc = TS.TranscriptionSettingsService(self.config)
+        self.selected_profile = self._svc.current_profile()
         self.embed = embed
 
         if not embed:
@@ -136,13 +138,11 @@ class ProfileSelectionDialog(QDialog):
         engine_layout = QHBoxLayout()
         engine_label = QLabel(tr('engine_label'))
         self.engine_combo = QComboBox()
-        self.engine_combo.addItem(tr('engine_auto'),    'auto')
-        self.engine_combo.addItem(tr('engine_canary'),  'canary')
-        self.engine_combo.addItem(tr('engine_qwen3'),   'qwen3')
-        self.engine_combo.addItem(tr('engine_whisper'), 'faster-whisper')
+        for label, value in TS.engine_choices():
+            self.engine_combo.addItem(label, value)
         self.engine_combo.setToolTip(tr('engine_tip'))
 
-        current_mode = self.config.get_transcription_engine_mode()
+        current_mode = self._svc.engine_mode()
         idx = self.engine_combo.findData(current_mode)
         if idx < 0:
             idx = self.engine_combo.findData('auto')
@@ -173,7 +173,7 @@ class ProfileSelectionDialog(QDialog):
         self.dialogue_checkbox.setToolTip(tr('dialogue_style_tip'))
         self.dialogue_checkbox.blockSignals(True)
         self.dialogue_checkbox.setChecked(
-            bool(self.config.get('dialogue_style_enabled', True)))
+            self._svc.dialogue_style())
         self.dialogue_checkbox.blockSignals(False)
         self.dialogue_checkbox.toggled.connect(self._on_dialogue_style_toggled)
         dialogue_layout.addWidget(self.dialogue_checkbox)
@@ -262,62 +262,55 @@ class ProfileSelectionDialog(QDialog):
         info_layout = QVBoxLayout()
         info_layout.setSpacing(4)  # 5 → 4
         
-        # Get config
-        config = ProfileConfig.get_profile_config(profile)
-        
+        card = next(c for c in TS.profile_cards() if c.value == profile.value)
+
         # --- RIGA 1: Nome + Badge ---
         name_layout = QHBoxLayout()
         name_layout.setSpacing(8)
-        
-        name_label = QLabel(f"<b>{tr(f'profile_{profile.value}_name')}</b>")
+
+        name_label = QLabel(card.name_html)
         name_label.setObjectName("profileName")
         name_layout.addWidget(name_label)
-        
+
         # Badge raccomandato per BALANCED
-        if profile == TranscriptionProfile.BALANCED:
-            badge = QLabel(tr('recommended'))
+        if card.recommended_badge:
+            badge = QLabel(card.recommended_badge)
             badge.setObjectName("recommendedBadge")
             name_layout.addWidget(badge)
-        
+
         name_layout.addStretch()
         info_layout.addLayout(name_layout)
-        
+
         # --- RIGA 2: Descrizione (compatta) ---
-        desc_label = QLabel(tr(f'profile_{profile.value}_desc'))
+        desc_label = QLabel(card.description)
         desc_label.setObjectName("profileDesc")
         desc_label.setWordWrap(True)
         info_layout.addWidget(desc_label)
-        
+
         # --- RIGA 3: Parametri + Tempo (TUTTO SU UNA RIGA) ---
         params_layout = QHBoxLayout()
         params_layout.setSpacing(12)
-        
+
         # Parametri tecnici compatti
-        params_text = (
-            f"⚙️ Whisper · W:{config['num_workers']} | "
-            f"🎯 B:{config['beam_size']} | "
-            f"⚡ {self._format_speed(config['speed_factor'])} | "
-            f"✨ {config['quality_percent']:.0f}%"
-        )
-        params_label = QLabel(params_text)
+        params_label = QLabel(card.params)
         params_label.setObjectName("profileParams")
         params_layout.addWidget(params_label)
-        
+
         # Tempo stimato (stesso rigo)
-        time_label = QLabel(f"⏱️ ~{config['time_1h_audio_min']}min/h")
+        time_label = QLabel(card.time)
         time_label.setObjectName("profileTime")
         params_layout.addWidget(time_label)
-        
+
         params_layout.addStretch()
         info_layout.addLayout(params_layout)
-        
+
         # --- Warning se presente (compatto) ---
-        if 'warning' in config:
-            warning_label = QLabel(f"⚠️ {tr(f'profile_{profile.value}_warning')}")
+        if card.warning:
+            warning_label = QLabel(card.warning)
             warning_label.setObjectName("profileWarning")
             warning_label.setWordWrap(True)
             info_layout.addWidget(warning_label)
-        
+
         layout.addLayout(info_layout, stretch=1)
         
         frame.setLayout(layout)
@@ -327,21 +320,15 @@ class ProfileSelectionDialog(QDialog):
         """
         Formatta speed factor in percentuale leggibile
         """
-        if speed_factor > 1.0:
-            return f"+{int((speed_factor - 1) * 100)}%"
-        elif speed_factor < 1.0:
-            return f"{int((speed_factor - 1) * 100)}%"
-        else:
-            return "100%"
-    
+        return TS.format_speed(speed_factor)
+
     def _on_engine_changed(self, index: int):
         """Callback cambio motore di trascrizione: persistenza immediata."""
-        mode = self.engine_combo.itemData(index) or 'auto'
-        self.config.set_transcription_engine_mode(mode)
+        self._svc.set_engine_mode(self.engine_combo.itemData(index))
 
     def _on_dialogue_style_toggled(self, checked: bool):
         """Callback stile dialoghi professionale: persistenza immediata."""
-        self.config.set('dialogue_style_enabled', bool(checked))
+        self._svc.set_dialogue_style(checked)
 
     def on_profile_toggled(self, profile_value: str, checked: bool):
         """
@@ -352,8 +339,7 @@ class ProfileSelectionDialog(QDialog):
         """
         if checked:
             self.selected_profile = profile_value
-            if self.embed:
-                self.config.set_transcription_profile(profile_value)
+            self._svc.select_profile(profile_value, self.embed)
     
     def get_selected_profile(self) -> str:
         """
