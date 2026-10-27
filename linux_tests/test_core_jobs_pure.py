@@ -19,8 +19,9 @@ def _imports(path):
             yield node.module.split('.')[0]
 
 
-def test_core_jobs_non_importa_qt_ne_gui():
-    bad = {p.name: sorted(set(_imports(p)) & set(FORBIDDEN)) for p in (ROOT / 'core' / 'jobs').glob('*.py')}
+def test_core_jobs_e_services_non_importano_qt_ne_gui():
+    bad = {f'{p.parent.name}/{p.name}': sorted(set(_imports(p)) & set(FORBIDDEN))
+           for d in ('jobs', 'services') for p in (ROOT / 'core' / d).glob('*.py')}
     assert {k: v for k, v in bad.items() if v} == {}
 
 
