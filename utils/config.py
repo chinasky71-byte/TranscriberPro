@@ -63,6 +63,9 @@ class Config:
         # Folder the WebUI file picker opens on (empty = the first allowed
         # root). It must stay under an allowed root to be usable.
         'picker_start_dir': '',
+        # Glossario a resa fissa senza TMDB (nessuna chiave): nome della serie,
+        # es. 'monster-2022' -> ~/.transcriberpro/glossary/manual_monster-2022.json
+        'glossary_id': '',
         'last_input_folder': '',
         'shutdown_after_processing': False,
         

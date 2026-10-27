@@ -120,10 +120,12 @@ def run_variant(video: Path, variant: Dict[str, Any], work_dir: Path,
     process = subprocess.Popen([python or sys.executable, "-m", "core.pipeline_cli", str(args_path)],
                                cwd=str(ROOT), env=env, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=True, bufsize=1)
-    parsed = parse_events(process.stdout or [], started)
+    log_lines = []                                   # log completo: serve a verificare la config usata
+    parsed = parse_events(_tee(process.stdout or [], log_lines), started)
     process.wait()
     finished = time.time()
     # la pipeline scrive l'SRT accanto al video: si cerca li', poi in work_dir
+    (work_dir / f"log-{tag}.txt").write_text("".join(log_lines), encoding="utf-8")
     produced = next(iter(video.parent.glob(f"{video.stem}.*.srt")), None) \
         or next(iter(work_dir.glob(f"{video.stem}.*.srt")), None)
     kept = work_dir / f"out-{tag}.srt"
@@ -139,6 +141,13 @@ def run_variant(video: Path, variant: Dict[str, Any], work_dir: Path,
         "total_line": parsed["total_line"],
         "srt": str(kept) if kept.exists() else "",
     }
+
+
+def _tee(lines: Iterable[str], sink: List[str]) -> Iterable[str]:
+    """Passa le righe a valle e le accumula, per scrivere il log del run."""
+    for line in lines:
+        sink.append(line)
+        yield line
 
 
 def summarise(results: List[Dict[str, Any]]) -> str:
