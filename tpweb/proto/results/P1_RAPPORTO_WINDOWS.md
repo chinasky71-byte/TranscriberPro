@@ -58,3 +58,43 @@ Il totale (3%) e' lontano dall'obiettivo dell'1%, ma e' quasi tutto testo (regio
 - `webview.__version__` stampa `?` nel JSON; la versione installata e' 6.2.1.
 - La misura di memoria Qt e' un solo campione a 30 s, con il codice di una copia del progetto di produzione; il file `p1_pywebview_windows.json` e' quello della prova con persona (la prova `--auto` e' riassunta qui sopra, il suo file e' stato sovrascritto).
 - Pixel: una sola schermata (titolo, due pulsanti, barra); non sono state misurate le schermate reali dell'app.
+
+---
+
+# P2 (27/10/2026)
+
+| Prova | Esito | Misura chiave |
+|---|---|---|
+| P2a avvio ripetuto (10 avvii) | **OK** | 10/10 riusciti, durata min 1,92 s, media 2,03 s, max 2,75 s; nessun avvio bloccato |
+| P2a avvio a freddo | vedi sotto | |
+| P2b calibrazione del testo | **DIFFERENZA** (testo NON sotto il 2%) | totale schermata 4,5% → 4,0% (100%), 4,3% → 4,0% (125%), 4,2% → 3,8% (150%) |
+| P2c trascinamento fisico del proprietario | **DA FARE** (serve la persona) | |
+
+## P2a: avvio di pywebview
+- 10 avvii consecutivi, ciascuno in un processo nuovo con limite di 45 s: tappe (processo → server → finestra creata → GUI avviata → `loaded` → `evaluate_js`) tutte raggiunte, `loaded` a circa 0,6 s. Nessun avvio non riuscito, quindi nessuna tappa di blocco da riferire (`p2_startup_windows_10avvii.json`).
+- Il blocco di oltre 4 minuti del primo `--auto` non si e' riprodotto. Al momento delle prove i WebView2 presenti erano 12 processi di componenti di Windows (`SearchHost` e `WidgetBoard`), non chiudibili senza forzare la shell; il profilo di pywebview e' separato e non era in uso prima di ogni avvio.
+
+## P2b: calibrazione del testo (CSS contro le schermate Qt gia' catturate)
+| Scala | Elemento | Prima | Dopo | Migliori: peso / dimensione / letter-spacing / spostamento |
+|---|---|---|---|---|
+| 100% | Titolo | 13,21% | 12,15% | 300 / x0,97 / -0,3 px / -4 px |
+| 100% | «Aggiungi file» | 11,29% | 8,10% | 350 / x0,97 / 0 / 0 |
+| 100% | «Avvia» | 2,74% | **1,49%** | 550 / x0,99 / 0 / 0 |
+| 125% | Titolo | 12,69% | 11,83% | 300 / x1,01 / -0,4 px / 0,5 px |
+| 125% | «Aggiungi file» | 10,63% | 9,10% | 400 / x1,01 / 0 / 0 |
+| 125% | «Avvia» | 3,42% | 2,67% | 500 / x1,02 / -0,1 px / 0 |
+| 150% | Titolo | 11,97% | 10,94% | 300 / x0,99 / 0,2 px / 3 px |
+| 150% | «Aggiungi file» | 10,32% | 7,65% | 450 / x0,99 / 0 / 0 |
+| 150% | «Avvia» | 2,83% | 2,38% | 500 / x1,01 / 0 / 0 |
+
+Totale schermata prima → dopo: 100% 4,48 → 3,96%; 125% 4,35 → 4,00%; 150% 4,21 → 3,75%. Barra: 0,64-0,70%.
+
+- **Il testo NON scende sotto il 2%** (solo «Avvia» a 100%: 1,49%). Titolo e «Aggiungi file» restano al 7,7-12%.
+- Guardando `p2_calibrazione_windows/*_dopo_diff.png`: **non e' solo antialiasing dei bordi**. Il diff mostra ancora le lettere raddoppiate/spessite (titolo e «Aggiungi file»), cioe' una differenza di forma/larghezza dei glifi. Inoltre il titolo ha il peso al limite inferiore della ricerca (300) e spostamenti anomali (-4, +0,5, +3 px): l'ottimizzatore sta compensando una diversita' che non si risolve con questi parametri (e un peso 300 non sarebbe una scelta credibile per il prodotto).
+- Sulla barra, nel diff a 150%, si vede una linea sul bordo inferiore e a sinistra: scarto di circa 1 px nel posizionamento.
+- Lo scarto «prima» del totale (4,2-4,5%) non coincide con quello di P1e (3,0-3,3%): probabilmente P2b misura una pagina/ritaglio diverso da quello di P1e; non verificato.
+- Possibile causa (ipotesi, non verificata): Qt su Windows disegna il font con un'altra rasterizzazione (DirectWrite/GDI, hinting, istanza del font variabile) rispetto a Chromium, e questo non si recupera cambiando peso e dimensione. Servirebbe confrontare i font effettivi usati dai due motori.
+
+## Dubbi
+- Il criterio di un testo «sotto il 2%» sembra poco realistico con Chromium e Qt su Windows; conviene probabilmente valutare il testo a parte (come gia' scritto nel piano) con una soglia piu' alta, oppure per forme/posizione/larghezza e non pixel per pixel.
+- L'avvio realmente a freddo (dopo un riavvio del PC o 10+ minuti senza WebView2) non e' stato riprodotto con certezza, vedi sotto.
