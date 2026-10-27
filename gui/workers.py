@@ -32,6 +32,7 @@ from typing import List, Optional
 
 from core.jobs.engine import QueueEngine, QueueListener
 from core.jobs.job_queue import JobQueue
+from core.services.metadata_service import find_poster
 from utils.logger import setup_logger
 
 logger = setup_logger()
@@ -58,51 +59,34 @@ class PosterLoaderWorker(QThread):
         self.is_cancelled = False
     
     def run(self):
-        """Carica poster in background"""
+        """Carica poster in background (la ricerca e il download sono in core/services/metadata_service.py::find_poster)"""
         try:
             if self.is_cancelled:
                 return
-            
+
             video_name = Path(self.video_path).stem
             logger.debug(f"PosterLoader: Caricamento info per '{video_name}'")
-            
-            # API call TMDB (1-2 sec)
-            # nome COMPLETO (con estensione): parse_filename fa gia' .stem, un secondo .stem toglierebbe
-            # il suffisso finale ('.E26' in 'Titolo.E26') e il nome verrebbe cercato come film
-            media_info = self.tmdb_client.get_media_info(Path(self.video_path).name)
-            
-            if self.is_cancelled:
+
+            res = find_poster(self.video_path, self.tmdb_client, lambda: self.is_cancelled)
+            if res.status == 'cancelled':
                 return
-            
-            if media_info and 'poster_path' in media_info and media_info['poster_path']:
-                poster_path = media_info['poster_path']
-                
-                # Download poster (1-3 sec)
-                poster_local_path = self.tmdb_client.download_poster(
-                    poster_path, 
-                    media_info['title']
-                )
-                
-                if self.is_cancelled:
+            if res.status == 'found':
+                from PyQt6.QtGui import QPixmap
+                pixmap = QPixmap(str(res.path))
+
+                if not pixmap.isNull():
+                    logger.debug(f"✅ Poster caricato: {res.title}")
+                    self.poster_loaded.emit(pixmap)
                     return
-                
-                if poster_local_path and poster_local_path.exists():
-                    from PyQt6.QtGui import QPixmap
-                    pixmap = QPixmap(str(poster_local_path))
-                    
-                    if not pixmap.isNull():
-                        logger.debug(f"✅ Poster caricato: {media_info['title']}")
-                        self.poster_loaded.emit(pixmap)
-                        return
-            
+
             # Nessun poster trovato
             logger.debug(f"⚠️ Nessun poster disponibile per '{video_name}'")
             self.poster_failed.emit()
-            
+
         except Exception as e:
             logger.error(f"❌ Errore caricamento poster: {e}")
             self.poster_failed.emit()
-    
+
     def cancel(self):
         """Cancella caricamento in corso"""
         self.is_cancelled = True
