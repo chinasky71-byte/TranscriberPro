@@ -3,6 +3,14 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.39 — 2026-10-27 — G2: logica di Sync SRT e Glossario fuori dalla GUI (PR #41, #42)
+
+- **Sync SRT:** `SyncBatchEngine` (ciclo della coda multi-file: un sottoprocesso `core.sync_cli` per coppia, ambiente, avanzamento, kill dell'albero) e `SyncRunner` (sync di un solo video) in `core/jobs/`; `SyncBatchPlan` (stato della tabella delle coppie: abbinamento, scelta dell'SRT, spunte, stati, duplicati, riepilogo) in `core/services/`. `SyncBatchWorker`, `SyncWorker` e `SyncDialog` restano la vista, con gli stessi segnali nello stesso ordine.
+- **Glossario per show:** `GlossaryRunEngine` (lancio nel `venv_glossary`, righe JSON, annullamento con kill dell'albero Qwen, pulizia dei file temporanei) in `core/jobs/`; `glossary_service` (nomi, candidati TMDB, richiesta di avvio, report, salvataggio) in `core/services/`. Worker e dialogo restano la vista (i vecchi nomi sono alias).
+- **GUI invariata, nessun file di dati cambia formato.** I worker non formano piu' cicli di riferimenti (listener con riferimento debole): un `QThread` non viene piu' distrutto in un momento imprevedibile dal garbage collector.
+- **Verifica:** test di caratterizzazione scritti sul vecchio codice e passati identici su master e sul nuovo; mutazioni mirate tutte rilevate (salvo poche equivalenti documentate); prova su Windows con GUI vera e con file reali: SRT sincronizzato con lo stesso SHA256 di master, coda reale con coppia annullata identica, glossario reale su uno show di 8 episodi (25 schede, Salva funzionante, nessun processo orfano).
+- Scopo: base per la futura GUI web (`docs/WEBUI_PIANO.md`); nessun cambiamento visibile all'utente.
+
 ## 1.34.38 — 2026-10-27 — G1: logica di cronologia, metadati e impostazioni fuori dalla GUI (PR #36, #37, #38)
 
 - **Nuovo `core/services/` (senza Qt e senza `gui`, regola verificata da un test):** `HistoryService` (cronologia: caricamento, salvataggio atomico, statistiche, ricerca, formati), `TitleResolver` e `find_poster` (titoli per l'overlay e ricerca locandina), e un servizio per ciascuna scheda di impostazioni: Generali (lingua, Library Scanner), Batch adattivo, OCR, OpenSubtitles. `JobOptionsService` e `SettingsService` si spostano qui (i vecchi nomi in `gui/services` sono alias dello stesso modulo).
