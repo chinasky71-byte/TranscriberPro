@@ -27,6 +27,9 @@ def qt(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg.Config, 'CONFIG_FILE', tmp_path / 'home' / '.transcriberpro' / 'config.json', raising=False)
     cfg.reset_config()
     yield app
+    for w in app.topLevelWidgets():          # niente finestre superstiti fino al prossimo test (distruzione imprevedibile)
+        w.deleteLater()
+    app.processEvents()
     cfg.reset_config()
 
 

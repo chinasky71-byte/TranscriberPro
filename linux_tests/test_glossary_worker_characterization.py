@@ -60,7 +60,7 @@ def test_run_ok(qt, gw, tmp_path):
         ('log_line', ('avvio ok',)),
         ('log_line', ('STUB_ENV {"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}',)),
         ('log_line', ('STUB_CWD ' + str(ROOT),)),
-        ('log_line', ('STUB_RAW {"name": "ok", "show_dir": "' + str(tmp_path) + '"}',)),
+        ('log_line', ('STUB_RAW {"name": "ok", "show_dir": ' + json.dumps(str(tmp_path)) + '}',)),
         ('gate', ({'ev': 'gate', 'ok': True, 'blocks': 7000, 'need_blocks': 6000},)),
         ('progress', ('align', 1, 4, 'uno')),
         ('progress', ('', 0, 0, '')),

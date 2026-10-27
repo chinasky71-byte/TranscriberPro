@@ -7,6 +7,7 @@ Adattatore Qt sul motore senza Qt `core/jobs/glossary_run.py` (`GlossaryRunEngin
 dal thread del worker nello stesso ordine di prima. Il lancio di core/glossary_builder_cli.py nel venv dedicato venv_glossary/, la
 lettura delle righe JSON, l'annullamento e la pulizia dei file temporanei vivono nel motore.
 """
+import weakref
 from pathlib import Path
 
 from PyQt6.QtCore import QThread, pyqtSignal
@@ -25,8 +26,15 @@ def venv_glossary_available() -> bool:
 
 
 class _SignalListener(GlossaryListener):
+    """Riferimento DEBOLE al worker: niente ciclo worker -> motore -> listener -> worker (un QThread in un ciclo viene distrutto solo dal
+    garbage collector ciclico, in un momento qualsiasi)."""
+
     def __init__(self, worker: 'GlossaryBuilderWorker'):
-        self._w = worker
+        self._ref = weakref.ref(worker)
+
+    @property
+    def _w(self):
+        return self._ref()
 
     def on_gate(self, gate):
         self._w.gate.emit(gate)
