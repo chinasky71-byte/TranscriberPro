@@ -16,3 +16,5 @@ pywebview PyQt6==6.10.2` (e `PyQt6-WebEngine==6.10.0` solo per il guscio di rise
 | `p2_pywebview_startup.py` | **Windows** | avvio ripetuto di pywebview, con tappe e limite di tempo (indaga il blocco) |
 
 Risultati in `results/` (JSON + immagini). Le misure di `*_linux.json` sono quelle del cloud e servono solo a provare gli strumenti.
+
+**Regola di verifica degli strumenti:** prima di fidarsi di una misura nuova, la si fa riprodurre un valore gia' noto (es. il «prima» di `p2_calibrate_text.py` deve coincidere con il totale di `p1_pixel.py` sugli stessi dati). Lo scarto della v1 del calibratore (barra 12 px invece dei 14 px reali di Qt) si e' visto cosi'.

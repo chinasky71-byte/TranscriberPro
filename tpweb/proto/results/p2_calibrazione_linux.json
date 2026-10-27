@@ -1,126 +1,220 @@
 {
+  "versione": 2,
   "system": "Linux 6.18.44-fc-v165",
   "soglia_per_pixel": 24,
-  "scale": {
-    "1.0": {
-      "totale_prima_pct": 4.346,
-      "elementi": {
-        "titolo": {
-          "prima_pct": 12.36,
-          "dopo_pct": 10.96,
-          "migliori": {
-            "peso": 350,
-            "dimensione_x": 0.97,
-            "letter_spacing_px": 0.4,
-            "spostamento_px": 3.0
+  "profili": {
+    "predefinito": {
+      "argomenti_browser": [],
+      "css": "",
+      "scale": {
+        "1.0": {
+          "totale_prima_pct": 2.769,
+          "elementi": {
+            "titolo": {
+              "prima_pct": 10.13,
+              "dopo_pct": 4.9,
+              "peso_qss_originale": 600,
+              "migliori": {
+                "peso": 400,
+                "dimensione_x": 1.01,
+                "letter_spacing_px": 0.0,
+                "spostamento_px": 2.5,
+                "spostamento_verticale_px": 0.5
+              },
+              "peso_al_limite_della_ricerca": false,
+              "spostamento_anomalo": true
+            },
+            "primario": {
+              "prima_pct": 9.11,
+              "dopo_pct": 2.5,
+              "peso_qss_originale": 500,
+              "migliori": {
+                "peso": 400,
+                "dimensione_x": 0.97,
+                "letter_spacing_px": 0.0,
+                "spostamento_px": 0.0,
+                "spostamento_verticale_px": 0.0
+              },
+              "peso_al_limite_della_ricerca": false,
+              "spostamento_anomalo": false
+            },
+            "avvia": {
+              "prima_pct": 3.41,
+              "dopo_pct": 1.01,
+              "peso_qss_originale": 600,
+              "migliori": {
+                "peso": 400,
+                "dimensione_x": 0.99,
+                "letter_spacing_px": 0.0,
+                "spostamento_px": 0.0,
+                "spostamento_verticale_px": 0.0
+              },
+              "peso_al_limite_della_ricerca": false,
+              "spostamento_anomalo": false
+            }
           },
-          "peso_qss_originale": 600
+          "totale_dopo_pct": 1.115,
+          "barra_pct": 0.314
         },
-        "primario": {
-          "prima_pct": 10.75,
-          "dopo_pct": 9.15,
-          "migliori": {
-            "peso": 400,
-            "dimensione_x": 0.97,
-            "letter_spacing_px": 0.1,
-            "spostamento_px": 0.0
+        "1.5": {
+          "totale_prima_pct": 2.635,
+          "elementi": {
+            "titolo": {
+              "prima_pct": 9.2,
+              "dopo_pct": 5.82,
+              "peso_qss_originale": 600,
+              "migliori": {
+                "peso": 350,
+                "dimensione_x": 1.01,
+                "letter_spacing_px": 0.0,
+                "spostamento_px": 1.5,
+                "spostamento_verticale_px": 0.5
+              },
+              "peso_al_limite_della_ricerca": false,
+              "spostamento_anomalo": false
+            },
+            "primario": {
+              "prima_pct": 9.07,
+              "dopo_pct": 5.46,
+              "peso_qss_originale": 500,
+              "migliori": {
+                "peso": 400,
+                "dimensione_x": 0.98,
+                "letter_spacing_px": 0.0,
+                "spostamento_px": 0.0,
+                "spostamento_verticale_px": 0.0
+              },
+              "peso_al_limite_della_ricerca": false,
+              "spostamento_anomalo": false
+            },
+            "avvia": {
+              "prima_pct": 3.54,
+              "dopo_pct": 2.15,
+              "peso_qss_originale": 600,
+              "migliori": {
+                "peso": 300,
+                "dimensione_x": 0.97,
+                "letter_spacing_px": 0.0,
+                "spostamento_px": 0.0,
+                "spostamento_verticale_px": -1.5
+              },
+              "peso_al_limite_della_ricerca": true,
+              "spostamento_anomalo": false
+            }
           },
-          "peso_qss_originale": 500
-        },
-        "avvia": {
-          "prima_pct": 3.13,
-          "dopo_pct": 2.7,
-          "migliori": {
-            "peso": 600,
-            "dimensione_x": 0.97,
-            "letter_spacing_px": 0.1,
-            "spostamento_px": 0.0
-          },
-          "peso_qss_originale": 600
+          "totale_dopo_pct": 1.643,
+          "barra_pct": 0.354
         }
-      },
-      "totale_dopo_pct": 3.939,
-      "barra_pct": 0.845
+      }
     },
-    "1.25": {
-      "totale_prima_pct": 4.245,
-      "elementi": {
-        "titolo": {
-          "prima_pct": 12.11,
-          "dopo_pct": 10.96,
-          "migliori": {
-            "peso": 300,
-            "dimensione_x": 1.01,
-            "letter_spacing_px": -0.4,
-            "spostamento_px": 0.0
+    "crenatura_off": {
+      "argomenti_browser": [],
+      "css": "font-kerning:none;font-feature-settings:\"kern\" 0;",
+      "scale": {
+        "1.0": {
+          "totale_prima_pct": 2.841,
+          "elementi": {
+            "titolo": {
+              "prima_pct": 10.08,
+              "dopo_pct": 4.9,
+              "peso_qss_originale": 600,
+              "migliori": {
+                "peso": 400,
+                "dimensione_x": 1.01,
+                "letter_spacing_px": 0.0,
+                "spostamento_px": 2.5,
+                "spostamento_verticale_px": 0.5
+              },
+              "peso_al_limite_della_ricerca": false,
+              "spostamento_anomalo": true
+            },
+            "primario": {
+              "prima_pct": 9.44,
+              "dopo_pct": 2.5,
+              "peso_qss_originale": 500,
+              "migliori": {
+                "peso": 400,
+                "dimensione_x": 0.97,
+                "letter_spacing_px": 0.0,
+                "spostamento_px": 0.0,
+                "spostamento_verticale_px": 0.0
+              },
+              "peso_al_limite_della_ricerca": false,
+              "spostamento_anomalo": false
+            },
+            "avvia": {
+              "prima_pct": 3.93,
+              "dopo_pct": 1.57,
+              "peso_qss_originale": 600,
+              "migliori": {
+                "peso": 450,
+                "dimensione_x": 0.97,
+                "letter_spacing_px": -0.2,
+                "spostamento_px": -0.5,
+                "spostamento_verticale_px": 0.0
+              },
+              "peso_al_limite_della_ricerca": false,
+              "spostamento_anomalo": false
+            }
           },
-          "peso_qss_originale": 600
+          "totale_dopo_pct": 1.167,
+          "barra_pct": 0.314
         },
-        "primario": {
-          "prima_pct": 10.07,
-          "dopo_pct": 9.27,
-          "migliori": {
-            "peso": 350,
-            "dimensione_x": 0.99,
-            "letter_spacing_px": 0.0,
-            "spostamento_px": 0.0
+        "1.5": {
+          "totale_prima_pct": 2.663,
+          "elementi": {
+            "titolo": {
+              "prima_pct": 9.17,
+              "dopo_pct": 5.82,
+              "peso_qss_originale": 600,
+              "migliori": {
+                "peso": 350,
+                "dimensione_x": 1.01,
+                "letter_spacing_px": 0.0,
+                "spostamento_px": 1.5,
+                "spostamento_verticale_px": 0.5
+              },
+              "peso_al_limite_della_ricerca": false,
+              "spostamento_anomalo": false
+            },
+            "primario": {
+              "prima_pct": 9.03,
+              "dopo_pct": 5.46,
+              "peso_qss_originale": 500,
+              "migliori": {
+                "peso": 400,
+                "dimensione_x": 0.98,
+                "letter_spacing_px": 0.0,
+                "spostamento_px": 0.0,
+                "spostamento_verticale_px": 0.0
+              },
+              "peso_al_limite_della_ricerca": false,
+              "spostamento_anomalo": false
+            },
+            "avvia": {
+              "prima_pct": 3.93,
+              "dopo_pct": 2.28,
+              "peso_qss_originale": 600,
+              "migliori": {
+                "peso": 400,
+                "dimensione_x": 0.97,
+                "letter_spacing_px": -0.2,
+                "spostamento_px": -0.5,
+                "spostamento_verticale_px": -1.5
+              },
+              "peso_al_limite_della_ricerca": false,
+              "spostamento_anomalo": false
+            }
           },
-          "peso_qss_originale": 500
-        },
-        "avvia": {
-          "prima_pct": 3.78,
-          "dopo_pct": 3.52,
-          "migliori": {
-            "peso": 550,
-            "dimensione_x": 1.01,
-            "letter_spacing_px": 0.0,
-            "spostamento_px": 0.0
-          },
-          "peso_qss_originale": 600
+          "totale_dopo_pct": 1.655,
+          "barra_pct": 0.354
         }
-      },
-      "totale_dopo_pct": 3.966,
-      "barra_pct": 0.811
-    },
-    "1.5": {
-      "totale_prima_pct": 4.035,
-      "elementi": {
-        "titolo": {
-          "prima_pct": 11.38,
-          "dopo_pct": 10.26,
-          "migliori": {
-            "peso": 300,
-            "dimensione_x": 0.99,
-            "letter_spacing_px": -0.2,
-            "spostamento_px": -0.5
-          },
-          "peso_qss_originale": 600
-        },
-        "primario": {
-          "prima_pct": 9.16,
-          "dopo_pct": 8.45,
-          "migliori": {
-            "peso": 400,
-            "dimensione_x": 1.01,
-            "letter_spacing_px": 0.0,
-            "spostamento_px": 0.0
-          },
-          "peso_qss_originale": 500
-        },
-        "avvia": {
-          "prima_pct": 2.99,
-          "dopo_pct": 2.69,
-          "migliori": {
-            "peso": 500,
-            "dimensione_x": 1.01,
-            "letter_spacing_px": 0.0,
-            "spostamento_px": 0.0
-          },
-          "peso_qss_originale": 600
-        }
-      },
-      "totale_dopo_pct": 3.768,
-      "barra_pct": 0.863
+      }
     }
-  }
+  },
+  "riassunto_totale_dopo_medio_pct": {
+    "predefinito": 1.379,
+    "crenatura_off": 1.411
+  },
+  "profilo_migliore": "predefinito"
 }
