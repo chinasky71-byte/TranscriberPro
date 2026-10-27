@@ -16,6 +16,9 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 from gui.design_tokens import T
 from gui.theme import set_flat
+from core.services.general_settings_service import (
+    GeneralSettingsService, language_at, language_index, ping_scanner,
+)
 from utils.config import get_config
 from utils.translations import tr
 
@@ -32,17 +35,8 @@ class _PingWorker(QThread):
         self._api_key = api_key
 
     def run(self):
-        try:
-            import requests
-            r = requests.get(
-                f"{self._url}/api/stats",
-                headers={'X-API-Key': self._api_key},
-                timeout=4,
-            )
-            r.raise_for_status()
-            self.result.emit(True, f"Connesso — HTTP {r.status_code}")
-        except Exception as e:
-            self.result.emit(False, str(e))
+        ok, msg = ping_scanner(self._url, self._api_key)
+        self.result.emit(ok, msg)
 
 
 class GeneralSettingsWidget(QWidget):
@@ -54,6 +48,7 @@ class GeneralSettingsWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.config = get_config()
+        self._svc = GeneralSettingsService(self.config)
         self._init_ui()
         self._load_values()
 
@@ -144,23 +139,21 @@ class GeneralSettingsWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _load_values(self):
-        lang_pref = self.config.get('language', 'auto')
-        idx = {'auto': 0, 'it': 1, 'en': 2}.get(lang_pref, 0)
+        idx = language_index(self._svc.language())
         self.lang_combo.blockSignals(True)
         self.lang_combo.setCurrentIndex(idx)
         self.lang_combo.blockSignals(False)
 
-        self.ls_url_edit.setText(self.config.get('library_scanner_url', ''))
-        self.ls_key_edit.setText(self.config.get('library_scanner_api_key', ''))
+        self.ls_url_edit.setText(self._svc.scanner_url())
+        self.ls_key_edit.setText(self._svc.scanner_api_key())
         if hasattr(self, 'ls_map_edit'):
             self.ls_map_edit.blockSignals(True)
-            self.ls_map_edit.setPlainText(self.config.get('library_scanner_path_map', ''))
+            self.ls_map_edit.setPlainText(self._svc.scanner_path_map())
             self.ls_map_edit.blockSignals(False)
 
     def _on_lang_changed(self, index: int):
-        mapping = {0: 'auto', 1: 'it', 2: 'en'}
-        chosen = mapping[index]
-        self.config.set('language', chosen)
+        chosen = language_at(index)
+        self._svc.set_language(chosen)
         logger.info(f"Lingua interfaccia cambiata: {chosen}")
         QMessageBox.information(
             self,
@@ -169,18 +162,14 @@ class GeneralSettingsWidget(QWidget):
         )
 
     def _on_ls_url_changed(self):
-        val = self.ls_url_edit.text().strip()
-        self.config.set('library_scanner_url', val)
+        val = self._svc.set_scanner_url(self.ls_url_edit.text())
         logger.info(f"Library Scanner URL aggiornato: {val}")
 
     def _on_ls_map_changed(self):
-        text = self.ls_map_edit.toPlainText()
-        if text != self.config.get('library_scanner_path_map', ''):   # niente scrittura su disco se non cambia nulla
-            self.config.set('library_scanner_path_map', text)
+        self._svc.set_scanner_path_map(self.ls_map_edit.toPlainText())   # niente scrittura su disco se non cambia nulla
 
     def _on_ls_key_changed(self):
-        val = self.ls_key_edit.text().strip()
-        self.config.set('library_scanner_api_key', val)
+        self._svc.set_scanner_api_key(self.ls_key_edit.text())
         logger.info("Library Scanner API key aggiornata")
 
     def _toggle_key_visibility(self, checked: bool):
