@@ -125,3 +125,24 @@ def test_tmdb_id_non_numerico(tmp_path, monkeypatch):
     with TestClient(app) as client:
         response = client.post("/glossary/build", data={"source": "tmdb", "tmdb_id": "monster"})
         assert "must be a number" in response.text
+
+
+def test_elenco_con_bullet_e_intestazioni():
+    """Formato copiato da una pagina (bullet + intestazioni in italiano)."""
+    testo = """Conduzione
+
+• Giorgia (per il terzo anno consecutivo)
+
+Giudici
+
+• Francesco Gabbani (confermato)
+• Jake La Furia (confermato)
+• Paola Iezzi (confermata)
+• Irama (new entry)"""
+    termini = fixed.parse_cast_text(testo)
+    assert termini["Giorgia"] == "Giorgia"
+    assert "Francesco Gabbani" in termini and "Jake La Furia" in termini
+    assert "Paola Iezzi" in termini and termini["Irama"] == "Irama"
+    assert "Jake" in termini and "Furia" in termini      # anche i nomi singoli
+    assert not any(t.lower() in ("conduzione", "giudici") for t in termini)
+    assert not any("•" in t or "(" in t for t in termini)
