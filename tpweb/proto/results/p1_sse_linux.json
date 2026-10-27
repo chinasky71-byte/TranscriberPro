@@ -1,0 +1,28 @@
+{
+  "lines": 5000,
+  "msgs": 5101,
+  "batches": 72,
+  "domLines": 5000,
+  "latency_ms": {
+    "avg": 131.22255328682633,
+    "p50": 132.98940658569336,
+    "p95": 136.383056640625,
+    "max": 264.7075653076172
+  },
+  "longtasks": {
+    "count": 1,
+    "max_ms": 265,
+    "total_ms": 265
+  },
+  "js_heap_mb": 2.737703323364258,
+  "browser": "141.0.7390.37",
+  "wall_s": 11.19,
+  "python_cpu_s": 0.32,
+  "params": {
+    "burst": 5000,
+    "rate": 10.0,
+    "seconds": 10.0,
+    "channel": null
+  },
+  "system": "Linux 6.18.44-fc-v165 / Python 3.13.16"
+}
