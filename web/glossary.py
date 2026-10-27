@@ -186,6 +186,8 @@ def parse_cast_text(text: str) -> Dict[str, str]:
     skip = {"himself", "herself", "narrator", "unknown", "self", "voice",
             "guest", "recurring", "main", "cast", "characters"}
 
+    particles = {"da", "de", "di", "del", "della", "dei", "van", "von", "la", "le", "los", "the", "mc"}
+
     def add(name: str) -> None:
         cleaned = re.sub(r"\s*\([^)]*\)", "", name).strip(" -\t\"'")
         cleaned = re.sub(r"^(as|e|and)\s+", "", cleaned, flags=re.IGNORECASE).strip()
@@ -195,6 +197,11 @@ def parse_cast_text(text: str) -> Dict[str, str]:
         alias = re.match(r"^[^\"]*\"([^\"]+)\"", cleaned)
         if alias and len(alias.group(1)) >= 3:
             terms.setdefault(alias.group(1), alias.group(1))
+        # Anche i singoli nomi: nei dialoghi si dice "Richie", non "Richie Stevenson",
+        # e l'errore da correggere era proprio "Ricci" per "Richie".
+        for part in re.findall(r"[A-ZÀ-Ý][A-Za-zà-ÿ'’]{2,}", cleaned):
+            if part.lower() not in particles:
+                terms.setdefault(part, part)
 
     lines = [re.sub(r"\[[^\]]*\]", "", raw).strip() for raw in (text or "").splitlines()]
     index = 0
