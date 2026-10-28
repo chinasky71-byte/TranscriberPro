@@ -228,6 +228,7 @@ def test_batch_attiva_disattiva_ripristina_e_salva(env):
     after = api(page, '/api/settings')['adaptive_batch']
     assert (after['max_size'], after['high_threshold'], after['enabled']) == (40, 0.9, True)
     page.click('[data-testid=ab-reset]')                                # Ripristina riempie il modulo, non scrive
+    settle(page)
     assert spin('max').input_value() != '40'
     assert api(page, '/api/settings')['adaptive_batch']['max_size'] == 40
     spin('min').fill('99'); spin('min').press('Tab')
@@ -239,10 +240,13 @@ def test_ocr_strategia_lingua_soglia_worker_e_scrittura(env):
     page = env.open()
     open_tab(page, 'ocr')
     tick(page, 'oc-auto')
+    settle(page)
     page.fill('[data-testid=oc-lang]', 'ita+eng'); page.press('[data-testid=oc-lang]', 'Enter')
     page.locator('[data-testid=oc-conf]').fill('70 %'); page.press('[data-testid=oc-conf]', 'Tab')
+    settle(page)
     page.locator('[data-testid=oc-workers]').fill('4'); page.press('[data-testid=oc-workers]', 'Tab')
     page.select_option('[data-testid=oc-writeback]', 'sidecar')
+    settle(page)
     page.fill('[data-testid=oc-tess]', '/usr/bin/tesseract'); page.press('[data-testid=oc-tess]', 'Enter')
     settle(page)
     o = api(page, '/api/settings')['ocr']
@@ -250,8 +254,10 @@ def test_ocr_strategia_lingua_soglia_worker_e_scrittura(env):
         ('auto', 'ita+eng', 70, 4, 'sidecar', '/usr/bin/tesseract')
     page.locator('[data-testid=oc-workers]').fill('0'); page.press('[data-testid=oc-workers]', 'Tab')
     settle(page)
+    settle(page)
     assert page.locator('[data-testid=oc-workers]').input_value() == IT['ocr_workers_auto']       # valore speciale come QSpinBox
     tick(page, 'oc-review')
+    settle(page)
     settle(page)
     assert api(page, '/api/settings')['ocr']['strategy'] == 'review'
 

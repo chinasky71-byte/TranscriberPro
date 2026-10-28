@@ -35,8 +35,8 @@ def translator_available() -> bool:
 class EnvJobs:
     """Un lavoro alla volta per tipo (`llm-download`, `diarization-test`): righe di stato come eventi del bus."""
 
-    def __init__(self, bus: EventBus, runner_cls=EnvCliRunner):
-        self.bus, self.runner_cls = bus, runner_cls
+    def __init__(self, bus: EventBus, runner_cls=None):
+        self.bus, self.runner_cls = bus, runner_cls or EnvCliRunner
         self._lock = threading.Lock()
         self.state: Dict[str, dict] = {}
 
