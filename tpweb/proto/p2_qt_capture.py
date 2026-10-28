@@ -128,8 +128,8 @@ snap(state)
 def run_state(scale, state, out, platform, home):
     code = CHILD % {'root': str(ROOT), 'home': str(home), 'platform': platform, 'out': str(out), 'state': state}
     env = dict(os.environ, QT_SCALE_FACTOR=str(scale), QT_ENABLE_HIGHDPI_SCALING='1')
-    r = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, env=env, cwd=str(ROOT))
-    return r.returncode, r.stderr[-1500:]
+    r = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, encoding='utf-8', errors='replace', env=env, cwd=str(ROOT))
+    return r.returncode, (r.stderr or '')[-1500:]          # su Windows il default (cp1252) rompe la lettura dell'uscita: UTF-8 esplicito
 
 
 def main():
