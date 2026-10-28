@@ -75,13 +75,16 @@ nothing reads).
 1. **Container validation** — build the three images on a host with a container
    daemon and run the `rocm` profile on the reference machine (Step 8
    acceptance is still open).
-2. **End-to-end run of the translation engine** — the single-engine branch
-   merged with the suite green and the code path exercised by unit tests, but
-   the acceptance run is still missing: an English clip through the pipeline
-   (expected ≈ WER 0.41 / chrF 0.76 / ~8.8 GB, the `llm` row of
-   `docs/benchmarks/2026-10-25/translation/summary.md`) and a French clip that
-   must fail with the refusal message. Numbers go into this file and a new
-   export under `docs/benchmarks/`.
+2. **End-to-end run of the translation engine — done.** A full film from the
+   WebUI (The Lost Leonardo, 1149 cues) completed in 316 s with the single engine,
+   the GGUF resolved, the watermark signed `TGemma` and 2 blocks left in English
+   out of 1158 (both proper names). The engine comparison that followed — eleven
+   configurations on an episode with a professional Italian reference — is in
+   `docs/benchmarks/2026-10-28-translation-engines.md`: TranslateGemma-12B Q4
+   remains the reference, EuroLLM-22B + rules is the only credible alternative
+   (better chrF, 3.8× the time), and the remaining margin is a human-curated
+   glossary rather than another model. The refusal path for a non-English source
+   is covered by tests, not yet by a real file.
 3. **Library scanner in the WebUI** — separate FastAPI + SQLite service, needs
    a database location decision and real media to validate (`docs/webui/PLAN.md`,
    Step 6 notes).

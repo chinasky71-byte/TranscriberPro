@@ -27,6 +27,14 @@ venv/bin/python -m bench.run --suite translation --engines llm --repeat 3
 venv/bin/python -m bench.run --suite translation \
   --engines nllb,nllb_finetuned,llm --repeat 3
 
+# Translation engines against a professional reference (the 2026-10-28 campaign)
+venv/bin/python -m bench.translation_compare translate --engine translategemma \
+  --gguf models/translategemma-12b-gguf/translategemma-12b-it-finale-Q4_K_M.gguf \
+  --src <work>/en_professional.srt --ref <work>/it_professional.srt \
+  --out <work> --name tg12b_q4
+venv/bin/python -m bench.translation_compare translate --engine chat --family eurollm \
+  --gguf <models>/EuroLLM-22B-Instruct-2512.Q4_K_M.gguf --rules ...
+
 # Translation through a llama.cpp server
 venv/bin/python -m bench.run --suite translation \
   --engines http:gemma4-12b-dense,http:gpt-oss-20b --repeat 3 \
@@ -56,4 +64,5 @@ Method details: [`bench/README.md`](../../bench/README.md).
 
 | Date | Directory | Content |
 |---|---|---|
+| 2026-10-28 | [`2026-10-28-translation-engines.md`](2026-10-28-translation-engines.md) | Eleven translation engines against a professional Italian reference: table, defect taxonomy, what did not work, reproduce commands |
 | 2026-10-25 | [`2026-10-25/`](2026-10-25/README.md) | ASR and translation on the AMD reference machine. The translation table compares six engines: **historical**, four of them no longer exist (ADR-009). `llm` is the one that stayed. |
