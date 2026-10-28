@@ -17,7 +17,8 @@ let state = {
   ui: { filter: 'all', selected: [], anchor: null, current: null, tab: 'queue', scannerOpen: false, settings: null, tool: null },
   message: null,
   env: {},
-  tools: { glossary: { status: 'idle', log: [], report: null, error: null, gate: null, venv_available: true, phase: '', done: 0, total: 0, msg: '', run_info: null } },
+  tools: { sync: { status: 'idle', mode: null, progress: 0, rows_rt: {}, outcome: null, output_path: null, errors: [], log: [], plan: { rows: [], srt_files: [], runnable: 0, summary: { ready: 0, check: 0, nosrt: 0, left: 0 }, dirs: { video_dir: '', srt_dir: '', recursive: false } } },
+    glossary: { status: 'idle', log: [], report: null, error: null, gate: null, venv_available: true, phase: '', done: 0, total: 0, msg: '', run_info: null } },
   log: [],                                   // {id, text, kind}: le righe le decide il server (filtro, barre sul posto, colori)
   logOptions: { compact: true, pipeline_open: true },
   diag: { elapsed: '–', errors: '0', model: '–', translator: '–', engine: '–' },
@@ -115,6 +116,14 @@ function onMessages(msgs) {
       case 'gpu_badge': setState({ gpu: m.d }); break;
       case 'glossary_state': setState({ tools: { ...state.tools, glossary: { ...state.tools.glossary, ...m.d } } }); break;
       case 'glossary_log': setState({ tools: { ...state.tools, glossary: { ...state.tools.glossary, log: [...state.tools.glossary.log, m.d.line].slice(-300) } } }); break;
+      case 'sync_state': setState({ tools: { ...state.tools, sync: { ...state.tools.sync, ...m.d } } }); break;
+      case 'sync_log': {
+        const cur = state.tools.sync.log.slice();
+        if (m.d.op === 'update_last' && cur.length) cur[cur.length - 1] = m.d.line;
+        else { if (m.d.op === 'replace') cur.splice(m.d.remove_index, 1); cur.push(m.d.line); }
+        setState({ tools: { ...state.tools, sync: { ...state.tools.sync, log: cur.slice(-2000) } } });
+        break;
+      }
       case 'env_line': setState({ env: { ...state.env, [m.d.job]: { ...state.env[m.d.job], running: true, lines: [...((state.env[m.d.job] || {}).lines || []), m.d.line].slice(-50), last_line: m.d.line } } }); break;
       case 'env_done': setState({ env: { ...state.env, [m.d.job]: { ...state.env[m.d.job], running: false, exit_code: m.d.exit_code, last_line: m.d.last_line } } }); break;
       case 'scan_finished': selectLast(); structural = true; break;
