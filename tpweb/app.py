@@ -28,11 +28,12 @@ KEEPALIVE_S = 15
 def create_app(token: str, port: int, bus: Optional[EventBus] = None,
                get_state: Optional[Callable[[], dict]] = None, queue=None, history=None, config=None,
                opener: Optional[Callable[[str], None]] = None, mapped_roots: Optional[Callable[[], list]] = None,
-               sampler=None, on_quit: Optional[Callable[[], None]] = None) -> FastAPI:
+               sampler=None, on_quit: Optional[Callable[[], None]] = None, preview=None, gpu=None) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.state.bus = bus or EventBus()
     if get_state is None and queue is not None:
-        get_state = lambda: {'queue': queue.state()}      # noqa: E731
+        get_state = lambda: {**queue.full_state(), **({'preview': preview.state()} if preview is not None else {}),      # noqa: E731
+                             **({'gpu': gpu.value} if gpu is not None else {})}
     app.state.get_state = get_state or (lambda: {})
     app.state.queue = queue
     if opener is None:
@@ -50,6 +51,9 @@ def create_app(token: str, port: int, bus: Optional[EventBus] = None,
     if config is not None:
         from tpweb.routes_settings import add_settings_routes
         add_settings_routes(app, config)
+    if preview is not None:
+        from tpweb.routes_preview import add_preview_routes
+        add_preview_routes(app, preview)
     if queue is not None and on_quit is not None:
         from tpweb.routes_lifecycle import add_lifecycle_routes
         add_lifecycle_routes(app, queue, on_quit)

@@ -1,4 +1,4 @@
-import { html, useState } from '/static/js/lib.js';
+import { html, useState, useLayoutEffect } from '/static/js/lib.js';
 import { t } from '/static/js/i18n.js';
 import { Icon } from '/static/js/icon.js';
 import { useStore, setUi } from '/static/js/store.js';
@@ -18,7 +18,7 @@ export function TitleBar() {
     <div class="brand"><span class="brand-mark">◈</span><span class="brand-name">Transcriber Pro</span><span class="brand-sep"></span>
       <span class="brand-sub">${t('web_brand_subtitle')}</span></div>
     <span class="grow"></span>
-    <div class="status-pill"><span class=${'status-dot' + (running ? ' busy' : '')}></span><span class="status-label" data-testid="status">${connected ? t('mw_status_ready') : t('web_connection_lost')}</span></div>
+    <div class="status-pill"><span class=${'status-dot' + (running ? ' busy' : '')}></span><span class="status-label" data-testid="status">${!connected ? t('web_connection_lost') : (running ? t('mw_status_processing') : t('mw_status_ready'))}</span></div>
     <span class="grow"></span>
     <div class="title-actions">
       <button class="tool-btn" title=${t('tools_menu')}><${Icon} name="wrench" size=${16} /></button>
@@ -34,11 +34,30 @@ export function TitleBar() {
 export function TabBar() {
   const tab = useStore((s) => s.ui.tab);
   const historyCount = useStore((s) => s.historyCount);
-  const total = useStore((s) => s.queue.rows.length);
+  const counts = useStore((s) => s.queue.counts);
+  const gpu = useStore((s) => s.gpu);
+  const [badgeX, setBadgeX] = useState(null);
+  const active = counts.queued + counts.processing;
+  // il badge sta al centro della pill di stato (come in Qt); si rimisura quando cambiano finestra o testo
+  useLayoutEffect(() => {
+    const place = () => {
+      const pill = document.querySelector('.status-pill');
+      const bar = document.querySelector('[data-testid=tabbar]');
+      if (pill && bar) { const p = pill.getBoundingClientRect(), b = bar.getBoundingClientRect(); setBadgeX(p.left + p.width / 2 - b.left); }
+    };
+    place();
+    window.addEventListener('resize', place);
+    const pill = document.querySelector('.status-pill');
+    const ro = new ResizeObserver(place);                       // la pill cambia larghezza col testo («Pronto» / «In elaborazione»)
+    if (pill) ro.observe(pill);
+    return () => { window.removeEventListener('resize', place); ro.disconnect(); };
+  }, [gpu]);
   return html`<nav class="tabbar" data-testid="tabbar">
     <button class=${'tab' + (tab === 'queue' ? ' selected' : '')} data-tab="queue" onClick=${() => setUi({ tab: 'queue' })}>
-      <${Icon} name="list" size=${15} class="ico-muted" />${t('tab_queue')} (${total})</button>
+      <${Icon} name="list" size=${15} class="ico-muted" />${active ? t('tab_queue') + '  (' + active + ')' : t('tab_queue')}</button>
     <button class=${'tab' + (tab === 'history' ? ' selected' : '')} data-tab="history" onClick=${() => setUi({ tab: 'history' })}>
-      <${Icon} name="history" size=${15} class="ico-muted" />${t('tab_history')}${historyCount === null ? '' : ' (' + historyCount + ')'}</button>
+      <${Icon} name="history" size=${15} class="ico-muted" />${historyCount ? t('tab_history') + '  (' + historyCount + ')' : t('tab_history')}</button>
+    ${gpu ? html`<span class=${'gpu-badge ' + gpu.vendor} data-testid="gpu-badge" style=${{ left: (badgeX === null ? 700 : badgeX) + 'px' }}
+        title=${gpu.vendor === 'cpu' ? t('gpu_badge_cpu_tip') : t('gpu_badge_tip', { name: gpu.text })}>${gpu.text}</span>` : null}
   </nav>`;
 }
