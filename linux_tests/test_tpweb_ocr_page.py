@@ -93,7 +93,7 @@ def test_revisione_dialogo_lista_filtro_tasti_corsivo_e_scrittura(env):
         assert page.locator('.review-item').count() == 4 and page.locator('.review-item.selected').get_attribute('data-i') == '1'     # primo dubbio
         assert page.locator('[data-testid=rv-counter]').inner_text() == IT['ocr_counter'].format(total=4, flagged=2)
         assert page.locator('[data-testid=rv-text]').input_value() == 'Dubb1o'
-        assert 'Dubb1o' in page.locator('.review-item.selected').inner_text() or '#2' in page.locator('.review-item.selected').inner_text()
+        assert '#2' in page.locator('.review-item.selected').inner_text() and 'Dubb1o' in page.locator('.review-item.selected').inner_text()
         until(page, "() => { const i = document.querySelector('[data-testid=rv-image]'); return i && i.complete && i.naturalWidth > 0; }")
         # Invio: salva e passa al prossimo dubbio (Maiusc+Invio = riga nuova)
         page.fill('[data-testid=rv-text]', 'Dubbio')
@@ -105,14 +105,14 @@ def test_revisione_dialogo_lista_filtro_tasti_corsivo_e_scrittura(env):
         assert page.locator('[data-testid=rv-text]').input_value() == 'Altro dubbio'
         assert 'Dubbio' in page.locator('.review-item[data-i="1"]').inner_text()        # etichetta aggiornata dal server
         # corsivo sull'intera riga e su una selezione
+        text_is = lambda v: until(page, "() => document.querySelector('[data-testid=rv-text]').value === %r" % v)      # noqa: E731
         page.click('[data-testid=rv-italic]')
-        assert page.locator('[data-testid=rv-text]').input_value() == '<i>Altro dubbio</i>'
+        text_is('<i>Altro dubbio</i>')
         page.click('[data-testid=rv-italic]')
-        assert page.locator('[data-testid=rv-text]').input_value() == 'Altro dubbio'
+        text_is('Altro dubbio')
         page.locator('[data-testid=rv-text]').evaluate('e => { e.focus(); e.setSelectionRange(0, 5); }')
         page.click('[data-testid=rv-italic]')
-        assert page.locator('[data-testid=rv-text]').input_value() == '<i>Altro</i> dubbio'
-        page.click('[data-testid=rv-italic]') if False else None
+        text_is('<i>Altro</i> dubbio')
         # verificato: sparisce dai dubbi; con il filtro «solo dubbi» la lista si restringe
         page.click('[data-testid=rv-verify]')
         until(page, "() => document.querySelector('[data-testid=rv-counter]').innerText.includes('1')")
