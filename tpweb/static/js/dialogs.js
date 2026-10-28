@@ -1,4 +1,4 @@
-import { html, useEffect } from '/static/js/lib.js';
+import { html, useLayoutEffect } from '/static/js/lib.js';
 import { t } from '/static/js/i18n.js';
 import { useStore, setState } from '/static/js/store.js';
 
@@ -10,7 +10,7 @@ export function messageBox(kind, title, text) {
 export function MessageHost() {
   const m = useStore((s) => s.message);
   const close = () => setState({ message: null });
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!m) return undefined;
     const k = (e) => { if (e.key === 'Escape' || e.key === 'Enter') { e.stopPropagation(); close(); } };
     window.addEventListener('keydown', k, true);
