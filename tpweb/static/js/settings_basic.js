@@ -197,16 +197,16 @@ export function OpenSubtitlesPage({ active }) {
       <div class=${'credentials-label' + (configured ? '' : ' hint')} data-testid="os-account">${configured ? t('os_account', { username: os.username }) : t('os_configure_hint')}</div>
     <//>
     <${Group} title=${t('os_credentials_group_org')}>
-      <${Row} label="Username:"><${TextInput} testid="os-org-user" value=${org.username} placeholder=${t('os_username_ph')} onCommit=${(v) => setOrg({ ...org, username: v })} /><//>
-      <${Row} label="Password:"><div class="key-row"><${TextInput} testid="os-org-pass" revealed=${!!rev.os_org_password} onCommit=${(v) => setOrg({ ...org, password: v })} ...${pw(os.org_password_set, org.password, t('os_password_ph'))} />
+      <${Row} label=${t('web_os_username')}><${TextInput} testid="os-org-user" value=${org.username} placeholder=${t('os_username_ph')} onCommit=${(v) => setOrg({ ...org, username: v })} /><//>
+      <${Row} label=${t('web_os_password')}><div class="key-row"><${TextInput} testid="os-org-pass" revealed=${!!rev.os_org_password} onCommit=${(v) => setOrg({ ...org, password: v })} ...${pw(os.org_password_set, org.password, t('os_password_ph'))} />
         <button class="btn btn-primary btn-fixed" data-testid="os-org-show" onClick=${() => reveal('os_org_password', 'password', setOrg)}>${rev.os_org_password ? t('gs_hide') : t('gs_show')}</button></div><//>
       <${Row} label=""><button class="btn btn-primary wide" data-testid="os-org-save" onClick=${saveOrg}>${t('os_save_creds')}</button><//>
     <//>
     <${Group} title=${t('os_credentials_group_com')}>
-      <${Row} label="Username:"><${TextInput} testid="os-com-user" value=${com.username} placeholder=${t('os_username_ph')} onCommit=${(v) => setCom({ ...com, username: v })} /><//>
-      <${Row} label="Password:"><div class="key-row"><${TextInput} testid="os-com-pass" revealed=${!!rev.os_com_password} onCommit=${(v) => setCom({ ...com, password: v })} ...${pw(os.com_password_set, com.password, t('os_password_ph'))} />
+      <${Row} label=${t('web_os_username')}><${TextInput} testid="os-com-user" value=${com.username} placeholder=${t('os_username_ph')} onCommit=${(v) => setCom({ ...com, username: v })} /><//>
+      <${Row} label=${t('web_os_password')}><div class="key-row"><${TextInput} testid="os-com-pass" revealed=${!!rev.os_com_password} onCommit=${(v) => setCom({ ...com, password: v })} ...${pw(os.com_password_set, com.password, t('os_password_ph'))} />
         <button class="btn btn-primary btn-fixed" data-testid="os-com-show" onClick=${() => reveal('os_com_password', 'password', setCom)}>${rev.os_com_password ? t('gs_hide') : t('gs_show')}</button></div><//>
-      <${Row} label="API Key:"><div class="key-row"><${TextInput} testid="os-com-key" revealed=${!!rev.os_com_api_key} onCommit=${(v) => setCom({ ...com, api_key: v })} ...${pw(os.com_api_key_set, com.api_key, t('os_apikey_ph'))} />
+      <${Row} label=${t('web_os_apikey')}><div class="key-row"><${TextInput} testid="os-com-key" revealed=${!!rev.os_com_api_key} onCommit=${(v) => setCom({ ...com, api_key: v })} ...${pw(os.com_api_key_set, com.api_key, t('os_apikey_ph'))} />
         <button class="btn btn-primary btn-fixed" data-testid="os-com-keyshow" onClick=${() => reveal('os_com_api_key', 'api_key', setCom)}>${rev.os_com_api_key ? t('gs_hide') : t('gs_show')}</button></div><//>
       <${Row} label=""><button class="btn btn-primary wide" data-testid="os-com-save" onClick=${saveCom}>${t('os_save_creds')}</button><//>
     <//>

@@ -37,9 +37,10 @@ class FakeRunner:
 
 
 @pytest.fixture
-def env(tmp_path, monkeypatch, browser):
+def env(tmp_path, monkeypatch, browser, request):
     import tpweb.routes_models as rm
-    monkeypatch.setattr(rm, 'translator_available', lambda: True)
+    ok = request.node.get_closest_marker('senza_traduttore') is None
+    monkeypatch.setattr(rm, 'translator_available', lambda: ok)
     monkeypatch.setattr(rm, 'EnvCliRunner', FakeRunner)
     FakeRunner.gate = None
     e = Env()
@@ -382,10 +383,11 @@ def test_traduzione_test_diarizzazione_e_scaricamento_con_righe_in_diretta(env):
     assert env.problems == []
 
 
-def test_traduzione_non_disponibile_mostra_la_pagina_di_errore(env, monkeypatch):
-    import tpweb.routes_models as rm
+@pytest.mark.senza_traduttore
+def test_traduzione_non_disponibile_mostra_la_pagina_di_errore(env):
     page = env.open()
-    env.srv.app.state.translator_ok = None
-    open_tab(page, 'general')
-    # il server dei test espone sempre «disponibile»: la pagina di errore e' provata sotto, con un server dedicato
-    assert page.locator('[data-testid=tm-unavailable]').count() == 0
+    open_tab(page, 'translation')
+    assert page.locator('[data-testid=tm-unavailable]').inner_text() == IT['tmd_error_title'] + '\n\n' + IT['tmd_import_error']
+    assert page.locator('[data-testid=tm-nllb]').count() == 0
+    open_tab(page, 'batch')                                  # le altre schede restano usabili
+    assert page.locator('[data-testid=ab-save]').count() == 1
