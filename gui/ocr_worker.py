@@ -3,18 +3,55 @@
 OcrWorker — QThread per il modulo OCR sottotitoli bitmap (PGS → SRT).
 File: gui/ocr_worker.py
 
-Due fasi attorno alla UI di revisione (che vive sul main thread):
-  - mode 'ocr':        esegue PgsOcr.ocr_to_events() (ramo review) o run_auto()
-                       (ramo auto). Per il ramo review emette events_ready.
-  - mode 'writeback':  applica un SRT (testo corretto dalla revisione) via
-                       PgsOcr.writeback() fuori dal main thread (il mux può
+Adattatore Qt sul motore senza Qt `core/jobs/ocr_run.py` (`OcrRunEngine`): resta un QThread con gli stessi segnali, emessi dal thread
+del worker nello stesso ordine di prima. Due fasi attorno alla UI di revisione (che vive sul main thread):
+  - mode 'ocr':        esegue PgsOcr.ocr_to_events() (ramo review) o run_auto() (ramo auto). Per il ramo review emette events_ready.
+  - mode 'writeback':  applica un SRT (testo corretto dalla revisione) via PgsOcr.writeback() fuori dal main thread (il mux può
                        richiedere tempo).
 """
-import logging
-from pathlib import Path
+import weakref
+
 from PyQt6.QtCore import QThread, pyqtSignal
 
-logger = logging.getLogger(__name__)
+from core.jobs.ocr_run import OcrListener, OcrRunEngine
+
+
+class _SignalListener(OcrListener):
+    """Riferimento DEBOLE al worker: niente ciclo worker -> motore -> listener -> worker."""
+
+    def __init__(self, worker: 'OcrWorker'):
+        self._ref = weakref.ref(worker)
+
+    @property
+    def _w(self):
+        return self._ref()
+
+    def on_log(self, text):
+        self._w.log_message.emit(text)
+
+    def on_error(self, message):
+        self._w.error.emit(message)
+
+    def on_finished(self):
+        self._w.finished.emit()
+
+    def on_events_ready(self, events, language):
+        self._w.events_ready.emit(events, language)
+
+    def on_auto_done(self, ok):
+        self._w.auto_done.emit(ok)
+
+    def on_writeback_done(self, ok):
+        self._w.writeback_done.emit(ok)
+
+    def on_unsupported(self, message):
+        self._w.unsupported.emit(message)
+
+    def on_lang_unsupported(self, message):
+        self._w.lang_unsupported.emit(message)
+
+    def on_progress(self, percent, label):
+        self._w.progress.emit(percent, label)
 
 
 class OcrWorker(QThread):
@@ -34,80 +71,39 @@ class OcrWorker(QThread):
                  mode: str = "ocr", srt_text: str = "", language: str = "ita",
                  kind: str = "pgs", parent=None):
         super().__init__(parent)
-        self.video_path = video_path
-        self.config = config
-        self.strategy = strategy
-        self.mode = mode
-        self.srt_text = srt_text
-        self.language = language
-        self.kind = kind  # 'pgs' | 'vobsub'
-        self._ocr = None
-        self.is_cancelled = False
+        self._engine = OcrRunEngine(video_path, config, strategy, mode, srt_text, language, kind, _SignalListener(self))
+
+    # Attributi pubblici (letti da chi usa il worker): vivono nel motore.
+    video_path = property(lambda self: self._engine.video_path)
+    config = property(lambda self: self._engine.config)
+    strategy = property(lambda self: self._engine.strategy)
+    mode = property(lambda self: self._engine.mode)
+    srt_text = property(lambda self: self._engine.srt_text)
+    language = property(lambda self: self._engine.language)
+    kind = property(lambda self: self._engine.kind)
+
+    @property
+    def _ocr(self):
+        return self._engine._ocr
+
+    @_ocr.setter
+    def _ocr(self, value):
+        self._engine._ocr = value
+
+    @property
+    def is_cancelled(self) -> bool:
+        return self._engine.is_cancelled
+
+    @is_cancelled.setter
+    def is_cancelled(self, value: bool) -> None:
+        self._engine.is_cancelled = value
 
     def _make_ocr(self):
         """Istanzia il motore giusto in base al tipo di bitmap (logica condivisa)."""
-        from core.ocr_auto import make_bitmap_ocr
-        return make_bitmap_ocr(self.video_path, self.config, self.kind,
-                               log_callback=self._on_log, progress_callback=self._on_progress)
+        return self._engine._make_ocr()
 
     def run(self):
-        # BitmapNotSupported è definita in entrambi i moduli (classi distinte): catturale entrambe.
-        from core.pgs_ocr import BitmapNotSupported as PgsNotSupported
-        from core.vobsub_ocr import BitmapNotSupported as VobNotSupported
-        from core.pgs_types import STRATEGY_AUTO, is_italian, events_to_srt, UnsupportedLanguage
-        _not_supported = (PgsNotSupported, VobNotSupported)
-        try:
-            self._ocr = self._make_ocr()
-
-            if self.mode == "writeback":
-                ok = self._ocr.writeback(self.srt_text, self.language)
-                self.writeback_done.emit(ok)
-                return
-
-            kind_label = 'VOBSUB' if self.kind == 'vobsub' else 'PGS'
-            self._on_log(f"🎬 OCR {kind_label} — {Path(self.video_path).name}")
-
-            if self.strategy == STRATEGY_AUTO:
-                # Auto: run_ocr_auto() gestisce TUTTE le tracce italiane (run_auto) e,
-                # se non ce ne sono, OCR della traccia migliore + traduzione. Logica
-                # condivisa con la pipeline principale (core.ocr_auto). Propaga
-                # BitmapNotSupported / UnsupportedLanguage → catturate sotto.
-                from core.ocr_auto import run_ocr_auto
-                ok = run_ocr_auto(self._ocr, log_callback=self._on_log)
-                self.auto_done.emit(ok)
-            else:
-                # Review: singola traccia migliore per UI di revisione.
-                events, content_lang = self._ocr.ocr_to_events()
-                if is_italian(content_lang):
-                    self.events_ready.emit(events, 'it')
-                else:
-                    # Traccia NON italiana → automatico: OCR sorgente + traduzione → .it.srt.
-                    from core.ocr_auto import convert_and_translate
-                    ok = convert_and_translate(self._ocr, events, content_lang, self._on_log)
-                    self.auto_done.emit(ok)
-
-        except _not_supported as exc:
-            self.unsupported.emit(str(exc))
-        except UnsupportedLanguage as exc:
-            self.log_message.emit(f"⚠ Tesseract: lingua non supportata, file saltato")
-            logger.warning(f"UnsupportedLanguage: {exc}")
-            self.lang_unsupported.emit(str(exc))
-        except InterruptedError:
-            self.log_message.emit("❌ OCR annullato")
-        except Exception as exc:
-            logger.exception("OcrWorker: eccezione non gestita")
-            self.log_message.emit(f"❌ OCR errore: {exc}")
-            self.error.emit(str(exc))
-        finally:
-            self.finished.emit()
+        self._engine.run()
 
     def cancel(self):
-        self.is_cancelled = True
-        if self._ocr is not None:
-            self._ocr.cancel()
-
-    def _on_log(self, msg: str):
-        self.log_message.emit(msg)
-
-    def _on_progress(self, percent: int, label: str):
-        self.progress.emit(percent, label)
+        self._engine.cancel()
