@@ -27,7 +27,6 @@ def env(tmp_path, monkeypatch, browser):
     e = Env()
     e.tmp, e.browser, e.pages, e.problems = tmp_path, browser, [], []
     e.srv, e.config = e2e.make_server(tmp_path, monkeypatch, library_deps={'client': FakeClient, 'api': FakeApi()})
-    configure(e, 'V:\\=/mnt/v') if False else None
     e.config.set('library_scanner_url', 'http://scanner:6680', save=False)
     e.config.set('library_scanner_api_key', 'k' * 24, save=False)
     e.config.set('library_scanner_path_map', 'V:\\=/mnt/v', save=False)
@@ -97,9 +96,7 @@ def test_filtri_giorni_formato_ricerca_e_ordinamento(env):
     page.click('[data-testid=scanner-table] th >> nth=2')
     assert days() == sorted(days(), reverse=True)
     page.select_option('[data-testid=scanner-type]', 'movie')
-    until(page, "() => %d" % 1 if False else "() => true")
     page.fill('[data-testid=scanner-search]', 'film')                                  # ricerca sul server dopo 500 ms
-    until(page, "() => true")
     settle(page); settle(page); settle(page)
     assert FakeClient.calls[-1][:2] == ('film', 'movie')
 
@@ -114,10 +111,9 @@ def test_import_singolo_e_tutti_nella_coda_con_la_mappa_dei_percorsi(env):
     until(page, "() => document.querySelectorAll('[data-testid=scanner-table] tbody tr').length === 3")
     page.click('[data-testid=scanner-import-all]')                                     # solo le righe visibili
     until(page, "() => document.querySelectorAll('[data-testid=scanner-table] .add-btn:disabled').length === 3")
-    assert sorted(env.srv.queue.queue.snapshot()) == sorted(['/mnt/v/film/Altro.mkv', '/mnt/v/film/Film.Uno.ITA.mkv', '/mnt/v/serie/Serie.S01E01.mkv', '/mnt/v/film/Pgs.Con.Testo.mkv']) \
-        or len(env.srv.queue.queue.snapshot()) == 4
+    assert sorted(env.srv.queue.queue.snapshot()) == sorted(['/mnt/v/film/Altro.mkv', '/mnt/v/film/Film.Uno.ITA.mkv', '/mnt/v/serie/Serie.S01E01.mkv', '/mnt/v/film/Pgs.Con.Testo.mkv'])
     assert any(IT['files_imported_log'].format(added=3) in l['text'] for l in env.srv.queue.log.lines)
-    assert page.locator('.file-row').count() == 4
+    until(page, "() => document.querySelectorAll('.file-row').length === 4")                 # la coda della pagina segue gli eventi del server
 
 
 def test_conversione_ass_dal_badge_dal_pulsante_e_filtro(env):
@@ -143,7 +139,6 @@ def test_notifica_del_sottotitolo_ricarica_l_elenco(env):
     open_card(page)
     n = len(FakeClient.calls)
     env.srv.queue.on_file_completed('/mnt/v/film/Altro.mkv')
-    until(page, "() => true")
     for _ in range(40):
         if len(FakeClient.calls) > n:
             break
@@ -154,7 +149,7 @@ def test_notifica_del_sottotitolo_ricarica_l_elenco(env):
 def test_senza_configurazione_e_errore_di_rete(env):
     page = env.open()
     clear_credentials(env)
-    open_card(page) if False else page.click('[data-testid=scanner-head]')
+    page.click('[data-testid=scanner-head]')
     page.wait_for_selector('[data-testid=scanner-body]')
     page.click('[data-testid=scanner-refresh]')
     until(page, "() => document.querySelector('[data-testid=scanner-stats]').innerText === '%s'" % IT['config_missing'])
