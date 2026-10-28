@@ -53,7 +53,6 @@ class WebQueue(QueueListener):
         self._log_lock = threading.Lock()
         self.compact = True                       # «Log Sintetico»: acceso all'apertura, non persistito (come la GUI)
         self.model_name: Optional[str] = None     # tessera «Modello» durante l'elaborazione (dalla riga di log «Modello trascrizione»)
-        self.errors_shown = 0                     # tessera «Errori»: la GUI la aggiorna solo a inizio coda e sugli errori del worker
         self._final_elapsed: Optional[str] = None
         self._shutdown_enabled = shutdown_enabled
         self._shutdown_fn = shutdown_fn
@@ -68,6 +67,7 @@ class WebQueue(QueueListener):
         self._thread: Optional[threading.Thread] = None
         self.completed_count = 0
         self.error_count = 0
+        self.stopped_count = 0                    # file interrotti da Stop: la riga e' «fallita» ma non e' un errore da mostrare nella tessera
         self.proc_start_time = 0.0
         self.last_error = ''
         self.last_steps: Optional[dict] = None
@@ -143,7 +143,7 @@ class WebQueue(QueueListener):
         """Le cinque tessere di diagnostica (testi gia' pronti)."""
         from utils.engine_labels import idle_model_label
         c = self.config
-        return {'elapsed': self.stats()['elapsed'] or '–', 'errors': str(self.errors_shown),
+        return {'elapsed': self.stats()['elapsed'] or '–', 'errors': str(max(0, self.error_count - self.stopped_count)),      # tessera «Errori»: file falliti (non quelli fermati con Stop) + errori del worker, a ogni evento (scelta B)
                 'model': self.model_name or (idle_model_label(c) if c is not None else '–'),
                 'translator': c.get_translation_model() if c is not None else '–',
                 'engine': SettingsService(c).engine_mode_label() if c is not None else '–'}
@@ -348,7 +348,7 @@ class WebQueue(QueueListener):
                 return verdict
             self.completed_count = 0
             self.error_count = 0
-            self.errors_shown = 0
+            self.stopped_count = 0
             self.model_name = None
             self._final_elapsed = None
             self.last_error = ''
@@ -366,8 +366,8 @@ class WebQueue(QueueListener):
             self._engine.run()
         except Exception as e:                      # il motore non dovrebbe sollevare: se succede lo si dice e si chiude
             self.error_count += 1
-            self.errors_shown = self.error_count
             self.last_error = str(e)
+            self.bus.publish('diag', self.diag())
             self.bus.publish('worker_error', str(e))
             self.on_finished()
 
@@ -423,8 +423,12 @@ class WebQueue(QueueListener):
 
     def on_file_failed(self, path: str) -> None:
         self.error_count += 1
+        eng = self._engine
+        if eng is not None and getattr(eng, 'is_cancelled', False):
+            self.stopped_count += 1
         self._update(path, JobRecord.failed)
         self.bus.publish('file_failed', path)
+        self.bus.publish('diag', self.diag())
 
     def on_file_error(self, path: str, message: str) -> None:
         self.last_error = message

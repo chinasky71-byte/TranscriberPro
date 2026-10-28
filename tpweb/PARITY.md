@@ -45,7 +45,7 @@ La web UI non sostituisce la Qt finché ogni riga non e' `verificato Win`. Rifer
 | Tessere Completati / In corso / In coda / ETA (ogni secondo a coda al lavoro) | `RightPanel` + `/api/queue/live` | fatto | `test_avanzamento_e_tessere_si_aggiornano_dal_vivo` |
 | Log di elaborazione (filtro rumore, colori, barre sul posto, 5.000 righe) e «Log Sintetico» (acceso all'apertura) | `LogBuffer` sul server, `LogView` | fatto: stessa uscita della GUI su sequenze scritte (`test_log_buffer_characterization.py`) | `test_log_*`, `test_barre_*` |
 | Card «Pipeline in corso» (passi, anelli, %, ETA, barra stimata/indeterminata, apri/chiudi ricordato) | `pipeline_card.js` | fatto | `test_card_*`, `test_barra_stimata_*` |
-| Diagnostica (Tempo, Errori, Modello, Traduttore, Engine). **Come la GUI:** «Errori» si aggiorna solo a inizio coda e sugli errori del worker, non sui file falliti (da decidere con il proprietario se correggerlo in entrambe) | `RightPanel` | fatto | `test_diagnostica_*`, `test_tessera_errori_*` |
+| Diagnostica (Tempo, Errori, Modello, Traduttore, Engine). **Scelta B del proprietario (28/10/2026):** «Errori» conta i file falliti e gli errori del worker, a ogni evento; riparte da 0 a ogni coda. La GUI Qt (produzione) resta com'e' (si aggiorna solo a inizio coda e sugli errori del worker): correggerla e' una modifica a parte, dopo le prove su Windows | `RightPanel` | fatto | `test_diagnostica_*`, `test_tessera_errori_*` |
 
 ## Cronologia
 | Controllo | Web | Stato | Test |
