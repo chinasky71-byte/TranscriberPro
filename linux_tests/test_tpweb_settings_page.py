@@ -49,7 +49,7 @@ def env(tmp_path, monkeypatch, browser):
 
     def open_page(path_after=None):
         page = browser.new_page(viewport={'width': 1400, 'height': 900})
-        page.on('console', lambda m: e.problems.append(('console', m.type, m.text)) if m.type in ('error', 'warning') else None)
+        page.on('console', lambda m: e.problems.append(('console', m.type, m.text)) if m.type in ('error', 'warning') and '409' not in m.text else None)   # i 409 sono risposte volute (manca il token)
         page.on('pageerror', lambda x: e.problems.append(('pageerror', str(x))))
         page.on('response', lambda r: e.problems.append(('http', r.status, r.url)) if r.status >= 400 and r.status != 409 else None)
         page.goto(e.srv.url)

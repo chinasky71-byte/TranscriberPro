@@ -48,14 +48,26 @@ export function Select({ value, options, onChange, testid, tooltip, disabled }) 
     <${Icon} name="chevDown" size=${12} class="select-chev" /></span>`;
 }
 
-/** QSpinBox / QDoubleSpinBox: salva a ogni cambio (`onChange`) o col pulsante (`onChange` solo aggiorna il modulo). */
+/** QSpinBox / QDoubleSpinBox: salva a ogni cambio (`onChange`). Mentre si scrive il testo e' della persona: un aggiornamento che arriva dal server
+ *  in quel momento non deve sovrascriverlo (prima del `change` il valore del campo andava perso). */
 export function Spin({ value, min, max, step = 1, decimals = 0, special, suffix = '', onChange, testid, tooltip, disabled }) {
   const shown = special !== undefined && Number(value) === min ? special : Number(value).toFixed(decimals) + suffix;
+  const [typed, setTyped] = useState(null);                 // null = non si sta scrivendo: vale il valore
   const set = (v) => { const c = Math.max(min, Math.min(max, +v.toFixed(decimals))); if (c !== Number(value)) onChange(c); };
+  const commit = () => {
+    if (typed === null) return;
+    const n = parseFloat(String(typed).replace(',', '.'));
+    setTyped(null);
+    if (!Number.isNaN(n)) set(n);
+  };
   return html`<span class=${'spin' + (disabled ? ' disabled' : '')} title=${tooltip}>
-    <input class="input spin-input" data-testid=${testid} data-value=${value} value=${shown} disabled=${disabled}
-      onChange=${(e) => { const n = parseFloat(String(e.target.value).replace(',', '.')); if (!Number.isNaN(n)) set(n); else e.target.value = shown; }}
-      onKeyDown=${(e) => { if (e.key === 'ArrowUp') { e.preventDefault(); set(Number(value) + step); } if (e.key === 'ArrowDown') { e.preventDefault(); set(Number(value) - step); } }} />
+    <input class="input spin-input" data-testid=${testid} data-value=${value} value=${typed === null ? shown : typed} disabled=${disabled}
+      onInput=${(e) => setTyped(e.target.value)} onBlur=${commit}
+      onKeyDown=${(e) => {
+        if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        if (e.key === 'ArrowUp') { e.preventDefault(); setTyped(null); set(Number(value) + step); }
+        if (e.key === 'ArrowDown') { e.preventDefault(); setTyped(null); set(Number(value) - step); }
+      }} />
     <button type="button" class="spin-btn up" tabindex="-1" disabled=${disabled} onClick=${() => set(Number(value) + step)}><${Icon} name="chevDown" size=${10} class="flip" /></button>
     <button type="button" class="spin-btn down" tabindex="-1" disabled=${disabled} onClick=${() => set(Number(value) - step)}><${Icon} name="chevDown" size=${10} /></button></span>`;
 }
