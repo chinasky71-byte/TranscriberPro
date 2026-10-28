@@ -14,6 +14,7 @@ from typing import Callable, List, Optional
 from core.jobs.ocr_run import OcrListener, OcrRunEngine
 from core.pgs_types import CFG_STRATEGY, DEFAULT_STRATEGY, events_to_srt
 from core.services import library_actions as LA
+from core.services import library_rows as LR
 from core.services import ocr_review_service as RS
 from utils.path_map import parse_map, to_local
 from utils.translations import tr
@@ -314,6 +315,42 @@ class OcrManager:
         buf = io.BytesIO()
         events[i].image.convert('RGBA').save(buf, format='PNG')
         return buf.getvalue()
+
+    # ------------------------------------------------------------------------------------------------------------------ Superpower
+    def superpower_precheck(self) -> Optional[dict]:
+        """Prima della conferma: None se si puo' procedere, altrimenti l'avviso {level, title_key, message}."""
+        url, key = self.library.creds()
+        if not url or not key:
+            return {'level': 'warning', 'message': tr('ls_not_configured')}
+        with self._lock:
+            if self._busy or self.review is not None:
+                return {'level': 'info', 'message': tr('ls_ocr_running')}
+        return None
+
+    def superpower(self) -> dict:
+        """Recupera dal Library Scanner tutti i file bitmap (PGS/VOBSUB) e li converte in batch automatico. Bloccante (rete): fuori dal
+        ciclo degli eventi. Esito {'started': n} oppure l'avviso {level, message}."""
+        url, key = self.library.creds()
+        self._log(tr('ls_sp_list_log'))
+        endpoint, params, timeout = LA.superpower_request(url)
+        status, text = self.library.api('get', endpoint, key, params=params, timeout=timeout)
+        with self._lock:
+            if self._busy or self.review is not None:
+                return {'level': 'info', 'message': tr('ls_ocr_running')}
+        res = LA.parse_superpower_reply(status, text, LR.badge_label_kind)
+        if res.kind in ('error', 'bad_reply'):
+            return {'level': 'warning', 'message': res.message}
+        if res.kind == 'none':
+            return {'level': 'info', 'message': tr('ls_sp_none')}
+        items = list(res.items)
+        with self._lock:
+            self.superpower_active = True
+        self._log(tr('ls_sp_acquired_log').format(n=len(items)))
+        if self.start_batch(items) != 'started':
+            with self._lock:
+                self.superpower_active = False
+            return {'level': 'info', 'message': tr('ls_ocr_running')}
+        return {'started': len(items)}
 
     # ------------------------------------------------------------------------------------------------------------------- batch
     def start_batch(self, items: List[tuple]) -> str:

@@ -303,3 +303,38 @@ def test_l_avanzamento_non_rilegge_la_coda_ma_il_cambio_di_stato_si(srv):
     assert kinds.count('job_changed') == 1 and 'file_progress' in kinds        # una volta lo stato (queued -> processing); il 30% solo sul posto
     FakeEngine.gate.set()
     idle(c)
+
+
+def test_superpower_controlli_elenco_e_batch(srv):
+    c = srv
+    FakeApi.calls, FakeApi.reply = [], (200, '{}')
+    import json
+    c.srv.app.state.library._api = FakeApi()
+    c.config.set('library_scanner_url', '', save=False)
+    assert c.post('/api/ocr/superpower/check').json() == {'ok': False, 'level': 'warning', 'message': tr('ls_not_configured')}
+    c.config.set('library_scanner_url', 'http://scanner:6680/ ', save=False)
+    assert c.post('/api/ocr/superpower/check').json() == {'ok': True}
+    c.post('/api/ocr/start', json={'path': 'V:\\slow.mkv', 'kind': 'pgs'})
+    wait(lambda: c.ocr.state()['busy'])
+    assert c.post('/api/ocr/superpower/check').json() == {'ok': False, 'level': 'info', 'message': tr('ls_ocr_running')}
+    assert c.post('/api/ocr/superpower').json() == {'level': 'info', 'message': tr('ls_ocr_running')}        # occupato dopo la risposta del server
+    c.post('/api/ocr/cancel'); idle(c)
+    FakeApi.reply = (500, 'x' * 300)
+    assert c.post('/api/ocr/superpower').json() == {'level': 'warning', 'message': tr('ls_sp_list_err').format(err='HTTP 500: ' + 'x' * 200)}
+    FakeApi.reply = (0, 'timeout')
+    assert c.post('/api/ocr/superpower').json()['message'] == tr('ls_sp_list_err').format(err='timeout')
+    FakeApi.reply = (200, 'non json')
+    assert c.post('/api/ocr/superpower').json()['level'] == 'warning'
+    FakeApi.reply = (200, json.dumps({'videos': [{'windows_path': 'V:\\a.mkv'}]}))                        # nessun formato bitmap
+    assert c.post('/api/ocr/superpower').json() == {'level': 'info', 'message': tr('ls_sp_none')}
+    FakeApi.reply = (200, json.dumps({'videos': [{'windows_path': 'V:\\auto_ok1.mkv', 'bitmap_format': 'pgs'},
+                                                  {'windows_path': 'V:\\auto_ok2.mkv', 'bitmap_format': 'vobsub'},
+                                                  {'windows_path': 'V:\\auto_ok3.mkv', 'bitmap_format': 'mixed'}, {'windows_path': '', 'bitmap_format': 'pgs'}]}))
+    seq = c.srv.bus.last_seq
+    assert c.post('/api/ocr/superpower').json() == {'started': 3}
+    wait(lambda: not c.ocr.state()['batch']['active'])
+    idle(c)
+    assert FakeApi.calls[-1] == ('get', 'http://scanner:6680/api/subtitles/list', 'k' * 24, None, 15)
+    assert [e.args['kind'] for e in FakeEngine.made[-3:]] == ['pgs', 'vobsub', 'pgs'] and all(e.args['strategy'] == 'auto' for e in FakeEngine.made[-3:])
+    assert events_of(c, 'ocr_message', seq)[-1]['text'] == tr('ls_batch_done').format(ok=3, fail=0, total=3)
+    assert any(tr('ls_sp_acquired_log').format(n=3) in l['text'] for l in c.q.log.lines) and c.ocr.superpower_active is False
