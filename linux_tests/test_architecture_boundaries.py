@@ -28,7 +28,6 @@ ALLOWED_OS_CHECKS = {
     ("core/queue_runner.py", "os.name != 'nt'"),
     ("core/llm_subtitle_translator/gguf_worker.py", "os.name != 'nt'"),
     ("core/llm_subtitle_translator/engine.py", 'sys.platform != "win32"'),
-    ("core/translator.py", "sys.platform == 'win32'"),
     ("core/pipeline_cli.py", "sys.platform != 'win32'"),
 }
 

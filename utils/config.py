@@ -353,17 +353,9 @@ class Config:
         'gender_correction_enabled': False,
         'gender_correction_model_path': '',
         'llm_model_preference': 'auto',   # ripiego automatico 14B/7B (utils.llm_model_select)
-        # Serbatoio di traduzione (L3): modello Qwen di ripiego per le righe
-        # che sopravvivono a unmask tollerante + retry senza masking. Vuota
-        # per default -> get_fallback_translator_model_path() ricade sul
-        # modello del gender corrector (stesso GGUF, nessun download extra).
-        'fallback_translator_model_path': '',
-
-        # Motore del serbatoio: 'auto' lascia scegliere alla classe del
-        # motore primario (ramo LLM -> NLLB fine-tuned, ramo NLLB -> Qwen),
-        # che è sempre un modello DIVERSO da quello che ha già fallito.
-        # 'qwen' o 'nllb_ft' forzano la scelta.
-        'reservoir_engine': 'auto',
+        # Il serbatoio L3 (`fallback_translator_model_path`, `reservoir_engine`)
+        # e' stato rimosso con ADR-009: non c'e' un secondo modello. Chiavi
+        # rimaste in un config.json esistente: innocue, nessuno le legge.
 
         # Subtitle Synchronization ("Anchor & Match" pipeline).
         # ADR-009: allineamento SOLO temporale. Le chiavi del percorso 'llm'
@@ -1061,39 +1053,6 @@ class Config:
         except Exception as e:
             logger.warning(f"Scelta automatica modello Qwen fallita: {e}")
         return '', 0
-
-    def get_fallback_translator_model_path(self) -> str:
-        """Modello Qwen del serbatoio di traduzione (L3). Se non configurato
-        esplicitamente ricade sul modello del gender corrector: stesso GGUF,
-        stessa infrastruttura di caricamento, nessun download aggiuntivo per
-        chi non ha mai toccato questa chiave."""
-        return self.get_fallback_translator_model()[0]
-
-    def get_fallback_translator_model(self, preference=None):
-        """(percorso, n_gpu_layers) del serbatoio L3: stessa regola di get_fallback_translator_model_path."""
-        p = self.get('fallback_translator_model_path', '')
-        if p and Path(p).exists():
-            return p, -1
-        return self.resolve_llm_model('gender_correction_model_path', preference)
-
-    def set_fallback_translator_model_path(self, path: str):
-        self.set('fallback_translator_model_path', str(path))
-
-    VALID_RESERVOIR_ENGINES = ('auto', 'qwen', 'nllb_ft')
-
-    def get_reservoir_engine(self) -> str:
-        """Motore del serbatoio di traduzione (L3). Vedi la nota sulla chiave
-        nei default: 'auto' delega alla classe del motore primario."""
-        v = str(self.get('reservoir_engine', 'auto') or 'auto').lower()
-        return v if v in self.VALID_RESERVOIR_ENGINES else 'auto'
-
-    def set_reservoir_engine(self, engine: str):
-        e = str(engine or 'auto').lower()
-        if e not in self.VALID_RESERVOIR_ENGINES:
-            raise ValueError(
-                f"Motore del serbatoio non valido: {engine}. "
-                f"Ammessi: {', '.join(self.VALID_RESERVOIR_ENGINES)}")
-        self.set('reservoir_engine', e)
 
     # ========================================================================
     # METODI HELPER per Adaptive Batch Size

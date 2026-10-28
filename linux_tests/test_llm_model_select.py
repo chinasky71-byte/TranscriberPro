@@ -200,8 +200,7 @@ def _cfg(tmp_path, monkeypatch, vram, **vals):
     """Config minimale senza leggere/scrivere il file reale: solo get() e resolve_llm_model."""
     from utils import config as cfgmod
     c = cfgmod.Config.__new__(cfgmod.Config)
-    data = {'gender_correction_model_path': '', 'fallback_translator_model_path': '',
-            'llm_model_preference': 'auto'}
+    data = {'gender_correction_model_path': '', 'llm_model_preference': 'auto'}
     data.update(vals)
     c.get = lambda k, d=None: data.get(k, d)
     monkeypatch.setattr(sel, 'detect_vram_mib', lambda: vram)
@@ -216,7 +215,6 @@ def test_config_percorso_esplicito_vince_sempre(tmp_path, monkeypatch):
     mine.write_bytes(b'x')
     c = _cfg(tmp_path, monkeypatch, 8188, gender_correction_model_path=str(mine), llm_model_preference='fast')
     assert c.resolve_llm_model('gender_correction_model_path', 'fast') == (str(mine), -1)
-    assert c.get_fallback_translator_model() == (str(mine), -1)
 
 
 def test_config_percorso_vuoto_o_mancante_usa_vram_e_preferenza(tmp_path, monkeypatch):
@@ -230,7 +228,6 @@ def test_config_percorso_vuoto_o_mancante_usa_vram_e_preferenza(tmp_path, monkey
     assert '14b' in c.resolve_llm_model(preference='quality')[0]      # il job batte la config
     c.get = lambda k, d=None: {'gender_correction_model_path': str(tmp_path / 'sparito.gguf')}.get(k, '')
     assert '14b' in c.resolve_llm_model()[0]                          # percorso mancante -> ripiego
-    assert c.get_fallback_translator_model_path().endswith('00001-of-00003.gguf')
 
 
 def test_config_senza_modelli_ne_gpu(tmp_path, monkeypatch):

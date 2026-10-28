@@ -171,7 +171,7 @@ if __name__ == '__main__':
         sys.path.insert(0, str(_project_root))
 
     # Eventi strutturati su stdout (utils/events.py) SOLO se il genitore ha impostato TP_EVENTS=1 e solo quando
-    # questo modulo e' il programma: un processo che lo importa (es. fallback_translate_cli) non li emette.
+    # questo modulo e' il programma: un processo che lo importa non li emette.
     try:
         from utils.events import install_stdout_sink as _tp_install_sink
         _tp_install_sink()

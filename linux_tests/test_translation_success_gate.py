@@ -72,7 +72,6 @@ def nllb(monkeypatch):
                         lambda: (None, None, 'cpu'))
     t = NLLBTranslator(log_callback=None)
     t.use_gpu = False
-    monkeypatch.setattr(t, '_reservoir_translate', lambda mapping: {})
     return t
 
 

@@ -113,7 +113,7 @@ def test_lingua_del_figlio_segue_la_config():
         T.get_translations().current_language = prev
 
 
-@pytest.mark.parametrize('module', ['core.pipeline_cli', 'core.sync_cli', 'core.fallback_translate_cli'])
+@pytest.mark.parametrize('module', ['core.pipeline_cli', 'core.sync_cli'])
 def test_figlio_scrive_gli_errori_nella_lingua_richiesta(module):
     """Il processo figlio (python -m core.*_cli) segue TP_LANG: stesso evento (exit 2), solo testo diverso."""
     out = {}

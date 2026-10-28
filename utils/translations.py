@@ -852,14 +852,6 @@ class Translations:
             # ── log pipeline: translator.py ──
             'tl_translation_completed_residual_source_language': '  Translation completed | {parts} | residual source language: {n}',
             'tl_warning_blocks_are_still_in': '  ⚠️ WARNING: {n} blocks are still in the source language: {preview}{more}',
-            'tl_reservoir_nllb_failed': '  ⚠️ Reservoir (NLLB) failed: {exc}',
-            'tl_reservoir_not_available_config': '  ⚠️ Reservoir not available (config): {exc}',
-            'tl_reservoir_not_available_no_fallback': '  ⚠️ Reservoir not available: no fallback model configured or path does not exist',
-            'tl_distinct_sentences_blocks_to_the': '  {n} distinct sentences ({n_2} blocks) to the reservoir — unloading the primary model and loading fine-tuned NLLB',
-            'tl_distinct_sentences_blocks_to_the_2': '  {n} distinct sentences ({n_2} blocks) to the reservoir — unloading the primary model and loading the fallback',
-            'tl_reservoir_start_failed': '  ⚠️ Reservoir start failed: {exc}',
-            'tl_reservoir_exceeded_s_terminating_it': '  ⚠️ Reservoir exceeded {RESERVOIR_TIMEOUT_S}s: terminating it',
-            'tl_reservoir_failed_exit': '  ⚠️ Reservoir failed (exit {return_code})',
             'tl_translation_slowed_down_compared_to': '  ⚠️ Translation slowed down {ratio:.1f}× compared to the best pace of this file ({ms_per_token:.1f} vs {base:.1f} ms/token). Usually this means another process is using the GPU.',
             'tl_oops_critical_oom_with_batch': '   OOPS! Critical OOM with batch_size=1. Insufficient GPU memory.',
             'tl_nllb_translation_beams': '  🌐 NLLB translation ({model_label}, {load_mode}): {src_lang} → {tgt_lang} | beams:{num_beams}',
@@ -879,8 +871,6 @@ class Translations:
             'tl_batch_failed_after_attempts_keeping': ' Batch failed after {max_retries_per_batch} attempts. Keeping the originals.',
             'tl_translation_100': '  ✅ Translation: [██████████] 100% ({total}/{total}) │ {time_str}',
             'tl_blocks_to_recover_retrying_without': '  {n} blocks to recover — retrying without masking',
-            'tl_blocks_confirmed_identical_to_the': '  {n} blocks confirmed identical to the source language by two independent attempts — not sent to the reservoir',
-            'tl_warning_blocks_to_the_reservoir': '  ⚠️ WARNING: {n}/{total_for_alarm} blocks to the reservoir (over 10%) — more likely a systemic failure than isolated blocks',
             'tl_warning_block_not_translated_stays': '   ⚠️ WARNING: block {i} not translated, stays in the source language: «{text}»',
             'tl_nllb_model_unloaded_from_vram': '  ✅ NLLB model unloaded from VRAM',
             'tl_adapter_not_found_using_the': '  adapter not found, using the base model: {p}',
@@ -892,7 +882,6 @@ class Translations:
             'tl_found_subtitles': '  Found {total} subtitles',
             'tl_invalid_source_language_label_using': "  ⚠️ Invalid source language label '{requested}': using '{label}'",
             'tl_source_language_in_the_prompt': '  Source language in the prompt: {label}',
-            'tl_warning_blocks_to_the_reservoir_2': '  ⚠️ WARNING: {n}/{total_units} blocks to the reservoir (over 10%) — more likely a systemic failure (glossary, source language, degenerate model) than isolated blocks',
             'tl_warning_block_not_translated_stays_2': '   ⚠️ WARNING: block {idx} not translated, stays in the source language: «{text}»',
             'tl_subtitles_written': '  Subtitles written: {name}',
             'tl_error': '  Error: {exc}',
@@ -916,7 +905,6 @@ class Translations:
             # ── log pipeline: core/translator.py ──
             'tl_counter_repaired_l1': 'repaired L1',
             'tl_counter_recovered_l2': 'recovered L2',
-            'tl_counter_reservoir_l3': 'reservoir L3',
             'tl_counter_confirmed_identical': 'confirmed identical',
 
             # ── log pipeline: engine.py ──
@@ -1285,15 +1273,6 @@ class Translations:
             'ec_loading_failed': '❌ Loading failed',
 
             # ── log pipeline: fallback_translate_cli.py ──
-            'fb_error_cli_lines_output_json': "ERROR CLI: 'lines', 'output_json' and 'model_path' are required",
-            'fb_error_cli_model_not_found': 'ERROR CLI: model not found: {model_path}',
-            'fb_error_cli_llama_cpp_import': 'ERROR CLI: llama_cpp import failed: {e}',
-            'fb_loading_fallback_model': '📦 Loading fallback model ({name})...',
-            'fb_error_cli_model_loading_failed': 'ERROR CLI: model loading failed: {e}',
-            'fb_translating_distinct_sentences': '🌐 Translating {total} distinct sentences...',
-            'fb_line_generation_error': '   line {key}: generation error ({e})',
-            'fb_error_cli_output_json_writing': 'ERROR CLI: output_json writing failed: {e}',
-            'fb_reservoir_completed_sentences_resolved': '✅ Reservoir completed: {n}/{total} sentences resolved',
 
             # ── log pipeline: pipeline_cli.py ──
             'pc_error_cli_video_path_is': 'ERROR CLI: video_path is required',
@@ -2218,14 +2197,6 @@ class Translations:
             # ── log pipeline: translator.py ──
             'tl_translation_completed_residual_source_language': '  Traduzione completata | {parts} | lingua di partenza residua: {n}',
             'tl_warning_blocks_are_still_in': '  ⚠️ ATTENZIONE: {n} blocchi risultano ancora nella lingua di partenza: {preview}{more}',
-            'tl_reservoir_nllb_failed': '  ⚠️ Serbatoio (NLLB) fallito: {exc}',
-            'tl_reservoir_not_available_config': '  ⚠️ Serbatoio non disponibile (config): {exc}',
-            'tl_reservoir_not_available_no_fallback': '  ⚠️ Serbatoio non disponibile: nessun modello di ripiego configurato o percorso inesistente',
-            'tl_distinct_sentences_blocks_to_the': '  {n} frasi distinte ({n_2} blocchi) al serbatoio — scarico il modello primario e carico NLLB fine-tuned',
-            'tl_distinct_sentences_blocks_to_the_2': '  {n} frasi distinte ({n_2} blocchi) al serbatoio — scarico il modello primario e carico il ripiego',
-            'tl_reservoir_start_failed': '  ⚠️ Avvio serbatoio fallito: {exc}',
-            'tl_reservoir_exceeded_s_terminating_it': '  ⚠️ Serbatoio oltre {RESERVOIR_TIMEOUT_S}s: lo termino',
-            'tl_reservoir_failed_exit': '  ⚠️ Serbatoio fallito (exit {return_code})',
             'tl_translation_slowed_down_compared_to': '  ⚠️ Traduzione rallentata {ratio:.1f}× rispetto al ritmo migliore di questo file ({ms_per_token:.1f} contro {base:.1f} ms/token). Di solito significa che un altro processo sta usando la GPU.',
             'tl_oops_critical_oom_with_batch': '   OPS! OOM critico con batch_size=1. Memoria GPU insufficiente.',
             'tl_nllb_translation_beams': '  🌐 Traduzione NLLB ({model_label}, {load_mode}): {src_lang} → {tgt_lang} | beams:{num_beams}',
@@ -2245,8 +2216,6 @@ class Translations:
             'tl_batch_failed_after_attempts_keeping': ' Batch fallito dopo {max_retries_per_batch} tentativi. Mantengo originali.',
             'tl_translation_100': '  ✅ Traduzione: [██████████] 100% ({total}/{total}) │ {time_str}',
             'tl_blocks_to_recover_retrying_without': '  {n} blocchi da recuperare — ritento senza mascheramento',
-            'tl_blocks_confirmed_identical_to_the': '  {n} blocchi confermati identici alla lingua di partenza da due tentativi indipendenti — non vanno al serbatoio',
-            'tl_warning_blocks_to_the_reservoir': '  ⚠️ ATTENZIONE: {n}/{total_for_alarm} blocchi al serbatoio (oltre il 10%) — più probabile un guasto sistemico che blocchi isolati',
             'tl_warning_block_not_translated_stays': '   ⚠️ ATTENZIONE: blocco {i} non tradotto, resta nella lingua di partenza: «{text}»',
             'tl_nllb_model_unloaded_from_vram': '  ✅ Modello NLLB scaricato dalla VRAM',
             'tl_adapter_not_found_using_the': '  adattatore non trovato, uso il modello base: {p}',
@@ -2258,7 +2227,6 @@ class Translations:
             'tl_found_subtitles': '  Trovati {total} sottotitoli',
             'tl_invalid_source_language_label_using': "  ⚠️ Etichetta lingua sorgente '{requested}' non valida: uso '{label}'",
             'tl_source_language_in_the_prompt': '  Lingua sorgente nel prompt: {label}',
-            'tl_warning_blocks_to_the_reservoir_2': '  ⚠️ ATTENZIONE: {n}/{total_units} blocchi al serbatoio (oltre il 10%) — più probabile un guasto sistemico (glossario, lingua sorgente, modello degenerato) che blocchi isolati',
             'tl_warning_block_not_translated_stays_2': '   ⚠️ ATTENZIONE: blocco {idx} non tradotto, resta nella lingua di partenza: «{text}»',
             'tl_subtitles_written': '  Sottotitoli scritti: {name}',
             'tl_error': '  Errore: {exc}',
@@ -2282,7 +2250,6 @@ class Translations:
             # ── log pipeline: core/translator.py ──
             'tl_counter_repaired_l1': 'riparati L1',
             'tl_counter_recovered_l2': 'recuperati L2',
-            'tl_counter_reservoir_l3': 'serbatoio L3',
             'tl_counter_confirmed_identical': 'identici confermati',
 
             # ── log pipeline: engine.py ──
@@ -2651,15 +2618,6 @@ class Translations:
             'ec_loading_failed': '❌ Caricamento fallito',
 
             # ── log pipeline: fallback_translate_cli.py ──
-            'fb_error_cli_lines_output_json': "ERRORE CLI: 'lines', 'output_json' e 'model_path' sono obbligatori",
-            'fb_error_cli_model_not_found': 'ERRORE CLI: modello non trovato: {model_path}',
-            'fb_error_cli_llama_cpp_import': 'ERRORE CLI: import llama_cpp fallito: {e}',
-            'fb_loading_fallback_model': '📦 Caricamento modello di ripiego ({name})...',
-            'fb_error_cli_model_loading_failed': 'ERRORE CLI: caricamento modello fallito: {e}',
-            'fb_translating_distinct_sentences': '🌐 Traduzione di {total} frasi distinte...',
-            'fb_line_generation_error': '   riga {key}: errore generazione ({e})',
-            'fb_error_cli_output_json_writing': 'ERRORE CLI: scrittura output_json fallita: {e}',
-            'fb_reservoir_completed_sentences_resolved': '✅ Serbatoio completato: {n}/{total} frasi risolte',
 
             # ── log pipeline: pipeline_cli.py ──
             'pc_error_cli_video_path_is': 'ERRORE CLI: video_path obbligatorio',

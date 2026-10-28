@@ -34,21 +34,23 @@ need to re-derive anything.
 | `bf549f2` | 2 | `core/subtitle_synchronizer.py` timing-only: `_LocalQwenMatcher`, `_step2_translate_anchors`, `_step3_match_subtitles`, `_step1_whisper_fallback`, prompt/JSON helpers, `sync_engine`, `sync_llm_window_size`, `sync_qwen_model_path` and 26 `sy_*` strings removed (1942 → 1062 lines) |
 | `4ca8f8a` | 3 | Cloud engines removed: `ClaudeTranslator`, `OpenAITranslator`, `utils/opensubtitles_ai_translator.py`, `core/llm_subtitle_translator/hallucination_guard.py`, `claude_api_key`/`openai_api_key`/`openai_model` from WebUI and requirements, 23 i18n strings per language |
 | `fe749cc` | 3b | The cloud-API config methods restored as **legacy** for the frozen Qt dialog (it called them); static check over every `config.<method>()` in `gui/` reports 0 missing |
+| step 4 | 4 | L3 reservoir removed: `core/fallback_translate_cli.py` deleted, `RESERVOIR_*`/`_reservoir_*` and their two call sites gone, `reservoir_engine`/`fallback_translator_model_path` and their getters/setters gone, `tl_reservoir_*`/`tl_counter_reservoir_l3`/`fb_*` strings removed from both tables, manifest updated |
 
 Not yet touched on this branch: `docs/adr/ADR-009-*.md` (still to write),
 `docs/STATUS.md`, `docs/PROGRESS.md` (one entry per PR, at the end).
 
-### State recorded while step 4 was starting
+### State after step 4
 
-- Working tree: clean except this document and its row in `docs/README.md`.
-- **Step 4 has not been applied yet.** A first attempt used a temporary script
-  outside the repository (`/tmp/tp_step4_reservoir.py`) with text-anchored
-  deletions; it stopped on a mismatch (the reservoir counter line is shared by
-  the NLLB and the LLM branch, so it must be removed with a `count == 2`
-  replacement, not a single-match one) and, by construction, wrote nothing.
-  Re-run the same deletion with that fix, or delete the blocks with the editor.
-- Nothing about step 4 has been committed, so `git reset --hard` would return
-  to `fe749cc` (steps 1-3b) without losing work.
+- Working tree clean; suite `pytest linux_tests -q` → **801 passed, 15 skipped**
+  (one less than before: the `core.fallback_translate_cli` parameter of
+  `test_i18n_texts.py` went with the module).
+- Two leftovers of the deletion, found by the suite and fixed with it: the log
+  line `tl_blocks_confirmed_identical_to_the` was still called in both branches
+  while its string had been dropped (the count is already reported by the L4
+  audit counters, so the orphan calls went); and the OS-check allowlist still
+  held `core/translator.py: "sys.platform == 'win32'"`, a line the deletion
+  removed.
+- The `--no-ff` merge and the close-out stay for the end of step 7.
 
 ## Remaining steps
 

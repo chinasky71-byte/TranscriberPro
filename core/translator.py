@@ -736,7 +736,7 @@ class BaseTranslator(ABC):
             # inglese contenevano SOLO un termine identità mascherato — NLLB è
             # un decoder word-level che non sa produrre una frase fluente
             # intorno a un token opaco (stesso sintomo del serbatoio via NLLB,
-            # vedi `_reservoir_via_nllb`). Per NLLB si lascia quindi il testo
+            # vedi il commento qui sopra). Per NLLB si lascia quindi il testo
             # sorgente intatto (il modello traduce intorno); la sopravvivenza
             # del termine è verificata a valle da
             # `_apply_glossary_posthoc`/`_audit_untranslated`, non qui.
@@ -784,256 +784,6 @@ class BaseTranslator(ABC):
             masked_text = pattern.sub(_replacer, masked_text)
 
         return masked_text, placeholders
-
-    # ------------------------------------------------------------------
-    # L3 — Serbatoio: ripiego finale condiviso da tutti i motori primari.
-    # ------------------------------------------------------------------
-    # Tetto di durata del subprocess del serbatoio. Generoso: comprende il
-    # caricamento di un GGUF da ~9 GB più la generazione di qualche decina di
-    # righe corte. Serve solo a garantire che un blocco duri un tempo finito.
-    RESERVOIR_TIMEOUT_S = 1800
-
-    # Motore di ripiego preferito da questa classe quando la config dice
-    # 'auto'. Non può mai essere lo stesso del motore primario: il serbatoio
-    # esiste per dare una SECONDA opinione, e richiamare il modello che ha già
-    # fallito due volte (L1 e L2) non è un ripiego, è una ripetizione.
-    RESERVOIR_DEFAULT = 'qwen'
-
-    def _reservoir_engine_choice(self) -> str:
-        try:
-            from utils.config import get_config as _get_cfg
-            choice = (_get_cfg().get_reservoir_engine() or 'auto').lower()
-        except Exception:
-            choice = 'auto'
-        if choice not in ('qwen', 'nllb_ft'):
-            choice = self.RESERVOIR_DEFAULT
-        return choice
-
-    def _reservoir_via_nllb(self, lines_payload: List[Dict[str, str]],
-                            ) -> Dict[str, str]:
-        """Serbatoio su NLLB fine-tuned, IN PROCESSO.
-
-        Nessun subprocess, a differenza di Qwen: NLLB è transformers, lo
-        stesso stack del motore primario, e `cleanup()` ha già liberato la
-        VRAM prima di arrivare qui. Il subprocess serviva solo a llama-cpp,
-        che alloca fuori dall'allocatore PyTorch.
-
-        NIENTE mascheramento del glossario. Misurato sul banco del serbatoio:
-        mascherare impone la resa (conformità 100%) ma il modello non può
-        declinare articolo, genere ed elisione attorno a un token opaco, e
-        produce «È il Federazione Orientale», «un risonanza magnetica», «e
-        anche tenente Brice». La resa del glossario si applica dopo, con
-        `_apply_glossary_posthoc`, che non tocca la struttura della frase.
-        """
-        base = NLLBFineTunedTranslator(self.log_callback)
-        try:
-            texts = [re.sub(r'\s*\n\s*', ' ', d["text"]).strip()
-                     for d in lines_payload]
-            out = base._run_translation(texts, 'eng_Latn', 'ita_Latn',
-                                        add_context=False)
-            return {d["id"]: (t or "").strip()
-                    for d, t in zip(lines_payload, out)}
-        except Exception as exc:
-            logger.error(f"Serbatoio NLLB fallito: {exc}", exc_info=True)
-            self.log(tr('tl_reservoir_nllb_failed').format(exc=exc))
-            return {}
-        finally:
-            try:
-                base.cleanup()
-            except Exception:
-                pass
-
-    def _reservoir_translate(self, pending: Dict[int, str]) -> Dict[int, str]:
-        """Ultimo livello di ripiego, in un unico swap a fine file.
-
-        `pending`: {id: testo_inglese_originale NON mascherato} — tutto ciò
-        che è sopravvissuto a L1 (unmask tollerante) e L2 (ritraduzione senza
-        masking sul motore primario). Su The Ark S03E06 questo era il 3% dei
-        blocchi (24/795): a questa scala uno swap di modello one-shot costa
-        1-2 minuti sull'intera run, non i 30-50 minuti che costerebbe farlo
-        blocco per blocco.
-
-        Gira in `core/fallback_translate_cli.py`, subprocess isolato — stesso
-        contratto di `core/gender_corrector_cli.py`: Qwen (llama-cpp-python)
-        alloca la VRAM fuori dall'allocatore PyTorch di transformers, e su
-        12 GB i due non convivono in modo affidabile in-process.
-
-        Deduplica per testo sorgente normalizzato: nell'episodio di prova, per
-        via di un loop temporale narrativo, i 24 blocchi erano solo 13-14
-        frasi distinte ripetute — deduplicare dimezza il lavoro e garantisce
-        che le ripetizioni escano tradotte in modo identico fra loro (la resa
-        corretta per un loop).
-
-        Ritorna {id: testo_italiano} solo per gli id risolti E validati; chi
-        chiama decide cosa fare dei mancanti (L4 — inglese, ma rumoroso).
-        """
-        if not pending:
-            return {}
-
-        engine_choice = self._reservoir_engine_choice()
-        model_path = ''
-        n_gpu_layers = -1
-        if engine_choice == 'qwen':
-            try:
-                from utils.config import get_config as _get_cfg
-                model_path, n_gpu_layers = _get_cfg().get_fallback_translator_model(
-                    getattr(self, 'llm_model_preference', None))
-            except Exception as exc:
-                self.log(tr('tl_reservoir_not_available_config').format(exc=exc))
-                return {}
-            if not model_path or not Path(model_path).exists():
-                self.log(tr('tl_reservoir_not_available_no_fallback'))
-                return {}
-
-        # Deduplica: gruppo = stesso testo normalizzato. Rappresentante = id
-        # più basso del gruppo, è l'unico che viaggia nel prompt.
-        groups: Dict[str, List[int]] = {}
-        rep_text: Dict[str, str] = {}
-        for idx in sorted(pending):
-            text = pending[idx]
-            key = self._audit_norm(text) or f"__empty_{idx}"
-            groups.setdefault(key, []).append(idx)
-            rep_text.setdefault(key, text)
-
-        lines_payload = [{"id": key, "text": rep_text[key]} for key in groups]
-
-        # Solo i termini di glossario pertinenti alle righe da recuperare,
-        # non l'intero glossario dello show: un prompt corto e mirato è più
-        # affidabile di un elenco lungo per lo più irrilevante.
-        relevant_glossary = {}
-        if self.glossary:
-            joined = " ".join(rep_text.values()).lower()
-            relevant_glossary = {t: r for t, r in self.glossary.items()
-                                 if t.lower() in joined}
-
-        # --- ramo NLLB fine-tuned: in processo, nessun subprocess ---------
-        if engine_choice == 'nllb_ft':
-            self.log(tr('tl_distinct_sentences_blocks_to_the').format(n=len(lines_payload), n_2=len(pending)))
-            try:
-                self.cleanup()
-            except Exception as exc:
-                logger.debug(f"cleanup pre-serbatoio: {exc}")
-            per_group = self._reservoir_via_nllb(lines_payload)
-            return self._reservoir_fanout(groups, per_group, pending)
-
-        # --- ramo Qwen: subprocess isolato (llama-cpp fuori da PyTorch) ---
-        import json, subprocess, sys, tempfile, threading
-        tmp_dir = Path(tempfile.mkdtemp(prefix="tp_reservoir_"))
-        args_path = tmp_dir / "args.json"
-        output_path = tmp_dir / "output.json"
-        try:
-            args_path.write_text(json.dumps({
-                "lines": lines_payload,
-                "glossary": relevant_glossary,
-                "output_json": str(output_path),
-                "model_path": model_path,
-                "n_gpu_layers": n_gpu_layers,
-            }, ensure_ascii=False), encoding='utf-8')
-
-            project_root = Path(__file__).resolve().parent.parent
-            env = __import__('os').environ.copy()
-            env['PYTHONIOENCODING'] = 'utf-8'
-            env['PYTHONUTF8'] = '1'
-
-            self.log(tr('tl_distinct_sentences_blocks_to_the_2').format(n=len(lines_payload), n_2=len(pending)))
-            try:
-                self.cleanup()
-            except Exception as exc:
-                logger.debug(f"cleanup pre-serbatoio: {exc}")
-
-            # CREATE_NO_WINDOW: quando la traduzione gira dentro pipeline_cli
-            # il monkeypatch di `_suppress_subprocess_windows` lo mette
-            # già, ma questo metodo può essere invocato anche da un percorso
-            # in-process (test, run manuali): senza il flag lampeggerebbe una
-            # console. stdin su DEVNULL perché sotto pythonw.exe l'handle
-            # ereditato non è valido e alcune librerie ci inciampano.
-            popen_kwargs = dict(
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                stdin=subprocess.DEVNULL,
-                cwd=str(project_root), env=env, text=True,
-                encoding='utf-8', errors='replace', bufsize=1,
-            )
-            if sys.platform == 'win32':
-                popen_kwargs['creationflags'] = getattr(
-                    subprocess, 'CREATE_NO_WINDOW', 0)
-            try:
-                proc = subprocess.Popen(
-                    [sys.executable, "-m", "core.fallback_translate_cli",
-                     str(args_path)], **popen_kwargs)
-            except Exception as exc:
-                self.log(tr('tl_reservoir_start_failed').format(exc=exc))
-                return {}
-
-            def _drain_stderr(stream):
-                try:
-                    for eline in stream:
-                        eline = eline.rstrip()
-                        if eline:
-                            logger.info(f"[reservoir-stderr] {eline}")
-                except Exception:
-                    pass
-
-            threading.Thread(target=_drain_stderr, args=(proc.stderr,),
-                             daemon=True).start()
-            for line in proc.stdout:
-                line = line.rstrip()
-                if line:
-                    self.log(f"   [Serbatoio] {line}")
-            # Timeout obbligatorio: senza, un caricamento GGUF che non
-            # ritorna (modello corrotto, GPU occupata da un altro processo)
-            # bloccherebbe la pipeline per sempre e senza diagnosi. Stesso
-            # tetto del selettore di genere (core/gender_corrector_v2.py).
-            try:
-                return_code = proc.wait(timeout=self.RESERVOIR_TIMEOUT_S)
-            except subprocess.TimeoutExpired:
-                self.log(tr('tl_reservoir_exceeded_s_terminating_it').format(RESERVOIR_TIMEOUT_S=self.RESERVOIR_TIMEOUT_S))
-                try:
-                    proc.kill()
-                    proc.wait(timeout=30)
-                except Exception:
-                    pass
-                return {}
-
-            if return_code != 0 or not output_path.exists():
-                self.log(tr('tl_reservoir_failed_exit').format(return_code=return_code))
-                return {}
-
-            raw = json.loads(output_path.read_text(encoding='utf-8'))
-            per_group: Dict[str, str] = raw.get("translations", {})
-
-        except Exception as exc:
-            logger.error(f"Serbatoio: errore inatteso: {exc}", exc_info=True)
-            return {}
-        finally:
-            try:
-                import shutil
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-            except Exception:
-                pass
-
-        return self._reservoir_fanout(groups, per_group, pending)
-
-    def _reservoir_fanout(self, groups: Dict[str, List[int]],
-                          per_group: Dict[str, str],
-                          pending: Dict[int, str]) -> Dict[int, str]:
-        """Riporta la traduzione del rappresentante su tutti gli id del suo
-        gruppo, applica il glossario a posteriori e VALIDA: un risultato
-        indistinguibile dall'inglese non viene accettato, così chi chiama lo
-        vede come non risolto e passa a L4 (inglese, ma segnalato) invece di
-        scambiarlo per una traduzione riuscita."""
-        resolved: Dict[int, str] = {}
-        for key, ids in groups.items():
-            it = (per_group.get(key) or "").strip()
-            if not it:
-                continue
-            for idx in ids:
-                src = pending[idx]
-                it_for_id = self._apply_glossary_posthoc(it, src)
-                if self._is_untranslated(it_for_id, src):
-                    continue
-                resolved[idx] = it_for_id
-        return resolved
-
 
 # ============================================================================
 # NLLB TRANSLATOR (MODIFIED FOR 8-BIT QUANTIZATION)
@@ -1289,16 +1039,6 @@ class NLLBTranslator(BaseTranslator):
     """
     Traduttore NLLB-200 con BATCH SIZE ADATTIVO
     """
-
-    # Serbatoio (L3) per il ramo NLLB: Qwen, non NLLB.
-    #
-    # Qui il motore primario È NLLB: richiamarlo come ripiego ripeterebbe il
-    # tentativo che ha già fallito in L1 e in L2. Qwen è l'unica seconda
-    # opinione sempre disponibile (GGUF già presente per la correzione di
-    # genere), e sul banco del serbatoio produce sì un italiano meno curato,
-    # ma su righe che altrimenti resterebbero in inglese.
-    RESERVOIR_DEFAULT = 'qwen'
-
 
     # Mappa COMPLETA codici lingua ISO 639-2/1 → codici NLLB
     LANGUAGE_CODES = {
@@ -1909,7 +1649,7 @@ class NLLBTranslator(BaseTranslator):
             # blocchi in coda. Una sola chiamata per tutti insieme.
             # ------------------------------------------------------------
             pos_by_index = {item[0]: pos for pos, item in enumerate(translated_subtitles)}
-            n_l2 = n_l3 = 0
+            n_l2 = 0
             confirmed_identical: Dict[int, str] = {}
             if recovery_queue:
                 self.log(tr('tl_blocks_to_recover_retrying_without').format(n=len(recovery_queue)))
@@ -1942,23 +1682,8 @@ class NLLBTranslator(BaseTranslator):
                     del recovery_queue[i]
                     n_l2 += 1
 
-                if confirmed_identical:
-                    self.log(tr('tl_blocks_confirmed_identical_to_the').format(n=len(confirmed_identical)))
-
-            # ------------------------------------------------------------
-            # L3 — serbatoio, un solo swap di modello per ciò che resta.
-            # ------------------------------------------------------------
-            if recovery_queue:
-                total_for_alarm = max(1, total)
-                if len(recovery_queue) > total_for_alarm * 0.10:
-                    self.log(tr('tl_warning_blocks_to_the_reservoir').format(n=len(recovery_queue), total_for_alarm=total_for_alarm))
-                for i, text in self._reservoir_translate(dict(recovery_queue)).items():
-                    pos = pos_by_index.get(i)
-                    if pos is not None:
-                        old = translated_subtitles[pos]
-                        translated_subtitles[pos] = (old[0], old[1], old[2], text)
-                    del recovery_queue[i]
-                    n_l3 += 1
+            # L3 non esiste più (ADR-009): non c'è un secondo modello. Ciò che
+            # sopravvive a L1 e L2 resta in inglese e finisce in L4, rumoroso.
 
             # L4 — ciò che resta in `recovery_queue` è già rimasto invariato
             # (inglese) in `translated_subtitles`: si segnala ad alta voce.
@@ -1969,7 +1694,6 @@ class NLLBTranslator(BaseTranslator):
                 {idx: text for idx, _, _, text in translated_subtitles},
                 originals_by_index,
                 counters={tr('tl_counter_repaired_l1'): n_repaired, tr('tl_counter_recovered_l2'): n_l2,
-                         tr('tl_counter_reservoir_l3'): n_l3,
                          tr('tl_counter_confirmed_identical'): len(confirmed_identical)})
 
             # Criterio di successo: non basta aver completato il ciclo. Se troppi
@@ -2092,14 +1816,6 @@ class LLMSubtitleTranslator(BaseTranslator):
     # contro Qwen2.5-14B, giudizio testa a testa nella stessa chiamata:
     #   - NLLB-FT preferito nel 64% dei segmenti contro il 26% di Qwen;
     #   - MQM pesato 1,41 contro 4,31 (più basso è meglio);
-    #   - errori di grammatica 3 contro 12, zero critici contro 2, zero
-    #     parole lasciate in inglese contro 3.
-    # Qwen vince solo sulla conformità al glossario (98% contro 89%), perché
-    # le istruzioni in prompt le esegue e NLLB no — ma quel divario si chiude
-    # con `_apply_glossary_posthoc`, mentre gli errori di grammatica di Qwen
-    # ("stiamo siendo trascinati", "la prossima step", "al diagnosi") no.
-    RESERVOIR_DEFAULT = 'nllb_ft'
-
     def __init__(self, log_callback: Optional[Callable] = None,
                  context: Optional[str] = None,
                  glossary: Optional[Dict[str, str]] = None):
@@ -2504,25 +2220,14 @@ class LLMSubtitleTranslator(BaseTranslator):
                     del pending[idx]
                     n_l2 += 1
 
-                if confirmed_identical:
-                    self.log(tr('tl_blocks_confirmed_identical_to_the').format(n=len(confirmed_identical)))
+            # ------------------------------------------------------------
+            # FASE C — L3 non esiste più (ADR-009): non c'è un secondo modello
+            # da caricare. Ciò che sopravvive a L1+L2 resta in inglese e
+            # finisce in L4.
+            # ------------------------------------------------------------
 
             # ------------------------------------------------------------
-            # FASE C — L3: serbatoio, un solo swap di modello per tutto ciò
-            # che sopravvive a L1+L2 (scarica il 12B, carica Qwen).
-            # ------------------------------------------------------------
-            n_l3 = 0
-            if pending:
-                total_units = max(1, len(units))
-                if len(pending) > total_units * 0.10:
-                    self.log(tr('tl_warning_blocks_to_the_reservoir_2').format(n=len(pending), total_units=total_units))
-                for idx, text in self._reservoir_translate(dict(pending)).items():
-                    resolved[idx] = text
-                    del pending[idx]
-                    n_l3 += 1
-
-            # ------------------------------------------------------------
-            # FASE D — L4: inglese, ma rumoroso. Con L0-L3 attivi deve
+            # FASE D — L4: inglese, ma rumoroso. Con L0-L2 attivi deve
             # restare vuoto; se non lo è, il numero è l'informazione che
             # dice dove intervenire — mai un fallimento silenzioso come
             # prima (il `logger.warning` che non arrivava né a schermo né
@@ -2544,7 +2249,6 @@ class LLMSubtitleTranslator(BaseTranslator):
                 {i: t for i, _, _, t in output}, originals,
                 skip_ids=passthrough.keys(),
                 counters={tr('tl_counter_repaired_l1'): n_repaired, tr('tl_counter_recovered_l2'): n_l2,
-                         tr('tl_counter_reservoir_l3'): n_l3,
                          tr('tl_counter_confirmed_identical'): len(confirmed_identical)})
 
             if self._translation_exceeds_error_budget(len(flagged), total):
