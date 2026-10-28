@@ -111,3 +111,15 @@ La web UI non sostituisce la Qt finché ogni riga non e' `verificato Win`. Rifer
 | Superpower: controlli, conferma, elenco dal server, batch automatico, riepilogo, spegnimento a fine batch | `OcrManager.superpower` | fatto | `test_superpower_*` |
 | Differenza voluta: con la revisione aperta il lavoro conta come «OCR in corso» (la coda non parte, nessun altro OCR) | `gate.ocr_running` | da confermare | `test_revisione_elenco_*` |
 | Aspetto confrontato con Qt (SSIM) | | da misurare in C-011 (Windows) | |
+
+## Guscio, finestra e pacchetto (fase 6)
+| Elemento | Web | Stato | Test |
+|---|---|---|---|
+| Finestra nativa pywebview con watchdog (pagina bianca -> profilo pulito -> browser) | `tpweb/shell.py`, `--shell auto\|on\|off` | codice e logica provati con un finto `webview`; **finestra vera da provare su Windows** | `test_tpweb_shell.py` |
+| Dialoghi nativi per file/cartelle (ripiego sul navigatore web) | `ShellApi`, `pickNative` | logica provata; **dialogo vero da provare su Windows** | `test_tpweb_shell.py`, `test_tpweb_shell_page.py` |
+| Trascinamento di file da Esplorer (`pywebviewFullPath`) | `main.js` | logica provata; **da provare su Windows** | `test_trascinamento_da_esplorer_*` |
+| Chiusura della finestra a coda al lavoro (conferma dalla pagina) | evento `closing` + `tp-quit-request` | logica provata; **da provare su Windows** | `test_chiusura_a_coda_libera_*`, `test_richiesta_di_uscita_*` |
+| Maniglie dei tre pannelli (QSplitter, misure salvate) | `SplitRow` in `main.js`, `/api/settings/splitter` | fatto | `test_tpweb_splitter.py` |
+| Script di avvio (.bat, .vbs, run_web.sh), `requirements-web.txt`, NOTICE | | fatto | `test_tpweb_packaging.py` |
+| Pacchetto PyInstaller `TranscriberProWeb.spec` | | scritto; **build da provare su Windows** | `test_lo_spec_elenca_*` |
+| Splash di avvio | | non fatto: il server parte prima della finestra (< 1 s); da rivalutare su Windows | |

@@ -67,10 +67,45 @@ def _startup_log(queue, config, preview) -> None:
     queue.log_message(tr('mw_engine_log').format(engine=ENGINE_MODE_LABELS.get(config.get_transcription_engine_mode(), 'Auto')))
 
 
+def use_shell(mode: str, no_browser: bool, available: Optional[bool] = None) -> bool:
+    """Finestra nativa? `on` sempre (se manca pywebview si ricade sul browser), `auto` solo se installato e non e' un avvio senza browser."""
+    if mode == 'off':
+        return False
+    if mode == 'on':
+        return True
+    from tpweb.shell import pywebview_available
+    return (pywebview_available() if available is None else available) and not no_browser
+
+
+def run_shell(srv, quit_event, webview=None) -> bool:
+    """Apre la finestra e ci resta finche' non viene chiusa. True se la finestra si e' aperta (anche se poi e' stata chiusa)."""
+    from tpweb.shell import Shell
+    from utils.translations import tr
+    if webview is None:
+        try:
+            import webview
+        except Exception:
+            return False
+    ask = lambda window: window.evaluate_js("window.dispatchEvent(new Event('tp-quit-request'))")      # noqa: E731
+    shell = Shell(webview, srv.url, srv.wait_page, quit_event.set, lambda: srv.queue.is_processing, ask, file_label=tr('web_shell_files'))
+
+    def closer():
+        quit_event.wait()
+        time.sleep(0.2)                                   # lascia partire la risposta di /api/quit
+        shell.close_window()
+    threading.Thread(target=closer, name='tpweb-shell-closer', daemon=True).start()
+    opened = shell.run()
+    if opened:
+        quit_event.set()                                  # chiusa la finestra si esce, come chiudere la finestra Qt
+    return opened
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(prog='tpweb', description='Transcriber Pro, interfaccia web (solo questo computer).')
     ap.add_argument('--ui', choices=['qt', 'web'], default='web', help='accettato per compatibilita\' con main.py')
     ap.add_argument('--no-browser', action='store_true', help="non aprire il browser: stampa solo l'indirizzo")
+    ap.add_argument('--shell', choices=['auto', 'on', 'off'], default='auto',
+                    help="finestra nativa (pywebview): auto = se installato e senza --no-browser; on = obbligatoria; off = browser")
     args = ap.parse_args(argv)
     lock = lifecycle.ServerLock()
     if not lock.acquire():
@@ -87,8 +122,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         srv = build(get_config(), quit_event=quit_event)
         srv.start()
         print(srv.url, flush=True)
-        if not args.no_browser:
-            webbrowser.open(srv.url)
+        shown = False
+        if use_shell(args.shell, args.no_browser):
+            shown = run_shell(srv, quit_event)
+        if not shown and not args.no_browser:
+            webbrowser.open(srv.url)                # senza guscio, o se la finestra non si e' aperta: browser predefinito
         try:
             while not quit_event.wait(0.5):
                 pass

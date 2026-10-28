@@ -3,6 +3,7 @@
 
 Endpoint di questa fetta: /api/ping, /api/i18n/{lingua}, /api/state, /events (SSE raggruppato con ripresa)."""
 import asyncio
+import threading
 import json
 import mimetypes
 import time
@@ -34,6 +35,7 @@ def create_app(token: str, port: int, bus: Optional[EventBus] = None,
     if get_state is None and queue is not None:
         get_state = lambda: {**queue.full_state(), **({'preview': preview.state()} if preview is not None else {}),      # noqa: E731
                              **({'gpu': gpu.value} if gpu is not None else {})}
+    app.state.page_ready = threading.Event()           # la prima pagina collegata a /events: il guscio nativo lo attende (watchdog)
     app.state.tools = None
     app.state.library = None
     app.state.ocr = None
@@ -133,6 +135,7 @@ def create_app(token: str, port: int, bus: Optional[EventBus] = None,
             flag = asyncio.Event()
             w = bus.add_waiter(loop, flag)
             try:
+                app.state.page_ready.set()
                 if cursor is None:               # nuova connessione: stato completo, poi il seguito
                     seq = bus.last_seq
                     snap = {'seq': seq, 'state': app.state.get_state()}

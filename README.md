@@ -1587,3 +1587,7 @@ dettaglio completo, la metodologia di misura e le regole di decisione per ogni a
 - [tessdata_best](https://github.com/tesseract-ocr/tessdata_best) — traineddata ad alta precisione
 - [OpenSubtitles](https://www.opensubtitles.com) — database sottotitoli e API
 - [jonatasgrosman](https://huggingface.co/jonatasgrosman) — modelli wav2vec2 per allineamento
+
+
+## Interfaccia web (in prova)
+Una seconda interfaccia, nel ramo `webui/main`, si avvia con `python main.py --ui web` (o `Lancia Transcriptor Web.bat`). Guida: [`docs/WEBUI_USO.md`](docs/WEBUI_USO.md); parita' con la GUI: [`tpweb/PARITY.md`](tpweb/PARITY.md).
