@@ -77,3 +77,15 @@ La web UI non sostituisce la Qt finché ogni riga non e' `verificato Win`. Rifer
 | Trascrizione (motore, stile dialoghi; schede profilo nascoste come nella GUI) | `settings_models.js` | fatto | `test_trascrizione_*` |
 | Traduzione (6 modelli, percorsi, chiavi, beams, diarizzazione, genere, forza audio, download LLM e test pyannote con righe in diretta, pagina d'errore) | idem | fatto | `test_traduzione_*`, `test_tpweb_settings_models.py` |
 | Aspetto confrontato con Qt (SSIM) | | da misurare in C-011 (Windows) | |
+
+
+## Strumenti (fase 4)
+| Elemento GUI | Web | Stato | Test |
+|---|---|---|---|
+| Mutua esclusione coda / Glossario / Sincronizzazione / OCR (verdetti di avvio, apertura strumenti, avviso) | `core/services/tool_gate.py`, `WebQueue.start` atomico | fatto (OCR: flag pronto, lo imposta la fase 5) | `test_tool_gate.py` (16 combinazioni identiche a `QueueService.can_start`, gara, atomicita') |
+| Glossario per show: cartella, nome, ricerca TMDB (fuori dal ciclo degli eventi), run, annulla, schede candidato, salva | `tools_glossary.js`, `tpweb/tools.py`, `routes_tools.py` | fatto | `test_tpweb_tools.py`, `test_tpweb_tools_page.py`, `test_glossary_tmdb_resolve.py` (caratterizzazione sul vecchio codice) |
+| Chiudere il dialogo annulla il run; ricaricare la pagina no; stato ripristinato dopo un buco di eventi | idem | fatto (scelta di prodotto per il web) | `test_ricaricare_la_pagina_non_annulla_chiudere_il_dialogo_si` |
+| Sincronizzazione: singola, coda di coppie (tabella, scelta SRT, spunte, riepilogo), progresso, log con barre sul posto, annulla | `tools_sync.js`, `SyncManager`, `core/services/progress_log.py` | fatto | `test_tpweb_sync.py`, `test_tpweb_sync_page.py`, `test_progress_log.py` (identico a `append_log_line`) |
+| Chiusura del server: annulla e attende i run (nessun sottoprocesso orfano) | `ToolRuns.shutdown` | fatto | `test_chiusura_del_server_*` |
+| Differenza voluta: a run in corso il dialogo si puo' riaprire (e' una vista sul run, non un secondo run); un secondo avvio e' rifiutato dal server | | da confermare | |
+| Aspetto confrontato con Qt (SSIM) | | da misurare in C-011 (Windows) | |
