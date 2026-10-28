@@ -9,18 +9,7 @@ import { ContextMenu } from '/static/js/context_menu.js';
 export function TitleBar() {
   const running = useStore((s) => s.queue.running);
   const connected = useStore((s) => s.connected);
-  const [quitAsk, setQuitAsk] = useState(false);
-  useEffect(() => {                                           // il guscio nativo chiede di chiudere a coda al lavoro: decide la persona
-    const ask = () => setQuitAsk(true);
-    window.addEventListener('tp-quit-request', ask);
-    return () => window.removeEventListener('tp-quit-request', ask);
-  }, []);
   const [toolsMenu, setToolsMenu] = useState(null);
-  async function quit(force) {
-    const r = await post('/api/quit', { force });
-    if (r.status === 409) setQuitAsk(true);
-    else if (r.ok) document.body.classList.add('closed');
-  }
   return html`<header class="titlebar" data-testid="titlebar">
     <div class="brand"><span class="brand-mark">◈</span><span class="brand-name">Transcriber Pro</span><span class="brand-sep"></span>
       <span class="brand-sub">${t('web_brand_subtitle')}</span></div>
@@ -32,13 +21,29 @@ export function TitleBar() {
         onClick=${(e) => { const r = e.currentTarget.getBoundingClientRect(); setToolsMenu({ x: r.left, y: r.bottom + 4 }); }}><${Icon} name="wrench" size=${16} /></button>
       <button class="tool-btn" data-testid="open-sync" title=${t('sync_dialog_title')} disabled=${running} onClick=${() => openTool('sync')}><${Icon} name="sync" size=${16} /></button>
       <button class="tool-btn" data-testid="open-settings" title=${t('settings_dialog_title')} onClick=${() => openSettings()}><${Icon} name="settings" size=${16} /></button>
-      <button class="tool-btn" data-testid="quit" title=${t('web_quit')} onClick=${() => quit(false)}><${Icon} name="power" size=${16} /></button>
     </div>
     ${toolsMenu ? html`<${ContextMenu} x=${toolsMenu.x} y=${toolsMenu.y} onClose=${() => setToolsMenu(null)}
         items=${[{ label: t('tools_glossary'), onClick: () => openTool('glossary') }]} />` : null}
-    ${quitAsk ? html`<${Confirm} title=${t('web_quit')} text=${t('web_quit_busy')} onNo=${() => setQuitAsk(false)}
-        onYes=${() => { setQuitAsk(false); quit(true); }} />` : null}
   </header>`;
+}
+
+/** «Esci» (la GUI Qt non lo ha: chiudere la finestra chiude il programma). Sta a destra nella riga delle schede, per lasciare alla barra del titolo
+ *  gli stessi tre pulsanti di Qt. A coda al lavoro chiede conferma; lo chiede anche il guscio nativo (`tp-quit-request`) chiudendo la finestra. */
+function QuitButton() {
+  const [quitAsk, setQuitAsk] = useState(false);
+  useEffect(() => {
+    const ask = () => setQuitAsk(true);
+    window.addEventListener('tp-quit-request', ask);
+    return () => window.removeEventListener('tp-quit-request', ask);
+  }, []);
+  async function quit(force) {
+    const r = await post('/api/quit', { force });
+    if (r.status === 409) setQuitAsk(true);
+    else if (r.ok) document.body.classList.add('closed');
+  }
+  return html`<button class="tool-btn quit-btn" data-testid="quit" title=${t('web_quit')} onClick=${() => quit(false)}><${Icon} name="power" size=${15} /></button>
+    ${quitAsk ? html`<${Confirm} title=${t('web_quit')} text=${t('web_quit_busy')} onNo=${() => setQuitAsk(false)}
+        onYes=${() => { setQuitAsk(false); quit(true); }} />` : null}`;
 }
 
 export function TabBar() {
@@ -69,5 +74,6 @@ export function TabBar() {
       <${Icon} name="history" size=${15} class="ico-muted" />${historyCount ? t('tab_history') + '  (' + historyCount + ')' : t('tab_history')}</button>
     ${gpu ? html`<span class=${'gpu-badge ' + gpu.vendor} data-testid="gpu-badge" style=${{ left: (badgeX === null ? 700 : badgeX) + 'px' }}
         title=${gpu.vendor === 'cpu' ? t('gpu_badge_cpu_tip') : t('gpu_badge_tip', { name: gpu.text })}>${gpu.text}</span>` : null}
+    <${QuitButton} />
   </nav>`;
 }

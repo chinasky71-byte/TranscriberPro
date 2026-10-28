@@ -79,6 +79,8 @@ class Shell:
         self.profile_root = profile_root or os.path.join(tempfile.gettempdir(), 'tpweb_webview')
         self.window = None
         self.closing_for_good = False
+        self._close_lock = threading.Lock()
+        self._destroy_called = False
         self.results: List[str] = []            # esito di ogni tentativo: 'ok' | 'timeout' | 'error:...' (per i log e i test)
 
     # ------------------------------------------------------------------------------------------------------------------------ chiusura
@@ -87,14 +89,25 @@ class Shell:
         if self.closing_for_good:
             return True
         if self._is_busy():
-            self._on_busy_close(self.window)
+            # In un thread a parte: evaluate_js dentro il gestore (thread dell'interfaccia) aspetta una risposta che solo quel thread puo' dare
+            threading.Thread(target=self._ask_busy, name='tpweb-shell-ask', daemon=True).start()
             return False
         self._request_quit()
         return True
 
+    def _ask_busy(self) -> None:
+        try:
+            self._on_busy_close(self.window)
+        except Exception:
+            logger.debug('richiesta di conferma alla pagina', exc_info=True)
+
     def close_window(self) -> None:
-        """Chiude la finestra senza altre domande (il server sta gia' uscendo)."""
-        self.closing_for_good = True
+        """Chiude la finestra senza altre domande (il server sta gia' uscendo). Una sola volta: la seconda chiamata non fa nulla."""
+        with self._close_lock:
+            self.closing_for_good = True
+            if self._destroy_called:
+                return
+            self._destroy_called = True
         w = self.window
         if w is not None:
             try:
@@ -147,10 +160,12 @@ class Shell:
         stop.set()
         t.join(0.5)
         self.closing_for_good = False
+        self._destroy_called = False
         if state['connected']:
             return 'ok'
         return 'timeout'
 
     def _request_quit_and_close(self) -> None:
+        """Dalla pagina: ferma il server; la finestra la chiude un altro thread (mai destroy() dentro la chiamata JS, che aspetta il thread
+        dell'interfaccia: su Windows la finestra restava «Non risponde»)."""
         self._request_quit()
-        self.close_window()

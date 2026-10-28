@@ -4,6 +4,7 @@
 Compone config, cronologia, coda, server (solo 127.0.0.1, porta libera, token), blocca un solo server per utente, rifiuta di
 partire se la GUI Qt o la coda headless possiedono gia' la coda, apre il browser (o stampa l'indirizzo) e attende «Esci» o Ctrl+C."""
 import argparse
+import os
 import subprocess
 import sys
 import threading
@@ -77,7 +78,7 @@ def use_shell(mode: str, no_browser: bool, available: Optional[bool] = None) -> 
     return (pywebview_available() if available is None else available) and not no_browser
 
 
-def run_shell(srv, quit_event, webview=None) -> bool:
+def run_shell(srv, quit_event, webview=None, hard_exit=None, hard_exit_after: float = 15.0) -> bool:
     """Apre la finestra e ci resta finche' non viene chiusa. True se la finestra si e' aperta (anche se poi e' stata chiusa)."""
     from tpweb.shell import Shell
     from utils.translations import tr
@@ -93,11 +94,23 @@ def run_shell(srv, quit_event, webview=None) -> bool:
         quit_event.wait()
         time.sleep(0.2)                                   # lascia partire la risposta di /api/quit
         shell.close_window()
+        if hard_exit is not None:                         # rete di sicurezza: se la finestra non si chiude, si esce comunque
+            time.sleep(hard_exit_after)
+            hard_exit()
     threading.Thread(target=closer, name='tpweb-shell-closer', daemon=True).start()
     opened = shell.run()
     if opened:
         quit_event.set()                                  # chiusa la finestra si esce, come chiudere la finestra Qt
     return opened
+
+
+def _hard_exit(srv, lock) -> None:
+    """Uscita forzata dopo una chiusura che non si completa: ferma la coda, libera il lock, termina il processo."""
+    try:
+        srv.queue.stop()
+        lock.release()
+    finally:
+        os._exit(EXIT_OK)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -124,7 +137,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(srv.url, flush=True)
         shown = False
         if use_shell(args.shell, args.no_browser):
-            shown = run_shell(srv, quit_event)
+            shown = run_shell(srv, quit_event, hard_exit=lambda: _hard_exit(srv, lock))
         if not shown and not args.no_browser:
             webbrowser.open(srv.url)                # senza guscio, o se la finestra non si e' aperta: browser predefinito
         try:

@@ -393,7 +393,7 @@ def test_ripresa_dopo_la_caduta_del_flusso(env):
 
 
 # ------------------------------------------------------------------------- confronto di geometria con la finestra Qt vera (Linux)
-QT_REF = ROOT / 'tpweb' / 'proto' / 'results' / 'p2_qt_linux' / '1.0'
+QT_REF = ROOT / 'tpweb' / 'proto' / 'results' / 'p2_qt_windows' / '1.0'
 
 
 def qt_widgets(state):
@@ -415,7 +415,7 @@ def close(a, b, tol):
 
 def test_geometria_come_la_finestra_qt_vera_stato_righe(env):
     """Regressione di LAYOUT (non di pixel): le scatole della pagina a 1400x900 coincidono con quelle di Qt entro 2 px. Il riferimento e'
-    la cattura Qt su Linux (p2_qt_capture.py); il confronto vero, a 100/125/150% su Windows, e' della sessione locale (C-010)."""
+    la cattura Qt su Windows a 100% (sessione locale, L-011); il confronto a 125/150% e' di p2_web_capture.py --qt-dir."""
     e2e.seed_rows(env.wq)
     page = env.open(1400, 900)
     wait_rows(page, 3)

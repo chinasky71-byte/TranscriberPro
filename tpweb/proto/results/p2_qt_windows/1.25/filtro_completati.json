@@ -1,0 +1,712 @@
+{
+ "widgets": {
+  "miniTitleBar#0": [
+   0,
+   0,
+   1400,
+   52
+  ],
+  "titleBarMark#1": [
+   15,
+   0,
+   10,
+   52
+  ],
+  "titleBarBrand#2": [
+   31,
+   0,
+   92,
+   52
+  ],
+  "titleBarSep#3": [
+   129,
+   18,
+   1,
+   16
+  ],
+  "titleBarSubtitle#4": [
+   136,
+   0,
+   89,
+   52
+  ],
+  "statusPill#5": [
+   707,
+   13,
+   74,
+   26
+  ],
+  "titleBarStatusLabel#6": [
+   734,
+   14,
+   32,
+   24
+  ],
+  "titleBarToolsBtn#7": [
+   1262,
+   10,
+   34,
+   34
+  ],
+  "titleBarSyncBtn#8": [
+   1308,
+   10,
+   34,
+   34
+  ],
+  "titleBarSettingsBtn#9": [
+   1354,
+   10,
+   34,
+   34
+  ],
+  "mainTabBar#10": [
+   0,
+   52,
+   1400,
+   36
+  ],
+  "gpuBadge#11": [
+   736,
+   62,
+   14,
+   16
+  ],
+  "mainSplitter#12": [
+   15,
+   100,
+   1370,
+   734
+  ],
+  "rightPanel#13": [
+   917,
+   100,
+   468,
+   734
+  ],
+  "panelTitle#14": [
+   946,
+   127,
+   121,
+   26
+  ],
+  "modernCheckbox#15": [
+   1264,
+   131,
+   92,
+   18
+  ],
+  "logStatTile#16": [
+   946,
+   163,
+   98,
+   52
+  ],
+  "logStatValue#17": [
+   957,
+   170,
+   76,
+   24
+  ],
+  "logStatLabel#18": [
+   957,
+   195,
+   76,
+   13
+  ],
+  "logStatTile#19": [
+   1050,
+   163,
+   98,
+   52
+  ],
+  "logStatValue#20": [
+   1061,
+   170,
+   76,
+   24
+  ],
+  "logStatLabel#21": [
+   1061,
+   195,
+   76,
+   13
+  ],
+  "logStatTile#22": [
+   1154,
+   163,
+   98,
+   52
+  ],
+  "logStatValue#23": [
+   1165,
+   170,
+   76,
+   24
+  ],
+  "logStatLabel#24": [
+   1165,
+   195,
+   76,
+   13
+  ],
+  "logStatTile#25": [
+   1258,
+   163,
+   98,
+   52
+  ],
+  "logStatValue#26": [
+   1269,
+   170,
+   76,
+   24
+  ],
+  "logStatLabel#27": [
+   1269,
+   195,
+   76,
+   13
+  ],
+  "logText#28": [
+   946,
+   225,
+   410,
+   395
+  ],
+  "qt_scrollarea_viewport#29": [
+   961,
+   238,
+   380,
+   369
+  ],
+  "sectionTitle#30": [
+   946,
+   630,
+   410,
+   15
+  ],
+  "diagTile#31": [
+   946,
+   655,
+   202,
+   44
+  ],
+  "diagValue#32": [
+   957,
+   662,
+   180,
+   15
+  ],
+  "diagLabel#33": [
+   973,
+   679,
+   30,
+   13
+  ],
+  "diagTile#34": [
+   1154,
+   655,
+   202,
+   44
+  ],
+  "diagValue#35": [
+   1165,
+   662,
+   180,
+   15
+  ],
+  "diagLabel#36": [
+   1181,
+   679,
+   23,
+   13
+  ],
+  "diagTile#37": [
+   946,
+   709,
+   202,
+   44
+  ],
+  "diagValue#38": [
+   957,
+   716,
+   180,
+   15
+  ],
+  "diagLabel#39": [
+   973,
+   733,
+   35,
+   13
+  ],
+  "diagTile#40": [
+   1154,
+   709,
+   202,
+   44
+  ],
+  "diagValue#41": [
+   1165,
+   716,
+   180,
+   15
+  ],
+  "diagLabel#42": [
+   1181,
+   733,
+   45,
+   13
+  ],
+  "diagTile#43": [
+   946,
+   763,
+   410,
+   44
+  ],
+  "diagValue#44": [
+   957,
+   770,
+   388,
+   15
+  ],
+  "diagLabel#45": [
+   973,
+   787,
+   30,
+   13
+  ],
+  "centerPanel#46": [
+   442,
+   100,
+   469,
+   734
+  ],
+  "previewHeader#47": [
+   457,
+   115,
+   439,
+   44
+  ],
+  "panelTitle#48": [
+   471,
+   125,
+   69,
+   26
+  ],
+  "centerSplitter#49": [
+   457,
+   159,
+   439,
+   660
+  ],
+  "resourceTitle#50": [
+   467,
+   628,
+   85,
+   15
+  ],
+  "uptimeLabel#51": [
+   772,
+   628,
+   114,
+   15
+  ],
+  "metricCard#52": [
+   467,
+   651,
+   206,
+   42
+  ],
+  "metricName#53": [
+   496,
+   660,
+   21,
+   16
+  ],
+  "metricValue#54": [
+   655,
+   660,
+   7,
+   16
+  ],
+  "cpuBar#55": [
+   478,
+   680,
+   184,
+   4
+  ],
+  "metricCard#56": [
+   681,
+   651,
+   205,
+   42
+  ],
+  "metricName#57": [
+   710,
+   660,
+   22,
+   16
+  ],
+  "metricValue#58": [
+   868,
+   660,
+   7,
+   16
+  ],
+  "ramBar#59": [
+   692,
+   680,
+   183,
+   4
+  ],
+  "metricCard#60": [
+   467,
+   701,
+   206,
+   42
+  ],
+  "metricName#61": [
+   496,
+   710,
+   21,
+   16
+  ],
+  "metricValue#62": [
+   655,
+   710,
+   7,
+   16
+  ],
+  "gpuBar#63": [
+   478,
+   730,
+   184,
+   4
+  ],
+  "metricCard#64": [
+   681,
+   701,
+   205,
+   42
+  ],
+  "metricName#65": [
+   710,
+   710,
+   29,
+   16
+  ],
+  "metricValue#66": [
+   868,
+   710,
+   7,
+   16
+  ],
+  "vramBar#67": [
+   692,
+   730,
+   183,
+   4
+  ],
+  "netCard#68": [
+   467,
+   751,
+   206,
+   33
+  ],
+  "netIcon#69": [
+   478,
+   760,
+   14,
+   14
+  ],
+  "metricName#70": [
+   498,
+   760,
+   45,
+   15
+  ],
+  "netSpeedLabel#71": [
+   609,
+   760,
+   53,
+   15
+  ],
+  "netCard#72": [
+   681,
+   751,
+   205,
+   33
+  ],
+  "netIcon#73": [
+   692,
+   760,
+   14,
+   14
+  ],
+  "metricName#74": [
+   712,
+   760,
+   32,
+   15
+  ],
+  "netSpeedLabel#75": [
+   822,
+   760,
+   53,
+   15
+  ],
+  "posterStage#76": [
+   457,
+   159,
+   439,
+   453
+  ],
+  "posterInfoStrip#77": [
+   457,
+   519,
+   439,
+   93
+  ],
+  "overlayTitle#78": [
+   469,
+   550,
+   415,
+   16
+  ],
+  "overlayMeta#79": [
+   469,
+   570,
+   415,
+   14
+  ],
+  "overlayProgress#80": [
+   469,
+   593,
+   415,
+   14
+  ],
+  "qt_splithandle_#81": [
+   457,
+   612,
+   439,
+   6
+  ],
+  "leftPanel#82": [
+   15,
+   100,
+   421,
+   734
+  ],
+  "remainingFilesLabel#83": [
+   380,
+   124,
+   32,
+   0
+  ],
+  "segmentedFilter#84": [
+   39,
+   134,
+   373,
+   28
+  ],
+  "segmentFilterBtn#85": [
+   39,
+   138,
+   66,
+   20
+  ],
+  "segmentFilterBtn#86": [
+   107,
+   138,
+   66,
+   20
+  ],
+  "segmentFilterBtn#87": [
+   175,
+   138,
+   66,
+   20
+  ],
+  "segmentFilterBtn#88": [
+   243,
+   138,
+   93,
+   20
+  ],
+  "fileList#89": [
+   39,
+   172,
+   373,
+   452
+  ],
+  "qt_scrollarea_viewport#90": [
+   46,
+   179,
+   359,
+   438
+  ],
+  "primaryButton#91": [
+   39,
+   634,
+   122,
+   36
+  ],
+  "primaryButton#92": [
+   171,
+   634,
+   146,
+   36
+  ],
+  "primaryButton#93": [
+   327,
+   634,
+   85,
+   36
+  ],
+  "collapsibleCard#94": [
+   39,
+   680,
+   373,
+   32
+  ],
+  "collapsibleHeader#95": [
+   40,
+   681,
+   371,
+   30
+  ],
+  "collapsibleTitle#96": [
+   52,
+   685,
+   93,
+   22
+  ],
+  "collapsibleSummary#97": [
+   287,
+   685,
+   38,
+   22
+  ],
+  "collapsibleChevron#98": [
+   381,
+   687,
+   20,
+   20
+  ],
+  "scannerRefreshBtn#99": [
+   351,
+   685,
+   22,
+   22
+  ],
+  "startButton#100": [
+   39,
+   722,
+   182,
+   32
+  ],
+  "stopButton#101": [
+   231,
+   722,
+   181,
+   32
+  ],
+  "defaultsSummary#102": [
+   39,
+   764,
+   250,
+   22
+  ],
+  "modernCheckbox#103": [
+   299,
+   766,
+   113,
+   18
+  ],
+  "modernProgress#104": [
+   39,
+   797,
+   327,
+   14
+  ],
+  "progressPct#105": [
+   376,
+   796,
+   36,
+   14
+  ],
+  "qt_splithandle_centerPanel#106": [
+   436,
+   100,
+   6,
+   734
+  ],
+  "qt_splithandle_rightPanel#107": [
+   911,
+   100,
+   6,
+   734
+  ]
+ },
+ "rows": [
+  {
+   "hidden": false,
+   "rect": [
+    46,
+    179,
+    359,
+    44
+   ],
+   "data": {
+    "filename": "Film Uno.mkv",
+    "path": "C:/Video/Film Uno.mkv",
+    "progress": 100,
+    "size": "1.5 GB",
+    "status": "completed"
+   }
+  },
+  {
+   "hidden": true,
+   "rect": [
+    46,
+    179,
+    0,
+    0
+   ],
+   "data": {
+    "filename": "Serie Due S01E02 - Un episodio con un titolo molto lungo che deve essere accorciato.mkv",
+    "ov": "ENG · mux",
+    "path": "C:/Video/Serie Due S01E02 - Un episodio con un titolo molto lungo che deve essere accorciato.mkv",
+    "progress": 45,
+    "size": "862 MB",
+    "status": "processing"
+   }
+  },
+  {
+   "hidden": true,
+   "rect": [
+    46,
+    179,
+    0,
+    0
+   ],
+   "data": {
+    "filename": "Documentario.mp4",
+    "path": "C:/Video/Documentario.mp4",
+    "progress": 0,
+    "size": "2.1 GB",
+    "status": "queued"
+   }
+  }
+ ],
+ "window": [
+  1400,
+  849
+ ],
+ "dpr": 1.25,
+ "px": [
+  1750,
+  1061
+ ]
+}

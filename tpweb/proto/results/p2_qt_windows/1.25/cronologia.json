@@ -1,0 +1,238 @@
+{
+ "widgets": {
+  "miniTitleBar#0": [
+   0,
+   0,
+   1400,
+   52
+  ],
+  "titleBarMark#1": [
+   15,
+   0,
+   10,
+   52
+  ],
+  "titleBarBrand#2": [
+   31,
+   0,
+   92,
+   52
+  ],
+  "titleBarSep#3": [
+   129,
+   18,
+   1,
+   16
+  ],
+  "titleBarSubtitle#4": [
+   136,
+   0,
+   89,
+   52
+  ],
+  "statusPill#5": [
+   707,
+   13,
+   74,
+   26
+  ],
+  "titleBarStatusLabel#6": [
+   734,
+   14,
+   32,
+   24
+  ],
+  "titleBarToolsBtn#7": [
+   1262,
+   10,
+   34,
+   34
+  ],
+  "titleBarSyncBtn#8": [
+   1308,
+   10,
+   34,
+   34
+  ],
+  "titleBarSettingsBtn#9": [
+   1354,
+   10,
+   34,
+   34
+  ],
+  "mainTabBar#10": [
+   0,
+   52,
+   1400,
+   36
+  ],
+  "gpuBadge#11": [
+   736,
+   62,
+   14,
+   16
+  ],
+  "historyStatTile#12": [
+   15,
+   100,
+   132,
+   65
+  ],
+  "historyStatValue#13": [
+   30,
+   111,
+   102,
+   27
+  ],
+  "historyStatLabel#14": [
+   30,
+   140,
+   102,
+   14
+  ],
+  "historyStatTile#15": [
+   157,
+   100,
+   132,
+   65
+  ],
+  "historyStatValue#16": [
+   172,
+   111,
+   102,
+   27
+  ],
+  "historyStatLabel#17": [
+   172,
+   140,
+   102,
+   14
+  ],
+  "historyStatTile#18": [
+   299,
+   100,
+   132,
+   65
+  ],
+  "historyStatValue#19": [
+   314,
+   111,
+   102,
+   27
+  ],
+  "historyStatLabel#20": [
+   314,
+   140,
+   102,
+   14
+  ],
+  "historySearch#21": [
+   15,
+   179,
+   1370,
+   33
+  ],
+  "historyTable#22": [
+   15,
+   222,
+   1370,
+   612
+  ],
+  "qt_scrollarea_viewport#23": [
+   16,
+   258,
+   1368,
+   575
+  ],
+  "historyActionBtn#24": [
+   1200,
+   305,
+   59,
+   26
+  ],
+  "historyActionBtn#25": [
+   1264,
+   305,
+   59,
+   26
+  ],
+  "historyActionBtn#26": [
+   1200,
+   267,
+   59,
+   26
+  ],
+  "historyActionBtn#27": [
+   1264,
+   267,
+   59,
+   26
+  ],
+  "qt_scrollarea_viewport#28": [
+   16,
+   223,
+   1368,
+   35
+  ]
+ },
+ "rows": [
+  {
+   "hidden": false,
+   "rect": [
+    46,
+    179,
+    359,
+    44
+   ],
+   "data": {
+    "filename": "Film Uno.mkv",
+    "path": "C:/Video/Film Uno.mkv",
+    "progress": 100,
+    "size": "1.5 GB",
+    "status": "completed"
+   }
+  },
+  {
+   "hidden": false,
+   "rect": [
+    46,
+    223,
+    359,
+    44
+   ],
+   "data": {
+    "filename": "Serie Due S01E02 - Un episodio con un titolo molto lungo che deve essere accorciato.mkv",
+    "ov": "ENG · mux",
+    "path": "C:/Video/Serie Due S01E02 - Un episodio con un titolo molto lungo che deve essere accorciato.mkv",
+    "progress": 45,
+    "size": "862 MB",
+    "status": "processing"
+   }
+  },
+  {
+   "hidden": false,
+   "rect": [
+    46,
+    267,
+    359,
+    44
+   ],
+   "data": {
+    "filename": "Documentario.mp4",
+    "path": "C:/Video/Documentario.mp4",
+    "progress": 0,
+    "size": "2.1 GB",
+    "status": "queued"
+   }
+  }
+ ],
+ "window": [
+  1400,
+  849
+ ],
+ "dpr": 1.25,
+ "px": [
+  1750,
+  1061
+ ]
+}
