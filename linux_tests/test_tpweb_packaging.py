@@ -34,6 +34,7 @@ def load_spec():
                 sys.modules.pop(k, None)
             else:
                 sys.modules[k] = v
+    seen['ns'] = ns
     return seen['analysis'], seen['exe']
 
 
@@ -73,3 +74,19 @@ def test_script_di_avvio_senza_percorsi_personali():
         assert '--ui web' in text, name
         assert not re.search(r'[A-Za-z]:\\Users\\', text), name              # repository pubblico: nessun dato personale
     assert (ROOT / 'run_web.sh').stat().st_mode & 0o111
+
+
+def test_lo_spec_toglie_le_dll_pesanti_ma_non_i_file_della_pagina():
+    load_spec()
+    # il filtro e' nello spec: lo si rilegge con lo stesso finto PyInstaller
+    a, _ = load_spec()
+    ns = {}
+    src = (ROOT / 'TranscriberProWeb.spec').read_text(encoding='utf-8')
+    start = src.index('HEAVY = ')
+    end = src.index('a.binaries = drop_heavy')
+    exec(src[start:end], ns)
+    toc = [('torch/lib/cublasLt64_12.dll', 'x', 'BINARY'), ('cublas64_13.dll', 'x', 'BINARY'), ('bitsandbytes/libbitsandbytes_cuda121.dll', 'x', 'BINARY'),
+           ('nvidia\\cudnn\\bin\\cudnn64_9.dll', 'x', 'BINARY'), ('numpy.libs/libopenblas.dll', 'x', 'BINARY'), ('tpweb/static/app.css', 'x', 'DATA'),
+           ('PIL/_imaging.pyd', 'x', 'BINARY'), ('lxml/etree.pyd', 'x', 'BINARY')]
+    kept = [t[0] for t in ns['drop_heavy'](toc)]
+    assert kept == ['numpy.libs/libopenblas.dll', 'tpweb/static/app.css', 'PIL/_imaging.pyd', 'lxml/etree.pyd']

@@ -22,6 +22,19 @@ WINDOW_SIZE = (1400, 900)
 MIN_SIZE = (1000, 650)
 STARTUP_TIMEOUT_S = 20.0
 ATTEMPTS = 2                                   # il primo col profilo di sempre, il secondo con un profilo pulito
+TASKBAR_MARGIN = 140         # barra del titolo + barra delle applicazioni + un po' d'aria: la finestra non deve sporgere sotto lo schermo
+
+
+def fit_window(screens, size=WINDOW_SIZE, min_size=MIN_SIZE):
+    """(larghezza, altezza, x, y) della finestra: ridotta e centrata nello schermo principale (P16: su 1920x1080 a volte partiva con
+    il bordo inferiore dietro la barra delle applicazioni). `screens` e' `webview.screens`; senza informazioni: dimensione di progetto, posizione a Windows."""
+    try:
+        scr = screens[0]
+        w, h = int(scr.width), int(scr.height)
+    except Exception:
+        return size[0], size[1], None, None
+    cw, ch = max(min_size[0], min(size[0], w - 40)), max(min_size[1], min(size[1], h - TASKBAR_MARGIN))
+    return cw, ch, max(0, (w - cw) // 2), max(0, (h - ch - 80) // 2)
 
 
 def pywebview_available() -> bool:
@@ -135,8 +148,9 @@ class Shell:
     def _attempt(self, profile: Optional[str]) -> str:
         wv = self.wv
         api = ShellApi(wv, lambda: self.window, self._request_quit_and_close, self.file_label)
+        width, height, x, y = fit_window(getattr(wv, 'screens', None))
         try:
-            self.window = wv.create_window(self.title, self.url, width=WINDOW_SIZE[0], height=WINDOW_SIZE[1], min_size=MIN_SIZE, js_api=api)
+            self.window = wv.create_window(self.title, self.url, width=width, height=height, x=x, y=y, min_size=MIN_SIZE, js_api=api)
             self.window.events.closing += self._on_closing
         except Exception as e:
             return f'error:{e}'
