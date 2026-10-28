@@ -41,20 +41,19 @@ SETTINGS_GROUPS = (
     )),
     ("Transcription", (
         ("enum", "transcription_engine_mode", "ASR engine mode"),
-        ("text", "whisper_model", "Whisper model"),
-        ("number", "whisper_vad_threshold", "Whisper VAD threshold (0-1)"),
-        ("number", "whisper_vad_min_silence_ms", "Whisper VAD minimum silence (ms)"),
         ("enum", "punctuation_restore_mode", "Punctuation restoration"),
         ("bool", "enable_diarization", "Diarization"),
         ("bool", "dialogue_style_enabled", "Netflix dialogue style"),
         ("bool", "gender_correction_enabled", "Gender correction"),
     )),
+    # ADR-009: un solo motore (TranslateGemma-12B GGUF) e una sola lingua di
+    # destinazione. Restano solo le scelte che cambiano davvero qualcosa: i pesi
+    # da usare e quanto restare larghi sul testo non tradotto.
     ("Translation", (
-        ("enum", "translation_model", "Translation engine"),
-        ("text", "llm_translator_model", "LLM model key"),
         ("enum", "llm_translator_gguf_quant", "GGUF quantization"),
+        ("dir", "llm_translator_gguf_dir", "GGUF folder (empty = models/translategemma-12b-gguf)"),
         ("number", "translation_max_untranslated_pct", "Max untranslated share (%)"),
-        ("text", "target_language", "Target language (ISO 639-2)"),
+        ("enum", "target_language", "Target language"),
     )),
     ("Upload and mux", (
         ("bool", "opensubtitles_upload_enabled", "Upload finished subtitles"),
@@ -94,6 +93,18 @@ def _counts(jobs: List[Dict[str, Any]]) -> Dict[str, int]:
     return {name: sum(1 for job in jobs if job["status"] == name) for name in names}
 
 
+def _translation_status(config) -> Dict[str, Any]:
+    """La riga "Translator" della dashboard; un guasto della sonda non rompe la pagina."""
+    from utils.backend_preflight import (translation_facts_subprocess,
+                                         translation_status)
+    try:
+        return translation_status(config, probe=translation_facts_subprocess)
+    except Exception as exc:                      # pragma: no cover - difensivo
+        return {"ok": False, "message": str(exc), "quant": "", "path": "",
+                "directory": "", "free_gib": 0.0, "need_gib": None,
+                "llama": "", "gpu_offload": False}
+
+
 def _status_context(request: Request) -> Dict[str, Any]:
     app = request.app
     jobs = app.state.manager.snapshot()
@@ -101,6 +112,11 @@ def _status_context(request: Request) -> Dict[str, Any]:
     gpus = gpu.get("gpus") or []
     system = getattr(app.state, "system", {}) or {}
     return {
+        # Stato del motore di traduzione, ricalcolato a ogni render: e' l'unica
+        # cosa della card che puo' cambiare senza riavviare il server (pesi
+        # spostati, quantizzazione cambiata, venv reinstallato). La sonda e'
+        # in cache per 300 s, quindi non costa un processo per pagina.
+        "translator": _translation_status(app.state.config),
         "version": app.state.version,
         "backend": gpu.get("backend", "unknown"),
         "gpu_name": gpus[0]["name"] if gpus else "no GPU",

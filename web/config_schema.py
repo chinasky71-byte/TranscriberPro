@@ -17,7 +17,6 @@ Rules:
 from __future__ import annotations
 
 import os
-import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, Tuple
 
@@ -25,31 +24,27 @@ from utils.config import Config
 
 MEDIA_ROOTS_KEY = "allowed_media_roots"
 START_DIR_KEY = "picker_start_dir"
+GGUF_DIR_KEY = "llm_translator_gguf_dir"
 PERCENT_KEY = "translation_max_untranslated_pct"
-VAD_THRESHOLD_KEY = "whisper_vad_threshold"
-VAD_MIN_SILENCE_KEY = "whisper_vad_min_silence_ms"
+TARGET_LANGUAGE_KEY = "target_language"
+# Lingua di destinazione: una sola (ADR-009). Il motore traduce verso l'italiano
+# e rifiuta il resto, quindi un campo libero sarebbe solo un modo di sbagliare.
+TARGET_LANGUAGES = ("ita",)
 
 # chiavi numeriche con i loro limiti (min, max, passo per l'input)
 NUMBER_CONFIG_KEYS = {
     PERCENT_KEY: (0.0, 100.0, "0.1"),
-    VAD_THRESHOLD_KEY: (0.0, 1.0, "0.05"),
-    VAD_MIN_SILENCE_KEY: (0, 2000, "50"),
 }
-TARGET_LANGUAGE_KEY = "target_language"
 
 SAFE_CONFIG_KEYS = {
     "language",
     MEDIA_ROOTS_KEY,
     START_DIR_KEY,
     "transcription_engine_mode",
-    "whisper_model",
-    VAD_THRESHOLD_KEY,
-    VAD_MIN_SILENCE_KEY,
     "use_gpu",
     TARGET_LANGUAGE_KEY,
-    "translation_model",
-    "llm_translator_model",
     "llm_translator_gguf_quant",
+    GGUF_DIR_KEY,
     PERCENT_KEY,
     "enable_diarization",
     "dialogue_style_enabled",
@@ -83,15 +78,16 @@ BOOL_CONFIG_KEYS = {
 ENUM_CONFIG_KEYS: Dict[str, Tuple[str, ...]] = {
     "language": ("auto", "it", "en"),
     "transcription_engine_mode": tuple(Config.VALID_TRANSCRIPTION_ENGINE_MODES),
-    "translation_model": tuple(Config.VALID_TRANSLATION_MODELS),
     "llm_translator_gguf_quant": ("Q4_K_M", "Q3_K_M", "IQ3_M"),
+    TARGET_LANGUAGE_KEY: TARGET_LANGUAGES,
     "punctuation_restore_mode": ("auto", "off", "missing", "all"),
 }
 
-# Every other whitelisted key is a free string; these must not be empty.
-FREE_TEXT_KEYS = {"whisper_model", "llm_translator_model"}
+# Nessuna chiave libera: ogni valore scrivibile ha una forma dichiarata qui sopra
+# (enum, numero, booleano, cartella, segreto). Resta il set perche' il ramo di
+# validazione esiste e un campo libero futuro deve passare di li'.
+FREE_TEXT_KEYS: set = set()
 
-_TARGET_LANGUAGE_RE = re.compile(r"^[a-z]{2,3}(-[A-Za-z]{2,4})?$")
 _TRUE_STRINGS = {"1", "true", "on", "yes"}
 _FALSE_STRINGS = {"", "0", "false", "off", "no"}
 
@@ -153,27 +149,34 @@ def as_media_roots(value: Any) -> list:
     return roots
 
 
-def as_start_dir(value: Any) -> str:
-    """Normalise the folder the WebUI file picker opens on.
+def as_dir(key: str, value: Any) -> str:
+    """Un percorso di cartella, oppure la stringa vuota.
 
-    Empty means "use the first allowed root". A non-empty value must be an
-    absolute existing directory; whether it is also reachable by the picker is
-    decided at listing time, because the allowed roots can change later.
+    Vuoto vuol dire "usa il default" per entrambe le chiavi che lo usano: la
+    cartella iniziale del picker (prima root ammessa) e la cartella dei GGUF
+    (`models/translategemma-12b-gguf`). Un valore non vuoto deve essere una
+    cartella assoluta che esiste: un percorso che non risolve non puo' funzionare
+    e tenerlo nasconderebbe solo l'errore.
     """
     if value is None:
         return ""
     if not isinstance(value, str):
-        raise ConfigError(f"{START_DIR_KEY}: expected a path or an empty value")
+        raise ConfigError(f"{key}: expected a path or an empty value")
     text = value.strip()
     if not text:
         return ""
     candidate = Path(text).expanduser()
     if not candidate.is_absolute():
-        raise ConfigError(f"{START_DIR_KEY}: the path must be absolute")
+        raise ConfigError(f"{key}: the path must be absolute")
     resolved = candidate.resolve()
     if not resolved.is_dir():
-        raise ConfigError(f"{START_DIR_KEY}: not a directory: {text}")
+        raise ConfigError(f"{key}: not a directory: {text}")
     return str(resolved)
+
+
+def as_start_dir(value: Any) -> str:
+    """La cartella su cui si apre il picker (vedi `as_dir`)."""
+    return as_dir(START_DIR_KEY, value)
 
 
 def as_secret(key: str, value: Any) -> str:
@@ -206,18 +209,13 @@ def normalise_values(values: Mapping[str, Any]) -> Dict[str, Any]:
             cleaned[key] = text
         elif key == MEDIA_ROOTS_KEY:
             cleaned[key] = as_media_roots(value)
-        elif key == START_DIR_KEY:
-            cleaned[key] = as_start_dir(value)
+        elif key in (START_DIR_KEY, GGUF_DIR_KEY):
+            cleaned[key] = as_dir(key, value)
         elif key in NUMBER_CONFIG_KEYS:
             if value is None or (isinstance(value, str) and not value.strip()):
                 continue                      # campo vuoto = lascia il valore attuale
             low, high, _step = NUMBER_CONFIG_KEYS[key]
             cleaned[key] = as_number(key, value, low, high)
-        elif key == TARGET_LANGUAGE_KEY:
-            text = value.strip() if isinstance(value, str) else ""
-            if not _TARGET_LANGUAGE_RE.match(text):
-                raise ConfigError(f"{key}: expected an ISO 639-2 code such as 'ita'")
-            cleaned[key] = text
         elif key in FREE_TEXT_KEYS:
             text = value.strip() if isinstance(value, str) else ""
             if not text:

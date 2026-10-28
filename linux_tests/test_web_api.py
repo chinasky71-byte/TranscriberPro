@@ -154,12 +154,19 @@ def test_config_rejects_invalid_values(tmp_path):
 
         assert put({"use_gpu": "maybe"}).status_code == 400
         assert put({"transcription_engine_mode": "nope"}).status_code == 400
+        # ADR-009: il motore non e' piu' una scelta della UI (una sola opzione),
+        # e la sua chiave non e' scrivibile dal browser.
         assert put({"translation_model": "aya"}).status_code == 400
+        assert put({"llm_translator_gguf_quant": "Q9_Z"}).status_code == 400
+        assert put({"llm_translator_gguf_dir": "relative/gguf"}).status_code == 400
+        assert put({"target_language": "eng"}).status_code == 400
         assert put({"punctuation_restore_mode": "sometimes"}).status_code == 400
         assert put({"translation_max_untranslated_pct": 140}).status_code == 400
         assert put({"translation_max_untranslated_pct": -1}).status_code == 400
         assert put({"target_language": "italian"}).status_code == 400
-        assert put({"whisper_model": "   "}).status_code == 400
+        # chiavi di motori che non esistono piu' (ADR-008/009): non scrivibili
+        assert put({"whisper_model": "large-v3"}).status_code == 400
+        assert put({"whisper_vad_threshold": 0.5}).status_code == 400
         assert put({"allowed_media_roots": ["relative/path"]}).status_code == 400
         assert put({"allowed_media_roots": [str(tmp_path / "missing")]}).status_code == 400
 
@@ -168,6 +175,10 @@ def test_config_rejects_invalid_values(tmp_path):
             "translation_max_untranslated_pct"] == 65.0
         assert put({"allowed_media_roots": str(tmp_path)}).json()[
             "allowed_media_roots"] == [str(tmp_path)]
+        assert put({"llm_translator_gguf_quant": "IQ3_M"}).json()[
+            "llm_translator_gguf_quant"] == "IQ3_M"
+        assert put({"llm_translator_gguf_dir": str(tmp_path)}).json()[
+            "llm_translator_gguf_dir"] == str(tmp_path)
 
 
 def test_config_secret_is_write_only_and_can_be_cleared(tmp_path):

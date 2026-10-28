@@ -51,7 +51,11 @@ Only these keys can be overridden for a single file
 
 `target_language` (only `ita` since ADR-009), `force_audio_transcription`,
 `gender_correction_enabled`, `mux_subtitle_into_video`,
-`opensubtitles_upload_enabled`.
+`opensubtitles_upload_enabled`, `allow_cpu`.
+
+`translation_model` is still accepted by `clean_value()` for the frozen Qt dialog,
+but since ADR-009 the only value that survives is the canonical engine: any other
+value is dropped, because there is no other engine to name.
 
 ## Secrets and local endpoints
 
