@@ -33,6 +33,12 @@ class LibraryManager:
     def _creds(self):
         return LA.clean_credentials(self.config.get('library_scanner_url', ''), self.config.get('library_scanner_api_key', ''))
 
+    def creds(self):
+        return self._creds()
+
+    def api(self, *a, **k):
+        return self._api(*a, **k)
+
     def _rules(self):
         return parse_map(self.config.get('library_scanner_path_map', ''))
 

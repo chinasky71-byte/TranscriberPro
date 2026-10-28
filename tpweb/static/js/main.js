@@ -9,11 +9,13 @@ import { SettingsDialog } from '/static/js/settings.js';
 import { MessageHost } from '/static/js/dialogs.js';
 import { GlossaryDialog } from '/static/js/tools_glossary.js';
 import { SyncDialog } from '/static/js/tools_sync.js';
+import { OcrReviewDialog } from '/static/js/ocr_review.js';
 
 function App() {
   const tab = useStore((s) => s.ui.tab);
   const settingsOpen = useStore((s) => !!s.ui.settings);
   const tool = useStore((s) => s.ui.tool);
+  const reviewing = useStore((s) => s.ocr.review);
   return html`<div class="window">
     <${TitleBar} />
     <${TabBar} />
@@ -25,6 +27,7 @@ function App() {
     ${settingsOpen ? html`<${SettingsDialog} />` : null}
     ${tool === 'glossary' ? html`<${GlossaryDialog} />` : null}
     ${tool === 'sync' ? html`<${SyncDialog} />` : null}
+    ${reviewing ? html`<${OcrReviewDialog} />` : null}
     <${MessageHost} />
   </div>`;
 }

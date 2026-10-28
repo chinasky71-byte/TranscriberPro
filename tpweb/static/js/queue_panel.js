@@ -154,9 +154,17 @@ function FileList() {
     if (row && !sel.includes(row.path)) { sel = [row.path]; setUi({ selected: sel, anchor: row.path }); }
     const opts = await loadOverrideOptions();
     const normal = row ? waitingSelected(sel) : [];
+    const deferred = getState().ocr.deferred;
+    const ocrPaths = row ? getState().queue.rows.filter((r) => sel.includes(r.path) && r.kind === 'ocr' && r.status === 'queued' && deferred.includes(r.path)).map((r) => r.path) : [];
     const paths = normal.map((r) => r.path);
     const items = [];
-    if (normal.length && opts) {
+    if (ocrPaths.length && !normal.length) {                      // job OCR differiti: revisione mirata o automatica per file
+      const setMode = (mode) => post('/api/ocr/deferred-mode', { paths: ocrPaths, mode });
+      items.push({ label: t('job_ov_ocr_review'), children: [{ label: t('job_ov_default'), onClick: () => setMode(null) },
+        { label: t('job_ov_ocr_targeted'), onClick: () => setMode('review') }, { label: t('job_ov_ocr_auto'), onClick: () => setMode('auto') }] });
+      items.push({ separator: true });
+    }
+    if (normal.length && !ocrPaths.length && opts) {
       const cur = paths.map((p) => overrides[p] || {});
       const common = (k) => { const v = new Set(cur.map((c) => (k in c ? c[k] : null))); return v.size === 1 ? [...v][0] : '__misto__'; };
       const apply = (k, v) => post('/api/queue/overrides', { paths, key: k, value: v });

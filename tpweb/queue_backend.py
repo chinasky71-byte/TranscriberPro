@@ -44,6 +44,7 @@ class WebQueue(QueueListener):
         self.bus = bus
         self.config = config
         self.gate = gate if gate is not None else ToolGate()
+        self.finished_hooks: List[Callable[[], None]] = []                   # chiamati a fine coda (OCR differiti: GUI processing_done)
         self.subtitle_created_hooks: List[Callable[[str], None]] = []      # chiamati a ogni file completato (notifica del Library Scanner)
         self.gate.processing = lambda: self.is_processing
         self.history = history
@@ -199,6 +200,42 @@ class WebQueue(QueueListener):
         with self._rows_lock:
             self._rows.append(rec)
         self.bus.publish('job_added', rec.to_item_data())
+        return True
+
+    def _find_for_ocr(self, path: str):
+        """Come QueueService.find: la riga con quel path (esatto), altrimenti la prima con lo stesso nome file."""
+        name = Path(path).name
+        fallback = None
+        for i, r in enumerate(self._rows):
+            if r.path == path:
+                return i, r
+            if fallback is None and r.filename == name:
+                fallback = (i, r)
+        return fallback if fallback is not None else (None, None)
+
+    def set_ocr_status(self, path: str, status: str, progress: int = 0) -> bool:
+        """Stato/avanzamento di un job OCR. False se la riga non esiste o non e' un job OCR."""
+        with self._rows_lock:
+            i, rec = self._find_for_ocr(path)
+            if rec is None or not rec.is_ocr:
+                return False
+            changed = rec.status != status
+            self._rows[i] = rec.with_status(status, progress)
+            key = self._rows[i].path
+        # lo stato cambia di rado (si rilegge la coda), l'avanzamento sul posto no
+        self.bus.publish('job_changed' if changed else 'file_progress', key if changed else {'path': key, 'percent': int(progress)})
+        return True
+
+    def set_ocr_badge(self, path: str, text: str) -> bool:
+        """Etichetta (eccezione) sulla riga OCR ancora in attesa con quel path; '' la toglie."""
+        with self._rows_lock:
+            for i, r in enumerate(self._rows):
+                if r.path == path and r.status == JobStatus.QUEUED and r.is_ocr:
+                    self._rows[i] = r._with(ov=text or '')
+                    break
+            else:
+                return False
+        self.bus.publish('job_changed', path)
         return True
 
     def remove(self, path: str) -> bool:
@@ -409,8 +446,30 @@ class WebQueue(QueueListener):
         self.log_message(tr('processing_completed'))
         self.bus.publish('finished', {'completed': self.completed_count, 'errors': self.error_count})
         # anche dopo uno Stop (i restanti restano in coda): comportamento preservato dalla GUI
-        if self._shutdown_fn is not None and self._shutdown_enabled is not None and self._shutdown_enabled():
-            self.bus.publish('shutdown_scheduled', self._shutdown_delay_s)
-            timer = threading.Timer(self._shutdown_delay_s, self._shutdown_fn)
-            timer.daemon = True
-            timer.start()
+        if self._shutdown_enabled is not None and self._shutdown_enabled():
+            self.schedule_shutdown(self._shutdown_delay_s)
+        run_thread = self._thread
+
+        def run_hooks():                                  # a coda davvero finita (il thread che chiama e' ancora vivo): come processing_done
+            if run_thread is not None and run_thread is not threading.current_thread():
+                run_thread.join(10)
+            for hook in list(self.finished_hooks):
+                try:
+                    hook()
+                except Exception:
+                    pass
+        if self.finished_hooks:
+            threading.Thread(target=run_hooks, name='tpweb-finished-hooks', daemon=True).start()
+
+    def schedule_shutdown(self, delay_s: float) -> bool:
+        """Spegnimento programmato (casella "Spegni"): senza `shutdown_fn` il server non spegne MAI il computer."""
+        if self._shutdown_fn is None:
+            return False
+        self.bus.publish('shutdown_scheduled', delay_s)
+        timer = threading.Timer(delay_s, self._shutdown_fn)
+        timer.daemon = True
+        timer.start()
+        return True
+
+    def shutdown_wanted(self) -> bool:
+        return self._shutdown_enabled is not None and bool(self._shutdown_enabled())

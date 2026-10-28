@@ -100,4 +100,14 @@ La web UI non sostituisce la Qt finché ogni riga non e' `verificato Win`. Rifer
 | Importa singolo / tutti i filtrati (mappa dei percorsi, niente doppioni, riga con ASS converte) | `LibraryManager.import_paths` | fatto | `test_import_*` |
 | Conversione ASS/SSA sul server (messaggi e log come la GUI) | `convert_ass` | fatto | `test_conversione_ass_*` |
 | Notifica al server a ogni sottotitolo creato (solo dopo il primo caricamento; in batch niente ricarica) | `notify_subtitle_created` + evento `library_changed` | fatto | `test_notifica_*` |
-| Pulsante Superpower, OCR dal badge, revisione OCR | | 5b / 5c | |
+
+## OCR e Superpower (fasi 5b/5c)
+| Elemento GUI | Web | Stato | Test |
+|---|---|---|---|
+| OCR dal badge PGS/VOB/MIX (strategia da configurazione, un solo OCR alla volta, riga «job OCR» nella coda con avanzamento, avanzamento al posto delle statistiche) | `tpweb/ocr.py` `OcrManager`, `scanner.js` | fatto | `test_tpweb_ocr.py`, `test_badge_avvia_l_ocr_*` |
+| Esiti: automatico ok/fallito, formato non supportato, lingua saltata (completato), errore; messaggi come la GUI | idem | fatto | `test_esiti_negativi_e_strategia` |
+| Coda al lavoro: il job aspetta («in coda») e parte a fine coda; revisione per file dal menu (Predefinita / Mirata / Automatica) | `finished_hooks`, `deferred-mode`, menu in `queue_panel.js` | fatto | `test_con_la_coda_al_lavoro_*`, `test_fine_coda_*`, `test_menu_dei_job_ocr_differiti` |
+| Revisione mirata: lista con pallini, «solo dubbi», contatore, immagine, editor (Invio salva e salta; Maiusc/Ctrl+Invio riga nuova), corsivo, precedente/successivo, «verificato», «Fatto» (write-back), chiudere = annulla | `ocr_review.js`; eventi e immagini sul server | fatto | `test_revisione_*` |
+| Superpower: controlli, conferma, elenco dal server, batch automatico, riepilogo, spegnimento a fine batch | `OcrManager.superpower` | fatto | `test_superpower_*` |
+| Differenza voluta: con la revisione aperta il lavoro conta come «OCR in corso» (la coda non parte, nessun altro OCR) | `gate.ocr_running` | da confermare | `test_revisione_elenco_*` |
+| Aspetto confrontato con Qt (SSIM) | | da misurare in C-011 (Windows) | |

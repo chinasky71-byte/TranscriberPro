@@ -39,7 +39,7 @@ class FakeTmdb:
         return self.poster
 
 
-def make_server(tmp_path, monkeypatch, language='it', sampler=None, tmdb=None, gpu_detect=None, tool_engines=None, library_deps=None):
+def make_server(tmp_path, monkeypatch, language='it', sampler=None, tmdb=None, gpu_detect=None, tool_engines=None, library_deps=None, ocr_engine=None):
     """Server di prova: config e cronologia isolate, il finto `pipeline_cli` al posto del vero, nessuno spegnimento reale."""
     from utils import config as cfg
     from tpweb.launcher import build
@@ -54,7 +54,7 @@ def make_server(tmp_path, monkeypatch, language='it', sampler=None, tmdb=None, g
     import utils.cache_cleaner as cc
     monkeypatch.setattr(cc, 'cleanup_non_italian_caches', lambda log_callback=None: {'removed': [], 'failed': []})
     srv = build(config, history_path=tmp_path / 'history.json', project_root=ROOT, shutdown_fn=lambda: None, sampler=sampler,
-                 tmdb_client=tmdb or FakeTmdb(), gpu_detect=gpu_detect or (lambda first: ('NVIDIA RTX 4090', 'nvidia', False)), tool_engines=tool_engines, library_deps=library_deps).start()
+                 tmdb_client=tmdb or FakeTmdb(), gpu_detect=gpu_detect or (lambda first: ('NVIDIA RTX 4090', 'nvidia', False)), tool_engines=tool_engines, library_deps=library_deps, ocr_engine=ocr_engine).start()
     return srv, config
 
 
