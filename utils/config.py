@@ -190,7 +190,7 @@ class Config:
         # ========================================================================
         # Translation Model Settings (MODIFICATO v5.0 - Claude API Support)
         # ========================================================================
-        'translation_model': 'nllb',  # vedi VALID_TRANSLATION_MODELS
+        'translation_model': 'translategemma-12b-gguf',  # vedi VALID_TRANSLATION_MODELS
         # Traduzione considerata FALLITA se la percentuale di blocchi che
         # restano nella lingua di partenza supera questo valore (0-100).
         # 80 = molto permissivo: serve a intercettare i fallimenti sistemici
@@ -738,43 +738,56 @@ class Config:
     # METODI HELPER per Translation Models (MODIFICATO v4.2)
     # ========================================================================
     
-    VALID_TRANSLATION_MODELS = ['nllb', 'nllb_finetuned', 'llm']
+    # ADR-009: un solo motore di traduzione. Il valore canonico e' il GGUF di
+    # TranslateGemma; ogni valore scritto dalle versioni precedenti (o dalla Qt
+    # congelata) viene ricondotto a questo alla lettura, con una riga di log.
+    TRANSLATION_MODEL = 'translategemma-12b-gguf'
+    VALID_TRANSLATION_MODELS = [TRANSLATION_MODEL]
 
-    # Valori salvati da versioni precedenti e il loro equivalente attuale. La
-    # migrazione avviene alla lettura: chi aveva scelto Aya si ritrova il ramo
-    # LLM (oggi TranslateGemma) invece di un errore di validazione seguito da
-    # un ritorno silenzioso a NLLB.
-    LEGACY_TRANSLATION_MODELS = {'aya': 'llm'}
-    
+    LEGACY_TRANSLATION_MODELS = {
+        'nllb': TRANSLATION_MODEL,
+        'nllb_finetuned': TRANSLATION_MODEL,
+        'llm': TRANSLATION_MODEL,
+        'aya': TRANSLATION_MODEL,
+        'claude': TRANSLATION_MODEL,
+        'openai': TRANSLATION_MODEL,
+        'opensubtitles': TRANSLATION_MODEL,
+    }
+
     def get_translation_model(self) -> str:
-        """Ottieni modello di traduzione corrente"""
-        model = self.get('translation_model', 'nllb')
+        """Il motore di traduzione: sempre `TRANSLATION_MODEL`.
 
-        if model in self.LEGACY_TRANSLATION_MODELS:
-            nuovo = self.LEGACY_TRANSLATION_MODELS[model]
-            logger.info(f"Modello '{model}' rinominato in '{nuovo}': "
-                        f"aggiorno la configurazione")
-            model = nuovo
-            self.set('translation_model', model)
-
+        I valori storici (`nllb`, `nllb_finetuned`, `llm`, `aya`, `claude`,
+        `openai`, `opensubtitles`) sono accettati e riscritti: chi ha un
+        config.json vecchio non deve vedere un errore al primo file della coda.
+        """
+        model = self.get('translation_model', self.TRANSLATION_MODEL)
+        migrato = self.LEGACY_TRANSLATION_MODELS.get(model)
+        if migrato:
+            logger.info(f"Motore di traduzione '{model}' non esiste piu' "
+                        f"(ADR-009): uso '{migrato}'")
+            model = migrato
         if model not in self.VALID_TRANSLATION_MODELS:
-            print(f"⚠️ Modello '{model}' non valido. Uso 'nllb'.")
-            model = 'nllb'
+            logger.warning(f"Motore di traduzione '{model}' sconosciuto: "
+                           f"uso '{self.TRANSLATION_MODEL}'")
+            model = self.TRANSLATION_MODEL
+        if self.get('translation_model') != model:
             self.set('translation_model', model)
-        
         return model
-    
+
     def set_translation_model(self, model: str):
-        """Imposta modello di traduzione con validazione"""
-        if model not in self.VALID_TRANSLATION_MODELS:
+        """Accetta il valore canonico e i nomi storici (la Qt congelata li manda),
+        rifiutando solo cio' che non e' mai esistito."""
+        canonico = self.LEGACY_TRANSLATION_MODELS.get(model, model)
+        if canonico not in self.VALID_TRANSLATION_MODELS:
             raise ValueError(
-                f"Modello '{model}' non valido. "
-                f"Modelli disponibili: {', '.join(self.VALID_TRANSLATION_MODELS)}"
-            )
-        
-        self.set('translation_model', model)
-        print(f"✅ Modello traduzione impostato: {model}")
-    
+                f"Motore di traduzione '{model}' non valido. "
+                f"Motori disponibili: {', '.join(self.VALID_TRANSLATION_MODELS)}")
+        if canonico != model:
+            logger.info(f"Motore di traduzione '{model}' non esiste piu' "
+                        f"(ADR-009): salvo '{canonico}'")
+        self.set('translation_model', canonico)
+
     # RIMOSSI il 2026-08-18 insieme ai modelli Aya: `get_aya_model_path`,
     # `set_aya_model_path`, `set_aya_model_download_status`,
     # `is_aya_model_downloaded`. Non erano chiamati da nessuna parte tranne che
@@ -782,34 +795,6 @@ class Config:
     # `aya_model_download_status` era per giunta inaffidabile: risultava True
     # con il modello NON in cache.
 
-    def get_translation_model_info(self) -> Dict[str, Any]:
-        """Ottieni informazioni sul modello di traduzione corrente"""
-        current_model = self.get_translation_model()
-        
-        if current_model == 'nllb':
-            return {
-                'name': 'NLLB-200',
-                'full_name': 'facebook/nllb-200-3.3B',
-                'languages': '200+',
-                'size': '~3.3B parametri (quantizzato 8-bit)',
-                'vram': '~4-5 GB (quantizzazione 8-bit)',
-                'speed': 'Veloce',
-                'quality': 'Ottima',
-                'status': 'Auto-download da HuggingFace (quantizzazione al volo)'
-            }
-        else:  # llm — traduttore LLM locale
-            chiave = self.get('llm_translator_model', 'translategemma-12b')
-            return {
-                'name': 'TranslateGemma 12B',
-                'full_name': f'modello in uso: {chiave}',
-                'languages': 'multilingua',
-                'size': '~12B parametri (quantizzato NF4)',
-                'vram': '~8,4 GB di pesi, picco ~10,1 GB a batch 12',
-                'speed': 'Lenta (circa 3 s per battuta)',
-                'quality': 'Ottima su stile, piu debole su accuratezza',
-                'status': 'Auto-download da HuggingFace (repo gated)'
-            }
-    
     # ========================================================================
     # METODI HELPER per Token HuggingFace (v4.1)
     # ========================================================================
@@ -1110,12 +1095,12 @@ if __name__ == '__main__':
     
     # Test 2: Migrazione dei valori storici del modello di traduzione
     print("\n" + "-" * 80)
-    print("Test Migrazione 'aya' -> 'llm':")
+    print("Test Migrazione dei motori storici -> TranslateGemma GGUF:")
 
-    precedente = config.get('translation_model', 'nllb')
+    precedente = config.get('translation_model', Config.TRANSLATION_MODEL)
     config.set('translation_model', 'aya', save=False)
     migrato = config.get_translation_model()
-    print(f"  'aya' letto come: {migrato} (Atteso: llm)")
+    print(f"  'aya' letto come: {migrato} (Atteso: {Config.TRANSLATION_MODEL})")
     config.set('translation_model', precedente, save=True)
 
     print("\n" + "=" * 80)

@@ -1862,13 +1862,17 @@ class ProcessingPipeline:
     # Come si chiama ogni motore nella firma. Nomi CORTI: la riga del
     # watermark ne ha gia' 40 di caratteri e il limite di un sottotitolo
     # e' 42, quindi il motore va su una seconda riga e deve starci comodo.
+    # Un solo motore (ADR-009). La mappa resta perche' leggere una config
+    # vecchia non deve lasciare la firma senza nome del motore.
     _NOMI_MOTORE = {
-        'nllb': 'NLLB-200',
-        'nllb_finetuned': 'NLLB-FT',
+        'translategemma-12b-gguf': 'TGemma',
+        'nllb': 'TGemma',
+        'nllb_finetuned': 'TGemma',
         'llm': 'TGemma',
-        'claude': 'Claude',
-        'openai': 'GPT',
-        'opensubtitles': 'OpenSubtitles',
+        'aya': 'TGemma',
+        'claude': 'TGemma',
+        'openai': 'TGemma',
+        'opensubtitles': 'TGemma',
     }
 
     @staticmethod

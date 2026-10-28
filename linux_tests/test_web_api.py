@@ -190,6 +190,6 @@ def test_models_endpoint_reads_the_registry_only(tmp_path):
         assert response.status_code == 200
         body = response.json()
         assert "auto" in body["transcription_engine_modes"]
-        assert "nllb_finetuned" in body["translation_models"]
+        assert body["translation_models"] == ["translategemma-12b-gguf"]
         assert any(item["key"] == "translategemma-12b" for item in body["llm_models"])
         assert "torch" not in response.text

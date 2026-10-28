@@ -2282,65 +2282,47 @@ class NLLBFineTunedTranslator(NLLBTranslator):
 def get_translator(model_type: Optional[str] = None, context: Optional[str] = None,
                   use_aya: Optional[bool] = None,
                   glossary: Optional[Dict[str, str]] = None) -> BaseTranslator:
-    """
-    Factory function per ottenere il traduttore appropriato.
+    """Il traduttore della pipeline: uno solo (ADR-009).
 
     Args:
-        model_type: 'nllb', 'nllb_finetuned', 'llm', o None (usa config).
-                    I motori cloud (Claude, OpenAI, OpenSubtitles AI) sono
-                    stati rimossi con ADR-009.
-        context: Contesto opzionale (es. sinossi TMDB) per migliorare traduzione
-        use_aya: [DEPRECATO] Usa model_type='llm' invece
-        glossary: Resa italiana fissa per termini ricorrenti (core/glossary.py).
+        model_type: valore della chiave `translation_model`. Oggi esiste un
+            solo motore, TranslateGemma-12B GGUF; i valori scritti dalle
+            versioni precedenti (`nllb`, `nllb_finetuned`, `llm`, `aya`,
+            `claude`, `openai`, `opensubtitles`) sono ricondotti a quello.
+            `'nllb'` e `'nllb_finetuned'` restano raggiungibili SOLO per i
+            banchi di prova (`bench/`), che li confrontano col motore di
+            produzione: la pipeline non li chiede piu'.
+        use_aya: [DEPRECATO, ignorato] accettato per i chiamanti storici.
+        context: contesto dell'opera (sinossi TMDB), se disponibile.
+        glossary: resa italiana fissa per i termini ricorrenti.
 
     Returns:
-        Istanza del traduttore appropriato
+        Un `BaseTranslator` pronto per `translate_file`.
     """
-    # Gestisci backward compatibility con use_aya
     if use_aya is not None:
-        logger.warning("Parametro 'use_aya' deprecato, usa 'model_type' invece")
-        model_type = 'llm' if use_aya else 'nllb'
-    
-    # Determina modello da usare
-    if model_type is None:
-        # Carica da config
-        if get_config:
-            try:
-                config = get_config()
-                model_type = config.get_translation_model()
-                logger.info(f"Factory: Modello da config: {model_type.upper()}")
-            except Exception as e:
-                logger.warning(f"Impossibile caricare config: {e}, uso NLLB default")
-                model_type = 'nllb'
-        else:
-            model_type = 'nllb'
-    
-    model_type = model_type.lower()
-    
-    # Crea traduttore appropriato
-    if model_type in ('llm', 'aya'):
-        # 'aya' resta accettata perché è il valore salvato nelle
-        # configurazioni esistenti: chi aveva scelto quel motore non deve
-        # ritrovarsi la traduzione rotta al primo avvio dopo l'aggiornamento.
-        # Il modello che occupa lo slot è `llm_translator_model`.
-        if model_type == 'aya':
-            logger.info("Factory: 'aya' è un valore storico, ora significa "
-                        "'llm' (modello da llm_translator_model)")
-        logger.info("Factory: Creazione LLMSubtitleTranslator")
-        return LLMSubtitleTranslator(context=context, glossary=glossary)
-    
-    elif model_type == 'nllb_finetuned':
-        logger.info("Factory: Creazione NLLBFineTunedTranslator")
-        try:
-            return NLLBFineTunedTranslator(context=context, glossary=glossary)
-        except Exception as e:
-            logger.error(f"Impossibile creare NLLBFineTunedTranslator: {e}")
-            logger.error("Fallback su NLLBTranslator base")
-            return NLLBTranslator(context=context, glossary=glossary)
+        logger.warning("Parametro 'use_aya' deprecato e ignorato: c'e' un solo motore (ADR-009)")
 
-    else:  # 'nllb' o default
-        logger.info("Factory: Creazione NLLBTranslator")
+    if model_type is None:
+        try:
+            model_type = get_config().get_translation_model() if get_config else None
+        except Exception as exc:
+            logger.warning(f"Config non leggibile ({exc}): uso il motore di default")
+
+    key = (model_type or '').lower()
+    if key in ('nllb', 'nllb_finetuned'):
+        # Solo banchi: la pipeline non arriva qui, perche' la config mappa quei
+        # valori sul motore di produzione.
+        if key == 'nllb_finetuned':
+            logger.info("Factory: NLLBFineTunedTranslator richiesto esplicitamente (banco di prova)")
+            return NLLBFineTunedTranslator(context=context, glossary=glossary)
+        logger.info("Factory: NLLBTranslator richiesto esplicitamente (banco di prova)")
         return NLLBTranslator(context=context, glossary=glossary)
+
+    if key not in ('', 'translategemma-12b-gguf', 'llm', 'aya', 'claude', 'openai', 'opensubtitles'):
+        logger.warning(f"Motore di traduzione '{model_type}' sconosciuto: uso TranslateGemma 12B GGUF")
+    logger.info("Factory: LLMSubtitleTranslator (TranslateGemma 12B GGUF)")
+    return LLMSubtitleTranslator(context=context, glossary=glossary)
+
 
 def get_nllb_translator(log_callback: Optional[Callable] = None, context: Optional[str] = None) -> NLLBTranslator:
     """Legacy function per ottenere solo il traduttore NLLB."""

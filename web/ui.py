@@ -26,8 +26,7 @@ from web.paths import compute_roots, validate_media_path
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
 router = APIRouter()
 
-LANGUAGES = ("ita", "eng", "fra", "spa", "deu", "por", "rus", "jpn", "zho", "ara", "kor", "nld", "pol", "tur")
-TRANSLATION_MODELS = ("nllb_finetuned", "llm")
+LANGUAGES = ("ita",)          # ADR-009: il motore traduce solo verso l'italiano
 
 HISTORY_STATUSES = ("done", "failed", "cancelled", "interrupted")
 
@@ -312,7 +311,6 @@ def index(request: Request) -> HTMLResponse:
         "status": _status_context(request),
         "queue": _queue_context(request),
         "languages": LANGUAGES,
-        "translation_models": TRANSLATION_MODELS,
     })
 
 
@@ -349,7 +347,6 @@ def ui_add_job(request: Request,
                path: str = Form(""),
                paths: List[str] = Form([]),
                target_language: str = Form(""),
-               translation_model: str = Form(""),
                force_audio: bool = Form(False),
                mux: bool = Form(False),
                upload: bool = Form(False),
@@ -359,7 +356,6 @@ def ui_add_job(request: Request,
     config = request.app.state.config
     raw = {
         "target_language": target_language,
-        "translation_model": translation_model,
         "force_audio_transcription": force_audio,
         "mux_subtitle_into_video": mux,
         "opensubtitles_upload_enabled": upload,
