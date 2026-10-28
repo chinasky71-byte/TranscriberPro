@@ -7,11 +7,11 @@ La web UI non sostituisce la Qt finché ogni riga non e' `verificato Win`. Rifer
 | Controllo (GUI Qt) | Web | Stato | Test |
 |---|---|---|---|
 | Titlebar 52 px: marchio, sottotitolo, pill di stato, strumenti, sincronizza, impostazioni | `chrome.js` TitleBar | fatto (strumenti/sincronizza/impostazioni: icone senza azione, fasi 3-4) | `test_geometria_come_la_finestra_qt_vera_stato_righe` |
-| Pill «Pronto» | `chrome.js` (anche «connessione persa») | fatto | `test_pagina_senza_errori...` |
+| Pill «Pronto» / «In elaborazione» (punto che pulsa) (anche «connessione persa») | `chrome.js` | fatto | `test_badge_gpu_stato_in_barra...` |
 | Pulsante «Esci» (nuovo, assente in Qt: chiudere la finestra chiude l'app) | `chrome.js`, `/api/quit` | fatto | `test_uscita_senza_coda_e_con_coda_al_lavoro` |
-| Schede Coda (n) / Cronologia (n) | `chrome.js` TabBar | fatto | `test_cronologia_tabella_ricerca_e_azioni` |
-| Badge scheda video (GPU) | - | da fare (fase 2d) | - |
-| Tre pannelli 414/472/472 con maniglia 6 px; trascinare la maniglia e ricordare le dimensioni | CSS grid fisso | fatto (maniglia mobile: da fare) | `test_geometria...` |
+| Schede: «Coda di processamento  (n)» con n = in coda + in lavorazione (nessun numero se 0); «Cronologia  (n)» | `chrome.js` TabBar | fatto | `test_badge_gpu_stato_in_barra_e_conteggi_delle_schede` |
+| Badge scheda video (GPU): verde NVIDIA, rosso AMD, «CPU only»; secondo giro dopo 30 s se incompleto | `chrome.js`, `tpweb/gpu.py` | fatto | `test_badge_gpu_*` |
+| Tre pannelli 414/472/472 con maniglia 6 px; trascinare le maniglie (orizzontali e quella tra anteprima e monitor) e ricordare le dimensioni | CSS grid fisso | fatto le misure; maniglie mobili: da fare | `test_geometria...` |
 
 ## Pannello sinistro (coda)
 | Controllo | Web | Stato | Test |
@@ -20,8 +20,8 @@ La web UI non sostituisce la Qt finché ogni riga non e' `verificato Win`. Rifer
 | Riga: pallino di stato, nome (ElideMiddle), dimensione · stato · %, eccezioni `ov`, barra 4 px | `FileRow` | fatto | `test_righe_stati_filtri_e_contatori` |
 | Selezione: clic, Ctrl, Maiusc | `FileList` | fatto | `test_selezione_con_clic_ctrl_e_maiusc...` |
 | Canc: toglie solo le righe in attesa, anche a coda al lavoro | `FileList` + `/api/queue/remove` | fatto | idem |
-| Riordino per trascinamento (solo righe in attesa) | - | da fare (2c) | - |
-| Menu contestuale: eccezioni per file (lingua, modello, audio forzato, genere, mux, upload), rimuovi | - | da fare (2c) | server: `test_eccezioni_per_file` |
+| Riordino per trascinamento (solo righe in attesa, una alla volta) | `FileList` (HTML5 drag and drop) | fatto | `test_riordino_*` |
+| Menu contestuale: eccezioni per file (lingua, modello, audio forzato, genere, mux, upload), ripristina, rimuovi; voce spuntata comune | `context_menu.js` | fatto (revisione OCR differita del menu: fase 5) | `test_menu_*` |
 | Aggiungi File (dialogo con filtro video, ricorda l'ultima cartella) | `FileBrowser` mode files | fatto (dialogo nativo: con pywebview, fase 6) | `test_aggiungi_file_con_il_navigatore` |
 | Aggiungi Cartella (scansione ricorsiva in background, nessun doppione) | `FileBrowser` mode folder + `/api/queue/scan` | fatto | `test_aggiungi_cartella_scansiona_e_aggiunge` |
 | Trascinamento di file da Esplora risorse | - | da fare (fase 6, guscio pywebview) | - |
@@ -36,16 +36,16 @@ La web UI non sostituisce la Qt finché ogni riga non e' `verificato Win`. Rifer
 ## Pannello centrale
 | Controllo | Web | Stato | Test |
 |---|---|---|---|
-| Anteprima: locandina TMDB, titolo, info del file | segnaposto «Nessuna anteprima» | da fare (2d) | - |
+| Anteprima: locandina TMDB, pillola col nome, striscia (lingua, stato, titolo «Nome show SxxExx», dimensione · %, barra) | `Poster`, `InfoStrip`, `tpweb/preview.py` | fatto. **Differenza voluta:** un risultato tardivo di una ricerca annullata non sovrascrive piu' la locandina (corsa nota nella GUI Qt) | `test_anteprima_*` |
 | Monitor risorse: CPU, RAM, GPU, VRAM, Download, Upload | `ResourceMonitor` + `/api/resources` | fatto (uptime e dimensioni esatte: da rifinire) | `test_monitor_risorse_mostra...` |
 
 ## Pannello destro
 | Controllo | Web | Stato | Test |
 |---|---|---|---|
-| Tessere Completati / In corso / In coda / ETA (ogni secondo a coda al lavoro) | `RightPanel` + `/api/queue/stats` | fatto | `test_avanzamento_e_tessere_si_aggiornano_dal_vivo` |
-| Log di elaborazione (filtro rumore, colori, 5.000 righe) e «Log Sintetico» | raw, ultime 200 righe | da fare (2d) | - |
-| Card «Pipeline in corso» (passi, anelli, %, ETA) | dati gia' nello stato (`steps`) | da fare (2d) | server: `test_esecuzione_completa...` |
-| Diagnostica (Tempo, Errori, Modello, Traduttore, Engine) | - | da fare (2d) | - |
+| Tessere Completati / In corso / In coda / ETA (ogni secondo a coda al lavoro) | `RightPanel` + `/api/queue/live` | fatto | `test_avanzamento_e_tessere_si_aggiornano_dal_vivo` |
+| Log di elaborazione (filtro rumore, colori, barre sul posto, 5.000 righe) e «Log Sintetico» (acceso all'apertura) | `LogBuffer` sul server, `LogView` | fatto: stessa uscita della GUI su sequenze scritte (`test_log_buffer_characterization.py`) | `test_log_*`, `test_barre_*` |
+| Card «Pipeline in corso» (passi, anelli, %, ETA, barra stimata/indeterminata, apri/chiudi ricordato) | `pipeline_card.js` | fatto | `test_card_*`, `test_barra_stimata_*` |
+| Diagnostica (Tempo, Errori, Modello, Traduttore, Engine). **Come la GUI:** «Errori» si aggiorna solo a inizio coda e sugli errori del worker, non sui file falliti (da decidere con il proprietario se correggerlo in entrambe) | `RightPanel` | fatto | `test_diagnostica_*`, `test_tessera_errori_*` |
 
 ## Cronologia
 | Controllo | Web | Stato | Test |

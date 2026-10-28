@@ -1,7 +1,7 @@
 import { html, useState, useRef, useLayoutEffect } from '/static/js/lib.js';
 import { t } from '/static/js/i18n.js';
 import { Icon } from '/static/js/icon.js';
-import { useStore, setUi, getState, refreshQueue, addPaths, addFolder, removePaths, startQueue, stopQueue, clearQueue, setShutdown } from '/static/js/store.js';
+import { useStore, setUi, getState, refreshQueue, loadPreview, addPaths, addFolder, removePaths, startQueue, stopQueue, clearQueue, setShutdown } from '/static/js/store.js';
 import { Confirm, FileBrowser } from '/static/js/modals.js';
 import { ContextMenu } from '/static/js/context_menu.js';
 import { get, post } from '/static/js/api.js';
@@ -103,6 +103,8 @@ function FileList() {
     } else if (e.ctrlKey || e.metaKey) {
       setUi({ selected: ui.selected.includes(row.path) ? ui.selected.filter((p) => p !== row.path) : [...ui.selected, row.path], anchor: row.path });
     } else setUi({ selected: [row.path], anchor: row.path });
+    if (!getState().ui.selected.includes(row.path)) return;
+    if (getState().ui.current !== row.path) { setUi({ current: row.path }); loadPreview(row.path); }        // la riga corrente (ultima cliccata) fa da anteprima
   }
   const waitingSelected = (sel) => rows.filter((r) => sel.includes(r.path) && isMovable(r) && visible.includes(r));
   function key(e) {

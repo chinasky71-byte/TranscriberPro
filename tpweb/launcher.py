@@ -25,7 +25,7 @@ EXIT_OK, EXIT_BUSY = 0, 3
 
 
 def build(config, history_path=None, project_root=None, shutdown_fn=None, opener=None, sampler=None, quit_event=None,
-          port=None, token=None) -> ServerThread:
+          port=None, token=None, tmdb_client=None, gpu_detect=None) -> ServerThread:
     """Compone il server completo (non lo avvia)."""
     from tpweb.lang import apply_to_process
     apply_to_process(config)
@@ -36,10 +36,35 @@ def build(config, history_path=None, project_root=None, shutdown_fn=None, opener
     queue = WebQueue(bus, engine_factory=lambda w: QueueEngine(w.queue, w, project_root=project_root),
                      history=history, shutdown_enabled=lambda: job.load().shutdown_after,
                      shutdown_fn=shutdown_fn if shutdown_fn is not None else (lambda: subprocess.run(ShutdownPolicy.command())),
-                     shutdown_delay_s=ShutdownPolicy.DELAY_MS / 1000)
+                     shutdown_delay_s=ShutdownPolicy.DELAY_MS / 1000, config=config)
+    from tpweb.preview import PreviewService
+    if tmdb_client is not None:
+        factory = lambda: tmdb_client                       # noqa: E731
+    else:
+        def factory():
+            from utils.tmdb_client import get_tmdb_client
+            return get_tmdb_client()
+    preview = PreviewService(bus, factory)
+    from tpweb.gpu import GpuBadge, default_detect
+    gpu = GpuBadge(bus, gpu_detect or default_detect)
+    queue.preview = preview
     srv = ServerThread(token=token, port=port, bus=bus, queue=queue, history=history, config=config, opener=opener,
-                       sampler=sampler, on_quit=(quit_event.set if quit_event is not None else None))
+                       sampler=sampler, on_quit=(quit_event.set if quit_event is not None else None), preview=preview, gpu=gpu)
+    _startup_log(queue, config, preview)
     return srv
+
+
+def _startup_log(queue, config, preview) -> None:
+    """Le righe con cui la GUI apre il log (tr(), nella lingua del processo)."""
+    from utils.engine_labels import ENGINE_MODE_LABELS
+    from utils.translations import tr
+    queue.log_message(tr('app_started'))
+    try:
+        has_key = bool(preview.client.api_key)
+    except Exception:
+        has_key = False
+    queue.log_message(tr('mw_tmdb_client').format(state=tr('mw_state_on') if has_key else tr('mw_state_off')))
+    queue.log_message(tr('mw_engine_log').format(engine=ENGINE_MODE_LABELS.get(config.get_transcription_engine_mode(), 'Auto')))
 
 
 def main(argv: Optional[List[str]] = None) -> int:

@@ -38,6 +38,7 @@ class JobRecord:
     size: str = ''
     kind: Optional[str] = None
     ov: str = ''           # etichetta breve delle eccezioni della riga (solo web UI; la GUI Qt la tiene nel dict della riga)
+    ov_lang: str = ''      # lingua di destinazione dell'eccezione: resta sulla riga anche quando il motore prende il file
 
     # ------------------------------------------------------------------ costruzione
     @classmethod
@@ -53,7 +54,7 @@ class JobRecord:
         d = data or {}
         return cls(path=d.get('path', ''), filename=d.get('filename', ''),
                    status=d.get('status', JobStatus.QUEUED), progress=d.get('progress', 0),
-                   size=d.get('size', ''), kind=d.get('kind'), ov=d.get('ov', '') or '')
+                   size=d.get('size', ''), kind=d.get('kind'), ov=d.get('ov', '') or '', ov_lang=d.get('ov_lang', '') or '')
 
     def to_item_data(self) -> dict:
         data = {
@@ -67,6 +68,8 @@ class JobRecord:
             data['kind'] = self.kind
         if self.ov:
             data['ov'] = self.ov
+        if self.ov_lang:
+            data['ov_lang'] = self.ov_lang
         return data
 
     # ------------------------------------------------------------------ transizioni
@@ -82,15 +85,15 @@ class JobRecord:
     def failed(self) -> 'JobRecord':
         return self._with(status=JobStatus.FAILED, progress=0)
 
-    def with_ov(self, text: str) -> 'JobRecord':
-        return self._with(ov=text or '')
+    def with_ov(self, text: str, lang: str = '') -> 'JobRecord':
+        return self._with(ov=text or '', ov_lang=lang or '')
 
     def with_status(self, status: str, progress: int) -> 'JobRecord':
         return self._with(status=status, progress=int(progress))
 
     def _with(self, **changes) -> 'JobRecord':
         fields = dict(path=self.path, filename=self.filename, status=self.status,
-                      progress=self.progress, size=self.size, kind=self.kind, ov=self.ov)
+                      progress=self.progress, size=self.size, kind=self.kind, ov=self.ov, ov_lang=self.ov_lang)
         fields.update(changes)
         return JobRecord(**fields)
 
