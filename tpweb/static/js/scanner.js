@@ -117,7 +117,7 @@ export function ScannerCard() {
       <span class="scanner-title">${t('library_scanner_title')}</span>
       ${badge > 0 ? html`<span class="scanner-badge" data-testid="scanner-badge">${badge}</span>` : null}
       <span class="scanner-state" data-testid="scanner-state">${data.connected ? t('mw_scanner_active') : t('web_scanner_idle')}</span>
-      <span class=${'status-dot ' + dot} data-testid="scanner-dot"></span>
+      <span class=${'scanner-dot ' + dot} data-testid="scanner-dot"></span>
       <button class="tool-btn small" data-testid="scanner-refresh" title=${t('refresh')} onClick=${(e) => { e.stopPropagation(); load(); }}><${Icon} name="sync" size=${14} /></button>
       <${Icon} name=${open ? 'chevDown' : 'chevRight'} size=${14} class="ico-muted" />
     </div>
