@@ -161,6 +161,10 @@ class WebQueue(QueueListener):
         self.bus.publish('queue_reordered', order)
         return True
 
+    @staticmethod
+    def valid_override(key: str, value) -> bool:
+        return job_overrides.clean_value(key, value) is not None
+
     def set_overrides(self, paths: List[str], key: str, value) -> List[str]:
         from utils.job_overrides import clean_value
         if value is not None and clean_value(key, value) is None:

@@ -78,10 +78,9 @@ def create_app(token: str, port: int, bus: Optional[EventBus] = None,
     async def i18n_current(request: Request):
         """Testi nella lingua dell'interfaccia: quella scelta nelle impostazioni; con «auto» la lingua del browser (Accept-Language)."""
         from utils.translations import Translations
-        pref = config.get('language', 'auto') if config is not None else 'auto'
-        if pref not in ('it', 'en'):
-            pref = 'it' if request.headers.get('accept-language', '').lower().lstrip().startswith('it') else 'en'
-        return {'lang': pref, 'texts': Translations.TEXTS[pref]}
+        from tpweb.lang import resolve
+        lang = resolve(config.get('language', 'auto') if config is not None else 'auto', request.headers.get('accept-language', ''))
+        return {'lang': lang, 'texts': Translations.TEXTS[lang]}
 
     @app.get('/api/i18n/{lang}')
     async def i18n(lang: str):

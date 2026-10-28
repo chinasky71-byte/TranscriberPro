@@ -116,6 +116,8 @@ def add_settings_routes(app: FastAPI, config) -> None:
     async def put_general(b: GeneralBody):
         if b.language is not None:
             gen.set_language(b.language)
+            from tpweb.lang import apply_to_process
+            apply_to_process(config)                         # i log del server seguono subito la nuova lingua
         if b.scanner_url is not None:
             gen.set_scanner_url(b.scanner_url)
         if b.scanner_api_key is not None:
