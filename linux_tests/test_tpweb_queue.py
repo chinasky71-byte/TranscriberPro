@@ -275,7 +275,7 @@ def test_http_aggiunta_riordino_rimozione_e_stato(web):
     assert st['counts']['queued'] == 2 and st['seq'] == wq.bus.last_seq
     assert c.post('/api/queue/remove', json={'path': '/a.mkv'}).json() == {'removed': True}
     assert c.post('/api/queue/remove', json={'path': '/a.mkv'}).json() == {'removed': False}
-    assert c.post('/api/queue/overrides', json={'paths': ['/b.mkv'], 'key': 'target_language', 'value': 'eng'}).json() == {'changed': ['/b.mkv']}
+    assert c.post('/api/queue/overrides', json={'paths': ['/b.mkv'], 'key': 'target_language', 'value': 'eng'}).json() == {'changed': ['/b.mkv'], 'skipped': 0}
     assert c.get('/api/queue').json()['overrides'] == {'/b.mkv': {'target_language': 'eng'}}
     assert c.get('/api/state').json()['state']['queue']['rows'][0]['path'] == '/b.mkv'
 
