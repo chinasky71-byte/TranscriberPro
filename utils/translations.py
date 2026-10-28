@@ -912,6 +912,11 @@ class Translations:
             # ── log pipeline: core/llm_subtitle_translator/gguf_engine.py ──
             'gg_ready': '  {label} ready: {n} parallel sequences, {ctx} tokens each',
             'gg_path_chosen': '  Translator GGUF: {quant} ({path}), {n} parallel sequences',
+            'pf_translation_not_ready': '  ❌ Translation engine not ready: {reason}. {remedy}',
+            'pf_reason_llama_no_gpu': 'the installed llama-cpp-python has no GPU offload support',
+            'pf_reason_vram_too_low': 'free VRAM {free_gb:.1f} GB, the {quant} weights need {need_gb:.1f} GB',
+            'pf_remedy_translation': 'Run ./install.sh again (or pick the GGUF file and quantization in the settings).',
+            'pf_remedy_vram': 'Close other programs that use the GPU, or choose the IQ3_M quantization in the settings.',
             'gg_err_llama': 'llama-cpp-python is not usable: {exc}',
             'gg_err_file_missing': 'GGUF file not found: {path}',
             'gg_err_quant_missing': 'GGUF file for quantization {quant} not found in {path}: files found: {found}',
@@ -2236,6 +2241,11 @@ class Translations:
             # ── log pipeline: core/llm_subtitle_translator/gguf_engine.py ──
             'gg_ready': '  {label} pronto: {n} sequenze in parallelo, {ctx} token ciascuna',
             'gg_path_chosen': '  GGUF del traduttore: {quant} ({path}), {n} sequenze in parallelo',
+            'pf_translation_not_ready': '  ❌ Motore di traduzione non pronto: {reason}. {remedy}',
+            'pf_reason_llama_no_gpu': 'il llama-cpp-python installato non ha il supporto GPU',
+            'pf_reason_vram_too_low': 'VRAM libera {free_gb:.1f} GB, i pesi {quant} ne chiedono {need_gb:.1f} GB',
+            'pf_remedy_translation': 'Rilancia ./install.sh (oppure scegli il file GGUF e la quantizzazione nelle impostazioni).',
+            'pf_remedy_vram': 'Chiudi gli altri programmi che usano la GPU, oppure scegli la quantizzazione IQ3_M nelle impostazioni.',
             'gg_err_llama': 'llama-cpp-python non utilizzabile: {exc}',
             'gg_err_file_missing': 'File GGUF non trovato: {path}',
             'gg_err_quant_missing': 'File GGUF per la quantizzazione {quant} non trovato in {path}: file trovati: {found}',

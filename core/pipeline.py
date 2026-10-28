@@ -55,6 +55,8 @@ from core.subtitle_extractor import SubtitleExtractor
 from core.subtitle_lang import detect_text_language, contradicts, lang2_to_3, normalize_lang
 from core.subtitle_cleaner import SubtitleCleaner
 from core.translator import BaseTranslator, get_translator
+from utils.backend_preflight import (check_translation_ready,
+                                    translation_facts_subprocess)
 from core.transcriber import Transcriber
 from core.audio_track_selector import AudioTrackSelector
 from core.audio_processor import AudioProcessor 
@@ -369,6 +371,19 @@ class ProcessingPipeline:
             # ("Nessuna traccia audio trovata" da ffprobe su file inesistente).
             if not Path(self.video_path).exists():
                 self._log(tr('pl_file_not_found_renamed_moved').format(video_path=self.video_path))
+                return False
+
+            # ADR-009: un solo motore di traduzione e nessun ripiego, quindi un
+            # GGUF mancante o un llama.cpp senza GPU sono errori del job.
+            # Controllarli qui costa un paio di secondi in un processo separato
+            # (llama_cpp non va importato dopo torch in questo processo);
+            # scoprirlo alla fine buttava via venti minuti di trascrizione.
+            _ready, _why = check_translation_ready(
+                self.config,
+                allow_cpu=bool(self.config.get('allow_cpu')),
+                probe=translation_facts_subprocess)
+            if not _ready:
+                self._log(_why)
                 return False
 
             # Recupero metadati e temp dir
@@ -794,6 +809,25 @@ class ProcessingPipeline:
 
             # Il motore carica su GPU: si aspetta che il driver restituisca la VRAM degli ASR.
             self._wait_vram_settled()
+
+            # La VRAM libera si controlla qui, non all'accodamento: quanta ne
+            # resta dipende da cosa hanno lasciato gli ASR di QUESTO job.
+            _free_gib = None
+            try:
+                if torch.cuda.is_available():
+                    _free_bytes, _ = torch.cuda.mem_get_info()
+                    _free_gib = _free_bytes / 1024 ** 3
+            except Exception:
+                _free_gib = None
+            _ready, _why = check_translation_ready(
+                self.config,
+                allow_cpu=bool(self.config.get('allow_cpu')),
+                check_fit=True,
+                free_gib=_free_gib,
+                probe=translation_facts_subprocess)
+            if not _ready:
+                self._log(_why)
+                return subtitle_path, source_language_639_1, False, True
 
             # Contesto dell'opera per il traduttore: titolo e trama sono
             # già in self.metadata e aiutano soprattutto sui nomi propri e
