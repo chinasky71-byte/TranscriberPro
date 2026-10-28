@@ -172,14 +172,18 @@ def test_valori_ai_limiti_accettati(env, section, body):
 
 def test_batch_adattivo_scrive_tutte_le_chiavi_e_si_ripristina(env):
     r = env.c.put('/api/settings/adaptive_batch', json={'enabled': False, 'max_size': 32}).json()
-    assert r['enabled'] is False and r['max_size'] == 32 and r['min_size'] == 1 and r['status_text']
+    assert r['enabled'] is False and r['max_size'] == 32 and r['min_size'] == 1 and r['status'] == {'key': 'abs_disabled_status'}
     on_disk = json.loads(env.cfgfile.read_text(encoding='utf-8'))
     assert on_disk['adaptive_batch_enabled'] is False and on_disk['adaptive_batch_max_size'] == 32
     assert env.c.put('/api/settings/adaptive_batch', json={'min_size': 3, 'low_threshold': 0.4}).json()['max_size'] == 32
     r2 = env.c.put('/api/settings/adaptive_batch', json={'warmup_batches': 7}).json()          # i campi non inviati restano quelli salvati
     assert (r2['min_size'], r2['low_threshold'], r2['max_size'], r2['enabled']) == (3, 0.4, 32, False)
-    d = env.c.post('/api/settings/adaptive_batch/reset').json()
-    assert (d['enabled'], d['max_size'], d['min_size'], d['warmup_batches'], d['high_threshold'], d['low_threshold']) == (True, 24, 1, 5, 0.85, 0.6)
+    d = env.c.get('/api/settings/adaptive_batch/defaults').json()                 # «Ripristina»: solo i valori del modulo, nulla viene salvato
+    assert d == {'enabled': True, 'initial_size': 0, 'min_size': 1, 'max_size': 24, 'warmup_batches': 5, 'high_threshold': 0.85, 'low_threshold': 0.6}
+    assert env.c.get('/api/settings').json()['adaptive_batch']['min_size'] == 3
+    assert env.c.get('/api/settings/adaptive_batch/status', params={'enabled': 'false'}).json() == {'key': 'abs_disabled_status'}
+    # attivo: i valori SALVATI (non quelli del modulo), il «rilevamento automatico» e' initial 0
+    assert env.c.get('/api/settings/adaptive_batch/status', params={'enabled': 'true'}).json() == {'key': 'abs_active_status', 'initial': 0, 'min': 3, 'max': 32, 'warmup': 7}
 
 
 def test_ocr_scrittura(env):

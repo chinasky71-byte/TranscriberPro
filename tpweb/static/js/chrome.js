@@ -1,7 +1,7 @@
 import { html, useState, useLayoutEffect } from '/static/js/lib.js';
 import { t } from '/static/js/i18n.js';
 import { Icon } from '/static/js/icon.js';
-import { useStore, setUi } from '/static/js/store.js';
+import { useStore, setUi, openSettings } from '/static/js/store.js';
 import { post } from '/static/js/api.js';
 import { Confirm } from '/static/js/modals.js';
 
@@ -23,7 +23,7 @@ export function TitleBar() {
     <div class="title-actions">
       <button class="tool-btn" title=${t('tools_menu')}><${Icon} name="wrench" size=${16} /></button>
       <button class="tool-btn" title=${t('sync_dialog_title')}><${Icon} name="sync" size=${16} /></button>
-      <button class="tool-btn" title=${t('settings_dialog_title')}><${Icon} name="settings" size=${16} /></button>
+      <button class="tool-btn" data-testid="open-settings" title=${t('settings_dialog_title')} onClick=${() => openSettings()}><${Icon} name="settings" size=${16} /></button>
       <button class="tool-btn" data-testid="quit" title=${t('web_quit')} onClick=${() => quit(false)}><${Icon} name="power" size=${16} /></button>
     </div>
     ${quitAsk ? html`<${Confirm} title=${t('web_quit')} text=${t('web_quit_busy')} onNo=${() => setQuitAsk(false)}
