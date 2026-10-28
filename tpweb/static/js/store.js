@@ -13,8 +13,14 @@ let state = {
   job: { defaults_summary: '', shutdown_after: false },
   resources: null,
   historyCount: null,
-  ui: { filter: 'all', selected: [], anchor: null, tab: 'queue', scannerOpen: false },
-  log: [],
+  ui: { filter: 'all', selected: [], anchor: null, current: null, tab: 'queue', scannerOpen: false },
+  log: [],                                   // {id, text, kind}: le righe le decide il server (filtro, barre sul posto, colori)
+  logOptions: { compact: true, pipeline_open: true },
+  diag: { elapsed: '–', errors: '0', model: '–', translator: '–', engine: '–' },
+  preview: { path: null, status: 'none', poster_id: null },
+  gpu: null,
+  clockOffset: 0,                            // orologio del server meno quello del browser (barre stimate dei passi)
+  title: '',
 };
 const listeners = new Set();
 
@@ -51,7 +57,30 @@ export function refreshQueue() {
 function applyQueue(q) {
   const paths = new Set(q.rows.map((x) => x.path));
   const selected = state.ui.selected.filter((p) => paths.has(p));
-  setState({ queue: q, ui: selected.length === state.ui.selected.length ? state.ui : { ...state.ui, selected } });
+  const prev = state.queue.rows;
+  const started = q.rows.find((r) => r.status === 'processing' && prev.some((p) => p.path === r.path && p.status !== 'processing'));
+  const ui = { ...state.ui, selected };
+  if (ui.current && !paths.has(ui.current)) ui.current = null;
+  setState({ queue: { ...q, steps: q.steps || state.queue.steps }, ui });
+  if (started) selectRow(started.path, true);        // un file passa in lavorazione: si seleziona e si ricarica la locandina (come la GUI)
+  else if (!ui.current && state.preview.status !== 'none' && !q.rows.length) setState({ preview: { path: null, status: 'none', poster_id: null } });
+}
+
+/** Seleziona UNA riga e ne mostra l'anteprima. */
+export function selectRow(path, force = false) {
+  setUi({ selected: [path], anchor: path, current: path });
+  loadPreview(path, force);
+}
+export function selectLast() {
+  const rows = state.queue.rows;
+  if (rows.length) selectRow(rows[rows.length - 1].path);
+}
+export async function loadPreview(path, force = false) {
+  const r = await post('/api/preview/select', { path, force });
+  if (r.ok && !r.data.started && force) { /* gia' in corso: nessun lavoro */ }
+  const row = state.queue.rows.find((x) => x.path === path);
+  const t = await post('/api/preview/title', { path, filename: row ? row.filename : '' });
+  if (t.ok && state.ui.current === path) setState({ title: t.data.title });
 }
 
 export async function refreshHistoryCount() {
@@ -71,8 +100,16 @@ function onMessages(msgs) {
       case 'file_progress': patchRow(m.d.path, { progress: m.d.percent }); break;
       case 'size_ready': patchRow(m.d.path, { size: m.d.size }); break;
       case 'progress': setState({ queue: { ...state.queue, progress: m.d } }); break;
-      case 'steps': setState({ queue: { ...state.queue, steps: m.d } }); break;
-      case 'log': pushLog(m.d); break;
+      case 'steps': setState({ queue: { ...state.queue, steps: m.d }, clockOffset: m.d.server_time ? m.d.server_time - Date.now() / 1000 : state.clockOffset }); break;
+      case 'log': applyLogOp(m.d); break;
+      case 'diag': setState({ diag: m.d }); break;
+      case 'log_options': setState({ logOptions: m.d }); break;
+      case 'poster_loading': setState({ preview: { path: m.d.path, status: 'loading', poster_id: null } }); break;
+      case 'poster_loaded': setState({ preview: { path: m.d.path, status: 'found', poster_id: m.d.poster_id } }); break;
+      case 'poster_failed': setState({ preview: { path: m.d.path, status: 'failed', poster_id: null } }); break;
+      case 'poster_cleared': setState({ preview: { path: null, status: 'none', poster_id: null } }); break;
+      case 'gpu_badge': setState({ gpu: m.d }); break;
+      case 'scan_finished': selectLast(); structural = true; break;
       case 'history': refreshHistoryCount(); structural = true; break;
       default: structural = true;
     }
@@ -91,17 +128,35 @@ function patchRow(path, patch) {
 }
 
 const LOG_MAX = 5000;
-function pushLog(text) {
-  const log = state.log.length >= LOG_MAX ? state.log.slice(state.log.length - LOG_MAX + 1) : state.log.slice();
-  log.push(text);
+/** Un'operazione del server sul log: accoda, riscrive l'ultima riga (barra sul posto) o toglie una riga e accoda (barra spostata in fondo). */
+function applyLogOp(op) {
+  let log = state.log.slice();
+  if (op.op === 'update_last' && log.length) log[log.length - 1] = op.line;
+  else {
+    if (op.op === 'replace') log = log.filter((l) => l.id !== op.remove_id);
+    log.push(op.line);
+    if (log.length > LOG_MAX) log = log.slice(log.length - LOG_MAX);
+  }
   setState({ log });
+}
+
+function applyFull(st) {
+  if (st.queue) applyQueue(st.queue);
+  const patch = {};
+  if (st.log) patch.log = st.log;
+  if (st.diag) patch.diag = st.diag;
+  if (st.log_options) patch.logOptions = st.log_options;
+  if (st.preview) patch.preview = st.preview;
+  if ('gpu' in st) patch.gpu = st.gpu;
+  if (st.queue && st.queue.steps && st.queue.steps.server_time) patch.clockOffset = st.queue.steps.server_time - Date.now() / 1000;
+  setState(patch);
 }
 
 export function connect() {
   const es = new EventSource('/events');       // dopo una caduta il browser rimanda da solo Last-Event-ID: ripresa senza buchi
   es.addEventListener('state', (e) => {
     const d = JSON.parse(e.data);
-    if (d.state && d.state.queue) applyQueue(d.state.queue);
+    if (d.state) applyFull(d.state);
   });
   es.onmessage = (e) => onMessages(JSON.parse(e.data).msgs);
   es.onopen = () => setState({ connected: true });
@@ -113,8 +168,8 @@ export function connect() {
 export function startPolling() {
   setInterval(async () => {
     if (!state.queue.running) return;
-    const r = await get('/api/queue/stats');
-    if (r.ok) setState({ queue: { ...state.queue, stats: r.data } });
+    const r = await get('/api/queue/live');
+    if (r.ok) setState({ queue: { ...state.queue, stats: r.data.stats }, diag: r.data.diag });
   }, 1000);
   const tick = async () => {
     const r = await get('/api/resources');
@@ -125,8 +180,18 @@ export function startPolling() {
 }
 
 // -------------------------------------------------------------------------------------------------------------------- comandi
-export const addPaths = (paths) => post('/api/queue/add', { paths, only_files: true });
-export async function addFolder(folder) { return post('/api/queue/scan', { folder }); }
+export async function addPaths(paths) {
+  const r = await post('/api/queue/add', { paths, only_files: true });
+  if (r.ok) {
+    await new Promise((res) => { refreshQueue(); setTimeout(res, 150); });
+    post('/api/queue/sizes', { paths: r.data.added });
+    selectLast();
+  }
+  return r;
+}
+export const addFolder = (folder) => post('/api/queue/scan', { folder });
+export const setCompact = (enabled) => post('/api/log/compact', { enabled });
+export const setPipelineOpen = (open) => post('/api/log/pipeline-card', { open });
 export async function removePaths(paths) { for (const p of paths) await post('/api/queue/remove', { path: p }); }
 export const startQueue = () => post('/api/queue/start');
 export const stopQueue = () => post('/api/queue/stop');

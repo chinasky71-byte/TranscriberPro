@@ -73,7 +73,7 @@ def test_pagina_senza_errori_e_con_i_testi_in_italiano(env):
     assert page.title() == 'Transcriber Pro - Trascrizione Video AI'
     assert page.locator('[data-testid=add-files]').inner_text().strip() == 'Aggiungi File'
     assert page.locator('[data-testid=start]').inner_text().strip() == 'Avvia'
-    assert page.locator('[data-testid=tabbar] .tab.selected').inner_text().strip().startswith('Coda di processamento (0)')
+    assert page.locator('[data-testid=tabbar] .tab.selected').inner_text().strip() == 'Coda di processamento'
     time.sleep(1.2)
     assert env.problems == []
 
@@ -534,6 +534,7 @@ def test_menu_file_in_lavorazione_senza_eccezioni_e_area_vuota_con_rimuovi_disat
 
 def test_eccezione_su_file_gia_preso_dal_motore_avvisa_nel_log(env):
     env.wq.add(['/a.mkv'])
+    env.wq.set_compact(False)                                               # con Log Sintetico (predefinito) un avviso senza marcatori non compare
     page = env.open()
     wait_rows(page, 1)
     page.click('.file-row[data-path="/a.mkv"]', button='right')
@@ -542,11 +543,9 @@ def test_eccezione_su_file_gia_preso_dal_motore_avvisa_nel_log(env):
     env.wq.on_file_started('/a.mkv')
     page.hover('.ctx-item[data-label="Correzione del genere"]')
     page.click('.ctx-sub .ctx-item[data-label="Sì"]')
-    deadline = time.time() + 5
-    while time.time() < deadline and not [e for e in env.wq.bus.since(0)[0] if e['k'] == 'log']:
-        time.sleep(0.05)
-    logs = [e['d'] for e in env.wq.bus.since(0)[0] if e['k'] == 'log']
-    assert logs == ['⚠️ 1 file non modificati: già in elaborazione, finiti o non più in coda.']
+    page.wait_for_function('() => [...document.querySelectorAll(".log-line")].some(l => l.innerText.includes("1 file non modificati"))')
+    line = page.locator('.log-line', has_text='1 file non modificati')
+    assert line.inner_text().endswith('⚠️ 1 file non modificati: già in elaborazione, finiti o non più in coda.') and 'kind-warn' in line.get_attribute('class')
 
 
 def drag(page, src, dst, after=False):

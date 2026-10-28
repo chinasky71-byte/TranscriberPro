@@ -21,6 +21,8 @@ from core.jobs.job_queue import JobQueue
 from core.services.file_scan import VIDEO_EXTENSIONS, iter_videos, size_text
 from core.services.formatting import EN_DASH, format_elapsed, format_eta
 from core.services.job_model import JobRecord, JobStatus, KIND_OCR, is_reorderable
+from core.services.log_buffer import LogBuffer
+from core.services.settings_service import SettingsService
 from core.services.shutdown_policy import ShutdownPolicy
 from tpweb.events import EventBus
 from utils import job_overrides
@@ -35,11 +37,19 @@ def _key(path: str) -> str:
 class WebQueue(QueueListener):
     def __init__(self, bus: EventBus, engine_factory: Optional[Callable[['WebQueue'], QueueEngine]] = None,
                  history=None, shutdown_enabled: Optional[Callable[[], bool]] = None,
-                 shutdown_fn: Optional[Callable[[], None]] = None, shutdown_delay_s: float = ShutdownPolicy.DELAY_MS / 1000):
+                 shutdown_fn: Optional[Callable[[], None]] = None, shutdown_delay_s: float = ShutdownPolicy.DELAY_MS / 1000, config=None):
         """`history`: HistoryService su cui salvare le voci dei file completati. `shutdown_enabled`/`shutdown_fn`: la casella
         'Spegni' (letta a fine coda) e l'azione; senza `shutdown_fn` il server non spegne MAI il computer."""
         self.bus = bus
+        self.config = config
         self.history = history
+        self.log = LogBuffer()
+        self.preview = None                       # PreviewService (impostato dal launcher)
+        self._log_lock = threading.Lock()
+        self.compact = True                       # «Log Sintetico»: acceso all'apertura, non persistito (come la GUI)
+        self.model_name: Optional[str] = None     # tessera «Modello» durante l'elaborazione (dalla riga di log «Modello trascrizione»)
+        self.errors_shown = 0                     # tessera «Errori»: la GUI la aggiorna solo a inizio coda e sugli errori del worker
+        self._final_elapsed: Optional[str] = None
         self._shutdown_enabled = shutdown_enabled
         self._shutdown_fn = shutdown_fn
         self._shutdown_delay_s = shutdown_delay_s
@@ -78,7 +88,8 @@ class WebQueue(QueueListener):
             eta = format_eta(time.time() - started, self.completed_count, remaining)
         return {'completed': self.completed_count, 'in_progress': c['processing'], 'queued': c['queued'],
                 'errors': self.error_count, 'eta': eta,
-                'elapsed': format_elapsed(int(time.time() - started)) if started > 0 else None}
+                'elapsed': self._final_elapsed if self._final_elapsed is not None else (
+                    format_elapsed(int(time.time() - started)) if started > 0 else None)}
 
     def counts(self) -> Dict[str, int]:
         c = {'all': 0, 'queued': 0, 'processing': 0, 'completed': 0, 'failed': 0}
@@ -87,6 +98,59 @@ class WebQueue(QueueListener):
                 c[r.status] = c.get(r.status, 0) + 1
         c['all'] = sum(v for k, v in c.items() if k != 'all')
         return c
+
+    # ------------------------------------------------------------------------------------------------------ log e diagnostica
+    @property
+    def pipeline_open(self) -> bool:
+        return SettingsService(self.config).pipeline_card_open() if self.config is not None else True
+
+    def set_pipeline_open(self, opened: bool) -> None:
+        if self.config is not None:
+            SettingsService(self.config).set_pipeline_card_open(bool(opened))
+        self.bus.publish('log_options', self.log_options())
+
+    def set_compact(self, enabled: bool) -> None:
+        self.compact = bool(enabled)
+        self.bus.publish('log_options', self.log_options())
+
+    def hide_progress_bars(self) -> bool:
+        """Le barre escono dal log solo se la card «Pipeline in corso» e' visibile (Log Sintetico + un file in lavorazione) E aperta."""
+        return self.compact and self.last_steps is not None and self.pipeline_open
+
+    def log_options(self) -> dict:
+        return {'compact': self.compact, 'pipeline_open': self.pipeline_open}
+
+    def log_message(self, text: str) -> None:
+        """Una riga di log per l'utente: stesse regole di `MainWindow.log_message` (filtro, compatta, barre sul posto, colore)."""
+        from datetime import datetime
+        with self._log_lock:
+            res = self.log.add(text, datetime.now(), self.compact, self.hide_progress_bars())
+        if res.action == 'drop_ram':
+            from utils.logger import setup_logger
+            setup_logger().info(res.raw)
+        if res.model_name:
+            self.model_name = res.model_name
+            self.bus.publish('diag', self.diag())
+        if res.op is not None:
+            self.bus.publish('log', res.op)
+
+    def diag(self) -> dict:
+        """Le cinque tessere di diagnostica (testi gia' pronti)."""
+        from utils.engine_labels import idle_model_label
+        c = self.config
+        return {'elapsed': self.stats()['elapsed'] or '–', 'errors': str(self.errors_shown),
+                'model': self.model_name or (idle_model_label(c) if c is not None else '–'),
+                'translator': c.get_translation_model() if c is not None else '–',
+                'engine': SettingsService(c).engine_mode_label() if c is not None else '–'}
+
+    def live(self) -> dict:
+        return {'stats': self.stats(), 'diag': self.diag()}
+
+    def full_state(self) -> dict:
+        """Stato completo per un client che si collega (o che ha perso eventi): coda, log, diagnostica, opzioni del log."""
+        with self._log_lock:
+            lines = list(self.log.lines)
+        return {'queue': self.state(), 'log': lines, 'diag': self.diag(), 'log_options': self.log_options()}
 
     def state(self) -> dict:
         return {'running': self.is_processing, 'rows': self.rows(), 'counts': self.counts(),
@@ -175,7 +239,7 @@ class WebQueue(QueueListener):
             with self._rows_lock:               # l'etichetta sta sulla riga IN ATTESA di quel file (le righe gia' finite con lo stesso percorso la tengono)
                 for i, r in enumerate(self._rows):
                     if r.path in labels and r.status == JobStatus.QUEUED and not r.is_ocr:
-                        self._rows[i] = r.with_ov(labels[r.path])
+                        self._rows[i] = r.with_ov(labels[r.path], self.overrides_of(r.path).get('target_language', ''))
             self.bus.publish('overrides_changed', {p: {'overrides': self.overrides_of(p), 'ov': labels[p]} for p in changed})
         return changed
 
@@ -185,6 +249,8 @@ class WebQueue(QueueListener):
         self.queue.clear()
         with self._rows_lock:
             self._rows.clear()
+        if self.preview is not None:
+            self.preview.clear()
         self.bus.publish('jobs_cleared')
         return True
 
@@ -238,6 +304,9 @@ class WebQueue(QueueListener):
             return EMPTY
         self.completed_count = 0
         self.error_count = 0
+        self.errors_shown = 0
+        self.model_name = None
+        self._final_elapsed = None
         self.last_error = ''
         self.last_steps = None
         self.last_progress = 0
@@ -253,6 +322,7 @@ class WebQueue(QueueListener):
             self._engine.run()
         except Exception as e:                      # il motore non dovrebbe sollevare: se succede lo si dice e si chiude
             self.error_count += 1
+            self.errors_shown = self.error_count
             self.last_error = str(e)
             self.bus.publish('worker_error', str(e))
             self.on_finished()
@@ -278,7 +348,7 @@ class WebQueue(QueueListener):
                     return
 
     def on_log(self, text: str) -> None:
-        self.bus.publish('log', text)
+        self.log_message(text)
 
     def on_progress(self, percent: int) -> None:
         self.last_progress = percent
@@ -294,6 +364,7 @@ class WebQueue(QueueListener):
 
     def on_file_steps(self, path: str, snapshot) -> None:
         self.last_steps = dataclasses.asdict(snapshot)
+        self.last_steps['server_time'] = time.time()          # per la barra stimata dei passi brevi (salvataggio, upload)
         self.bus.publish('steps', self.last_steps)
 
     def on_file_completed(self, path: str) -> None:
@@ -320,6 +391,10 @@ class WebQueue(QueueListener):
         self.bus.publish('remaining', remaining)
 
     def on_finished(self) -> None:
+        if self.proc_start_time > 0:
+            self._final_elapsed = format_elapsed(int(time.time() - self.proc_start_time))      # la tessera «Tempo» si ferma a fine coda
+        from utils.translations import tr
+        self.log_message(tr('processing_completed'))
         self.bus.publish('finished', {'completed': self.completed_count, 'errors': self.error_count})
         # anche dopo uno Stop (i restanti restano in coda): comportamento preservato dalla GUI
         if self._shutdown_fn is not None and self._shutdown_enabled is not None and self._shutdown_enabled():
