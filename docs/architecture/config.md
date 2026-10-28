@@ -24,9 +24,11 @@ defaults (Config.DEFAULTS)  <  config.json  <  per-job in-memory overlay
 | `transcription_engine_mode` | `auto` | `auto \| canary \| qwen3 \| faster-whisper` |
 | `whisper_model` | `large-v3` | default Whisper model |
 | `target_language` | `ita` | subtitle target language |
-| `translation_model` | `nllb` | `nllb \| nllb_finetuned \| llm \| claude \| openai \| opensubtitles` |
+| `translation_model` | `translategemma-12b-gguf` | one engine (ADR-009); every historical value is mapped onto it on read |
 | `llm_translator_model` | `translategemma-12b` | key in `MODEL_SPECS` |
-| `llm_translator_gguf_enabled` | `true` | prefer GGUF over transformers |
+| `llm_translator_gguf_quant` | `Q4_K_M` | `Q4_K_M \| Q3_K_M \| IQ3_M` |
+| `llm_translator_gguf_dir` | `` (empty) | GGUF directory, empty means `models/translategemma-12b-gguf` |
+| `llm_translator_gguf_parallel` | `4` | parallel sequences, i.e. the KV-cache size |
 | `translation_max_untranslated_pct` | `80` | translation fails above this share of untranslated blocks |
 | `use_gpu` | `true` | allow GPU execution |
 | `enable_diarization` | `false` | pyannote diarization |
@@ -38,16 +40,16 @@ defaults (Config.DEFAULTS)  <  config.json  <  per-job in-memory overlay
 | `mux_subtitle_into_video` | `false` | mux the SRT into the MKV |
 | `replace_mislabeled_italian_track` | `true` | replace a mistagged Italian track |
 
-Model path keys: `nllb_model_path`, `nllb_finetuned_model_path`,
-`llm_translator_model_path`, `llm_translator_gguf_dir`,
-`gender_correction_model_path`, `fallback_translator_model_path`.
+Model path keys: `nllb_model_path`, `nllb_finetuned_model_path` (bench only),
+`llm_translator_gguf_dir`, `llm_translator_model_path` (legacy alias for the
+GGUF directory, written by the frozen Qt dialog), `gender_correction_model_path`.
 
 ## Per-job override keys
 
 Only these keys can be overridden for a single file
 (`utils/job_overrides.py`):
 
-`target_language`, `translation_model`, `force_audio_transcription`,
+`target_language` (only `ita` since ADR-009), `force_audio_transcription`,
 `gender_correction_enabled`, `mux_subtitle_into_video`,
 `opensubtitles_upload_enabled`.
 

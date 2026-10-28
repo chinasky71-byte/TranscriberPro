@@ -19,9 +19,11 @@ exported here.
 
 ```bash
 # ASR
-venv/bin/python -m bench.run --suite asr --engines faster-whisper,qwen3 --repeat 3
+venv/bin/python -m bench.run --suite asr --engines qwen3 --repeat 3
 
-# Translation (in-process engines)
+# Translation: the product engine (ADR-009) is `llm` = TranslateGemma-12B GGUF.
+# The NLLB arms still exist in bench/ only, as a comparison baseline.
+venv/bin/python -m bench.run --suite translation --engines llm --repeat 3
 venv/bin/python -m bench.run --suite translation \
   --engines nllb,nllb_finetuned,llm --repeat 3
 
@@ -54,4 +56,4 @@ Method details: [`bench/README.md`](../../bench/README.md).
 
 | Date | Directory | Content |
 |---|---|---|
-| 2026-10-25 | [`2026-10-25/`](2026-10-25/README.md) | ASR and translation on the AMD reference machine |
+| 2026-10-25 | [`2026-10-25/`](2026-10-25/README.md) | ASR and translation on the AMD reference machine. The translation table compares six engines: **historical**, four of them no longer exist (ADR-009). `llm` is the one that stayed. |

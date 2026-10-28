@@ -36,7 +36,8 @@ Never load two engines at once. The router owns the lifecycle.
    `core/llm_subtitle_translator/engine.py`: `model_id`, label, generation
    parameters, loader, context window, VRAM notes.
 2. If it has a GGUF path, add it to the GGUF directory layout and to
-   `path_router.py` thresholds.
+   `utils/gguf_quant.QUANT_WEIGHTS_GIB` with measured weights (ADR-009: the
+   quantization is a setting, not a VRAM guess).
 3. Verify the prompt format (chat template) and the output parser; a
    general-purpose model needs an adapter, not only a path.
 4. Measure: quality versus the current default, time per block, peak VRAM.

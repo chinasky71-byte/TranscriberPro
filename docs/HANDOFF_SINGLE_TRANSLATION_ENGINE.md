@@ -5,9 +5,9 @@ Resume point for the work that turns translation into a single engine:
 fallbacks**. Written to be usable from a cold start: the next session should not
 need to re-derive anything.
 
-- Updated: 2026-10-27 (session in progress)
+- Updated: 2026-10-27 (all seven steps done; close-out in progress)
 - Branch: `feat/single-translation-engine`, from `origin/development` (`c5b856d`)
-- Suite at every commit: `pytest linux_tests -q` → **802 passed, 15 skipped**
+- Suite at every commit: `pytest linux_tests -q` → **701 passed, 15 skipped**
 
 ## Hard constraints for this branch
 
@@ -52,7 +52,19 @@ Not yet touched on this branch: `docs/adr/ADR-009-*.md` (still to write),
   removed.
 - The `--no-ff` merge and the close-out stay for the end of step 7.
 
-## Remaining steps
+## Steps 4-7 (done)
+
+| Step | What |
+|---|---|
+| 4 | L3 reservoir removed (see the row above) |
+| 5 | Quant policy: `utils/translator_path_select.py` → `utils/gguf_quant.py`; `path_router.py` deleted; `resolve_gguf_path()` in `gguf_engine.py`; `engine.py` keeps one `ModelSpec` + `build_mt_messages()`, loses `SubtitleLLMEngine`; config keys `llm_translator_gguf_enabled`, `_before_nf4`, `_nf4_min_free_gb`, `_q4_min_free_gb`, `_iq3_min_free_gb` dropped |
+| 6 | `VALID_TRANSLATION_MODELS = ['translategemma-12b-gguf']` with `LEGACY_TRANSLATION_MODELS`; `LANGUAGES = ('ita',)`; per-job engine select and `_NOMI_MOTORE` collapsed |
+| 7 | `backend_preflight.check_translation_ready()` (file, llama.cpp, GPU offload, free VRAM) called at pipeline STEP 0 and STEP 6; 8 tests |
+
+Remaining for the close-out: the end-to-end run (English clip + French refusal),
+`docs/STATUS.md` and the `docs/PROGRESS.md` entry, then the `--no-ff` merge.
+
+## Remaining steps (original plan, kept for the record)
 
 ### 4. L3 reservoir (next)
 
