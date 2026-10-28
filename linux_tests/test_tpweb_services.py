@@ -332,3 +332,62 @@ def test_senza_azione_di_spegnimento_il_server_non_spegne_mai(tmp_path, monkeypa
     q.start()
     q.join(60)
     assert 'shutdown_scheduled' not in [e['k'] for e in q.bus.since(0)[0]]
+
+
+def test_cronologia_ordinamento_per_colonna_con_indici_del_file(env):
+    def names(**p):
+        return [(r['name'], r['index']) for r in env.c.get('/api/history', params=p).json()['rows']]
+    assert names() == [('Film Uno', 0), ('Serie Due', 1)]                         # senza ordine: come il file
+    assert names(sort='size', dir='desc') == [('Serie Due', 1), ('Film Uno', 0)]   # 5 GB prima di 2 KB: l'indice resta quello del file
+    assert names(sort='size') == [('Film Uno', 0), ('Serie Due', 1)]
+    assert names(sort='duration', dir='asc') == [('Serie Due', 1), ('Film Uno', 0)]
+    assert names(sort='date', dir='desc') == [('Serie Due', 1), ('Film Uno', 0)]
+    assert names(sort='name', dir='desc') == [('Serie Due', 1), ('Film Uno', 0)]
+    assert names(sort='language') == [('Serie Due', 1), ('Film Uno', 0)]           # 'auto' prima di 'eng→ita'
+    assert names(sort='size', dir='desc', q='film') == [('Film Uno', 0)]           # ordinamento e ricerca insieme
+
+
+def test_cronologia_ordinamento_non_valido_e_azioni_per_indice(env):
+    assert env.c.get('/api/history', params={'sort': 'srt_path'}).status_code == 422
+    assert env.c.get('/api/history', params={'sort': 'size', 'dir': 'su'}).status_code == 422
+    # «Apri» usa l'indice del file anche se la riga e' mostrata in un altro ordine
+    rows = env.c.get('/api/history', params={'sort': 'size', 'dir': 'desc'}).json()['rows']
+    film = [r for r in rows if r['name'] == 'Film Uno'][0]
+    assert env.c.post('/api/history/open', json={'index': film['index'], 'what': 'srt'}).json() == {'opened': '/v/uno.srt'}
+
+
+def test_cronologia_cancella_richiede_la_conferma_e_svuota(env):
+    assert env.c.post('/api/history/clear', json={}).status_code == 400
+    assert env.c.post('/api/history/clear', json={'confirm': False}).status_code == 400
+    assert len(json.loads(env.hist.path.read_text(encoding='utf-8'))) == 2             # niente e' stato cancellato
+    r = env.c.post('/api/history/clear', json={'confirm': True})
+    assert r.status_code == 200 and r.json() == {'cleared': 2}
+    assert json.loads(env.hist.path.read_text(encoding='utf-8')) == []
+    j = env.c.get('/api/history').json()
+    assert j['rows'] == [] and j['stats']['total'] == 0
+    assert env.c.post('/api/history/clear', json={'confirm': True}).json() == {'cleared': 0}
+
+
+def test_cronologia_cancella_senza_il_token_e_rifiutata(env):
+    anonimo = httpx.Client(base_url=str(env.c.base_url), timeout=15)
+    assert anonimo.post('/api/history/clear', json={'confirm': True}).status_code in (401, 403)
+    assert len(json.loads(env.hist.path.read_text(encoding='utf-8'))) == 2
+    anonimo.close()
+
+
+def test_cronologia_cancella_file_non_scrivibile_da_errore_e_tiene_le_voci(env, monkeypatch):
+    monkeypatch.setattr(HistoryService, 'save', lambda self: False)
+    r = env.c.post('/api/history/clear', json={'confirm': True})
+    assert r.status_code == 500
+    assert env.c.get('/api/history').json()['stats']['total'] == 2
+
+
+def test_cronologia_apri_rifiuta_se_la_riga_mostrata_non_e_piu_quella_dell_indice(env):
+    # la pagina manda anche nome e data della riga che mostra: se l'indice ora punta a un'altra voce (cronologia cambiata) niente viene aperto
+    ok = env.c.post('/api/history/open', json={'index': 0, 'what': 'srt', 'name': 'Film Uno', 'date': '2026-10-27 21:05'})
+    assert ok.status_code == 200 and ok.json() == {'opened': '/v/uno.srt'}
+    stale = env.c.post('/api/history/open', json={'index': 0, 'what': 'srt', 'name': 'Serie Due', 'date': '2026-10-28 08:00'})
+    assert stale.status_code == 409 and stale.json() == {'error': 'cronologia cambiata'}
+    assert env.opened == [str(Path('/v/uno.srt'))]                                      # una sola apertura: quella giusta
+    env.c.post('/api/history/clear', json={'confirm': True})
+    assert env.c.post('/api/history/open', json={'index': 0, 'what': 'srt', 'name': 'Film Uno', 'date': '2026-10-27 21:05'}).status_code == 404

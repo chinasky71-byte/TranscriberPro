@@ -436,8 +436,7 @@ class WebQueue(QueueListener):
 
     def on_history(self, entry: dict) -> None:
         if self.history is not None:
-            self.history.load()                 # rilegge: mai riscrivere il file con la sola voce nuova (o con una copia vecchia)
-            self.history.append(entry)
+            self.history.reload_and_append(entry)   # rilegge e aggiunge sotto il lucchetto: mai la sola voce nuova, mai una copia vecchia, mai a meta' di un clear()
         self.bus.publish('history', entry)
 
     def on_queue_updated(self, remaining: int) -> None:

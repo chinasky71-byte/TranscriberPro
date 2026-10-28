@@ -602,3 +602,43 @@ def test_riordino_annullato_se_la_riga_e_gia_stata_presa(env):
     res = httpx.post(f'http://127.0.0.1:{env.srv.port}/api/queue/reorder', json={'order': ['/b.mkv', '/a.mkv', '/c.mkv'], 'moved': '/a.mkv'},
                      headers={'X-TP-Token': env.srv.token})
     assert res.json() == {'ok': False} and env.wq.queue.snapshot() == ['/b.mkv', '/c.mkv']
+
+
+def test_cronologia_ordinamento_con_le_intestazioni_e_cancella_con_avvertimento(env):
+    h = env.srv.queue.history
+    h.entries = [{'name': 'Film Uno', 'date_iso': '2026-10-27T21:05:09', 'src_lang': 'eng', 'dst_lang': 'ita', 'duration_seconds': 3725, 'size_bytes': 10 * 1024},
+                 {'name': 'Serie Due', 'date_iso': '2026-10-28T08:00:00', 'src_lang': 'auto', 'dst_lang': '', 'duration_seconds': 65, 'size_bytes': 2 * 1024}]
+    h.save()
+    page = env.open()
+    page.wait_for_function('() => document.querySelector("[data-tab=history]").innerText.includes("(2)")')
+    page.click('[data-tab=history]')
+    page.wait_for_selector('[data-testid=history] tbody tr')
+
+    def first():
+        return page.locator('[data-testid=history] tbody tr .h-name').first.inner_text()
+
+    assert first() == 'Film Uno'                                                         # ordine del file
+    page.click('[data-testid=hist-sort-size]')                                           # crescente sui byte: 2 KB prima di 10 KB
+    page.wait_for_function('() => document.querySelector("[data-testid=hist-sort-size]").getAttribute("aria-sort") === "ascending"')
+    page.wait_for_function('() => document.querySelector("[data-testid=history] tbody .h-name").innerText === "Serie Due"')
+    assert '▲' in page.locator('[data-testid=hist-sort-size]').inner_text()
+    page.click('[data-testid=hist-sort-size]')                                           # decrescente
+    page.wait_for_function('() => document.querySelector("[data-testid=history] tbody .h-name").innerText === "Film Uno"')
+    assert '▼' in page.locator('[data-testid=hist-sort-size]').inner_text()
+    page.click('[data-testid=hist-sort-size]')                                           # terzo clic: torna l'ordine del file
+    page.wait_for_function('() => document.querySelector("[data-testid=hist-sort-size]").getAttribute("aria-sort") === "none"')
+    page.click('[data-testid=hist-sort-duration]')                                       # 65 s prima di 1 h 02 m
+    page.wait_for_function('() => document.querySelector("[data-testid=history] tbody .h-name").innerText === "Serie Due"')
+
+    page.click('[data-testid=hist-clear]')                                               # avvertimento: nulla viene cancellato finche' non si conferma
+    page.wait_for_selector('[data-testid=confirm-yes]')
+    text = page.locator('.modal-confirm').inner_text()
+    assert 'NON' in text or 'NOT' in text
+    page.click('[data-testid=confirm-no]')
+    assert page.locator('[data-testid=history] tbody tr').count() == 2
+    page.click('[data-testid=hist-clear]')
+    page.click('[data-testid=confirm-yes]')
+    page.wait_for_function('() => document.querySelectorAll("[data-testid=history] tbody tr").length === 0')
+    assert page.locator('[data-testid=hist-clear]').is_disabled()                         # niente da cancellare
+    assert json.loads(h.path.read_text(encoding='utf-8')) == []
+    page.wait_for_function('() => document.querySelector("[data-tab=history]").innerText.includes("(0)") || !document.querySelector("[data-tab=history]").innerText.includes("(")')

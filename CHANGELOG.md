@@ -3,6 +3,13 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.42 — 2026-10-28 — Cronologia web: ordinamento e cancellazione
+
+- **Ordinamento:** clic sull'intestazione di Nome, Data, Lingua, Durata o Dimensione (crescente → decrescente → ordine del file). Si ordina sul server sui dati veri (data ISO, secondi, byte), non sul testo mostrato; l'indice di riga resta la posizione nel file.
+- **Cancella cronologia:** pillola con avvertimento di operazione NON reversibile (video e sottotitoli non vengono toccati); il server pretende `confirm: true` oltre al token.
+- **Robustezza (bugcheck):** lucchetto in `HistoryService` (coda e server scrivono lo stesso file), `reload_and_append` per la coda, temporaneo per thread; «Apri .srt/Cartella» rifiuta (409) se la riga mostrata non è più quella dell'indice.
+- **Verifica:** test di servizio, API e pagina (Edge); i soli rossi sono gli ambientali noti su Windows (12, compreso `test_prerequisiti_genere`: manca il venv NLP nella cartella del repo).
+
 ## 1.34.41 — 2026-10-28 — G4: Library Scanner fuori dalla GUI (PR #48, #49, #50)
 
 - **Client:** `LibraryScannerClient` e `call_api` (chiamate HTTP al server, messaggi d'errore identici, nuovi tentativi solo per errori di rete) in `core/services/library_scanner_client.py`.

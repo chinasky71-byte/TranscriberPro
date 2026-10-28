@@ -10,7 +10,9 @@ video_path}, indent=2, ensure_ascii=False. Un file assente o illeggibile vale «
 una lista (che prima mandava in errore l'avvio) vale anch'esso «vuota».
 """
 import json
+import math
 import os
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -97,6 +99,32 @@ def actions_of(entry: dict) -> Tuple[str, str]:
     return srt, folder
 
 
+SORT_KEYS = ('name', 'date', 'language', 'duration', 'size')
+
+
+def _number(value) -> float:
+    try:
+        x = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return x if math.isfinite(x) else 0.0
+
+
+def sort_key_of(entry: dict, key: str):
+    """Valore su cui si ordina una voce: i dati veri, NON il testo mostrato («10 KB» verrebbe prima di «2 KB», «1h 00m» prima di «9m»)."""
+    if key == 'name':
+        return str(entry.get('name') or '').casefold()
+    if key == 'date':
+        return str(entry.get('date_iso') or '')
+    if key == 'language':
+        return (format_language(entry) or '').casefold()
+    if key == 'duration':
+        return _number(entry.get('duration_seconds'))
+    if key == 'size':
+        return _number(entry.get('size_bytes'))
+    raise ValueError(f'colonna non ordinabile: {key!r}')
+
+
 def matches(query: str, row: HistoryRow) -> bool:
     """Ricerca della GUI: il testo (senza spazi ai bordi, minuscolo) e' contenuto nel nome o nella lingua mostrata."""
     q = (query or '').strip().lower()
@@ -107,43 +135,56 @@ class HistoryService:
     def __init__(self, path: Optional[Path] = None):
         self.path = Path(path) if path else default_path()
         self.entries: List[dict] = []
+        # La coda (thread del motore) e le richieste della pagina (thread del server) usano lo stesso oggetto e lo stesso file:
+        # ogni lettura-modifica-scrittura sta sotto questo lucchetto (rientrante: clear/reload_and_append chiamano load/save).
+        self._lock = threading.RLock()
 
     # ------------------------------------------------------------------------------------------------------ persistenza
     def load(self) -> List[dict]:
         """Rilegge il file. Assente, illeggibile o non-lista -> vuota."""
-        try:
-            if self.path.exists():
-                loaded = json.loads(self.path.read_text(encoding='utf-8'))
-                self.entries = loaded if isinstance(loaded, list) else []
-            else:
+        with self._lock:
+            try:
+                if self.path.exists():
+                    loaded = json.loads(self.path.read_text(encoding='utf-8'))
+                    self.entries = loaded if isinstance(loaded, list) else []
+                else:
+                    self.entries = []
+            except Exception:
                 self.entries = []
-        except Exception:
-            self.entries = []
-        return self.entries
+            return self.entries
 
     def save(self) -> bool:
         """Scrive il file (atomico: temporaneo + replace; se non riesce, scrittura diretta). False se non riesce."""
-        try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            data = json.dumps(self.entries, ensure_ascii=False, indent=2)
-            tmp = self.path.with_suffix(self.path.suffix + f'.{os.getpid()}.tmp')
+        with self._lock:
             try:
-                tmp.write_text(data, encoding='utf-8')
-                tmp.replace(self.path)
-            except OSError:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                data = json.dumps(self.entries, ensure_ascii=False, indent=2)
+                tmp = self.path.with_suffix(self.path.suffix + f'.{os.getpid()}.{threading.get_ident()}.tmp')
                 try:
-                    tmp.unlink()
+                    tmp.write_text(data, encoding='utf-8')
+                    tmp.replace(self.path)
                 except OSError:
-                    pass
-                self.path.write_text(data, encoding='utf-8')
-            return True
-        except Exception:
-            return False
+                    try:
+                        tmp.unlink()
+                    except OSError:
+                        pass
+                    self.path.write_text(data, encoding='utf-8')
+                return True
+            except Exception:
+                return False
 
     def append(self, entry: dict) -> bool:
         """Aggiunge una voce in coda e salva."""
-        self.entries.append(entry)
-        return self.save()
+        with self._lock:
+            self.entries.append(entry)
+            return self.save()
+
+    def reload_and_append(self, entry: dict) -> bool:
+        """Rilegge il file e aggiunge la voce, tutto sotto il lucchetto: mai riscrivere il file con la sola voce nuova o con una copia vecchia,
+        e mai in mezzo a un `clear()` fatto da un altro thread."""
+        with self._lock:
+            self.load()
+            return self.append(entry)
 
     # ------------------------------------------------------------------------------------------------------------ vista
     def total_count(self) -> int:
@@ -159,3 +200,21 @@ class HistoryService:
     def search(self, query: str) -> List[int]:
         """Indici delle voci che corrispondono alla ricerca (tutte se vuota)."""
         return [i for i, e in enumerate(self.entries) if matches(query, row_of(e))]
+
+    def sort_indices(self, indices: List[int], key: str, descending: bool = False) -> List[int]:
+        """Gli stessi indici ordinati per colonna (`SORT_KEYS`); a parita' resta l'ordine del file (ordinamento stabile)."""
+        if key not in SORT_KEYS:
+            raise ValueError(f'colonna non ordinabile: {key!r}')
+        return sorted(indices, key=lambda i: sort_key_of(self.entries[i], key), reverse=descending)
+
+    def clear(self) -> Optional[int]:
+        """Svuota la cronologia sul disco (NON reversibile). Rilegge il file prima, cosi' non scrive una copia vecchia.
+        Restituisce quante voci c'erano; None (e le voci restano) se il file non si riesce a scrivere."""
+        with self._lock:
+            self.load()
+            n = len(self.entries)
+            self.entries = []
+            if self.save():
+                return n
+            self.load()
+            return None

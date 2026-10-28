@@ -197,6 +197,15 @@ button:focus-visible, .file-list:focus-visible { outline: 1px solid var(--accent
 .hist-table { width: 100%; border-collapse: collapse; font-size: 12px; } .hist-table th { text-align: left; color: var(--fg-2); font-weight: 400; padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .hist-table td { padding: 6px 8px; border-bottom: 1px solid var(--line); } .h-name { font-weight: 600; } .h-actions { text-align: right; white-space: nowrap; }
 
+.hist-toolbar { display: flex; gap: 8px; align-items: center; } .hist-toolbar .search { flex: 1 1 auto; min-width: 0; }
+.btn-pill-danger { height: 32px; padding: 0 16px; border-radius: 999px; font-weight: 550; white-space: nowrap; background: var(--danger-a15); color: var(--danger); border: 1px solid var(--danger-a35); }
+.btn-pill-danger:hover:not(:disabled) { background: var(--danger); color: var(--white); border-color: var(--danger); }
+.btn-pill-danger:active:not(:disabled) { background: var(--danger-press); border-color: var(--danger-press); }
+.btn-pill-danger:disabled { opacity: 0.45; cursor: default; }
+.hist-table th.sortable { cursor: pointer; user-select: none; } .hist-table th.sortable:hover, .hist-table th.sortable:focus-visible { color: var(--fg-0); outline: none; }
+.hist-table th[aria-sort="ascending"], .hist-table th[aria-sort="descending"] { color: var(--fg-0); }
+.sort-arrow { display: inline-block; width: 12px; margin-left: 4px; font-size: 9px; }
+
 /* --- finestre modali ------------------------------------------------------------------------------------------------------ */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 10; }
 .modal { background: var(--bg-1); border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px; max-width: 90vw; }

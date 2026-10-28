@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.34.41-orange)
+![Version](https://img.shields.io/badge/Version-1.34.42-orange)
 
 AI-powered application for automatic subtitle transcription, translation, and bitmap OCR from video files, with two interfaces on the same engine: a local web UI (`tpweb/`, the default) and the PyQt6 desktop GUI (being phased out).
 
@@ -566,9 +566,9 @@ the web server, its security, lifecycle, shell and page). Root-level `test_*.py`
 python -m pytest linux_tests -q -p no:cacheprovider --ignore=linux_tests/test_translation_success_gate.py
 ```
 
-On Windows the suite gives **1357 passed, 11 failed, 131 skipped** (last full run, 1.34.41 + web UI); the 11 are environmental, not defects:
+On Windows the suite gives **1401 passed, 12 failed, 132 skipped** (last full run, 1.34.42 + web UI); the 12 are environmental, not defects:
 three AMD/ROCm smoke tests (POSIX scripts), the subprocess-contract tests of the queue (`test_core_jobs_unit` x3, `test_queue_gui_/runner_characterization`
-x2, POSIX commands), and three web tests written with Linux semantics (the execute bit of `run_web.sh`, `/v` vs `\v` path separators in two tests).
+x2, POSIX commands), and three web tests written with Linux semantics (the execute bit of `run_web.sh`, `/v` vs `\v` path separators in two tests), and one gender-prerequisite test that needs the NLP venv (absent from the repo folder).
 Tests that need a real browser use Playwright (`channel` msedge/chromium); the Windows-only parts (native window, dialogs, packaging) are exercised by hand
 (reports in `docs/webui_rapporti/`).
 
@@ -625,10 +625,11 @@ This project is licensed under the MIT License.
 
 ## Changelog
 
-The complete, per-version history is in [CHANGELOG.md](CHANGELOG.md); the condensed notes of the older README (v1.0.0 → v1.34.41) are kept in
+The complete, per-version history is in [CHANGELOG.md](CHANGELOG.md); the condensed notes of the older README (v1.0.0 → v1.34.42) are kept in
 [docs/CHANGELOG_README_ARCHIVIO.md](docs/CHANGELOG_README_ARCHIVIO.md). Recent highlights:
 
 - **Web UI** (`tpweb/`) merged into `master`: second interface (queue, settings, tools, Library Scanner, native window, headless-safe lifecycle), checked against the Qt window on Windows (reports in `docs/webui_rapporti/`).
+- **v1.34.42** — Web UI history: sortable columns (name, date, language, duration, size) and a «Clear history» pill with an irreversible-operation warning.
 - **v1.34.41** — Library Scanner client, row logic and import/OCR/Superpower actions moved out of the GUI (`core/services/`, no Qt).
 - **v1.34.40** — OCR review logic, transcription profile and translation-model dialog moved out of the GUI (`core/jobs/`, `core/services/`).
 - **v1.34.37 and earlier 1.34.x** — queue/engine refactoring (`core/jobs`), Linux/AMD support, per-file job options, GGUF TranslateGemma path; details in CHANGELOG.md.
@@ -1214,9 +1215,9 @@ server web, sicurezza, ciclo di vita, guscio e pagina). I `test_*.py` nella radi
 python -m pytest linux_tests -q -p no:cacheprovider --ignore=linux_tests/test_translation_success_gate.py
 ```
 
-Su Windows la suite dà **1357 passati, 11 falliti, 131 saltati** (ultima corsa completa, 1.34.41 + interfaccia web); gli 11 sono ambientali, non difetti:
+Su Windows la suite dà **1401 passati, 12 falliti, 132 saltati** (ultima corsa completa, 1.34.42 + interfaccia web); i 12 sono ambientali, non difetti:
 tre test smoke AMD/ROCm (script POSIX), i test del contratto del sottoprocesso della coda (`test_core_jobs_unit` x3, `test_queue_gui_/runner_characterization`
-x2, comandi POSIX), e tre test web scritti con semantica Linux (il bit di esecuzione di `run_web.sh`, i separatori `/v` contro `\v` in due test).
+x2, comandi POSIX), e tre test web scritti con semantica Linux (il bit di esecuzione di `run_web.sh`, i separatori `/v` contro `\v` in due test), e un test dei prerequisiti del genere che richiede il venv NLP (assente dalla cartella del repo).
 I test che richiedono un vero browser usano Playwright (`channel` msedge/chromium); le parti solo-Windows (finestra nativa, dialoghi, pacchetto) si provano a mano
 (rapporti in `docs/webui_rapporti/`).
 
@@ -1272,10 +1273,11 @@ Questo progetto è distribuito con licenza MIT.
 
 ## Changelog
 
-La storia completa, versione per versione, è in [CHANGELOG.md](CHANGELOG.md); le note condensate del vecchio README (v1.0.0 → v1.34.41) sono conservate in
+La storia completa, versione per versione, è in [CHANGELOG.md](CHANGELOG.md); le note condensate del vecchio README (v1.0.0 → v1.34.42) sono conservate in
 [docs/CHANGELOG_README_ARCHIVIO.md](docs/CHANGELOG_README_ARCHIVIO.md). In evidenza:
 
 - **Interfaccia web** (`tpweb/`) unita in `master`: seconda interfaccia (coda, impostazioni, strumenti, Library Scanner, finestra nativa, ciclo di vita sicuro con la GUI e la coda headless), confrontata con la finestra Qt su Windows (rapporti in `docs/webui_rapporti/`).
+- **v1.34.42** — Cronologia dell'interfaccia web: colonne ordinabili (nome, data, lingua, durata, dimensione) e pillola «Cancella cronologia» con avvertimento di operazione non reversibile.
 - **v1.34.41** — Client, logica delle righe e azioni di importazione/OCR/Superpower del Library Scanner spostati fuori dalla GUI (`core/services/`, senza Qt).
 - **v1.34.40** — Logica di revisione OCR, profilo di trascrizione e dialogo del modello di traduzione spostata fuori dalla GUI (`core/jobs/`, `core/services/`).
 - **v1.34.37 e le 1.34.x precedenti** — refactoring della coda/motore (`core/jobs`), supporto Linux/AMD, opzioni job per file, percorso GGUF di TranslateGemma; dettagli in CHANGELOG.md.
