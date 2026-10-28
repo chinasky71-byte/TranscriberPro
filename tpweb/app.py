@@ -4,17 +4,23 @@
 Endpoint di questa fetta: /api/ping, /api/i18n/{lingua}, /api/state, /events (SSE raggruppato con ripresa)."""
 import asyncio
 import json
+import mimetypes
 import time
 from pathlib import Path
 from typing import Callable, Optional
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from tpweb.events import EventBus
 from tpweb.security import install_guard
 
 STATIC = Path(__file__).resolve().parent / 'static'
+ASSETS = Path(__file__).resolve().parent.parent / 'assets'
+# Su Windows il registro di sistema puo' mappare .js a text/plain: i moduli ES non si caricherebbero. Tipi fissi, mai quelli del sistema.
+for _ext, _type in (('.js', 'text/javascript'), ('.css', 'text/css'), ('.svg', 'image/svg+xml'), ('.ttf', 'font/ttf'), ('.json', 'application/json')):
+    mimetypes.add_type(_type, _ext)
 BATCH_S = 0.1
 KEEPALIVE_S = 15
 
@@ -50,18 +56,32 @@ def create_app(token: str, port: int, bus: Optional[EventBus] = None,
     from tpweb.routes_resources import add_resource_routes
     add_resource_routes(app, sampler)
     from tpweb.routes_fs import add_fs_routes
-    add_fs_routes(app, mapped_roots or (lambda: []))
+    add_fs_routes(app, mapped_roots or (lambda: []), config)
 
-    @app.get('/', response_class=HTMLResponse)
+    @app.get('/')
     async def index():
         page = STATIC / 'index.html'
         if not page.exists():
-            return HTMLResponse('<!doctype html><title>Transcriber Pro</title><p>Interfaccia web in costruzione.</p>')
-        return page.read_text(encoding='utf-8')
+            return JSONResponse({'error': 'interfaccia non installata'}, status_code=404)
+        return FileResponse(page, media_type='text/html')
+
+    app.mount('/static', StaticFiles(directory=str(STATIC)), name='static')
+    for sub in ('fonts', 'icons'):                       # gli stessi file della GUI Qt, serviti dalla stessa origine
+        if (ASSETS / sub).is_dir():
+            app.mount(f'/assets/{sub}', StaticFiles(directory=str(ASSETS / sub)), name=f'assets-{sub}')
 
     @app.get('/api/ping')
     async def ping():
         return {'ok': True, 't': time.time()}
+
+    @app.get('/api/i18n')
+    async def i18n_current(request: Request):
+        """Testi nella lingua dell'interfaccia: quella scelta nelle impostazioni; con «auto» la lingua del browser (Accept-Language)."""
+        from utils.translations import Translations
+        pref = config.get('language', 'auto') if config is not None else 'auto'
+        if pref not in ('it', 'en'):
+            pref = 'it' if request.headers.get('accept-language', '').lower().lstrip().startswith('it') else 'en'
+        return {'lang': pref, 'texts': Translations.TEXTS[pref]}
 
     @app.get('/api/i18n/{lang}')
     async def i18n(lang: str):

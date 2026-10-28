@@ -239,6 +239,16 @@ def test_fs_errori(env):
     assert env.c.get('/api/fs/video-extensions').json()['exts'][:2] == ['.mp4', '.mkv']
 
 
+def test_fs_ultima_cartella_solo_se_esiste_e_si_ricorda(env):
+    d = env.tmp / 'ultima'
+    d.mkdir()
+    env.config.set('last_input_folder', str(env.tmp / 'sparita'), save=False)
+    assert env.c.get('/api/fs/roots').json()['last'] is None
+    assert env.c.post('/api/fs/last', json={'folder': str(env.tmp / 'sparita')}).status_code == 422
+    assert env.c.post('/api/fs/last', json={'folder': str(d)}).json() == {'ok': True}
+    assert env.config.get('last_input_folder') == str(d) and env.c.get('/api/fs/roots').json()['last'] == str(d)
+
+
 def test_fs_radice_senza_genitore(env):
     assert env.c.get('/api/fs/list', params={'path': '/'}).json()['parent'] is None
 
