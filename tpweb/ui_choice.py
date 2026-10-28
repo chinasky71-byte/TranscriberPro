@@ -2,6 +2,8 @@
 """Quale interfaccia avviare (`--ui qt|web`). Modulo minimo, solo libreria standard: main.py lo importa prima di PyQt6."""
 from typing import Callable, List, Optional
 
+DEFAULT_UI = 'web'            # l'interfaccia predefinita; la GUI Qt resta disponibile con `--ui qt` o `ui: qt` nel config
+
 
 def ui_from_args(argv: List[str]) -> Optional[str]:
     """'qt' o 'web' se c'e' `--ui X` / `--ui=X` (l'ultimo no: vale il primo); None se manca. Valore non valido -> ValueError."""
@@ -15,12 +17,12 @@ def ui_from_args(argv: List[str]) -> Optional[str]:
 
 
 def requested_ui(argv: List[str], config_get: Optional[Callable] = None) -> str:
-    """'qt' o 'web': `--ui` vince sulla chiave `ui` del config, che vale 'qt' se manca, non e' valida o non si legge."""
+    """'qt' o 'web': `--ui` vince sulla chiave `ui` del config, che vale DEFAULT_UI ('web') se manca, non e' valida o non si legge."""
     v = ui_from_args(argv)
     if v is not None:
         return v
     try:
-        v = config_get('ui', 'qt') if config_get else 'qt'
+        v = config_get('ui', DEFAULT_UI) if config_get else DEFAULT_UI
     except Exception:
-        v = 'qt'
-    return v if v in ('qt', 'web') else 'qt'
+        v = DEFAULT_UI
+    return v if v in ('qt', 'web') else DEFAULT_UI

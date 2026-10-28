@@ -6,7 +6,7 @@
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
 ![Version](https://img.shields.io/badge/Version-1.34.41-orange)
 
-AI-powered application for automatic subtitle transcription, translation, and bitmap OCR from video files, with two interfaces on the same engine: a PyQt6 desktop GUI (the default) and a local web UI (`tpweb/`).
+AI-powered application for automatic subtitle transcription, translation, and bitmap OCR from video files, with two interfaces on the same engine: a local web UI (`tpweb/`, the default) and the PyQt6 desktop GUI (being phased out).
 
 ---
 
@@ -170,7 +170,7 @@ Notes:
 
 | What | How |
 |---|---|
-| Desktop GUI (default) | `Lancia Transcriptor.bat` (console) / `Lancia Transcriptor.vbs` (no console) / `python main.py` |
+| Default interface (web UI) | `Lancia Transcriptor.bat` (console) / `Lancia Transcriptor.vbs` (no console) / `python main.py` |
 | Web UI | `Lancia Transcriptor Web.bat` / `Lancia Transcriptor Web.vbs` / `python main.py --ui web` (Linux: `./run_web.sh`) |
 | Web UI chosen by the configuration | set `"ui": "web"` in `~/.transcriberpro/config.json`; `--ui qt` forces the GUI |
 | Web UI options | `--shell auto\|on\|off` (native window), `--no-browser` (print the address only, no window) |
@@ -217,7 +217,7 @@ All credentials are optional except for the translation model you choose to use.
 
 ## Interfaces: Qt GUI and web UI
 
-Both interfaces drive the same engine (`core/jobs`, `core/services`, the per-file `core.pipeline_cli` subprocess) and read and write the same `~/.transcriberpro/config.json`. The GUI is still the default.
+Both interfaces drive the same engine (`core/jobs`, `core/services`, the per-file `core.pipeline_cli` subprocess) and read and write the same `~/.transcriberpro/config.json`. The web UI is the default (`DEFAULT_UI = 'web'` in `tpweb/ui_choice.py`); the Qt GUI is still available with `--ui qt` or `ui: qt` in the config, and is going to be retired.
 
 **Choosing the interface.** `python main.py --ui qt|web` (also `--ui=web`) wins over the `ui` key of the configuration (`qt` when missing or invalid). `python -m tpweb` starts the web UI directly.
 
@@ -661,7 +661,7 @@ The complete, per-version history is in [CHANGELOG.md](CHANGELOG.md); the conden
 
 ## Cos'è Transcriber Pro
 
-Applicazione AI per la trascrizione, traduzione e conversione OCR automatica di sottotitoli da file video, con due interfacce sullo stesso motore: una GUI desktop PyQt6 (quella predefinita) e un'interfaccia web locale (`tpweb/`).
+Applicazione AI per la trascrizione, traduzione e conversione OCR automatica di sottotitoli da file video, con due interfacce sullo stesso motore: un'interfaccia web locale (`tpweb/`, quella predefinita) e la GUI desktop PyQt6 (in dismissione).
 
 Transcriber Pro produce file `.srt` attraverso due pipeline complementari:
 
@@ -817,7 +817,7 @@ Note:
 
 | Cosa | Come |
 |---|---|
-| GUI desktop (predefinita) | `Lancia Transcriptor.bat` (console) / `Lancia Transcriptor.vbs` (senza console) / `python main.py` |
+| Interfaccia predefinita (web) | `Lancia Transcriptor.bat` (console) / `Lancia Transcriptor.vbs` (senza console) / `python main.py` |
 | Interfaccia web | `Lancia Transcriptor Web.bat` / `Lancia Transcriptor Web.vbs` / `python main.py --ui web` (Linux: `./run_web.sh`) |
 | Interfaccia web scelta dalla configurazione | metti `"ui": "web"` in `~/.transcriberpro/config.json`; `--ui qt` forza la GUI |
 | Opzioni dell'interfaccia web | `--shell auto\|on\|off` (finestra nativa), `--no-browser` (stampa solo l'indirizzo, nessuna finestra) |
@@ -864,7 +864,7 @@ Tutte le credenziali sono opzionali tranne quella del motore di traduzione scelt
 
 ## Interfacce: GUI Qt e interfaccia web
 
-Le due interfacce guidano lo stesso motore (`core/jobs`, `core/services`, il sottoprocesso per file `core.pipeline_cli`) e leggono e scrivono lo stesso `~/.transcriberpro/config.json`. La GUI resta quella predefinita.
+Le due interfacce guidano lo stesso motore (`core/jobs`, `core/services`, il sottoprocesso per file `core.pipeline_cli`) e leggono e scrivono lo stesso `~/.transcriberpro/config.json`. L'interfaccia web è quella predefinita (`DEFAULT_UI = 'web'` in `tpweb/ui_choice.py`); la GUI Qt resta disponibile con `--ui qt` o `ui: qt` nel config e verrà dismessa.
 
 **Scelta dell'interfaccia.** `python main.py --ui qt|web` (anche `--ui=web`) vince sulla chiave `ui` della configurazione (`qt` se manca o non è valida). `python -m tpweb` avvia direttamente l'interfaccia web.
 

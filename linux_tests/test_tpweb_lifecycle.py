@@ -33,12 +33,13 @@ def test_ui_non_valida(argv):
         ui_from_args(argv)
 
 
-def test_ui_flag_vince_sul_config_e_il_predefinito_e_qt():
-    assert requested_ui([]) == 'qt'
-    assert requested_ui([], lambda k, d: 'web') == 'web'
+def test_ui_flag_vince_sul_config_e_il_predefinito_e_web():
+    assert requested_ui([]) == 'web'
+    assert requested_ui([], lambda k, d: 'qt') == 'qt'
+    assert requested_ui(['--ui', 'web'], lambda k, d: 'qt') == 'web'
     assert requested_ui(['--ui', 'qt'], lambda k, d: 'web') == 'qt'
-    assert requested_ui([], lambda k, d: 'boh') == 'qt'
-    assert requested_ui([], lambda k, d: (_ for _ in ()).throw(RuntimeError('config rotta'))) == 'qt'
+    assert requested_ui([], lambda k, d: 'boh') == 'web'
+    assert requested_ui([], lambda k, d: (_ for _ in ()).throw(RuntimeError('config rotta'))) == 'web'
 
 
 # ---------------------------------------------------------------------------------------------------------------- lock
@@ -84,7 +85,7 @@ def test_conflitto_con_coda_headless_e_con_la_gui(tmp_path):
         assert lifecycle.conflicts(tmp_path) == []
     finally:
         q.kill()
-    g = sleeper('/x/Transcriber/main.py')
+    g = sleeper('/x/Transcriber/main.py', '--ui', 'qt')
     web = sleeper('/x/Transcriber/main.py', '--ui', 'web')
     try:
         time.sleep(0.3)
@@ -229,7 +230,7 @@ def test_avvio_vero_secondo_server_rifiutato_e_uscita_ordinata(tmp_path, argv):
 
 
 def test_con_la_gui_aperta_il_server_web_non_parte(tmp_path):
-    gui = sleeper('/x/Transcriber/main.py')
+    gui = sleeper('/x/Transcriber/main.py', '--ui', 'qt')
     try:
         time.sleep(0.3)
         r = subprocess.run([sys.executable, '-m', 'tpweb', '--no-browser'], cwd=str(ROOT), env=env_for(tmp_path, True),
@@ -260,7 +261,9 @@ def test_config_con_ui_web_avvia_la_web(tmp_path):
 
 def test_riconoscimento_della_gui_qt_dalla_riga_di_comando():
     gui = lambda *a: lifecycle.is_qt_gui_cmdline(['python.exe', '/x/Transcriber/main.py', *a])      # noqa: E731
-    assert gui() is True and gui('--ui', 'qt') is True and gui('--ui=qt') is True
+    assert gui() is True and gui('--ui', 'qt') is True and gui('--ui=qt') is True              # senza --ui vale l'interfaccia predefinita passata
+    assert lifecycle.is_qt_gui_cmdline(['python', '/x/Transcriber/main.py'], 'web') is False             # predefinita web: senza flag e' la web UI
+    assert lifecycle.is_qt_gui_cmdline(['python', '/x/Transcriber/main.py', '--ui', 'qt'], 'web') is True
     assert gui('--ui', 'web') is False and gui('--ui=web') is False and gui('--ui', 'web', '--no-browser') is False
     assert lifecycle.is_qt_gui_cmdline(['python', '/x/Transcriber/main.py', 'queue_runner']) is False
     assert lifecycle.is_qt_gui_cmdline(['python', '/altro/main.py']) is False and lifecycle.is_qt_gui_cmdline([]) is False
@@ -271,7 +274,7 @@ def test_conflitti_ignorano_gli_antenati_come_il_launcher_del_venv_su_windows(tm
     import types
     import psutil
     fake = lambda pid, cl: types.SimpleNamespace(info={'pid': pid, 'cmdline': cl})       # noqa: E731
-    cl = ['python.exe', '/x/Transcriber/main.py']                                       # senza --ui web: come con `ui: web` nel config
+    cl = ['python.exe', '/x/Transcriber/main.py', '--ui', 'qt']                                       # GUI Qt esplicita: il launcher padre non conta, un altro processo uguale si
     monkeypatch.setattr(psutil, 'process_iter', lambda attrs=None: iter([fake(900001, cl), fake(900002, cl)]))
     monkeypatch.setattr(lifecycle, '_related_pids', lambda ps, me: {me, 900001})        # 900001 = launcher padre
     assert lifecycle.conflicts(tmp_path) == ['gui']                                      # 900002 e' un'altra istanza vera
@@ -283,3 +286,16 @@ def test_i_parenti_reali_comprendono_il_processo_padre():
     import psutil
     rel = lifecycle._related_pids(psutil, os.getpid())
     assert os.getpid() in rel and os.getppid() in rel
+
+
+def test_conflitti_senza_flag_seguono_l_interfaccia_predefinita(tmp_path, monkeypatch):
+    import types
+    import psutil
+    fake = lambda pid, cl: types.SimpleNamespace(info={'pid': pid, 'cmdline': cl})       # noqa: E731
+    flagless = ['pythonw.exe', '/x/Transcriber/main.py']
+    monkeypatch.setattr(psutil, 'process_iter', lambda attrs=None: iter([fake(900003, flagless)]))
+    monkeypatch.setattr(lifecycle, '_related_pids', lambda ps, me: {me})
+    monkeypatch.setattr(lifecycle, '_default_ui', lambda: 'web')
+    assert lifecycle.conflicts(tmp_path) == []                                           # predefinita web: e' un'altra web UI
+    monkeypatch.setattr(lifecycle, '_default_ui', lambda: 'qt')
+    assert lifecycle.conflicts(tmp_path) == ['gui']                                      # `ui: qt` nel config: e' la GUI
