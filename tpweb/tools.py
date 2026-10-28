@@ -199,6 +199,7 @@ class SyncManager:
         self._lock = threading.Lock()
         self._engine = None
         self._thread: Optional[threading.Thread] = None
+        self.run_id = 0                           # cresce a ogni run: la pagina annuncia l'esito una volta sola, anche se non ha visto lo stato «in corso»
         self.plan = SyncBatchPlan()
         self.dirs = {'video_dir': '', 'srt_dir': '', 'recursive': False}
         self._reset_state()
@@ -230,7 +231,7 @@ class SyncManager:
     def state(self, with_log: bool = True) -> dict:
         view = self.plan_view()
         with self._lock:
-            s = {'status': self.status, 'mode': self.mode, 'progress': self.progress, 'rows_rt': {str(k): v for k, v in self.rows_rt.items()},
+            s = {'status': self.status, 'run_id': self.run_id, 'mode': self.mode, 'progress': self.progress, 'rows_rt': {str(k): v for k, v in self.rows_rt.items()},
                  'outcome': self.outcome, 'output_path': self.output_path, 'errors': list(self.errors), 'plan': view}
             if with_log:
                 s['log'] = list(self.log.lines)
@@ -278,6 +279,7 @@ class SyncManager:
             return reason
         with self._lock:
             self._reset_state()
+            self.run_id += 1
             self.status, self.mode = 'running', mode
         return None
 

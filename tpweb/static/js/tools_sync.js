@@ -30,7 +30,7 @@ export function SyncDialog() {
   const [ask, setAsk] = useState(null);                       // numero di coppie da confermare
   const [closing, setClosing] = useState(false);
   const running = sy.status === 'running';
-  const seenRunning = useRef(running);
+  const announced = useRef(sy.status === 'finished' ? sy.run_id : sy.run_id - 1);        // esiti gia' annunciati: ricaricando non si ripetono
   const logRef = useRef(null);
 
   useEffect(() => {                                           // video predefinito: il file selezionato nella coda (come la GUI)
@@ -38,17 +38,16 @@ export function SyncDialog() {
     if (cur && sy.status !== 'running') setVideo(cur);
   }, []);
   useEffect(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [sy.log]);
-  useEffect(() => {                                           // esito del run visto in diretta: i messaggi della GUI (non si ripetono ricaricando)
-    if (running) { seenRunning.current = true; return; }
-    if (sy.status !== 'finished' || !seenRunning.current) return;
-    seenRunning.current = false;
+  useEffect(() => {                                           // esito del run: i messaggi della GUI, una sola volta per run
+    if (sy.status !== 'finished' || sy.run_id <= announced.current) return;
+    announced.current = sy.run_id;
     const o = sy.outcome || {};
     if (o.kind === 'completed') {
       const output = sy.output_path || (o.video || '').replace(/\.[^.\\/]+$/, '') + '.synced.it.srt';
       messageBox('info', t('sync_done_title'), t('sync_done_msg', { output }));
     } else if (o.kind === 'error') sy.errors.forEach((e) => messageBox('error', t('error'), e));
     else if (o.kind === 'batch_done') messageBox('info', t('sync_done_title'), t('sync_batch_done', { ok: o.ok, fail: o.fail, skipped: o.skipped }));
-  }, [sy.status]);
+  }, [sy.status, sy.run_id]);
   useLayoutEffect(() => {
     const k = (e) => { if (e.key === 'Escape' && document.querySelectorAll('.modal-backdrop').length < 2) close(); };
     window.addEventListener('keydown', k);
