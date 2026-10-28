@@ -25,10 +25,21 @@ a = Analysis(
               # P14 (Windows): l'exe pesava ~3 GB perche' seguiva gli import pesanti del venv, e pyi_rth_pkgres falliva con
               # `No module named 'pkg_resources.extern'`. La web UI non li usa nel proprio processo: l'elaborazione gira nel sottoprocesso.
               'pkg_resources', 'setuptools', 'torch', 'torchaudio', 'torchvision', 'tensorflow', 'transformers', 'faster_whisper',
-              'ctranslate2', 'onnxruntime', 'scipy', 'numba', 'llvmlite', 'sklearn', 'cv2', 'PySide6', 'PyQt5', 'PyQt6', 'tkinter'],
+              'ctranslate2', 'onnxruntime', 'bitsandbytes', 'accelerate', 'peft', 'triton', 'scipy', 'numba', 'llvmlite', 'sklearn', 'cv2', 'PySide6', 'PyQt5', 'PyQt6', 'tkinter'],
     noarchive=False,
     optimize=0,
 )
+# P16 (Windows): `excludes` non bastava, le DLL CUDA/torch/bitsandbytes (~1,5 GB) entravano dai loro hook. Filtro sul percorso di destinazione.
+HEAVY = ('torch', 'nvidia', 'bitsandbytes', 'libbitsandbytes', 'cublas', 'cusparse', 'cudnn', 'cufft', 'curand', 'cusolver', 'nvjitlink', 'nvrtc',
+         'nvtoolsext', 'cudart', 'triton', 'onnxruntime')
+
+
+def drop_heavy(toc):
+    return [t for t in toc if not any(h in str(t[0]).lower().replace('\\', '/').split('/')[0] or h in str(t[0]).lower().replace('\\', '/').rsplit('/', 1)[-1] for h in HEAVY)]
+
+
+a.binaries = drop_heavy(a.binaries)
+a.datas = drop_heavy(a.datas)
 pyz = PYZ(a.pure)
 
 exe = EXE(
