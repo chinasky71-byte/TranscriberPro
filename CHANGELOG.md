@@ -3,6 +3,38 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.41 — 2026-10-28 — G4: Library Scanner fuori dalla GUI (PR #48, #49, #50)
+
+- **Client:** `LibraryScannerClient` e `call_api` (chiamate HTTP al server, messaggi d'errore identici, nuovi tentativi solo per errori di rete) in `core/services/library_scanner_client.py`.
+- **Righe e azioni:** `library_rows` (tipo di sottotitolo, badge, classi per giorni, filtri, righe nascoste, statistiche, tipo selezionato) e `library_actions` (piano di importazione, richieste ASS e Superpower, risposte, testi di avanzamento, strategia) in `core/services/`. `LibraryScannerWidget` e `LibraryScannerWorker` restano la vista, con gli stessi segnali.
+- **GUI invariata, nessun file di dati cambia formato.**
+- **Verifica:** test di caratterizzazione scritti sul vecchio codice (94 test) e passati identici su master e sul nuovo; prova su Windows con server vero in sola lettura (risultati identici a master) e GUI vera con finto server (tabella, ordinamento, import, badge ASS, revisione OCR, Superpower, chiusura durante il batch senza processi orfani); SRT automatici identici a master.
+- Scopo: base per la futura GUI web (`docs/WEBUI_PIANO.md`); nessun cambiamento visibile all'utente.
+
+## 1.34.40 — 2026-10-28 — G3: revisione OCR, profilo e modello di traduzione fuori dalla GUI (PR #44, #45, #46)
+
+- **Revisione OCR:** `OcrRunEngine` (OCR dei sottotitoli bitmap PGS/VobSub nei modi ocr e writeback, rami review e auto, esiti per formato non supportato, lingua senza tessdata, annullamento ed errori) in `core/jobs/ocr_run.py`; `ocr_review_service` (etichette e pallini di confidenza, contatore, filtro "solo dubbi", prossimo dubbio con giro completo, "verificato", corsivo, riga di info) in `core/services/`. `OcrWorker` e `OcrReviewDialog` restano la vista.
+- **Profilo di trascrizione:** `TranscriptionSettingsService` (motore, stile dei dialoghi, schede dei profili) in `core/services/`; `ProfileSelectionDialog` resta la vista. `utils/profile_dialog.py` e' una copia vecchia non usata: non toccata.
+- **Modello di traduzione:** `TranslationModelService` (scelta del modello con i controlli di prerequisiti, percorsi NLLB fine-tuned e LLM, chiavi API e token con validazione, parametri NLLB, diarizzazione, genere, forza-audio) in `core/services/`; `EnvCliRunner` (download del modello LLM e test pyannote in sottoprocesso) in `core/jobs/env_cli.py`. `TranslationModelDialog` e `EnvCliWorker` restano la vista.
+- **GUI invariata, nessun file di dati cambia formato.** I worker non formano cicli di riferimenti (listener con riferimento debole).
+- **Verifica:** test di caratterizzazione scritti sul vecchio codice e passati identici su master e sul nuovo; mutazioni mirate tutte rilevate (salvo poche equivalenti documentate); prova su Windows con file PGS/VobSub reali: SRT sidecar e MKV con mux con lo stesso SHA256 di master, annullamento senza processi orfani; schermate della scheda Traduzione identiche pixel per pixel; revisione OCR provata a video con il codice di produzione.
+- Scopo: base per la futura GUI web (`docs/WEBUI_PIANO.md`); nessun cambiamento visibile all'utente.
+
+## 1.34.39 — 2026-10-27 — G2: logica di Sync SRT e Glossario fuori dalla GUI (PR #41, #42)
+
+- **Sync SRT:** `SyncBatchEngine` (ciclo della coda multi-file: un sottoprocesso `core.sync_cli` per coppia, ambiente, avanzamento, kill dell'albero) e `SyncRunner` (sync di un solo video) in `core/jobs/`; `SyncBatchPlan` (stato della tabella delle coppie: abbinamento, scelta dell'SRT, spunte, stati, duplicati, riepilogo) in `core/services/`. `SyncBatchWorker`, `SyncWorker` e `SyncDialog` restano la vista, con gli stessi segnali nello stesso ordine.
+- **Glossario per show:** `GlossaryRunEngine` (lancio nel `venv_glossary`, righe JSON, annullamento con kill dell'albero Qwen, pulizia dei file temporanei) in `core/jobs/`; `glossary_service` (nomi, candidati TMDB, richiesta di avvio, report, salvataggio) in `core/services/`. Worker e dialogo restano la vista (i vecchi nomi sono alias).
+- **GUI invariata, nessun file di dati cambia formato.** I worker non formano piu' cicli di riferimenti (listener con riferimento debole): un `QThread` non viene piu' distrutto in un momento imprevedibile dal garbage collector.
+- **Verifica:** test di caratterizzazione scritti sul vecchio codice e passati identici su master e sul nuovo; mutazioni mirate tutte rilevate (salvo poche equivalenti documentate); prova su Windows con GUI vera e con file reali: SRT sincronizzato con lo stesso SHA256 di master, coda reale con coppia annullata identica, glossario reale su uno show di 8 episodi (25 schede, Salva funzionante, nessun processo orfano).
+- Scopo: base per la futura GUI web (`docs/WEBUI_PIANO.md`); nessun cambiamento visibile all'utente.
+
+## 1.34.38 — 2026-10-27 — G1: logica di cronologia, metadati e impostazioni fuori dalla GUI (PR #36, #37, #38)
+
+- **Nuovo `core/services/` (senza Qt e senza `gui`, regola verificata da un test):** `HistoryService` (cronologia: caricamento, salvataggio atomico, statistiche, ricerca, formati), `TitleResolver` e `find_poster` (titoli per l'overlay e ricerca locandina), e un servizio per ciascuna scheda di impostazioni: Generali (lingua, Library Scanner), Batch adattivo, OCR, OpenSubtitles. `JobOptionsService` e `SettingsService` si spostano qui (i vecchi nomi in `gui/services` sono alias dello stesso modulo).
+- **GUI invariata:** i widget restano la vista, con gli stessi segnali, testi e chiavi di config. Nessun file di dati cambia formato.
+- **Verifica:** test di caratterizzazione scritti sul vecchio codice e passati identici su master e sul nuovo; 46+ mutazioni mirate tutte rilevate; prova su Windows con GUI vera (home isolata) senza differenze rispetto a master.
+- Scopo: base per la futura GUI web (`docs/WEBUI_PIANO.md`); nessun cambiamento visibile all'utente.
+
 ## 1.34.37 — 2026-10-27 — Refactoring della coda: un solo motore per la GUI e per la coda headless (PR #34)
 
 - **La coda non e' piu' della GUI: vive in `core/jobs/`** (senza Qt e senza `gui`): `JobQueue` (lista, eccezioni per file, lock, prelievo atomico),

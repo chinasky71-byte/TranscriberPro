@@ -13,9 +13,11 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QRadioButton,
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
 from PyQt6.QtGui import QFont, QIcon
 import shutil
-import sys
+import weakref
 from pathlib import Path
 
+from core.jobs.env_cli import EnvCliListener, EnvCliRunner
+from core.services.translation_model_service import OPENAI_MODELS, TranslationModelService
 from utils.translations import tr
 from utils.config import get_config
 from utils.logger import setup_logger
@@ -65,13 +67,25 @@ def _status_style(label: QLabel, color: str, bold: bool = False, size=None) -> N
     label.setStyleSheet(css)
 
 
+class _EnvCliSignals(EnvCliListener):
+    """Riferimento DEBOLE al worker: niente ciclo worker -> runner -> listener -> worker."""
+
+    def __init__(self, worker: 'EnvCliWorker'):
+        self._ref = weakref.ref(worker)
+
+    def on_line(self, line):
+        self._ref().line_out.emit(line)
+
+    def on_finished(self, exit_code):
+        self._ref().finished_code.emit(exit_code)
+
+
 class EnvCliWorker(QThread):
     """Esegue core.env_check_cli in subprocess e streamma le righe di stato.
 
-    Il vecchio DownloadWorker importava core.translator (torch+transformers)
-    nel processo GUI; ora il lavoro ML gira in un processo separato che
-    muore alla fine restituendo RAM/VRAM all'OS, e il thread GUI non viene
-    mai toccato dagli import ML.
+    Adattatore Qt su core/jobs/env_cli.py (`EnvCliRunner`): il vecchio DownloadWorker importava core.translator (torch+transformers)
+    nel processo GUI; ora il lavoro ML gira in un processo separato che muore alla fine restituendo RAM/VRAM all'OS, e il thread
+    GUI non viene mai toccato dagli import ML.
     """
 
     line_out = pyqtSignal(str)      # riga di stato dal CLI
@@ -80,46 +94,10 @@ class EnvCliWorker(QThread):
     def __init__(self, command: str, parent=None):
         super().__init__(parent)
         self._command = command
+        self._runner = EnvCliRunner(command, _EnvCliSignals(self))
 
     def run(self):
-        import os
-        import subprocess
-        import threading
-
-        root = Path(__file__).resolve().parent.parent
-        env = os.environ.copy()
-        env['PYTHONIOENCODING'] = 'utf-8'
-        env['TP_SUBPROCESS'] = '1'
-        env['TQDM_DISABLE'] = '1'
-        flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-        try:
-            proc = subprocess.Popen(
-                [sys.executable, '-m', 'core.env_check_cli', self._command],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                cwd=str(root), env=env, text=True, encoding='utf-8',
-                errors='replace', bufsize=1, creationflags=flags)
-        except Exception as e:
-            self.line_out.emit(f"❌ Avvio subprocess fallito: {e}")
-            self.finished_code.emit(1)
-            return
-
-        def _drain(stream):
-            # Rumore librerie: solo nel file di log, mai in GUI
-            try:
-                for eline in stream:
-                    eline = eline.rstrip()
-                    if eline:
-                        logger.debug(f"[env-cli-stderr] {eline}")
-            except Exception:
-                pass
-
-        threading.Thread(target=_drain, args=(proc.stderr,),
-                         daemon=True).start()
-        for line in proc.stdout:
-            line = line.strip()
-            if line:
-                self.line_out.emit(line)
-        self.finished_code.emit(proc.wait())
+        self._runner.run()
 
 
 class TranslationModelDialog(QDialog):
@@ -128,7 +106,8 @@ class TranslationModelDialog(QDialog):
     def __init__(self, parent=None, embed=False):
         super().__init__(parent)
         self.config = get_config()
-        self.selected_model = self.config.get_translation_model()
+        self._svc = TranslationModelService(self.config)
+        self.selected_model = self._svc.current_model()
         self.download_worker = None
         self.embed = embed
 
@@ -313,9 +292,7 @@ class TranslationModelDialog(QDialog):
         if not checked:
             return
         name = button.objectName()
-        valid = {'nllb', 'nllb_finetuned', 'llm', 'claude', 'opensubtitles', 'openai'}
-        if name in valid:
-            self.config.set_translation_model(name)
+        if self._svc.select_embedded(name):
             self.selected_model = name
     
     def create_header(self) -> QWidget:
@@ -387,7 +364,7 @@ class TranslationModelDialog(QDialog):
         self.nllb_ft_path_input.setPlaceholderText(
             r"C:\...\nllb-subtitles-lora\merged_model"
         )
-        current_path = self.config.get_nllb_finetuned_model_path()
+        current_path = self._svc.nllb_ft_path()
         if current_path:
             self.nllb_ft_path_input.setText(current_path)
 
@@ -431,7 +408,7 @@ class TranslationModelDialog(QDialog):
 
         self.nllb_beams_spin = QSpinBox()
         self.nllb_beams_spin.setRange(1, 20)
-        self.nllb_beams_spin.setValue(self.config.get_nllb_num_beams())
+        self.nllb_beams_spin.setValue(self._svc.nllb_beams())
         self.nllb_beams_spin.setFixedWidth(70)
         self.nllb_beams_spin.setToolTip(tr('nllb_num_beams_tooltip'))
         self.nllb_beams_spin.valueChanged.connect(self._on_nllb_beams_changed)
@@ -441,7 +418,7 @@ class TranslationModelDialog(QDialog):
         return group
 
     def _on_nllb_beams_changed(self, value: int):
-        self.config.set_nllb_num_beams(value)
+        self._svc.set_nllb_beams(value)
 
     def browse_nllb_ft_path(self):
         """Apre dialog per selezionare la cartella del modello fine-tuned"""
@@ -455,29 +432,26 @@ class TranslationModelDialog(QDialog):
 
     def save_nllb_ft_path(self):
         """Salva il path del modello fine-tuned"""
-        path = self.nllb_ft_path_input.text().strip()
-        if not path:
+        chk, path = self._svc.save_nllb_ft_path(self.nllb_ft_path_input.text())
+        if chk.kind == 'empty':
             QMessageBox.warning(self, tr('path_empty'), tr('tmd_enter_merged_path'))
             return
-
-        p = Path(path)
-        if not p.exists():
+        if chk.kind == 'missing':
             QMessageBox.warning(self, tr('folder_not_found'), tr('tmd_folder_missing_msg').format(path=path))
             return
-        if not (p / 'config.json').exists():
+        if chk.kind == 'invalid':
             QMessageBox.warning(
                 self, tr('folder_invalid'),
                 tr('tmd_folder_invalid_msg')
             )
             return
 
-        self.config.set_nllb_finetuned_model_path(path)
         self.update_nllb_ft_status()
         QMessageBox.information(self, tr('path_saved_title'), tr('path_saved_msg'))
 
     def update_nllb_ft_status(self):
         """Aggiorna indicatore stato modello fine-tuned"""
-        if self.config.is_nllb_finetuned_configured():
+        if self._svc.nllb_ft_configured():
             self.nllb_ft_status_label.setText(tr('tmd_configured'))
             _status_style(self.nllb_ft_status_label, T.css_green, bold=True)
         else:
@@ -496,20 +470,17 @@ class TranslationModelDialog(QDialog):
 
     def save_llm_model_path(self):
         """Salva il path della cartella del modello LLM (vuoto = default)"""
-        path = self.llm_model_path_input.text().strip()
-        if path:
-            p = Path(path)
-            if not p.exists():
-                QMessageBox.warning(self, tr('folder_not_found'), tr('tmd_folder_missing_msg').format(path=path))
-                return
-            if not (p / 'config.json').exists():
-                QMessageBox.warning(
-                    self, tr('folder_invalid'),
-                    tr('tmd_folder_invalid_msg')
-                )
-                return
+        chk, path = self._svc.save_llm_path(self.llm_model_path_input.text())
+        if chk.kind == 'missing':
+            QMessageBox.warning(self, tr('folder_not_found'), tr('tmd_folder_missing_msg').format(path=path))
+            return
+        if chk.kind == 'invalid':
+            QMessageBox.warning(
+                self, tr('folder_invalid'),
+                tr('tmd_folder_invalid_msg')
+            )
+            return
 
-        self.config.set_llm_translator_model_path(path)
         QMessageBox.information(self, tr('path_saved_title'), tr('path_saved_msg'))
 
     def create_model_section_llm(self):
@@ -550,7 +521,7 @@ class TranslationModelDialog(QDialog):
         self.llm_model_path_input.setPlaceholderText(
             tr('tmd_llm_path_placeholder')
         )
-        current_llm_path = self.config.get_llm_translator_model_path()
+        current_llm_path = self._svc.llm_path()
         if current_llm_path:
             self.llm_model_path_input.setText(current_llm_path)
 
@@ -577,7 +548,7 @@ class TranslationModelDialog(QDialog):
         self.hf_token_input.setPlaceholderText("hf_...")
         self.hf_token_input.setEchoMode(QLineEdit.EchoMode.Password)
         
-        current_token = self.config.get_huggingface_token()
+        current_token = self._svc.hf_token()
         if current_token:
             self.hf_token_input.setText(current_token)
         
@@ -634,7 +605,7 @@ class TranslationModelDialog(QDialog):
         self.claude_api_input.setPlaceholderText("sk-ant-...")
         self.claude_api_input.setEchoMode(QLineEdit.EchoMode.Password)
 
-        current_key = self.config.get_claude_api_key()
+        current_key = self._svc.claude_key()
         if current_key:
             self.claude_api_input.setText(current_key)
 
@@ -708,7 +679,7 @@ class TranslationModelDialog(QDialog):
         # Il motore di traduzione "OpenSubtitles AI" è sempre REST e richiede
         # sempre l'api_key, indipendentemente da quale implementazione sia
         # selezionata per l'upload dei sottotitoli (che può essere xmlrpc).
-        if self.config.is_opensubtitles_rest_configured():
+        if self._svc.opensubtitles_rest_configured():
             self.os_status_label.setText(tr('tmd_creds_configured'))
             _status_style(self.os_status_label, T.css_green, bold=True)
         else:
@@ -740,7 +711,7 @@ class TranslationModelDialog(QDialog):
         self.oai_api_input.setPlaceholderText("sk-...")
         self.oai_api_input.setEchoMode(QLineEdit.EchoMode.Password)
 
-        current_key = self.config.get_openai_api_key()
+        current_key = self._svc.openai_key()
         if current_key:
             self.oai_api_input.setText(current_key)
 
@@ -750,8 +721,8 @@ class TranslationModelDialog(QDialog):
         model_label = QLabel(tr('tmd_model_label'))
         model_label.setStyleSheet("font-weight: normal;")
         self.oai_model_combo = QComboBox()
-        self.oai_model_combo.addItems(['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo'])
-        current_model = self.config.get_openai_model()
+        self.oai_model_combo.addItems(OPENAI_MODELS)
+        current_model = self._svc.openai_model()
         idx = self.oai_model_combo.findText(current_model)
         if idx >= 0:
             self.oai_model_combo.setCurrentIndex(idx)
@@ -789,19 +760,16 @@ class TranslationModelDialog(QDialog):
 
     def save_openai_api_key(self):
         """Salva API key OpenAI"""
-        key = self.oai_api_input.text().strip()
-        is_valid, err = self.config.validate_openai_api_key(key)
-        if not is_valid:
-            QMessageBox.warning(self, tr('tmd_api_key_invalid_title'), err)
+        res = self._svc.save_openai(self.oai_api_input.text(), self.oai_model_combo.currentText())
+        if res.kind != 'ok':
+            QMessageBox.warning(self, tr('tmd_api_key_invalid_title'), res.error)
             return
-        self.config.set_openai_api_key(key)
-        self.config.set_openai_model(self.oai_model_combo.currentText())
         self.update_openai_status()
         QMessageBox.information(self, tr('creds_saved_title'), tr('creds_saved_msg'))
 
     def update_openai_status(self):
         """Aggiorna indicatore stato OpenAI"""
-        if self.config.is_openai_api_key_set():
+        if self._svc.openai_key_set():
             self.oai_status_label.setText(tr('tmd_creds_configured'))
             _status_style(self.oai_status_label, T.css_green, bold=True)
         else:
@@ -810,42 +778,36 @@ class TranslationModelDialog(QDialog):
 
     def save_hf_token(self):
         """Salva token HuggingFace"""
-        token = self.hf_token_input.text().strip()
-        
-        if not token:
+        res, token = self._svc.save_hf_token(self.hf_token_input.text())
+
+        if res.kind == 'empty':
             QMessageBox.warning(self, tr('token_empty'), tr('tmd_enter_valid_token'))
             return
 
-        is_valid, error = self.config.validate_huggingface_token(token)
-
-        if not is_valid:
-            QMessageBox.warning(self, tr('tmd_token_invalid_title'), tr('tmd_token_invalid_msg').format(error=error))
+        if res.kind == 'invalid':
+            QMessageBox.warning(self, tr('tmd_token_invalid_title'), tr('tmd_token_invalid_msg').format(error=res.error))
             return
 
-        self.config.set_huggingface_token(token)
         QMessageBox.information(self, tr('creds_saved_title'), tr('creds_saved_msg'))
     
     def save_claude_api_key(self):
         """Salva API key Claude"""
-        api_key = self.claude_api_input.text().strip()
-        
-        if not api_key:
+        res = self._svc.save_claude_key(self.claude_api_input.text())
+
+        if res.kind == 'empty':
             QMessageBox.warning(self, tr('save_api_key'), tr('tmd_enter_valid_api_key'))
             return
 
-        is_valid, error = self.config.validate_claude_api_key(api_key)
-
-        if not is_valid:
-            QMessageBox.warning(self, tr('tmd_api_key_invalid_title'), tr('tmd_api_key_invalid_msg').format(error=error))
+        if res.kind == 'invalid':
+            QMessageBox.warning(self, tr('tmd_api_key_invalid_title'), tr('tmd_api_key_invalid_msg').format(error=res.error))
             return
 
-        self.config.set_claude_api_key(api_key)
         self.update_claude_status()
         QMessageBox.information(self, tr('creds_saved_title'), tr('creds_saved_msg'))
     
     def update_claude_status(self):
         """Aggiorna indicatore stato Claude"""
-        if self.config.is_claude_api_key_set():
+        if self._svc.claude_key_set():
             self.claude_status_label.setText(tr('tmd_creds_configured'))
             _status_style(self.claude_status_label, T.css_green, bold=True)
         else:
@@ -854,7 +816,7 @@ class TranslationModelDialog(QDialog):
     
     def start_llm_download(self):
         """Avvia lo scaricamento del modello LLM in uso."""
-        if not self.config.is_huggingface_token_set():
+        if not self._svc.hf_token_set():
             QMessageBox.warning(
                 self, 
                 tr('tmd_token_missing_title'), 
@@ -904,84 +866,22 @@ class TranslationModelDialog(QDialog):
     
     def save_selection(self):
         """Salva selezione modello"""
-        # Determina modello selezionato
-        if self.claude_radio.isChecked():
-            selected_model = 'claude'
-            # Verifica API key
-            if not self.config.is_claude_api_key_set():
-                reply = QMessageBox.question(
-                    self,
-                    tr('tmd_api_key_missing_title'),
-                    tr('tmd_claude_key_missing_ask'),
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                )
-                if reply == QMessageBox.StandardButton.Yes:
-                    return  # Rimani nel dialog
-                else:
-                    QMessageBox.warning(self, tr('tmd_attention'), tr('tmd_claude_needs_key'))
-
-        elif self.nllb_ft_radio.isChecked():
-            selected_model = 'nllb_finetuned'
-            # Verifica che il path sia configurato
-            if not self.config.is_nllb_finetuned_configured():
-                reply = QMessageBox.question(
-                    self,
-                    tr('tmd_model_not_configured_title'),
-                    tr('tmd_ft_path_missing_ask'),
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                )
-                if reply == QMessageBox.StandardButton.Yes:
-                    return  # Rimani nel dialog
-                else:
-                    QMessageBox.warning(
-                        self, tr('tmd_attention'),
-                        tr('tmd_ft_needs_path')
-                    )
-
-        elif self.os_radio.isChecked():
-            selected_model = 'opensubtitles'
-            # Motore di traduzione: sempre REST, richiede sempre l'api_key.
-            if not self.config.is_opensubtitles_rest_configured():
-                reply = QMessageBox.question(
-                    self,
-                    tr('tmd_creds_missing_title'),
-                    tr('tmd_os_creds_missing_ask'),
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                )
-                if reply == QMessageBox.StandardButton.No:
-                    return
-
-        elif self.oai_radio.isChecked():
-            selected_model = 'openai'
-            if not self.config.is_openai_api_key_set():
-                reply = QMessageBox.question(
-                    self,
-                    tr('tmd_api_key_missing_title'),
-                    tr('tmd_openai_key_missing_ask'),
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                )
-                if reply == QMessageBox.StandardButton.Yes:
-                    return
-                else:
-                    QMessageBox.warning(self, tr('tmd_attention'), tr('tmd_openai_needs_key'))
-
-        elif self.llm_radio.isChecked():
-            selected_model = 'llm'
-        else:
-            selected_model = 'nllb'
+        selected_model = self.get_selected_model()
+        issue = self._svc.selection_check(selected_model)
+        if issue is not None:
+            reply = QMessageBox.question(
+                self,
+                tr(issue.title_key),
+                tr(issue.message_key),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if (reply == QMessageBox.StandardButton.Yes) == issue.stay_on_yes:
+                return  # Rimani nel dialog
+            if issue.warn_key:
+                QMessageBox.warning(self, tr('tmd_attention'), tr(issue.warn_key))
 
         # Salva in config
-        self.config.set_translation_model(selected_model)
-
-        display_names = {
-            'nllb': 'NLLB-200',
-            'nllb_finetuned': 'NLLB-200 Fine-Tuned (Plex)',
-            'llm': 'TranslateGemma_finetuned',
-            'claude': 'Claude API',
-            'opensubtitles': 'OpenSubtitles AI',
-            'openai': 'OpenAI GPT',
-        }
-        display = display_names.get(selected_model, selected_model.upper())
+        display = self._svc.commit_selection(selected_model)
 
         QMessageBox.information(
             self,
@@ -1013,7 +913,7 @@ class TranslationModelDialog(QDialog):
         self.diarization_hf_token_input = QLineEdit()
         self.diarization_hf_token_input.setPlaceholderText("hf_...")
         self.diarization_hf_token_input.setEchoMode(QLineEdit.EchoMode.Password)
-        current_token = self.config.get_huggingface_token()
+        current_token = self._svc.hf_token()
         if current_token:
             self.diarization_hf_token_input.setText(current_token)
 
@@ -1029,10 +929,7 @@ class TranslationModelDialog(QDialog):
         # repo (config.yaml verificato), 3.1 punta a repo HF separati —
         # senza questo la schermata manderebbe l'utente ad accettare le
         # condizioni del repo sbagliato se 'diarization_model' è cambiato.
-        _diar_model = self.config.get('diarization_model', 'pyannote/speaker-diarization-3.1')
-        _diar_urls = f"  • huggingface.co/{_diar_model}"
-        if _diar_model == 'pyannote/speaker-diarization-3.1':
-            _diar_urls += "\n  • huggingface.co/pyannote/segmentation-3.0"
+        _diar_urls = self._svc.diarization_urls()
         token_info = QLabel(
             tr('tmd_hf_token_howto').format(urls=_diar_urls)
         )
@@ -1059,7 +956,7 @@ class TranslationModelDialog(QDialog):
 
         # --- Forced Alignment ---
         self.forced_alignment_checkbox = QCheckBox(tr('forced_alignment_check'))
-        self.forced_alignment_checkbox.setChecked(self.config.get('enable_forced_alignment', False))
+        self.forced_alignment_checkbox.setChecked(self._svc.flag('enable_forced_alignment', False))
         self.forced_alignment_checkbox.setToolTip(
             tr('tmd_align_tooltip')
         )
@@ -1068,7 +965,7 @@ class TranslationModelDialog(QDialog):
 
         # --- Checkbox abilitazione diarization ---
         self.diarization_checkbox = QCheckBox(tr('diarization_check'))
-        self.diarization_checkbox.setChecked(self.config.get('enable_diarization', False))
+        self.diarization_checkbox.setChecked(self._svc.flag('enable_diarization', False))
         self.diarization_checkbox.toggled.connect(self.on_diarization_toggled)
         layout.addWidget(self.diarization_checkbox)
 
@@ -1078,7 +975,7 @@ class TranslationModelDialog(QDialog):
         num_label.setFixedWidth(100)
         self.diarization_num_speakers = QSpinBox()
         self.diarization_num_speakers.setRange(0, 10)
-        self.diarization_num_speakers.setValue(self.config.get('diarization_num_speakers', 0))
+        self.diarization_num_speakers.setValue(self._svc.flag('diarization_num_speakers', 0))
         self.diarization_num_speakers.setSpecialValueText(tr('auto_speakers'))
         self.diarization_num_speakers.setToolTip(tr('speakers_tip'))
         self.diarization_num_speakers.valueChanged.connect(self.on_num_speakers_changed)
@@ -1091,15 +988,13 @@ class TranslationModelDialog(QDialog):
 
     def save_diarization_hf_token(self):
         """Salva token HuggingFace dalla sezione diarization"""
-        token = self.diarization_hf_token_input.text().strip()
-        if not token:
+        res, token = self._svc.save_hf_token(self.diarization_hf_token_input.text())
+        if res.kind == 'empty':
             QMessageBox.warning(self, tr('token_empty'), tr('tmd_enter_valid_token'))
             return
-        is_valid, error = self.config.validate_huggingface_token(token)
-        if not is_valid:
-            QMessageBox.warning(self, tr('tmd_token_invalid_title'), error)
+        if res.kind == 'invalid':
+            QMessageBox.warning(self, tr('tmd_token_invalid_title'), res.error)
             return
-        self.config.set_huggingface_token(token)
         # Sincronizza anche il campo token nella sezione del traduttore LLM
         if hasattr(self, 'hf_token_input'):
             self.hf_token_input.setText(token)
@@ -1107,7 +1002,7 @@ class TranslationModelDialog(QDialog):
         QMessageBox.information(self, tr('path_saved_title'), tr('creds_saved_msg'))
 
     def _update_diarization_token_status(self):
-        if self.config.is_huggingface_token_set():
+        if self._svc.hf_token_set():
             self.diarization_token_status.setText(tr('tmd_creds_configured'))
             _status_style(self.diarization_token_status, T.css_green, bold=True, size=11)
         else:
@@ -1116,7 +1011,7 @@ class TranslationModelDialog(QDialog):
 
     def test_pyannote_download(self):
         """Testa il download della pipeline pyannote con il token configurato"""
-        token = self.config.get_huggingface_token()
+        token = self._svc.hf_token()
         if not token:
             self.diarization_test_label.setText(tr('tmd_token_not_set_save_first'))
             _status_style(self.diarization_test_label, T.css_red, size=11)
@@ -1182,7 +1077,7 @@ class TranslationModelDialog(QDialog):
             tr('tmd_gender_enable')
         )
         self.gender_correction_checkbox.setChecked(
-            self.config.get('gender_correction_enabled', False)
+            self._svc.flag('gender_correction_enabled', False)
         )
         self.gender_correction_checkbox.toggled.connect(self._on_gender_correction_toggled)
         layout.addWidget(self.gender_correction_checkbox)
@@ -1192,10 +1087,10 @@ class TranslationModelDialog(QDialog):
             tr('tmd_gender_p2')
         )
         self.gender_p2_checkbox.setChecked(
-            self.config.get('gender_correction_second_person', True)
+            self._svc.flag('gender_correction_second_person', True)
         )
         self.gender_p2_checkbox.toggled.connect(
-            lambda c: self.config.set('gender_correction_second_person', c))
+            lambda c: self._svc.set_flag('gender_correction_second_person', c))
         layout.addWidget(self.gender_p2_checkbox)
 
         info_label = QLabel(tr('tmd_gender_info'))
@@ -1209,24 +1104,13 @@ class TranslationModelDialog(QDialog):
 
     def _update_gender_env_status(self):
         """Verifica prerequisiti v2: venv NLP (spaCy) e token HuggingFace."""
-        from pathlib import Path
         root = Path(__file__).resolve().parent.parent
-        from utils.platform_compat import venv_python
-        cands = [self.config.get('gender_selector_python', ''),
-                 venv_python(root / 'venv_nlp'),
-                 venv_python(root / 'gender_eval' / '.venv_spacy')]
-        nlp_ok = any(p and Path(p).exists() for p in cands)
-        hf_ok = bool(self.config.get('huggingface_token', ''))
-        if nlp_ok and hf_ok:
+        missing = self._svc.gender_prerequisites(root)
+        if not missing:
             self.gender_env_status.setText(tr('tmd_gender_prereq_ok'))
             _status_style(self.gender_env_status, T.css_green, bold=True, size=11)
         else:
-            missing = []
-            if not nlp_ok:
-                missing.append(tr('tmd_gender_missing_nlp'))
-            if not hf_ok:
-                missing.append(tr('tmd_gender_missing_hf'))
-            self.gender_env_status.setText(" — ".join(missing))
+            self.gender_env_status.setText(" — ".join(tr(k) for k in missing))
             _status_style(self.gender_env_status, T.css_red, size=11)
 
     def refresh_from_config(self):
@@ -1234,12 +1118,12 @@ class TranslationModelDialog(QDialog):
         cb = getattr(self, 'gender_correction_checkbox', None)
         if cb is not None:
             cb.blockSignals(True)
-            cb.setChecked(bool(self.config.get('gender_correction_enabled', False)))
+            cb.setChecked(bool(self._svc.flag('gender_correction_enabled', False)))
             cb.blockSignals(False)
 
     def _on_gender_correction_toggled(self, checked: bool):
         """Salva stato checkbox gender correction."""
-        self.config.set('gender_correction_enabled', checked)
+        self._svc.set_flag('gender_correction_enabled', checked)
 
     # ── Force audio transcription ─────────────────────────────────────────
 
@@ -1254,7 +1138,7 @@ class TranslationModelDialog(QDialog):
 
         self.force_audio_checkbox = QCheckBox(tr('force_audio_checkbox'))
         self.force_audio_checkbox.setChecked(
-            self.config.get('force_audio_transcription', False)
+            self._svc.flag('force_audio_transcription', False)
         )
         self.force_audio_checkbox.toggled.connect(self._on_force_audio_toggled)
         layout.addWidget(self.force_audio_checkbox)
@@ -1268,21 +1152,21 @@ class TranslationModelDialog(QDialog):
 
     def _on_force_audio_toggled(self, checked: bool):
         """Salva stato checkbox forza trascrizione da audio."""
-        self.config.set('force_audio_transcription', checked)
+        self._svc.set_flag('force_audio_transcription', checked)
 
     # ── Forced Alignment / Diarization ────────────────────────────────────
 
     def on_forced_alignment_toggled(self, checked: bool):
         """Salva stato checkbox forced alignment"""
-        self.config.set('enable_forced_alignment', checked)
+        self._svc.set_flag('enable_forced_alignment', checked)
 
     def on_diarization_toggled(self, checked: bool):
         """Salva stato checkbox diarization"""
-        self.config.set('enable_diarization', checked)
+        self._svc.set_flag('enable_diarization', checked)
 
     def on_num_speakers_changed(self, value: int):
         """Salva numero parlanti"""
-        self.config.set('diarization_num_speakers', value)
+        self._svc.set_flag('diarization_num_speakers', value)
 
     def apply_theme(self):
         """Tema dialog: neutralizzato in Fase 2 del GUI revamp.

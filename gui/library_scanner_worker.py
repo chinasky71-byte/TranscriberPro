@@ -2,11 +2,15 @@
 """
 Library Scanner Worker - Chiamate API in background al server Library Scanner
 File: gui/library_scanner_worker.py
+
+Adattatore Qt sul client senza Qt `core/services/library_scanner_client.py` (`LibraryScannerClient`): resta un QThread con gli
+stessi segnali, nello stesso ordine di prima. Richieste, messaggi d'errore e normalizzazione dell'endpoint ASS/SSA vivono nel client.
 """
 
 from PyQt6.QtCore import QThread, pyqtSignal
-import requests
 import logging
+
+from core.services.library_scanner_client import LibraryScannerClient
 
 logger = logging.getLogger(__name__)
 
@@ -44,66 +48,24 @@ class LibraryScannerWorker(QThread):
         self.timeout = 4
         self.max_retries = 0
 
+    def _client(self) -> LibraryScannerClient:
+        # Gli attributi (timeout, max_retries, ...) si leggono a ogni richiesta: chi li cambia prima di start() vale ancora.
+        return LibraryScannerClient(self.server_url, self.api_key, self.timeout, self.max_retries)
+
     def _make_request(self, endpoint: str, params: dict = None) -> dict:
         """Esegue GET HTTP con retry"""
-        headers = {'X-API-Key': self.api_key}
-        url = f"{self.server_url}{endpoint}"
-
-        last_error = None
-        for attempt in range(self.max_retries + 1):
-            try:
-                response = requests.get(
-                    url,
-                    headers=headers,
-                    params=params,
-                    timeout=self.timeout
-                )
-                response.raise_for_status()
-                return response.json()
-            except requests.exceptions.ConnectionError:
-                last_error = f"Server non raggiungibile: {self.server_url}"
-            except requests.exceptions.Timeout:
-                last_error = f"Timeout connessione ({self.timeout}s)"
-            except requests.exceptions.HTTPError as e:
-                last_error = f"Errore HTTP: {e.response.status_code}"
-                break
-            except Exception as e:
-                last_error = f"Errore: {str(e)}"
-
-        raise ConnectionError(last_error)
+        return self._client().get(endpoint, params)
 
     def run(self):
         """Esegue le richieste API"""
         try:
+            client = self._client()
             if self.request_type in (self.REQUEST_STATS, self.REQUEST_BOTH):
-                stats = self._make_request('/api/stats')
+                stats = client.stats()
                 self.stats_loaded.emit(stats)
 
             if self.request_type in (self.REQUEST_VIDEOS, self.REQUEST_BOTH):
-                if self.format_filter == 'assssa':
-                    # Endpoint dedicato: restituisce TUTTI i file con ASS/SSA,
-                    # inclusi quelli con has_any_italian_sub=True (non visibili in /api/videos).
-                    params = {'issue_type': 'convertible', 'limit': 500, 'offset': 0}
-                    data = self._make_request('/api/subtitles/list', params)
-                    # Normalizza campi assenti nell'endpoint subtitle
-                    for v in data.get('videos', []):
-                        v.setdefault('days_without_subs', 0)
-                        v.setdefault('has_any_italian_sub', True)
-                        v.setdefault('first_seen', None)
-                else:
-                    params = {
-                        'no_subs_only': 'true',
-                        'limit': 500,
-                        'offset': 0,
-                        'sort_by': 'first_seen',
-                        'sort_order': 'desc',
-                    }
-                    if self.search:
-                        params['search'] = self.search
-                    if self.media_type:
-                        params['media_type'] = self.media_type
-                    data = self._make_request('/api/videos', params)
-
+                data = client.videos(self.search, self.media_type, self.format_filter)
                 self.data_loaded.emit(data)
 
             self.connection_status.emit(True)

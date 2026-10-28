@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 """install.sh: rilancio automatico dopo --system-deps (anti-ciclo TP_INSTALL_RETRY). Gestore pacchetti, sudo e Python sono stub: nessun sudo reale."""
 import os
-import pty
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+pty = pytest.importorskip('pty')     # solo POSIX (usa termios): su Windows il file viene saltato invece di non raccogliersi
 
 ROOT = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.skipif(sys.platform != 'linux' or not shutil.which('bash'), reason='install.sh e solo per Linux')

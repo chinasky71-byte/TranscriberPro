@@ -24,6 +24,7 @@ from PyQt6.QtGui import QTextCursor
 from PyQt6.QtGui import QPixmap, QImage, QFont
 
 from core.pgs_types import OcrEvent, events_to_srt
+from core.services import ocr_review_service as RS
 from gui.design_tokens import T
 from gui.icons import svg_icon
 from gui.styles import load_qss
@@ -33,9 +34,9 @@ logger = logging.getLogger(__name__)
 
 ACCENT = T.accent
 
-# Soglia colore badge confidenza (puramente visiva; il flag autorevole è is_flagged).
-_CONF_OK = 85.0
-_CONF_WARN = 70.0
+# Soglia colore badge confidenza (puramente visiva; il flag autorevole è is_flagged): in core/services/ocr_review_service.py.
+_CONF_OK = RS.CONF_OK
+_CONF_WARN = RS.CONF_WARN
 
 
 def _pil_to_qpixmap(image) -> Optional[QPixmap]:
@@ -229,21 +230,10 @@ class OcrReviewDialog(QDialog):
 
     def _conf_dot(self, ev: OcrEvent) -> str:
         """Pallino colorato (unicode) in base alla confidenza."""
-        c = ev.confidence or 0.0
-        if c >= _CONF_OK:
-            return "🟢"
-        if c >= _CONF_WARN:
-            return "🟡"
-        return "🔴"
+        return RS.conf_dot(ev)
 
     def _item_label(self, ev: OcrEvent) -> str:
-        snippet = (ev.text or "").replace("\n", " ").strip()
-        if len(snippet) > 40:
-            snippet = snippet[:40] + "…"
-        if not snippet:
-            snippet = tr('ocr_empty_text')
-        check = "✓ " if ev.verified else ""
-        return f"{self._conf_dot(ev)} #{ev.index}  {check}{snippet}"
+        return RS.item_label(ev)
 
     def _populate_list(self):
         """Ricostruisce la lista rispettando il filtro 'solo dubbi'.
@@ -256,9 +246,8 @@ class OcrReviewDialog(QDialog):
         self.list_widget.blockSignals(True)
         self.list_widget.clear()
         target_row = -1
-        for data_idx, ev in enumerate(self.events):
-            if only_flagged and not ev.is_flagged:
-                continue
+        for data_idx in RS.visible_indices(self.events, only_flagged):
+            ev = self.events[data_idx]
             item = QListWidgetItem(self._item_label(ev))
             item.setData(Qt.ItemDataRole.UserRole, data_idx)
             self.list_widget.addItem(item)
@@ -284,11 +273,7 @@ class OcrReviewDialog(QDialog):
         item.setText(self._item_label(self.events[data_idx]))
 
     def _update_counter(self):
-        total = len(self.events)
-        flagged = sum(1 for ev in self.events if ev.is_flagged)
-        self.counter_label.setText(
-            tr('ocr_counter').format(total=total, flagged=flagged)
-        )
+        self.counter_label.setText(RS.counter_text(self.events))
 
     # ── Navigazione ────────────────────────────────────────────────────────
 
@@ -309,14 +294,7 @@ class OcrReviewDialog(QDialog):
 
     def _next_flagged_from(self, data_idx: int) -> Optional[int]:
         """Primo evento dubbio con indice > data_idx (None se nessuno)."""
-        for i in range(data_idx + 1, len(self.events)):
-            if self.events[i].is_flagged:
-                return i
-        # wrap-around: cerca dall'inizio
-        for i in range(0, data_idx + 1):
-            if self.events[i].is_flagged:
-                return i
-        return None
+        return RS.next_flagged_from(self.events, data_idx)
 
     def _select_index(self, data_idx: int):
         """Seleziona nella lista l'evento con dato indice (se visibile)."""
@@ -393,15 +371,7 @@ class OcrReviewDialog(QDialog):
         self.text_edit.setFocus()
 
         # Info evento
-        from core.pgs_types import ms_to_srt_timestamp
-        state = tr('ocr_state_verified') if ev.verified else (
-            tr('ocr_state_flagged') if ev.is_flagged else tr('ocr_state_ok')
-        )
-        self.event_info.setText(
-            f"#{ev.index}  "
-            f"{ms_to_srt_timestamp(ev.start_ms)} → {ms_to_srt_timestamp(ev.end_ms)}  "
-            f"·  {tr('ocr_confidence')}: {ev.confidence:.0f}  ·  {state}"
-        )
+        self.event_info.setText(RS.event_info(ev))
 
     def _render_image(self, ev: OcrEvent):
         pm = _pil_to_qpixmap(ev.image)
@@ -435,9 +405,7 @@ class OcrReviewDialog(QDialog):
         if not (0 <= self._current < len(self.events)):
             return
         new_text = self.text_edit.toPlainText()
-        ev = self.events[self._current]
-        if ev.text != new_text:
-            ev.text = new_text
+        if RS.apply_text(self.events[self._current], new_text):
             self._refresh_current_item_label()
 
     def _mark_verified(self):
@@ -446,8 +414,7 @@ class OcrReviewDialog(QDialog):
             return
         self._save_current_text()
         ev = self.events[self._current]
-        ev.verified = True
-        ev.flags = set()  # rimuove il flag → non più "dubbio"
+        RS.mark_verified(ev, ev.text)  # verified=True e flag rimossi → non più "dubbio"
         self._refresh_current_item_label()
         self._update_counter()
 
@@ -466,38 +433,21 @@ class OcrReviewDialog(QDialog):
             return
         cursor = self.text_edit.textCursor()
         full = self.text_edit.toPlainText()
-
-        if cursor.hasSelection():
-            start = cursor.selectionStart()
-            end = cursor.selectionEnd()
-            segment = full[start:end]
-            new_segment = self._toggle_italic_on(segment)
-            new_full = full[:start] + new_segment + full[end:]
-            self.text_edit.setPlainText(new_full)
+        sel = (cursor.selectionStart(), cursor.selectionEnd()) if cursor.hasSelection() else None
+        new_full, new_sel = RS.toggle_italic(full, sel)
+        self.text_edit.setPlainText(new_full)
+        if new_sel is not None:
             # Ripristina una selezione plausibile sul nuovo segmento.
             cur = self.text_edit.textCursor()
-            cur.setPosition(start)
-            cur.setPosition(start + len(new_segment), QTextCursor.MoveMode.KeepAnchor)
+            cur.setPosition(new_sel[0])
+            cur.setPosition(new_sel[1], QTextCursor.MoveMode.KeepAnchor)
             self.text_edit.setTextCursor(cur)
-        else:
-            self.text_edit.setPlainText(self._toggle_italic_on(full))
 
         self._save_current_text()
 
     @staticmethod
     def _toggle_italic_on(text: str) -> str:
-        s = text.strip()
-        if s.startswith("<i>") and s.endswith("</i>"):
-            # Rimuove i tag preservando spazi esterni.
-            lead = text[:len(text) - len(text.lstrip())]
-            trail = text[len(text.rstrip()):]
-            inner = s[3:-4]
-            return f"{lead}{inner}{trail}"
-        if not s:
-            return text
-        lead = text[:len(text) - len(text.lstrip())]
-        trail = text[len(text.rstrip()):]
-        return f"{lead}<i>{s}</i>{trail}"
+        return RS.toggle_italic_on(text)
 
     # ── Filtro ───────────────────────────────────────────────────────────────
 

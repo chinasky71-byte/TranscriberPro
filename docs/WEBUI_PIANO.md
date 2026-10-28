@@ -90,3 +90,9 @@ Lettura: forme (barra) praticamente identiche; il testo non scende sotto ~2% di 
 **Criterio rivisto proposto (da approvare):** forme ≤1% di pixel diversi; testo valutato per posizione (bbox ±1 px), larghezza (±1 px) e SSIM per elemento ≥0,95 (≥0,90 a 150%); schermata SSIM ≥0,985 a 100% e 125%, ≥0,97 a 150%. Da indagare: arrotondamento ai pixel interi a scale frazionarie (barra 125% 2,19%).
 
 **Decisione del proprietario:** criterio rivisto del testo approvato; pywebview confermato come guscio (fallback Qt WebEngine). Requisito di prodotto: watchdog all'avvio (timeout + nuovo tentativo).
+
+## Fase 1 – backend (ramo `webui/p3-backend`, avviata 28/10/2026)
+Ordine delle fette (ognuna: PR in `webui/main`, test del contratto, prova di mutazione, suite verde):
+1. **1a – fondamenta (fatta):** `tpweb/security.py` (token, Host/Origin, nessun CORS), `tpweb/events.py` (bus con numeri progressivi), `tpweb/app.py` (`/api/ping`, `/api/i18n/{lingua}`, `/api/state`, `/events` SSE raggruppato con ripresa da `Last-Event-ID`/`?after=` e stato completo se gli eventi sono stati scartati), `tpweb/runner.py` (server in un thread, solo 127.0.0.1). Test: `test_tpweb_security.py`, `test_tpweb_events.py`, `test_tpweb_pure.py` (nessun PyQt6/gui/torch nel pacchetto).
+2. 1b – coda: `QueueService` senza Qt collegato al bus, endpoint file/coda/avvio/stop (con il finto `pipeline_cli`).
+3. 1c – impostazioni e cronologia (servizi di G1 gia' senza Qt), 1d – file system (`/api/fs`, mappa cartelle), 1e – risorse (CPU/RAM/GPU), 1f – avvio/chiusura/lock di un solo server per utente, `--ui qt|web`.
