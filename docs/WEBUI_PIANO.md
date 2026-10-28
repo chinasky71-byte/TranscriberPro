@@ -138,6 +138,6 @@ Ordine delle fette (ognuna: PR in `webui/main`, test del contratto, prova di mut
 
 ## Decisioni del proprietario (28/10/2026)
 - Differenze volute elencate in `tpweb/PARITY.md` («da confermare»): **confermate cosi'**.
-- Tessera «Errori» della diagnostica: in attesa di decisione (scelta A: come la GUI Qt, scelta B: contare i file falliti); inviato uno schizzo.
+- Tessera «Errori» della diagnostica: **scelta B** (conta i file falliti e gli errori del worker, a ogni evento). Solo nella web UI; la GUI Qt resta com'e' fino a nuova decisione.
 - La chiave del Library Scanner in `utils/config.py` la ruota il proprietario a fine lavori.
 - Percorso di rilascio: prima le prove su Windows, poi bugcheck e bugfix, **poi** unione in `master` quando tutto funziona. Nessuna unione prima.

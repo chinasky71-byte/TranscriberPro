@@ -225,17 +225,20 @@ def test_diagnostica_valori_a_riposo_e_durante_la_coda(env):
     frozen = env.wq.diag()['elapsed']
     time.sleep(1.3)
     assert env.wq.diag()['elapsed'] == frozen                                 # a fine coda il tempo si ferma
-    assert t('errors') == '0'                                                 # un file fermato non e' un errore del worker (come la GUI)
+    assert t('errors') == '0'                                                 # un file fermato con Stop e' una riga «fallita» ma non un errore da contare
+    assert env.wq.error_count == 1 and env.wq.stopped_count == 1
 
 
-def test_tessera_errori_si_aggiorna_solo_sugli_errori_del_worker(env):
+def test_tessera_errori_conta_i_file_falliti_e_gli_errori_del_worker(env):
+    """Scelta B del proprietario (28/10/2026): la tessera segue i file falliti a ogni evento (la GUI Qt la aggiorna solo a inizio coda e sugli errori del worker)."""
     page = env.open()
     wait_log(page, 3)
     env.wq.add(kit.make_videos(env.tmp, 'fail.mkv'))
     env.wq.start()
     env.wq.join(60)
-    assert env.wq.error_count == 1 and env.wq.diag()['errors'] == '0'        # come la GUI: il file fallito non sposta la tessera
-    env.wq.errors_shown = env.wq.error_count = 2                              # errore del worker (eccezione nel motore)
+    assert env.wq.error_count == 1 and env.wq.diag()['errors'] == '1'
+    page.wait_for_function('() => document.querySelector("[data-testid=diag-errors] .diag-value").innerText === "1"')         # senza altri eventi
+    env.wq.error_count = 2                                                    # errore del worker (eccezione nel motore)
     env.wq.bus.publish('diag', env.wq.diag())
     page.wait_for_function('() => document.querySelector("[data-testid=diag-errors] .diag-value").innerText === "2"')
 
@@ -447,7 +450,7 @@ def test_server_anteprima_stesso_file_forza_e_svuotamento(env):
 
 
 def test_tessera_errori_riparte_da_zero_a_ogni_coda(env):
-    env.wq.errors_shown = 3
+    env.wq.error_count = 3
     env.wq.add(kit.make_videos(env.tmp, 'a.mkv'))
     env.wq.start()
     env.wq.join(60)
