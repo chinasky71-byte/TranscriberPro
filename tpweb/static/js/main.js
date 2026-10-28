@@ -7,10 +7,12 @@ import { CenterPanel, RightPanel } from '/static/js/side_panels.js';
 import { HistoryView } from '/static/js/history_view.js';
 import { SettingsDialog } from '/static/js/settings.js';
 import { MessageHost } from '/static/js/dialogs.js';
+import { GlossaryDialog } from '/static/js/tools_glossary.js';
 
 function App() {
   const tab = useStore((s) => s.ui.tab);
   const settingsOpen = useStore((s) => !!s.ui.settings);
+  const tool = useStore((s) => s.ui.tool);
   return html`<div class="window">
     <${TitleBar} />
     <${TabBar} />
@@ -20,6 +22,7 @@ function App() {
         : html`<div class="history-wrap"><${HistoryView} onCount=${(n) => setState({ historyCount: n })} /></div>`}
     </main>
     ${settingsOpen ? html`<${SettingsDialog} />` : null}
+    ${tool === 'glossary' ? html`<${GlossaryDialog} />` : null}
     <${MessageHost} />
   </div>`;
 }

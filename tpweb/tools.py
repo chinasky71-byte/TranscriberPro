@@ -161,6 +161,8 @@ class GlossaryManager:
         except Exception as e:
             self._failed(str(e), key='glossary_report_unreadable')
             return
+        for c in report.get('candidates', []):
+            c['qwen_coverage_text'] = format(c.get('qwen_coverage', 0), '.0%')      # come l'etichetta della GUI (arrotondamento di Python)
         with self._lock:
             self.status, self.report = 'done', report
             self.gate_info = report.get('gate', self.gate_info)
