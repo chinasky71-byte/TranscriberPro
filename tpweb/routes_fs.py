@@ -11,6 +11,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from core.services.file_scan import VIDEO_EXTENSIONS, format_file_size
 
@@ -32,7 +33,7 @@ def list_roots(extra: Optional[List[str]] = None) -> List[dict]:
     return roots
 
 
-def list_dir(path: str, exts: Optional[List[str]] = None, show_hidden: bool = False) -> dict:
+def list_dir(path: str, exts: Optional[List[str]] = None, show_hidden: bool = False, dirs_only: bool = False) -> dict:
     """Cartelle (sempre) e file (con una delle estensioni, tutti se `exts` e' None), ordinati senza badare alle maiuscole."""
     p = Path(path)
     dirs, files = [], []
@@ -43,7 +44,7 @@ def list_dir(path: str, exts: Optional[List[str]] = None, show_hidden: bool = Fa
             try:
                 if e.is_dir():
                     dirs.append({'name': e.name, 'path': str(Path(e.path))})
-                elif e.is_file() and (exts is None or Path(e.name).suffix.lower() in exts):
+                elif not dirs_only and e.is_file() and (exts is None or Path(e.name).suffix.lower() in exts):
                     st = e.stat()
                     files.append({'name': e.name, 'path': str(Path(e.path)), 'size': format_file_size(st.st_size),
                                   'mtime': st.st_mtime})
@@ -54,19 +55,37 @@ def list_dir(path: str, exts: Optional[List[str]] = None, show_hidden: bool = Fa
     return {'path': str(p), 'parent': parent, 'dirs': sorted(dirs, key=key), 'files': sorted(files, key=key)}
 
 
-def add_fs_routes(app: FastAPI, mapped_roots=lambda: []) -> None:
+class LastBody(BaseModel):
+    folder: str
+
+
+def add_fs_routes(app: FastAPI, mapped_roots=lambda: [], config=None) -> None:
+    svc = None
+    if config is not None:
+        from core.services.settings_service import SettingsService
+        svc = SettingsService(config)
+
     @app.get('/api/fs/roots')
     async def roots():
-        return {'roots': list_roots(mapped_roots())}
+        last = svc.last_input_folder() if svc else ''
+        return {'roots': list_roots(mapped_roots()), 'last': last if last and os.path.isdir(last) else None}
+
+    @app.post('/api/fs/last')
+    async def set_last(body: LastBody):
+        """Ricorda l'ultima cartella usata (come `set_last_input_folder` della GUI)."""
+        if svc is None or not os.path.isdir(body.folder):
+            return JSONResponse({'ok': False}, status_code=422)
+        svc.set_last_input_folder(body.folder)
+        return {'ok': True}
 
     @app.get('/api/fs/list')
     async def ls(path: str, exts: Optional[str] = Query(None, description="'.mkv,.mp4'; vuoto = tutti i file"),
-                 hidden: bool = False):
+                 hidden: bool = False, dirs_only: bool = False):
         if not os.path.isabs(path) and not (os.name == 'nt' and path.startswith('\\\\')):
             return JSONResponse({'error': 'serve un percorso assoluto'}, status_code=422)
         want = [e.strip().lower() for e in exts.split(',') if e.strip()] if exts else None
         try:
-            return list_dir(path, want, hidden)
+            return list_dir(path, want, hidden, dirs_only)
         except FileNotFoundError:
             return JSONResponse({'error': 'cartella inesistente'}, status_code=404)
         except NotADirectoryError:

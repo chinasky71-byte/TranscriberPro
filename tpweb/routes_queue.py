@@ -37,6 +37,10 @@ def add_queue_routes(app: FastAPI, wq: WebQueue) -> None:
     async def get_queue():
         return {'seq': app.state.bus.last_seq, **wq.state()}
 
+    @app.get('/api/queue/stats')
+    async def get_stats():
+        return wq.stats()
+
     @app.post('/api/queue/add')
     async def add(body: AddBody):
         added = wq.add(body.paths, body.sizes, body.only_files)
