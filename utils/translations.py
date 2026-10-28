@@ -703,6 +703,7 @@ class Translations:
             'glossary_save':             'Save approved terms',
             'glossary_no_terms_approved': 'No term is checked for approval.',
             'glossary_save_error':       'Save failed: {error}',
+            'glossary_report_unreadable': 'Unreadable report: {error}',
             'glossary_save_success':     '{n} term(s) saved to {path}',
 
             # ── marcatori di log letti da altro codice (vedi all_texts) ──
@@ -2178,6 +2179,7 @@ class Translations:
             'glossary_save':             'Salva termini approvati',
             'glossary_no_terms_approved': 'Nessun termine spuntato per l\'approvazione.',
             'glossary_save_error':       'Salvataggio fallito: {error}',
+            'glossary_report_unreadable': 'Report illeggibile: {error}',
             'glossary_save_success':     '{n} termine/i salvato/i in {path}',
 
             # ── marcatori di log letti da altro codice (vedi all_texts) ──
