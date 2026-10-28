@@ -32,8 +32,9 @@ Dipendenze: SOLO spaCy (nessun Qt, nessun torch). Se spaCy o il modello
 non sono disponibili, `available()` è False e `select()` ritorna sempre
 None: il chiamante salta la correzione (fail-safe: nessuna riscrittura).
 
-NOTA deploy: spaCy NON è installato nel venv principale dell'app (per non
-perturbare ctranslate2/setuptools). In produzione questo modulo gira nel
+NOTA deploy: spaCy NON è installato nel venv principale dell'app: portarselo
+dietro significherebbe un modello linguistico da centinaia di MB nel venv del
+runtime GPU. In produzione questo modulo gira nel
 subprocess dello STEP 6.5 con un ambiente che include spaCy, oppure spaCy
 andrà aggiunto al venv app previa verifica di compatibilità.
 """

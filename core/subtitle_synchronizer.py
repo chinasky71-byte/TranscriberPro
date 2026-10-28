@@ -427,8 +427,8 @@ class SubtitleSynchronizer:
         """
         Fallback del motore 'timing' quando il video non ha sottotitoli non-italiani: il riferimento e' il
         PARLATO dell'audio, non il suo testo. Estrae la traccia, isola le voci (Demucs) e ne ricava gli intervalli
-        con Silero VAD (gia' incluso in faster-whisper, CPU). Niente trascrizione: segmenti Whisper da ~20 s
-        producevano maschere troppo grossolane (misurato: 61% entro 0,5 s su un film con musica invadente).
+        con il nostro Silero VAD (core/vad.py, onnxruntime, CPU). Niente trascrizione: i segmenti da ~20 s di un
+        ASR producevano maschere troppo grossolane (misurato: 61% entro 0,5 s su un film con musica invadente).
         La lingua dell'audio e' irrilevante per i soli tempi.
         """
         from core.audio_track_selector import AudioTrackSelector

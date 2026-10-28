@@ -1149,11 +1149,11 @@ class NLLBTranslator(BaseTranslator):
                 self.log(msg)
 
         # Cap a MAX_BATCH_SIZE (tarato per NLLB): la chiave config
-        # 'adaptive_batch_max_size' è condivisa con la trascrizione whisper
+        # 'adaptive_batch_max_size' è condivisa con la trascrizione ASR
         # (dove 62 ha senso) — qui, lasciata passare senza tetto, ha spinto
         # il batch a 36+ con beam=7 su un modello già da ~6.6GB in VRAM,
         # causando spillover in RAM condivisa WDDM (stesso bug corretto in
-        # v1.9.2 per faster_whisper_engine, qui mancava il cap analogo).
+        # v1.9.2 nel vecchio engine Whisper, qui mancava il cap analogo).
         self.batch_manager = AdaptiveBatchSizeManager(
             device=self.device,
             use_gpu=self.use_gpu,

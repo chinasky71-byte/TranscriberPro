@@ -35,8 +35,10 @@ _BASE_WEIGHTS: Dict[str, float] = {
     'translate': 30.0, 'gender': 1.5, 'final': 1.0,
     'ocr_extract': 0.5, 'ocr_read': 3.0, 'ocr_translate': 12.0,
 }
-# Peso della trascrizione per motore (rapporto misurato con Demucs = 1: Qwen3 ~6, Canary ~2,5).
-_ASR_BY_ENGINE = (('qwen3', 6.0), ('canary', 2.5))
+# Peso della trascrizione per motore (rapporto misurato con Demucs = 1: Qwen3 ~6).
+# La tabella resta un elenco perche' la riga del log nomina l'engine: un motore
+# nuovo aggiunge una voce, non un ramo.
+_ASR_BY_ENGINE = (('qwen3', 6.0),)
 
 # Chiave della barra interna accettata da ogni fase.
 # Le righe arrivano dal figlio in IT o EN: i marcatori valgono in entrambe le lingue (utils.translations.all_texts).

@@ -53,21 +53,35 @@ Only these keys can be overridden for a single file
 `gender_correction_enabled`, `mux_subtitle_into_video`,
 `opensubtitles_upload_enabled`.
 
-## Secrets
+## Secrets and local endpoints
 
 The config file may contain:
 
 - `huggingface_token`
-- `claude_api_key`
-- `openai_api_key`
 - `opensubtitles_username`, `opensubtitles_password`, `opensubtitles_api_key`
 - `opensubtitles_xmlrpc_username`, `opensubtitles_xmlrpc_password`
 - `library_scanner_api_key`
+- `library_scanner_url` — a LAN address, not a credential, but just as
+  environment-specific: it belongs to the installation, not to the repository
+
+**No default value in `utils/config.py` is a secret or an address.** Both
+`library_scanner_url` and `library_scanner_api_key` default to the empty string;
+the scanner UI reports "config missing" until they are set, which is the honest
+state for a fresh install. Set them in `TP_DATA_DIR/config.json` or in the WebUI
+settings (the key is write-only there).
+
+History: until 2026-10-27 those two defaults carried a real API key and a
+private LAN address, committed with `1ab14ab` ("Sync production"). Removing
+them from the working tree does not remove them from git history, so **that key
+must be considered compromised and rotated on the scanner service**. Never paste
+it back into a tracked file.
 
 Rules:
 - never commit them, never log them, never return them from an API;
 - the web API exposes only `is_set` flags and accepts write-only updates;
-- keep the config file readable by the owner only (`chmod 600`).
+- keep the config file readable by the owner only (`chmod 600`);
+- `claude_api_key` and `openai_api_key` are gone with the cloud engines
+  (ADR-009); an old config that still has them is harmless, nothing reads them.
 
 ## Migration
 
