@@ -218,3 +218,12 @@ def test_run_shell_rete_di_sicurezza_se_la_finestra_non_si_chiude():
     threading.Timer(0.2, quit_event.set).start()
     launcher.run_shell(Srv, quit_event, wv, hard_exit=hit.set, hard_exit_after=0.1)
     assert hit.wait(2)
+
+
+def test_la_finestra_si_adatta_allo_schermo_e_si_centra():
+    from tpweb.shell import fit_window
+    scr = lambda w, h: [types.SimpleNamespace(width=w, height=h)]       # noqa: E731
+    assert fit_window(scr(1920, 1080)) == (1400, 900, 260, 50)
+    assert fit_window(scr(1366, 768)) == (1326, 650, 20, 19)            # altezza minima 650: meglio sporgere che una finestra inutilizzabile
+    assert fit_window(scr(1600, 900)) == (1400, 760, 100, 30)
+    assert fit_window(None) == (1400, 900, None, None) and fit_window([]) == (1400, 900, None, None)
