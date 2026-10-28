@@ -1,7 +1,7 @@
 import { html, useState, useEffect, useCallback } from '/static/js/lib.js';
 import { t } from '/static/js/i18n.js';
 import { get, put, post } from '/static/js/api.js';
-import { useStore } from '/static/js/store.js';
+import { useStore, getState, setState } from '/static/js/store.js';
 import { Group, Row, TextInput, Checkbox, Radio, Select, Spin } from '/static/js/form.js';
 import { messageBox } from '/static/js/dialogs.js';
 import { Confirm, FileBrowser } from '/static/js/modals.js';
@@ -31,6 +31,12 @@ export function TranscriptionPage({ active }) {
           <div class="profile-desc">${t(c.desc_key)}</div><div class="profile-params">${c.params} · ${c.time}</div>
           ${c.warning_key ? html`<div class="profile-warn">${t(c.warning_key)}</div>` : null}</div></label>`)}</div>` : null}
   </div>`;
+}
+
+/** Il pulsante si blocca subito: la prima riga del sottoprocesso puo' arrivare solo dopo qualche secondo. */
+function markRunning(job) {
+  const env = getState().env;
+  setState({ env: { ...env, [job]: { ...env[job], running: true, lines: [], last_line: '', exit_code: null } } });
 }
 
 // -------------------------------------------------------------------------------------------------------------------- Traduzione
@@ -85,11 +91,12 @@ export function TranslationPage({ active }) {
   async function download() {
     const r = await post('/api/settings/translation/llm_download');
     if (r.status === 409) messageBox('warning', t('tmd_token_missing_title'), t('tmd_save_hf_token_first'));
+    else if (r.ok) markRunning('llm-download');
   }
   async function diarTest() {
     const r = await post('/api/settings/translation/diarization_test');
     if (r.status === 409) setDiarMsg(t('tmd_token_not_set_save_first'));
-    else setDiarMsg(t('tmd_diar_test_started'));
+    else { setDiarMsg(t('tmd_diar_test_started')); if (r.ok) markRunning('diarization-test'); }
   }
   const model = s.model;
   const radio = (name) => ({ checked: model === name, onChange: () => choose(name) });
@@ -153,7 +160,7 @@ export function TranslationPage({ active }) {
         <button class="btn btn-primary btn-fixed" data-testid="tm-oai-save" onClick=${() => saveOpenAi(document.querySelector('[data-testid=tm-oai-key]').value, document.querySelector('[data-testid=tm-oai-model]').value)}>${t('save')}</button></div>
       <${Status} ok=${s.openai_key_set} text=${s.openai_key_set ? t('tmd_creds_configured') : t('tmd_not_configured')} testid="tm-oai-status" />
     <//>
-    <${Section} tone="purple" title=${t('diarization_title')} testid="tm-diar">
+    <${Section} tone="purple" title=${t('diarization_title')} testid="tm-diar-section">
       <div class="body">${t('diarization_desc')}</div>
       <${Group} title=${t('hf_token_label')}>
         <div class="key-row"><${TextInput} testid="tm-diar-token" revealed=${false} placeholder=${s.hf_token_set ? '••••••••' : 'hf_...'} value="" onCommit=${() => {}} />

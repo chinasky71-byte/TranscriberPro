@@ -219,17 +219,17 @@ def test_batch_attiva_disattiva_ripristina_e_salva(env):
     assert all(spin(k).is_disabled() for k in ('initial', 'min', 'max', 'warmup', 'high', 'low'))
     tick(page, 'ab-enable')
     assert not any(spin(k).is_disabled() for k in ('initial', 'min', 'max', 'warmup', 'high', 'low'))
-    spin('max').fill('48'); spin('max').press('Tab')
+    spin('max').fill('40'); spin('max').press('Tab')
     spin('high').fill('0,9'); spin('high').press('Tab')
     before = api(page, '/api/settings')['adaptive_batch']
-    assert before['max_size'] != 48                                    # finche' non si preme Salva non si scrive
+    assert before['max_size'] != 40                                    # finche' non si preme Salva non si scrive
     page.click('[data-testid=ab-save]')
     settle(page)
     after = api(page, '/api/settings')['adaptive_batch']
-    assert (after['max_size'], after['high_threshold'], after['enabled']) == (48, 0.9, True)
+    assert (after['max_size'], after['high_threshold'], after['enabled']) == (40, 0.9, True)
     page.click('[data-testid=ab-reset]')                                # Ripristina riempie il modulo, non scrive
-    assert spin('max').input_value() != '48'
-    assert api(page, '/api/settings')['adaptive_batch']['max_size'] == 48
+    assert spin('max').input_value() != '40'
+    assert api(page, '/api/settings')['adaptive_batch']['max_size'] == 40
     spin('min').fill('99'); spin('min').press('Tab')
     assert spin('min').input_value() == '16'                           # fuori intervallo: si porta al massimo
 
@@ -249,6 +249,7 @@ def test_ocr_strategia_lingua_soglia_worker_e_scrittura(env):
     assert (o['strategy'], o['language'], o['conf_threshold'], o['workers'], o['writeback'], o['tesseract_path']) == \
         ('auto', 'ita+eng', 70, 4, 'sidecar', '/usr/bin/tesseract')
     page.locator('[data-testid=oc-workers]').fill('0'); page.press('[data-testid=oc-workers]', 'Tab')
+    settle(page)
     assert page.locator('[data-testid=oc-workers]').input_value() == IT['ocr_workers_auto']       # valore speciale come QSpinBox
     tick(page, 'oc-review')
     settle(page)
@@ -348,6 +349,7 @@ def test_traduzione_flag_diarizzazione_genere_e_audio(env):
     f = api(page, '/api/settings/translation')['flags']
     assert f['gender_correction_second_person'] is False and f['diarization_num_speakers'] == 3
     page.fill('[data-testid=tm-speakers]', '0'); page.press('[data-testid=tm-speakers]', 'Tab')
+    settle(page)
     assert page.locator('[data-testid=tm-speakers]').input_value() == IT['auto_speakers']
 
 
