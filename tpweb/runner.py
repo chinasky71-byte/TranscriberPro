@@ -21,12 +21,13 @@ def free_port() -> int:
 class ServerThread:
     def __init__(self, token: Optional[str] = None, port: Optional[int] = None, bus: Optional[EventBus] = None,
                  get_state: Optional[Callable[[], dict]] = None, queue=None, history=None, config=None,
-                 opener=None, mapped_roots=None, sampler=None, on_quit=None):
+                 opener=None, mapped_roots=None, sampler=None, on_quit=None, preview=None, gpu=None):
         self.token = token or secrets.token_urlsafe(24)
         self.port = port or free_port()
         self.bus = bus or EventBus()
         self.queue = queue
-        self.app = create_app(self.token, self.port, self.bus, get_state, queue, history, config, opener, mapped_roots, sampler, on_quit)
+        self.gpu = gpu
+        self.app = create_app(self.token, self.port, self.bus, get_state, queue, history, config, opener, mapped_roots, sampler, on_quit, preview, gpu)
         self.server = uvicorn.Server(uvicorn.Config(self.app, host='127.0.0.1', port=self.port, log_level='warning'))
         self.thread = threading.Thread(target=self.server.run, daemon=True)
 
@@ -37,6 +38,8 @@ class ServerThread:
             time.sleep(0.02)
         if not self.server.started:
             raise RuntimeError("il server non e' partito")
+        if self.gpu is not None:
+            self.gpu.start()
         return self
 
     def stop(self) -> None:

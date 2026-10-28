@@ -15,6 +15,14 @@ class AddBody(BaseModel):
     sizes: Optional[dict] = None
 
 
+class FlagBody(BaseModel):
+    enabled: bool
+
+
+class OpenBody(BaseModel):
+    open: bool
+
+
 class RemoveBody(BaseModel):
     path: str
 
@@ -36,6 +44,20 @@ def add_queue_routes(app: FastAPI, wq: WebQueue) -> None:
     @app.get('/api/queue')
     async def get_queue():
         return {'seq': app.state.bus.last_seq, **wq.state()}
+
+    @app.get('/api/queue/live')
+    async def get_live():
+        return wq.live()
+
+    @app.post('/api/log/compact')
+    async def set_compact(body: FlagBody):
+        wq.set_compact(body.enabled)
+        return wq.log_options()
+
+    @app.post('/api/log/pipeline-card')
+    async def set_pipeline_card(body: OpenBody):
+        wq.set_pipeline_open(body.open)
+        return wq.log_options()
 
     @app.get('/api/queue/stats')
     async def get_stats():
@@ -73,7 +95,7 @@ def add_queue_routes(app: FastAPI, wq: WebQueue) -> None:
         skipped = len(body.paths) - len(changed)
         if skipped > 0 and (body.value is None or wq.valid_override(body.key, body.value)):
             from utils.translations import tr
-            wq.bus.publish('log', tr('job_ov_skipped_log').format(n=skipped))      # come la GUI: file in lavorazione, finiti o non piu' in coda
+            wq.log_message(tr('job_ov_skipped_log').format(n=skipped))      # come la GUI: file in lavorazione, finiti o non piu' in coda
         return {'changed': changed, 'skipped': skipped}
 
     @app.post('/api/queue/clear')

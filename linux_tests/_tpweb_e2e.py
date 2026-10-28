@@ -14,7 +14,32 @@ import _queue_testkit as kit  # noqa: E402
 CHROME = (glob.glob('/opt/pw-browsers/chromium-*/chrome-linux/chrome') or [None])[0]
 
 
-def make_server(tmp_path, monkeypatch, language='it', sampler=None):
+class FakeTmdb:
+    """TMDB finto: nessuna rete. `poster` = file della locandina da restituire (None = nessuna)."""
+    api_key = 'k'
+
+    def __init__(self, poster=None, delay=0.0, delays=None):
+        self.poster, self.delay, self.calls = poster, delay, []
+        self.delays = delays or {}                    # ritardo per nome file (prevale su `delay`)
+
+    def parse_filename(self, name):
+        import re
+        m = re.match(r'(?P<t>.+?)[ .]S(?P<s>\d+)E(?P<e>\d+)', Path(name).stem)
+        if m:
+            return {'title': m.group('t').strip(), 'type': 'tv', 'season': int(m.group('s')), 'episode': int(m.group('e'))}
+        return {'title': Path(name).stem, 'type': 'movie'}
+
+    def get_media_info(self, name):
+        import time
+        self.calls.append(name)
+        time.sleep(self.delays.get(Path(name).name, self.delay))
+        return {'poster_path': '/p.jpg', 'title': Path(name).stem} if self.poster else None
+
+    def download_poster(self, poster_path, title):
+        return self.poster
+
+
+def make_server(tmp_path, monkeypatch, language='it', sampler=None, tmdb=None, gpu_detect=None):
     """Server di prova: config e cronologia isolate, il finto `pipeline_cli` al posto del vero, nessuno spegnimento reale."""
     from utils import config as cfg
     from tpweb.launcher import build
@@ -28,7 +53,8 @@ def make_server(tmp_path, monkeypatch, language='it', sampler=None):
     monkeypatch.setattr(subprocess, 'Popen', kit.PopenSpy())
     import utils.cache_cleaner as cc
     monkeypatch.setattr(cc, 'cleanup_non_italian_caches', lambda log_callback=None: {'removed': [], 'failed': []})
-    srv = build(config, history_path=tmp_path / 'history.json', project_root=ROOT, shutdown_fn=lambda: None, sampler=sampler).start()
+    srv = build(config, history_path=tmp_path / 'history.json', project_root=ROOT, shutdown_fn=lambda: None, sampler=sampler,
+                 tmdb_client=tmdb or FakeTmdb(), gpu_detect=gpu_detect or (lambda first: ('NVIDIA RTX 4090', 'nvidia', False))).start()
     return srv, config
 
 
