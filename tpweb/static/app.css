@@ -356,3 +356,11 @@ button:focus-visible, .file-list:focus-visible { outline: 1px solid var(--accent
 .defaults-summary { align-self: stretch; padding-top: 0; padding-bottom: 0; }
 .progress-row { margin-top: 1px; }
 .stat-tile { height: 50px; } .diag-tile { height: 42px; padding: 6px 10px 0; } .diag-row { gap: 6px; }
+/* Aderenza a Qt (Windows, L-011): intestazione 48 + separatore 3 (riga chiara a 1 px), barra laterale a filo, contenuto a (220, 67) */
+.settings-dialog { box-sizing: border-box; }
+.settings-header { border-bottom: 0; position: relative; margin-bottom: 3px; }
+.settings-header::after { content: ''; position: absolute; left: 0; right: 0; bottom: -3px; height: 3px; background: linear-gradient(var(--line-strong) 0 1px, var(--fg-0) 1px 2px, var(--line-strong) 2px 3px); }
+.settings-sidebar { margin: 0; border-radius: 0; border-width: 0 1px 0 0; }
+.settings-content { padding: 16px 20px 16px 20px; }
+.settings-dialog { border: 0; box-shadow: 0 0 0 1px var(--line-strong), 0 12px 40px rgba(0,0,0,.45); }
+.settings-sidebar .side-item.selected { color: var(--fg-0); }
