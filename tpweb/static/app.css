@@ -303,3 +303,9 @@ button:focus-visible, .file-list:focus-visible { outline: 1px solid var(--accent
 .term-approve { display: flex; align-items: center; gap: 8px; font-size: 12px; } .term-approve .input { flex: 1; }
 .cluster { font-size: 12px; color: var(--fg-1); } .example { font-size: 11px; color: var(--fg-3); white-space: pre-wrap; }
 .tool-btn:disabled { opacity: .4; cursor: default; }
+.tabs-mini { display: flex; gap: 4px; border-bottom: 1px solid var(--line); } .tab-mini { padding: 8px 16px; background: transparent; border: 0; border-bottom: 2px solid transparent; color: var(--fg-2); font: inherit; cursor: pointer; }
+.tab-mini.selected { color: var(--accent); border-bottom-color: var(--accent); } .tab-mini:disabled { opacity: .5; cursor: default; }
+.sync-dialog { width: 860px; } .tool-log.tall { height: 200px; min-height: 200px; }
+.sync-table-wrap { max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; } .sync-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.sync-table th, .sync-table td { padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; } .sync-table th { color: var(--fg-2); position: sticky; top: 0; background: var(--bg-1); }
+.tool-progress { position: relative; } .progress-text { position: absolute; inset: 0; text-align: center; font-size: 9px; line-height: 10px; color: var(--fg-0); }

@@ -8,6 +8,7 @@ import { HistoryView } from '/static/js/history_view.js';
 import { SettingsDialog } from '/static/js/settings.js';
 import { MessageHost } from '/static/js/dialogs.js';
 import { GlossaryDialog } from '/static/js/tools_glossary.js';
+import { SyncDialog } from '/static/js/tools_sync.js';
 
 function App() {
   const tab = useStore((s) => s.ui.tab);
@@ -23,6 +24,7 @@ function App() {
     </main>
     ${settingsOpen ? html`<${SettingsDialog} />` : null}
     ${tool === 'glossary' ? html`<${GlossaryDialog} />` : null}
+    ${tool === 'sync' ? html`<${SyncDialog} />` : null}
     <${MessageHost} />
   </div>`;
 }

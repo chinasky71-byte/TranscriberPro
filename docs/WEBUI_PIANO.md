@@ -117,3 +117,10 @@ Ordine delle fette (ognuna: PR in `webui/main`, test del contratto, prova di mut
 - **Difetti trovati dai test e corretti:** campo numerico che perdeva il testo digitato se arrivava un aggiornamento dal server; messaggio non chiudibile con Esc se subito dopo l'apertura; `EnvJobs` fissava il runner troppo presto.
 - Resta: confronto d'aspetto con Qt (C-011).
 - **Prova di mutazione (fase 3):** 13 mutazioni, 10 uccise, 3 equivalenti documentate: `if (typed === null) return` in `Spin.commit` (senza, `parseFloat('null')` e' NaN e non scrive), richiesta della chiave del Scanner a ogni «Mostra» (il server restituisce lo stesso valore salvato) e `put(last_tab)` anche alla selezione iniziale (la GUI salva l'ultima scheda a ogni cambio di riga, anche programmatico).
+
+## Fase 4 – Strumenti (rami `webui/p9-strumenti`, `webui/p10-sync`, 28/10/2026)
+- **4a (unita, #63):** `ToolGate` – un solo lucchetto per coda e strumenti (due schede del browser possono premere insieme), flag liberati dal thread del run; verdetti identici a `QueueService.can_start`.
+- **4b (unita, #64):** Glossario. Stato e report sul server; il salvataggio prende solo termini presenti nel report; la ricerca TMDB (`resolve_tmdb`, estratta dal dialogo con test di caratterizzazione) gira fuori dal ciclo degli eventi.
+- **4c:** Sincronizzazione (singola e coda), `ProgressLog` identico al log del dialogo, esito annunciato una volta per run (`run_id`).
+- **Difetti trovati dai test:** messaggio finale perso con run istantaneo (eventi accorpati), stato delle righe escluse, riapertura a run in corso.
+- **Mutazioni:** 4a 7/7, 4b 12/12, 4c 15/15 uccise dopo i test aggiunti.
