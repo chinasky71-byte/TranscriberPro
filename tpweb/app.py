@@ -28,7 +28,7 @@ KEEPALIVE_S = 15
 def create_app(token: str, port: int, bus: Optional[EventBus] = None,
                get_state: Optional[Callable[[], dict]] = None, queue=None, history=None, config=None,
                opener: Optional[Callable[[str], None]] = None, mapped_roots: Optional[Callable[[], list]] = None,
-               sampler=None, on_quit: Optional[Callable[[], None]] = None, preview=None, gpu=None, env_jobs=None, translator_ok=None, tool_engines=None, library_deps=None) -> FastAPI:
+               sampler=None, on_quit: Optional[Callable[[], None]] = None, preview=None, gpu=None, env_jobs=None, translator_ok=None, tool_engines=None, library_deps=None, ocr_engine=None) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.state.bus = bus or EventBus()
     if get_state is None and queue is not None:
@@ -36,6 +36,7 @@ def create_app(token: str, port: int, bus: Optional[EventBus] = None,
                              **({'gpu': gpu.value} if gpu is not None else {})}
     app.state.tools = None
     app.state.library = None
+    app.state.ocr = None
     if queue is not None and config is not None:
         from tpweb.tools import ToolRuns
         app.state.tools = ToolRuns(app.state.bus, queue.gate, config, tool_engines)
@@ -44,7 +45,9 @@ def create_app(token: str, port: int, bus: Optional[EventBus] = None,
         deps = library_deps or {}
         app.state.library = LibraryManager(app.state.bus, config, queue, deps.get('client'), deps.get('api'))
         queue.subtitle_created_hooks.append(app.state.library.notify_subtitle_created)
-        get_state = lambda: {**base_state(), 'tools': app.state.tools.state()}      # noqa: E731  (un client che ha perso eventi ritrova i dialoghi)
+        from tpweb.ocr import OcrManager
+        app.state.ocr = OcrManager(app.state.bus, config, queue, app.state.library, ocr_engine)
+        get_state = lambda: {**base_state(), 'tools': app.state.tools.state(), 'ocr': app.state.ocr.state()}      # noqa: E731  (un client che ha perso eventi ritrova i dialoghi)
     app.state.get_state = get_state or (lambda: {})
     app.state.queue = queue
     if opener is None:
@@ -67,6 +70,8 @@ def create_app(token: str, port: int, bus: Optional[EventBus] = None,
     if app.state.tools is not None:
         from tpweb.routes_tools import add_library_routes, add_sync_routes, add_tool_routes
         add_library_routes(app, app.state.library)
+        from tpweb.routes_tools import add_ocr_routes
+        add_ocr_routes(app, app.state.ocr)
         add_tool_routes(app, app.state.tools)
         add_sync_routes(app, app.state.tools)
     if preview is not None:

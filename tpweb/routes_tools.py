@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from core.services import glossary_service as GS
@@ -197,3 +197,97 @@ def add_library_routes(app: FastAPI, lib) -> None:
     @app.post('/api/library/ass')
     async def library_ass(b: AssBody):
         return await asyncio.to_thread(lib.convert_ass, b.video_ids)
+
+
+class OcrStartBody(BaseModel):
+    path: str
+    kind: str = 'pgs'
+
+
+class DeferredModeBody(BaseModel):
+    paths: List[str]
+    mode: Optional[str] = None
+
+
+class TextBody(BaseModel):
+    i: int
+    text: str = ''
+
+
+class ItalicBody(BaseModel):
+    text: str
+    sel: Optional[List[int]] = None
+
+
+class DoneBody(BaseModel):
+    accept: bool
+
+
+def add_ocr_routes(app: FastAPI, ocr) -> None:
+    @app.get('/api/ocr')
+    async def ocr_state():
+        return ocr.state()
+
+    @app.post('/api/ocr/start')
+    async def ocr_start(b: OcrStartBody):
+        if b.kind not in ('pgs', 'vobsub'):
+            return JSONResponse({'error': 'kind'}, status_code=422)
+        result = await asyncio.to_thread(ocr.start, b.path, b.kind)
+        return JSONResponse({'result': result}, status_code=409 if result == 'busy' else 200)
+
+    @app.post('/api/ocr/superpower/check')
+    async def superpower_check():
+        warn = ocr.superpower_precheck()
+        return {'ok': warn is None, **(warn or {})}
+
+    @app.post('/api/ocr/superpower')
+    async def superpower_run():
+        return await asyncio.to_thread(ocr.superpower)
+
+    @app.post('/api/ocr/cancel')
+    async def ocr_cancel():
+        return {'cancelling': ocr.cancel()}
+
+    @app.post('/api/ocr/deferred-mode')
+    async def ocr_deferred_mode(b: DeferredModeBody):
+        if b.mode not in (None, 'review', 'auto'):
+            return JSONResponse({'error': 'mode'}, status_code=422)
+        return {'changed': ocr.set_deferred_mode(b.paths, b.mode)}
+
+    @app.get('/api/ocr/review/list')
+    async def review_list(only_flagged: bool = False):
+        r = ocr.review_list(only_flagged)
+        return JSONResponse(r, status_code=200) if r is not None else JSONResponse({'error': 'no_review'}, status_code=404)
+
+    @app.get('/api/ocr/review/event/{i}')
+    async def review_event(i: int):
+        r = ocr.review_event(i)
+        return JSONResponse(r) if r is not None else JSONResponse({'error': 'no_event'}, status_code=404)
+
+    @app.put('/api/ocr/review/text')
+    async def review_text(b: TextBody):
+        r = ocr.review_text(b.i, b.text)
+        return JSONResponse(r) if r is not None else JSONResponse({'error': 'no_event'}, status_code=404)
+
+    @app.post('/api/ocr/review/verify')
+    async def review_verify(b: TextBody):
+        r = ocr.review_verify(b.i, b.text)
+        return JSONResponse(r) if r is not None else JSONResponse({'error': 'no_event'}, status_code=404)
+
+    @app.get('/api/ocr/review/next-flagged')
+    async def review_next(i: int):
+        return {'next': ocr.review_next_flagged(i)}
+
+    @app.post('/api/ocr/review/italic')
+    async def review_italic(b: ItalicBody):
+        return ocr.italic(b.text, b.sel)
+
+    @app.get('/api/ocr/review/image/{i}')
+    async def review_image(i: int):
+        png = await asyncio.to_thread(ocr.review_image, i)
+        return Response(png, media_type='image/png', headers={'Cache-Control': 'no-store'}) if png else JSONResponse({'error': 'no_image'}, status_code=404)
+
+    @app.post('/api/ocr/review/done')
+    async def review_done(b: DoneBody):
+        ok = await asyncio.to_thread(ocr.review_done, b.accept)
+        return JSONResponse({'ok': ok}, status_code=200 if ok else 409)

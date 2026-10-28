@@ -21,13 +21,13 @@ def free_port() -> int:
 class ServerThread:
     def __init__(self, token: Optional[str] = None, port: Optional[int] = None, bus: Optional[EventBus] = None,
                  get_state: Optional[Callable[[], dict]] = None, queue=None, history=None, config=None,
-                 opener=None, mapped_roots=None, sampler=None, on_quit=None, preview=None, gpu=None, env_jobs=None, translator_ok=None, tool_engines=None, library_deps=None):
+                 opener=None, mapped_roots=None, sampler=None, on_quit=None, preview=None, gpu=None, env_jobs=None, translator_ok=None, tool_engines=None, library_deps=None, ocr_engine=None):
         self.token = token or secrets.token_urlsafe(24)
         self.port = port or free_port()
         self.bus = bus or EventBus()
         self.queue = queue
         self.gpu = gpu
-        self.app = create_app(self.token, self.port, self.bus, get_state, queue, history, config, opener, mapped_roots, sampler, on_quit, preview, gpu, env_jobs, translator_ok, tool_engines, library_deps)
+        self.app = create_app(self.token, self.port, self.bus, get_state, queue, history, config, opener, mapped_roots, sampler, on_quit, preview, gpu, env_jobs, translator_ok, tool_engines, library_deps, ocr_engine)
         self.server = uvicorn.Server(uvicorn.Config(self.app, host='127.0.0.1', port=self.port, log_level='warning'))
         self.thread = threading.Thread(target=self.server.run, daemon=True)
 
@@ -43,6 +43,9 @@ class ServerThread:
         return self
 
     def stop(self) -> None:
+        ocr = self.app.state.ocr
+        if ocr is not None:
+            ocr.shutdown()
         tools = self.app.state.tools
         if tools is not None:
             tools.shutdown()                     # nessun sottoprocesso di uno strumento resta orfano alla chiusura
