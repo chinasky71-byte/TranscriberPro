@@ -21,7 +21,8 @@ KEEPALIVE_S = 15
 
 def create_app(token: str, port: int, bus: Optional[EventBus] = None,
                get_state: Optional[Callable[[], dict]] = None, queue=None, history=None, config=None,
-               opener: Optional[Callable[[str], None]] = None, mapped_roots: Optional[Callable[[], list]] = None) -> FastAPI:
+               opener: Optional[Callable[[str], None]] = None, mapped_roots: Optional[Callable[[], list]] = None,
+               sampler=None, on_quit: Optional[Callable[[], None]] = None) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.state.bus = bus or EventBus()
     if get_state is None and queue is not None:
@@ -43,6 +44,11 @@ def create_app(token: str, port: int, bus: Optional[EventBus] = None,
     if config is not None:
         from tpweb.routes_settings import add_settings_routes
         add_settings_routes(app, config)
+    if queue is not None and on_quit is not None:
+        from tpweb.routes_lifecycle import add_lifecycle_routes
+        add_lifecycle_routes(app, queue, on_quit)
+    from tpweb.routes_resources import add_resource_routes
+    add_resource_routes(app, sampler)
     from tpweb.routes_fs import add_fs_routes
     add_fs_routes(app, mapped_roots or (lambda: []))
 

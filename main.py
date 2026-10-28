@@ -37,6 +37,24 @@ from pathlib import Path
 
 warnings.filterwarnings("ignore", message="In 2.9, this function's implementation")
 
+# Interfaccia web (--ui web, o chiave `ui` del config): parte senza caricare PyQt6 ne' onnxruntime. Il predefinito resta Qt.
+if __name__ == '__main__':
+    from tpweb.ui_choice import requested_ui, ui_from_args
+    try:
+        _ui = ui_from_args(sys.argv[1:])
+    except ValueError as _e:
+        print(str(_e), file=sys.stderr)
+        sys.exit(2)
+    if _ui is None:
+        try:
+            from utils.config import get_config
+            _ui = requested_ui(sys.argv[1:], get_config().get)
+        except Exception:
+            _ui = 'qt'
+    if _ui == 'web':
+        from tpweb.launcher import main as _web_main
+        sys.exit(_web_main([a for a in sys.argv[1:] if a not in ('--ui', 'web', 'qt') and not a.startswith('--ui=')]))
+
 # onnxruntime deve essere importato PRIMA di PyQt6.
 # Qt6 carica DLL che confliggono con onnxruntime_pybind11_state se importato dopo.
 import onnxruntime as _ort  # noqa: F401 (usato da faster-whisper VAD)
