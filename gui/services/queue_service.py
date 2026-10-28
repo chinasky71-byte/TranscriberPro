@@ -41,7 +41,8 @@ from utils.logger import setup_logger
 
 logger = setup_logger()
 
-VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v']
+from core.services.file_scan import VIDEO_EXTENSIONS  # noqa: E402,F401
+from core.services.shutdown_policy import ShutdownPolicy  # noqa: E402,F401
 
 
 class StartVerdict(Enum):
@@ -59,15 +60,6 @@ class QueueStats:
     queued: int
     errors: int
     eta: str                   # gia' formattata; EN_DASH se non calcolabile
-
-
-class ShutdownPolicy:
-    """Spegnimento del PC a fine coda (casella 'Spegni'): comando per sistema e ritardo."""
-    DELAY_MS = 5000
-
-    @staticmethod
-    def command() -> List[str]:
-        return ['shutdown', '/s', '/t', '60'] if os.name == 'nt' else ['shutdown', '-h', '+1']
 
 
 class QueueService(QObject):

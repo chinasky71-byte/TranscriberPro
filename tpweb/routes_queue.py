@@ -31,6 +31,8 @@ class OverridesBody(BaseModel):
 
 
 def add_queue_routes(app: FastAPI, wq: WebQueue) -> None:
+    add_queue_scan_routes(app, wq)
+
     @app.get('/api/queue')
     async def get_queue():
         return {'seq': app.state.bus.last_seq, **wq.state()}
@@ -71,3 +73,29 @@ def add_queue_routes(app: FastAPI, wq: WebQueue) -> None:
     @app.post('/api/queue/stop')
     async def stop():
         return {'stopping': wq.stop()}
+
+
+class ScanBody(BaseModel):
+    folder: str
+    exts: Optional[List[str]] = None
+
+
+class SizesBody(BaseModel):
+    paths: List[str]
+
+
+def add_queue_scan_routes(app: FastAPI, wq: WebQueue) -> None:
+    @app.post('/api/queue/scan')
+    async def scan(body: ScanBody):
+        ok = wq.scan_folder(body.folder, body.exts)
+        return JSONResponse({'started': ok}, status_code=200 if ok else 409)
+
+    @app.post('/api/queue/scan/cancel')
+    async def scan_cancel():
+        wq.cancel_scan()
+        return {'ok': True}
+
+    @app.post('/api/queue/sizes')
+    async def sizes(body: SizesBody):
+        wq.request_sizes(body.paths)
+        return {'requested': len(body.paths)}
