@@ -185,7 +185,8 @@ def test_con_la_coda_al_lavoro_il_job_aspetta_poi_parte_con_la_revisione_scelta(
     assert row(c, 'V:\\auto_ok.mkv')['ov'] == tr('job_ov_ocr_targeted_short')
     assert any(tr('job_ov_skipped_log').format(n=1) in l['text'] for l in c.q.log.lines)
     c.ocr.drain_deferred()
-    assert FakeEngine.made == []                                       # coda ancora al lavoro: resta in attesa
+    assert FakeEngine.made == [] and c.ocr.state()['deferred'] == ['V:\\auto_ok.mkv']        # coda ancora al lavoro: resta in attesa
+    assert len([r for r in c.q.rows() if r['kind'] == 'ocr']) == 1                          # e non si ripete la riga del job
     flag['v'] = False
     c.ocr.drain_deferred()
     idle(c)
@@ -290,3 +291,15 @@ def test_chiusura_del_server_annulla_l_ocr(srv):
     eng = FakeEngine.made[0]
     c.srv.stop()
     assert eng.cancelled.is_set() and not c.ocr._thread.is_alive()
+
+
+def test_l_avanzamento_non_rilegge_la_coda_ma_il_cambio_di_stato_si(srv):
+    c = srv
+    FakeEngine.gate = threading.Event()
+    seq = c.srv.bus.last_seq
+    c.post('/api/ocr/start', json={'path': 'V:\\film\\auto_ok.mkv', 'kind': 'pgs'})
+    wait(lambda: row(c, 'V:\\film\\auto_ok.mkv') is not None and row(c, 'V:\\film\\auto_ok.mkv')['progress'] == 30)
+    kinds = [e['k'] for e in c.srv.bus.since(seq)[0]]
+    assert kinds.count('job_changed') == 1 and 'file_progress' in kinds        # una volta lo stato (queued -> processing); il 30% solo sul posto
+    FakeEngine.gate.set()
+    idle(c)
