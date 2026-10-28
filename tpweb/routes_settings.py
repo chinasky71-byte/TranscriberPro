@@ -3,7 +3,7 @@
 Le chiavi API e le password NON escono mai dal server: la pagina vede solo se sono impostate (`*_set`) e puo' sostituirle."""
 import asyncio
 import sys
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -13,6 +13,7 @@ from core.services.adaptive_batch_service import AdaptiveBatchService, AdaptiveB
 from core.services.general_settings_service import GeneralSettingsService, LANGUAGES, ping_scanner
 from core.services.job_options_service import JobOptionsService, SUBTITLE_LANGUAGE_CODES, defaults_summary, engine_short
 from core.services.ocr_settings_service import OcrSettingsService
+from core.services.settings_service import SettingsService
 from core.services.opensubtitles_settings_service import IMPLEMENTATIONS, OpenSubtitlesSettingsService
 from core.pgs_types import WRITEBACK_MUX, WRITEBACK_SIDECAR, STRATEGY_AUTO, STRATEGY_REVIEW
 
@@ -71,6 +72,10 @@ class RevealBody(BaseModel):
     name: Literal['scanner_api_key', 'os_com_password', 'os_com_api_key', 'os_org_password']
 
 
+class SplitterBody(BaseModel):
+    sizes: List[int] = Field(min_length=3, max_length=3)
+
+
 class LastTabBody(BaseModel):
     tab: Literal['general', 'jobs', 'transcription', 'translation', 'batch', 'opensubtitles', 'ocr']
 
@@ -82,6 +87,7 @@ class PingBody(BaseModel):
 
 def add_settings_routes(app: FastAPI, config) -> None:
     gen, job = GeneralSettingsService(config), JobOptionsService(config)
+    ui_state = SettingsService(config)
     abs_, ocr, osub = AdaptiveBatchService(config), OcrSettingsService(config), OpenSubtitlesSettingsService(config)
 
     def general() -> dict:
@@ -229,6 +235,17 @@ def add_settings_routes(app: FastAPI, config) -> None:
         value = {'scanner_api_key': gen.scanner_api_key(), 'os_com_password': com.get('password'), 'os_com_api_key': com.get('api_key'),
                  'os_org_password': org.get('password')}[b.name]
         return {'value': value or ''}
+
+    @app.get('/api/settings/splitter')
+    async def get_splitter():
+        return {'sizes': ui_state.main_splitter_sizes()}                 # None = predefinite (2:3:3)
+
+    @app.put('/api/settings/splitter')
+    async def put_splitter(b: SplitterBody):
+        if not all(x > 0 for x in b.sizes):
+            return JSONResponse({'error': 'dimensioni non valide'}, status_code=422)
+        ui_state.save_main_splitter_sizes(b.sizes)
+        return {'sizes': ui_state.main_splitter_sizes()}
 
     @app.put('/api/settings/last_tab')
     async def put_last_tab(b: LastTabBody):

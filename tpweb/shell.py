@@ -138,7 +138,9 @@ class Shell:
         t = threading.Thread(target=watchdog, name='tpweb-shell-watchdog', daemon=True)
         t.start()
         try:
-            wv.start(storage_path=profile) if profile else wv.start()
+            # pywebview usa la modalita' privata (nessun profilo su disco) finche' non gli si da' una cartella: il tentativo pulito
+            # ne usa una NUOVA e vuota (private_mode=False + storage_path)
+            wv.start(storage_path=profile, private_mode=False) if profile else wv.start()
         except Exception as e:
             stop.set()
             return f'error:{e}'

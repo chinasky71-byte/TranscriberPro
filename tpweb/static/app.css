@@ -42,7 +42,9 @@ button:focus-visible, .file-list:focus-visible { outline: 1px solid var(--accent
 
 /* --- tre pannelli: 414 / 472 / 472 con maniglie di 6 px, margini 15/12/15/15 ------------------------------------------- */
 .stack { flex: 1; min-height: 0; padding: 12px 15px 15px; }
-.splitter { height: 100%; display: grid; grid-template-columns: 414fr 472fr 472fr; column-gap: 6px; }
+.splitter { height: 100%; display: grid; grid-template-columns: 414fr 6px 472fr 6px 472fr; column-gap: 0; }
+.split-handle { cursor: col-resize; touch-action: none; border-radius: 3px; } .split-handle:hover { background: var(--accent-a30); }
+.splitter > .panel { min-width: 0; }
 .history-wrap { height: 100%; }
 .panel { min-width: 0; min-height: 0; background: var(--bg-1); border: 1px solid var(--line); border-radius: 12px; padding: 23px; overflow: hidden; }
 .panel-title { font-size: 13px; font-weight: 400; padding: 2px 0 8px; }

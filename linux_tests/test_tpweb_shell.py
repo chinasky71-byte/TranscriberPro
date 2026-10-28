@@ -123,7 +123,7 @@ def test_pagina_bianca_si_riprova_con_un_profilo_pulito(tmp_path):
     sh, _ = make_shell(wv, ready=ready, profile_root=str(tmp_path / 'prof'))
     assert sh.run() is True and sh.results == ['timeout', 'ok']
     assert wv.windows[0].destroyed.is_set()                           # il watchdog ha chiuso la finestra bianca
-    assert wv.starts[0] == {} and set(wv.starts[1]) == {'storage_path'} and Path(wv.starts[1]['storage_path']).is_dir()
+    assert wv.starts[0] == {} and set(wv.starts[1]) == {'storage_path', 'private_mode'} and wv.starts[1]['private_mode'] is False and Path(wv.starts[1]['storage_path']).is_dir()
 
 
 def test_tutti_i_tentativi_falliti_e_errori_di_creazione(tmp_path):

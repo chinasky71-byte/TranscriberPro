@@ -130,3 +130,8 @@ Ordine delle fette (ognuna: PR in `webui/main`, test del contratto, prova di mut
 - **5b/5c:** `OcrManager` — macchina a stati di `LibraryScannerWidget` portata sul server: OCR singolo, revisione mirata (eventi e immagini sul server), write-back, coda differita a coda libera, batch e Superpower. `finished_hooks` della coda (a coda davvero finita), `schedule_shutdown` riusato dal batch.
 - **Difetti trovati dai test:** pallino dello scanner con la stessa classe di quello della barra; nomi dei file con percorsi di Windows sul server Linux (`base_name`); hook di fine coda chiamati quando il thread della coda era ancora vivo (i differiti non sarebbero mai partiti).
 - **Mutazioni:** 5a 15/16 (1 equivalente), 5b 22/22 e 5c 7/7 uccise dopo i test aggiunti.
+
+## Fase 6 – rifinitura e pacchetto (ramo `webui/p13-guscio`, 28/10/2026)
+- Guscio pywebview 6.2.1 (API verificate sul sorgente della ruota): `tpweb/shell.py` con watchdog all'avvio (la prima pagina collegata a `/events` e' il segnale), secondo tentativo con profilo pulito (`private_mode=False` + cartella nuova), ripiego sul browser; dialoghi nativi, trascinamento, chiusura con conferma.
+- Maniglie dei pannelli, script di avvio, `requirements-web.txt`, `TranscriberProWeb.spec`, guida `docs/WEBUI_USO.md`.
+- **Resta per Windows (sessione locale):** finestra vera, dialoghi, trascinamento, build PyInstaller, confronto d'aspetto (C-011).
