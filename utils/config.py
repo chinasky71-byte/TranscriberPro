@@ -340,9 +340,14 @@ class Config:
         'punctuation_min_density':  0.0,     # 0.0 = solo testi senza ALCUNA punteggiatura
 
         # Library Scanner Settings
-        'library_scanner_url': 'http://192.168.1.12:6680',
+        # Nessun endpoint ne' chiave di default: la regola privacy vieta di
+        # committare indirizzi di rete e credenziali. Entrambi si impostano
+        # nella config locale (`TP_DATA_DIR/config.json`) o nelle Impostazioni
+        # della WebUI; con il valore vuoto la GUI mostra "config mancante"
+        # invece di puntare a un server che non esiste.
+        'library_scanner_url': '',
         'library_scanner_path_map': '',   # una regola per riga: <prefisso server>=<prefisso locale> (Linux/macOS; vuoto = invariato)
-        'library_scanner_api_key': 'IDu_J0LvpqcmJ0nCFjXc6rlu2oKNoDE2bEO8CUVrNng',
+        'library_scanner_api_key': '',
         'library_scanner_enabled': True,
 
         # Gender Correction (LLM post-traduzione)
