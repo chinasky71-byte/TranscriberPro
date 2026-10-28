@@ -209,6 +209,7 @@ def test_file_fallito_e_crash_contano_come_errori(wq, tmp_path):
     wq.join(60)
     assert [r['status'] for r in wq.rows()] == ['failed', 'completed']
     assert (wq.completed_count, wq.error_count) == (1, 1)
+    assert wq.diag()['errors'] == '1' and [e['d']['errors'] for e in wq.bus.since(0)[0] if e['k'] == 'diag'][-1] == '1'      # la tessera segue il file fallito (scelta B)
     errs = [e['d'] for e in wq.bus.since(0)[0] if e['k'] == 'file_error']
     assert errs and errs[0]['path'] == vids[0] and 'exit code' in errs[0]['message']
 
@@ -300,3 +301,11 @@ def test_http_corpo_non_valido_e_senza_token(web):
     c, wq = web
     assert c.post('/api/queue/add', json={'percorsi': []}).status_code == 422
     assert httpx.post(str(c.base_url) + '/api/queue/add', json={'paths': []}).status_code in (401, 403)
+
+
+def test_tessera_errori_non_porta_con_se_i_file_fermati_della_coda_precedente(wq, tmp_path):
+    wq.stopped_count = 1                                   # una coda precedente fermata con Stop
+    wq.add(kit.make_videos(tmp_path, 'fail.mkv'))
+    wq.start()
+    wq.join(60)
+    assert wq.stopped_count == 0 and wq.diag()['errors'] == '1'
