@@ -182,3 +182,11 @@ def test_nomi_dalla_cartella_e_ricerca_tmdb_fuori_dal_ciclo_degli_eventi(srv, mo
     assert out == [{'found': True, 'tmdb_id': 42, 'title': 'Mio Show', 'used': 'Mio Show'}] and calls == [['Mio Show']]
     monkeypatch.setattr(GS, 'resolve_tmdb', lambda names: (None, None))
     assert c.post('/api/tools/glossary/resolve', json={'names': ['x']}).json() == {'found': False}
+
+
+def test_il_server_tiene_solo_le_ultime_righe_di_log(srv):
+    mgr = srv.srv.app.state.tools.glossary
+    for i in range(350):
+        mgr._log(f'r{i}')
+    log = srv.get('/api/tools/glossary').json()['log']
+    assert len(log) == 300 and log[0] == 'r50' and log[-1] == 'r349'
