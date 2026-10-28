@@ -364,3 +364,6 @@ button:focus-visible, .file-list:focus-visible { outline: 1px solid var(--accent
 .settings-content { padding: 16px 20px 16px 20px; }
 .settings-dialog { border: 0; box-shadow: 0 0 0 1px var(--line-strong), 0 12px 40px rgba(0,0,0,.45); }
 .settings-sidebar .side-item.selected { color: var(--fg-0); }
+/* P16: con il Library Scanner aperto la tabella mostrava ~2,5 righe (spazio diviso a meta' con la lista): la scheda riceve la parte maggiore */
+.scanner-card.open { flex-grow: 3; }
+.left-panel:has(.scanner-card.open) .file-list { min-height: 110px; }
