@@ -25,6 +25,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 STATES = ['vuota', 'righe', 'filtro_attivi', 'filtro_coda', 'filtro_completati', 'pipeline', 'cronologia']
+SETTINGS_STATES = ['imp_general', 'imp_jobs', 'imp_transcription', 'imp_translation', 'imp_batch', 'imp_opensubtitles', 'imp_ocr']      # finestra Impostazioni, una per scheda
 
 CHILD = r'''
 import json, os, sys, tempfile
@@ -121,7 +122,23 @@ if state == 'pipeline':
 if state == 'cronologia':
     mw.main_tab_bar.setCurrentIndex(1)
     mw.history_widget.load()
-snap(state)
+if state.startswith('imp_'):
+    from gui.settings_dialog import SettingsDialog
+    dlg = SettingsDialog(mw, initial_tab=state[4:])
+    dlg.show()
+    pump(30)
+    img = dlg.grab().toImage()
+    img.save(str(out / (state + '.png')))
+    from PyQt6.QtWidgets import QWidget
+    res = {}
+    for w in dlg.findChildren(QWidget):
+        n = w.objectName()
+        if n and w.isVisible():
+            p = w.mapTo(dlg, w.rect().topLeft())
+            res[n + '#' + str(len(res))] = [p.x(), p.y(), w.width(), w.height()]
+    (out / (state + '.json')).write_text(json.dumps({'widgets': res, 'rows': [], 'window': [dlg.width(), dlg.height()], 'dpr': img.devicePixelRatio()}, indent=1), encoding='utf-8')
+else:
+    snap(state)
 '''
 
 
@@ -137,7 +154,7 @@ def main():
     ap.add_argument('--out', default=str(Path(__file__).resolve().parent / 'results' / ('p2_qt_' + ('windows' if sys.platform == 'win32' else 'linux'))))
     ap.add_argument('--scales', nargs='+', type=float, default=[1.0, 1.25, 1.5])
     ap.add_argument('--platform', default='windows' if sys.platform == 'win32' else 'offscreen')
-    ap.add_argument('--states', nargs='+', default=STATES)
+    ap.add_argument('--states', nargs='+', default=STATES + SETTINGS_STATES)
     a = ap.parse_args()
     report = {}
     for s in a.scales:

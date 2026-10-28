@@ -13,7 +13,9 @@ let state = {
   job: { defaults_summary: '', shutdown_after: false },
   resources: null,
   historyCount: null,
-  ui: { filter: 'all', selected: [], anchor: null, current: null, tab: 'queue', scannerOpen: false },
+  ui: { filter: 'all', selected: [], anchor: null, current: null, tab: 'queue', scannerOpen: false, settings: null },
+  message: null,
+  env: {},
   log: [],                                   // {id, text, kind}: le righe le decide il server (filtro, barre sul posto, colori)
   logOptions: { compact: true, pipeline_open: true },
   diag: { elapsed: '–', errors: '0', model: '–', translator: '–', engine: '–' },
@@ -109,6 +111,8 @@ function onMessages(msgs) {
       case 'poster_failed': setState({ preview: { path: m.d.path, status: 'failed', poster_id: null } }); break;
       case 'poster_cleared': setState({ preview: { path: null, status: 'none', poster_id: null } }); break;
       case 'gpu_badge': setState({ gpu: m.d }); break;
+      case 'env_line': setState({ env: { ...state.env, [m.d.job]: { ...state.env[m.d.job], running: true, lines: [...((state.env[m.d.job] || {}).lines || []), m.d.line].slice(-50), last_line: m.d.line } } }); break;
+      case 'env_done': setState({ env: { ...state.env, [m.d.job]: { ...state.env[m.d.job], running: false, exit_code: m.d.exit_code, last_line: m.d.last_line } } }); break;
       case 'scan_finished': selectLast(); structural = true; break;
       case 'history': refreshHistoryCount(); structural = true; break;
       default: structural = true;
@@ -189,6 +193,8 @@ export async function addPaths(paths) {
   }
   return r;
 }
+export const openSettings = (tab) => setUi({ settings: { tab } });
+export const closeSettings = () => setUi({ settings: null });
 export const addFolder = (folder) => post('/api/queue/scan', { folder });
 export const setCompact = (enabled) => post('/api/log/compact', { enabled });
 export const setPipelineOpen = (open) => post('/api/log/pipeline-card', { open });

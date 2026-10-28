@@ -92,3 +92,16 @@ export function FileBrowser({ mode, title, exts, onPick, onCancel }) {
       </div>
     </div></div>`;
 }
+
+
+/** Finestra generica con un titolo, un corpo e «OK» (guide e messaggi lunghi). */
+export function Modal({ title, children, onClose, testid }) {
+  useLayoutEffect(() => {
+    const k = (e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
+    window.addEventListener('keydown', k, true);
+    return () => window.removeEventListener('keydown', k, true);
+  }, []);
+  return html`<div class="modal-backdrop" onClick=${onClose}><div class="modal modal-guide" role="dialog" aria-modal="true" data-testid=${testid} onClick=${(e) => e.stopPropagation()}>
+    <div class="modal-title">${title}</div><div class="modal-body">${children}</div>
+    <div class="modal-actions"><button class="btn btn-start" data-testid="modal-ok" onClick=${onClose}>${t('web_ok')}</button></div></div></div>`;
+}

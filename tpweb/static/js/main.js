@@ -5,9 +5,12 @@ import { TitleBar, TabBar } from '/static/js/chrome.js';
 import { QueuePanel } from '/static/js/queue_panel.js';
 import { CenterPanel, RightPanel } from '/static/js/side_panels.js';
 import { HistoryView } from '/static/js/history_view.js';
+import { SettingsDialog } from '/static/js/settings.js';
+import { MessageHost } from '/static/js/dialogs.js';
 
 function App() {
   const tab = useStore((s) => s.ui.tab);
+  const settingsOpen = useStore((s) => !!s.ui.settings);
   return html`<div class="window">
     <${TitleBar} />
     <${TabBar} />
@@ -16,6 +19,8 @@ function App() {
         ? html`<div class="splitter"><${QueuePanel} /><${CenterPanel} /><${RightPanel} /></div>`
         : html`<div class="history-wrap"><${HistoryView} onCount=${(n) => setState({ historyCount: n })} /></div>`}
     </main>
+    ${settingsOpen ? html`<${SettingsDialog} />` : null}
+    <${MessageHost} />
   </div>`;
 }
 

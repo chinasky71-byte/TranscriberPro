@@ -9,6 +9,10 @@ persistito al momento del cambio, non a fine sessione.
 from dataclasses import dataclass
 
 
+# Lingue sottotitoli supportate (i nomi si traducono con le chiavi lang_name_<codice>)
+SUBTITLE_LANGUAGE_CODES = ("ita", "eng", "fra", "spa", "deu", "por", "rus", "jpn", "zho", "ara", "kor", "nld", "pol", "tur")
+
+
 def engine_short(config) -> str:
     """Motore di traduzione predefinito, in breve ('TG', 'NLLB-FT', ...)."""
     try:
