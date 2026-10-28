@@ -121,17 +121,19 @@ def test_revisione_dialogo_lista_filtro_tasti_corsivo_e_scrittura(env):
         page.locator('[data-testid=rv-flagged]').locator('xpath=..').click()
         until(page, "() => document.querySelectorAll('.review-item').length === 4")
         page.click('.review-item[data-i="0"]')
+        until(page, "() => document.querySelector('.review-item.selected').dataset.i === '0'")
         assert page.locator('[data-testid=rv-prev]').is_disabled() and page.locator('[data-testid=rv-next]').is_enabled()
         page.click('[data-testid=rv-next]')
         until(page, "() => document.querySelector('.review-item.selected').dataset.i === '1'")
         assert page.locator('[data-testid=rv-noimage]').count() == 0
         page.click('.review-item[data-i="2"]')
         until(page, "() => document.querySelector('[data-testid=rv-noimage]')")
+        page.fill('[data-testid=rv-text]', 'Fine!')                                    # modifica non ancora salvata: «Fatto» la salva
         page.click('[data-testid=rv-done]')
         title, text = message(page)
         assert text == IT['ls_srt_written'].format(name='review.mkv')
         wb = FakeEngine.made[-1].args
-        assert wb['mode'] == 'writeback' and 'Dubbio' in wb['srt_text'] and '<i>Altro</i> dubbio' in wb['srt_text']
+        assert wb['mode'] == 'writeback' and 'Dubbio' in wb['srt_text'] and '<i>Altro</i> dubbio' in wb['srt_text'] and 'Fine!' in wb['srt_text']
         assert page.locator('[data-testid=ocr-review]').count() == 0 and env.problems == []
     finally:
         VIDEOS[1]['filename'], VIDEOS[1]['windows_path'] = 'Serie.S01E01.mkv', 'V:\\serie\\Serie.S01E01.mkv'
