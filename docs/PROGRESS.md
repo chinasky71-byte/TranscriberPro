@@ -27,219 +27,257 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
-## 2026-10-27 — WebUI allineata al motore unico
+## 2026-10-28 — Translation engine campaign: compendium and harness
+
+- Branch / commits: `docs/translation-engine-compendium`.
+- Goal: eleven translation configurations were measured on one episode with a
+  professional reference; without a written record the next session would repeat
+  the runs and re-learn the two metric traps. This step records the campaign and
+  makes it reproducible.
+- Done (files, commands): new `bench/translation_compare.py`, the harness used for
+  every run, self-contained and with three modes (`translategemma` = the product's
+  own prompt path, `chat` = a model with a system role and optional subtitle
+  rules, `raw` = no chat template) plus the `edit` subcommand for a second
+  constrained pass. New `docs/benchmarks/2026-10-28-translation-engines.md`:
+  material, method, the table of all eleven configurations, what did not work
+  (context in the prompt, the editor pass, "just use a bigger model"), the defect
+  taxonomy, the limits, the reproduce commands and an appendix with short
+  excerpts. `docs/benchmarks/README.md` gains the row and the command;
+  `docs/STATUS.md` item 2 records that the end-to-end run has been done.
+- Tests and results: `pytest linux_tests -q` -> see the suite figure in the merge
+  commit; docs guard tests green. Repro of the first run:
+  `python -m bench.translation_compare translate --engine translategemma ...`
+  reproduces the baseline (chrF 0.7608, WER 0.7393, 28.3 chars/cue).
+- Decisions / ADRs: no new ADR; ADR-009 stays as it is because no engine replaced
+  the current one. Recorded conclusions: TranslateGemma-12B Q4 remains the
+  reference (best WER, tightest length, fastest, half the weights); EuroLLM-22B +
+  rules is the only credible alternative (chrF 0.7682 vs 0.7608, tied on
+  untranslated blocks, Apache-2.0, but 3.8x the time and 1.9x the VRAM);
+  context as prose is archived (inert on the 12B: 0-1 cues changed of 630; it
+  hurts the 22B: untranslated 33 -> 45/46); the editor pass is rejected (chrF
+  +0.008, WER worse, invents words such as "altana" for a gallows); the
+  remaining margin is a human-curated glossary for rare terms, plus referent
+  errors that no validator can catch.
+- Known issues: the campaign is **one episode** of one genre. The mechanisms it
+  exposes are portable, the absolute numbers and the 8-thousandths margin between
+  12B and 22B are not. Nothing in the product changed, so the 22B is *measured
+  but not adopted*. Seed-X was not evaluated as a model: its unofficial GGUF
+  degenerates, which matches the model card's warning.
+- Next step: if the ranking needs to be firmer, repeat on 2-3 episodes of
+  different genres with the three finalists only (12B, 22B + rules, 27B) and
+  report per episode; then attack the glossary with a paired en/it episode
+  (glossary from episode A, applied to episode B, measured against B's
+  professional track).
+
+## 2026-10-27 — WebUI aligned with the single engine
 
 - Branch / commits: `feat/webui-single-engine`, from `development` (`1e6507b`).
-- Goal: dopo ADR-008 e ADR-009 la pagina Impostazioni mostrava comandi che non
-  comandavano piu' niente e la dashboard taceva sull'unica cosa che puo' mancare.
-  Tre chiavi (`whisper_model`, `whisper_vad_threshold`,
-  `whisper_vad_min_silence_ms`) non erano nemmeno in `Config.DEFAULTS`: la UI le
-  scriveva nel config e nessun modulo le leggeva. `llm_translator_model` e'
-  un testo libero che puo' solo essere sbagliato (un solo valore valido), e
-  `translation_model` un select con una opzione. Nessun modo, invece, di dire
-  dove stanno i pesi GGUF.
+- Goal: after ADR-008 and ADR-009 the settings page still offered controls that
+  controlled nothing, and the dashboard was silent about the one thing that can
+  be missing. Three keys (`whisper_model`, `whisper_vad_threshold`,
+  `whisper_vad_min_silence_ms`) were not even in `Config.DEFAULTS`: the UI wrote
+  them into the config and no module read them. `llm_translator_model` is a free
+  text field where only one value is valid, and `translation_model` a select with
+  one option. There was, in exchange, no way to say where the GGUF weights are.
 - Done (files, commands):
-  - `web/config_schema.py`: via le tre chiavi morte e i loro limiti numerici,
-    via `translation_model` e `llm_translator_model` dalle chiavi scrivibili,
-    `FREE_TEXT_KEYS` vuoto (nessun campo libero); `target_language` diventa un
-    enum `('ita',)` invece di una regex su codici ISO; nuova `as_dir(key, value)`
-    usata da `picker_start_dir` e dalla nuova `llm_translator_gguf_dir` (vuoto =
-    default, altrimenti cartella assoluta che esiste).
-  - `web/ui.py`: Impostazioni ridotte a cio' che cambia qualcosa, con i pesi
-    (`llm_translator_gguf_quant`, `llm_translator_gguf_dir`); la dashboard
-    calcola lo stato del motore a ogni render.
-  - `utils/backend_preflight.py`: `translation_status(config)` — file GGUF,
-    llama.cpp con offload, quantizzazione, VRAM richiesta contro libera. Non e'
-    `check_translation_ready`: quella **rifiuta** quando la VRAM adesso non
-    basta, questa **descrive** il motore, altrimenti la dashboard diventerebbe
-    rossa a ogni traduzione in corso.
-  - `web/templates/_status.html` + `web/app.py`: riga **Translator**
-    (quantizzazione, file, "needs ≥ 8,8 GiB, 15,8 free") e alert rosso con il
-    motivo e il rimedio quando il motore non e' pronto; `/api/status` espone lo
-    stesso blocco.
-  - `web/README.md`: via il riferimento a ctranslate2, sezione "Settings that
-    exist", spiegazione della riga Translator.
-  - `utils/job_overrides.py`: commento sul perche' `TRANSLATION` resta (lo usa la
-    Qt congelata) mentre i suoi valori storici vengono scartati.
-- Tests and results: `pytest linux_tests -q` → **704 passed, 15 skipped, 0
-  failed**. Nuovi: la pagina Impostazioni non mostra piu' le cinque chiavi morte
-  e mostra i pesi; la cartella GGUF si salva, rifiuta percorso relativo e
-  cartella inesistente, e vuota torna al default; la dashboard mostra la riga
-  Translator con i numeri e l'alert quando il motore manca (sonda sostituita da
-  uno stub: llama.cpp e torch non si toccano nei test); `/api/config` rifiuta
-  quantizzazione ignota, cartella relativa e `target_language: eng`. Rimosso
-  `test_vad_knobs_in_settings`, che verificava la presenza delle chiavi morte.
-- Decisions / ADRs: nessun ADR nuovo, si applica ADR-009. Due scelte esplicite:
-  (1) le chiavi restano in `Config` come legacy — la Qt congelata e i
-  `config.json` vecchi non si toccano — si smette solo di offrirle; (2) la
-  dashboard distingue "motore pronto" da "VRAM sufficiente adesso", perche' un
-  job in corso occupa la scheda per definizione.
-- Known issues: il server in esecuzione sulla macchina di riferimento e' stato
-  avviato prima di questi merge: `/api/models` risponde ancora con i sei motori
-  vecchi finche' non viene riavviato (il job invece gira col codice nuovo,
-  essendo un processo figlio). `translation_model` resta una chiave di override
-  per-file che accetta solo il valore canonico.
-- Next step: riavvio del server e verifica a mano delle due pagine; poi, se si
-  vuole, il passo di rinomina dei nomi/chiavi `whisper_*` (vedi la voce del
-  2026-10-27 sui residui di Whisper).
+  - `web/config_schema.py`: the three dead keys and their numeric limits are
+    gone, `translation_model` and `llm_translator_model` are no longer writable,
+    `FREE_TEXT_KEYS` is empty (no free fields); `target_language` becomes an enum
+    `('ita',)` instead of a regex over ISO codes; new `as_dir(key, value)` used by
+    `picker_start_dir` and the new `llm_translator_gguf_dir` (empty = default,
+    otherwise an absolute directory that exists).
+  - `web/ui.py`: settings reduced to what changes something, with the weights
+    (`llm_translator_gguf_quant`, `llm_translator_gguf_dir`); the dashboard
+    computes the engine status on every render.
+  - `utils/backend_preflight.py`: `translation_status(config)` — GGUF file,
+    llama.cpp with offload, quantization, VRAM needed against VRAM free. It is
+    not `check_translation_ready`: that one **refuses** when the free VRAM is not
+    enough right now, this one **describes** the engine, otherwise the dashboard
+    would turn red during every translation in progress.
+  - `web/templates/_status.html` + `web/app.py`: a **Translator** row
+    (quantization, file, "needs >= 8.8 GiB, 15.8 free") and a red alert with the
+    reason and the remedy when the engine is not ready; `/api/status` exposes the
+    same block.
+  - `web/README.md`: the ctranslate2 reference is gone, new "Settings that exist"
+    section, explanation of the Translator row.
+  - `utils/job_overrides.py`: comment on why `TRANSLATION` stays (the frozen Qt
+    builds its per-file menu with it) while its historical values are dropped.
+- Tests and results: `pytest linux_tests -q` -> **704 passed, 15 skipped, 0
+  failed**. New tests: the settings page no longer shows the five dead keys and
+  does show the weights; the GGUF folder is saved, rejects a relative path and a
+  missing directory, and empty returns to the default; the dashboard shows the
+  Translator row with its numbers and the alert when the engine is missing (the
+  probe is stubbed: llama.cpp and torch are not touched in tests); `/api/config`
+  rejects an unknown quantization, a relative folder and `target_language: eng`.
+  `test_vad_knobs_in_settings` was removed: it asserted the presence of the dead
+  keys.
+- Decisions / ADRs: no new ADR, ADR-009 applies. Two explicit choices: (1) the
+  keys stay in `Config` as legacy — the frozen Qt and old `config.json` files are
+  not touched, they are simply no longer offered; (2) the dashboard distinguishes
+  "engine ready" from "enough VRAM right now", because a running job holds the
+  card by definition.
+- Known issues: the server running on the reference machine was started before
+  these merges: `/api/models` still answers with the six old engines until it is
+  restarted (the job itself runs the new code, being a child process).
+  `translation_model` remains a per-file override key that accepts only the
+  canonical value.
+- Next step: restart the server and check both pages by hand; then, if wanted,
+  the rename pass for the `whisper_*` names and keys (see the entry about the
+  Whisper leftovers).
 
-## 2026-10-27 — Un solo motore di traduzione (ADR-009)
+## 2026-10-27 — One translation engine (ADR-009)
 
 - Branch / commits: `feat/single-translation-engine` — `8906970` (1), `bf549f2`
   (2), `4ca8f8a` (3), `fe749cc` (3b), `3d408fd` (4), `3e432a0` (5), `f10565f`
-  (6), `f3c7715` (7), `1040e66` (docs), `f66753c` (allineamento con
-  `development`).
-- Goal: la traduzione aveva quattro famiglie di motori (NLLB base e fine-tuned,
-  TranslateGemma in tre forme, tre motori cloud) più un serbatoio L3 che
-  passava le righe difficili a un secondo modello su una CLI sua. Ogni ramo
-  finiva in un sostituto **silenzioso**: un LLM che non partiva diventava
-  NLLB-FT, un GGUF che non si caricava diventava NF4, un GGUF mancante diventava
-  il percorso transformers, una sorgente non inglese veniva instradata su NLLB.
-  L'utente vedeva un sottotitolo finito e non sapeva quale modello l'avesse
-  scritto. Le misure dicevano che il motore buono era uno; il resto era costo.
+  (6), `f3c7715` (7), `1040e66` (docs), `f66753c` (alignment with `development`).
+- Goal: translation had four engine families (NLLB base and fine-tuned,
+  TranslateGemma in three shapes, three cloud engines) plus an L3 reservoir that
+  handed the hard lines to a second model on a CLI of its own. Every branch ended
+  in a **silent** substitute: an LLM that would not start became NLLB-FT, a GGUF
+  that would not load became NF4, a missing GGUF became the transformers path, a
+  non-English source was routed to NLLB. The user saw a finished subtitle and did
+  not know which model had written it. The measurements said one engine was
+  good; the rest was cost.
 - Done (files, commands), per step:
-  1. sorgente non inglese **rifiutata** in `core/pipeline.py` STEP 6 e
-     `core/ocr_auto.py`; `route_non_english_away_from_llm()` eliminata;
-     `test_translation_routing.py` → `test_translation_refusal.py`.
-  2. `core/subtitle_synchronizer.py` solo temporale: via `_LocalQwenMatcher`,
-     `_step2_translate_anchors`, `_step3_match_subtitles`,
-     `_step1_whisper_fallback` come percorso LLM, `sync_engine` e 26 stringhe
-     `sy_*` (1942 → 1062 righe).
-  3. motori cloud rimossi (`ClaudeTranslator`, `OpenAITranslator`,
-     `utils/opensubtitles_ai_translator.py`, l'hallucination guard), chiavi e
-     stringhe; 3b: i metodi di config delle API cloud restano **legacy** perché
-     la Qt congelata li chiama (verifica statica: 0 metodi mancanti).
-  4. serbatoio L3 rimosso: `core/fallback_translate_cli.py` cancellato,
-     `RESERVOIR_*` e i due punti di chiamata via, chiavi
-     `reservoir_engine` / `fallback_translator_model_path` via, stringhe
-     `tl_reservoir_*` / `fb_*` via dai due dizionari e dal manifest.
-  5. politica quant: `utils/translator_path_select.py` → `utils/gguf_quant.py`
-     (restano i numeri misurati e `normalize_quant`), `path_router.py`
-     cancellato, `resolve_gguf_path()` in `gguf_engine.py` che **solleva**
-     nominando cartella e file trovati; `engine.py` tiene uno `ModelSpec` e
-     `build_mt_messages()`, perde `SubtitleLLMEngine`/`get_engine`/`unload_engine`
-     e i loader bf16/NF4/LoRA; `GGUFEngine` non eredita più da lui. Config:
-     `llm_translator_gguf_quant` default `Q4_K_M`, via `llm_translator_gguf_enabled`,
-     `_before_nf4`, `_nf4_min_free_gb`, `_q4_min_free_gb`, `_iq3_min_free_gb`.
-     Installer: `gguf_download.py` non chiede più la VRAM, `auto` = `Q4_K_M`.
-  6. un solo motore e una sola lingua: `VALID_TRANSLATION_MODELS =
-     ['translategemma-12b-gguf']` con `LEGACY_TRANSLATION_MODELS` che mappa
+  1. non-English sources are **refused** in `core/pipeline.py` STEP 6 and
+     `core/ocr_auto.py`; `route_non_english_away_from_llm()` deleted;
+     `test_translation_routing.py` -> `test_translation_refusal.py`.
+  2. `core/subtitle_synchronizer.py` timing-only: `_LocalQwenMatcher`,
+     `_step2_translate_anchors`, `_step3_match_subtitles`, the LLM path of
+     `_step1_whisper_fallback`, `sync_engine` and 26 `sy_*` strings removed
+     (1942 -> 1062 lines).
+  3. cloud engines removed (`ClaudeTranslator`, `OpenAITranslator`,
+     `utils/opensubtitles_ai_translator.py`, the hallucination guard), keys and
+     strings; 3b: the cloud-API config methods stay **legacy** because the frozen
+     Qt calls them (static check: 0 missing methods).
+  4. L3 reservoir removed: `core/fallback_translate_cli.py` deleted,
+     `RESERVOIR_*` and its two call sites gone, `reservoir_engine` /
+     `fallback_translator_model_path` gone, `tl_reservoir_*` / `fb_*` strings gone
+     from both tables and from the manifest.
+  5. quant policy: `utils/translator_path_select.py` -> `utils/gguf_quant.py`
+     (the measured numbers and `normalize_quant` stay), `path_router.py` deleted,
+     `resolve_gguf_path()` in `gguf_engine.py` **raises** naming the directory and
+     the files it found; `engine.py` keeps one `ModelSpec` and
+     `build_mt_messages()`, loses `SubtitleLLMEngine`/`get_engine`/`unload_engine`
+     and the bf16/NF4/LoRA loaders; `GGUFEngine` no longer subclasses it.
+     Config: `llm_translator_gguf_quant` defaults to `Q4_K_M`,
+     `llm_translator_gguf_enabled`, `_before_nf4`, `_nf4_min_free_gb`,
+     `_q4_min_free_gb`, `_iq3_min_free_gb` are gone. Installer:
+     `gguf_download.py` no longer asks for VRAM, `auto` = `Q4_K_M`.
+  6. one engine and one target language: `VALID_TRANSLATION_MODELS =
+     ['translategemma-12b-gguf']` with `LEGACY_TRANSLATION_MODELS` mapping
      `nllb`, `nllb_finetuned`, `llm`, `aya`, `claude`, `openai`,
-     `opensubtitles` (in lettura **e** in scrittura, con riga di log);
-     `LANGUAGES = ('ita',)` in `web/ui.py` e `utils/job_overrides.py`; via il
-     select del motore nella coda; `_NOMI_MOTORE` e `_TM_SHORT` collassati;
-     `get_translation_model_info()` rimossa.
-  7. motore assente = job fallito in secondi:
-     `utils/backend_preflight.check_translation_ready()` (quantizzazione, file
-     GGUF, llama.cpp con offload GPU, e solo con `check_fit` la VRAM contro
-     `gguf_need_gib`) chiamata a STEP 0 e a STEP 6, con sonda in sottoprocesso
-     (llama_cpp non va importato dopo torch in un processo che ha già PyQt).
-- Tests and results: `pytest linux_tests -q` verde a ogni step: 801 → 692
-  (step 5: i test del selettore, del router, dei flag e del ripiego NLLB se ne
-  vanno col codice che provavano) → 701 (step 6 e 7 aggiungono quelli del
-  rifiuto, della mappatura legacy e del preflight, 8 nuovi). Dopo l'allineamento
-  con `development`: **701 passed, 15 skipped, 0 failed**.
-  `git diff origin/development -- gui/` vuoto a ogni commit.
+     `opensubtitles` (on read **and** on write, with a log line);
+     `LANGUAGES = ('ita',)` in `web/ui.py` and `utils/job_overrides.py`; the
+     engine select is gone from the queue; `_NOMI_MOTORE` and `_TM_SHORT`
+     collapsed; `get_translation_model_info()` removed.
+  7. a missing engine is a job that fails in seconds:
+     `utils/backend_preflight.check_translation_ready()` (quantization, GGUF
+     file, llama.cpp with GPU offload, and only with `check_fit` the VRAM against
+     `gguf_need_gib`) called at STEP 0 and STEP 6, with the probe in a subprocess
+     (llama_cpp must not be imported after torch in a process that already has
+     PyQt).
+- Tests and results: `pytest linux_tests -q` green at every step: 801 -> 692
+  (step 5: the selector, router, flag and NLLB-fallback tests went away with the
+  code they tested) -> 701 (steps 6 and 7 add the refusal, legacy mapping and
+  preflight tests, 8 new). After the alignment with `development`:
+  **701 passed, 15 skipped, 0 failed**. `git diff origin/development -- gui/`
+  empty at every commit.
 - Decisions / ADRs: **ADR-009** (`docs/adr/ADR-009-single-translation-engine.md`),
-  con il contesto misurato, le alternative rifiutate e le conseguenze. Scelte
-  dentro l'ADR: quantizzazione come **impostazione** e non come indovinello sulla
-  VRAM; GGUF **risolto** e non scelto; sorgente non inglese rifiutata; NLLB
-  tenuto in `core/translator.py` **solo** per i banchi, dichiarato nel log;
-  `llm_translator_adapter` e `llm_translator_model_path` tenuti perché la Qt
-  congelata li scrive (l'adattatore viene detto "non applicato", il percorso vale
-  come cartella GGUF alternativa).
-- Known issues: **il run end-to-end non è stato eseguito** — manca la prova su
-  una clip inglese (atteso ≈ WER 0.41 / chrF 0.76 / ~8,8 GB, la riga `llm` di
-  `docs/benchmarks/2026-10-25/translation/summary.md`) e il rifiuto su una clip
-  francese. È l'unico punto di accettazione ancora aperto e va fatto prima di
-  considerare chiusa la verifica, non il merge. Il branch `chore` di pulizia ha
-  lasciato nomi e chiavi che dicono ancora `whisper` (kwarg `whisper_language`,
-  `sync_allow_whisper_fallback`, 30 chiavi i18n, 8 chiavi di config): restano,
-  documentati. Restano ~190 chiavi i18n morte da prima (whisper/canary), fuori
-  da questo lavoro.
-- Next step: run end-to-end (clip inglese + rifiuto francese), esportazione in
-  `docs/benchmarks/` e aggiornamento dei numeri in `STATUS.md`; poi, se si vuole,
-  il passo di rinomina dei nomi/chiavi `whisper_*`.
+  with the measured context, the rejected alternatives and the consequences.
+  Choices inside the ADR: quantization as a **setting** and not as a VRAM guess;
+  the GGUF is **resolved** and not chosen; non-English sources refused; NLLB kept
+  in `core/translator.py` **only** for the benches, and it says so in the log;
+  `llm_translator_adapter` and `llm_translator_model_path` kept because the frozen
+  Qt writes them (the adapter is reported as not applied, the path counts as an
+  alternative GGUF directory).
+- Known issues: **the end-to-end run had not been executed at merge time** (it was
+  run later the same session: The Lost Leonardo, 316 s, one file end to end). The
+  branch left names and keys that still say `whisper` (the `whisper_language`
+  keyword, `_step1_whisper_fallback`, `sync_allow_whisper_fallback`, 30 i18n keys
+  and 8 config keys): documented, not renamed. About 190 i18n keys were already
+  dead before this work (whisper/canary).
+- Next step: end-to-end run and export (done the same day, see the 2026-10-28
+  entry); then, if wanted, the rename pass for the `whisper_*` names and keys.
 
-## 2026-10-27 — Via la chiave e l'indirizzo committati
+## 2026-10-27 — Removing the committed key and address
 
 - Branch / commits: `fix/no-committed-endpoint`, from `development` (`95729de`).
-- Goal: togliere dal repository i due valori predefiniti che non ci possono
-  stare — una chiave API e un indirizzo privato di rete — senza perdere il
-  funzionamento del Library Scanner.
-- Done (files, commands): in `utils/config.py` `library_scanner_url` e
-  `library_scanner_api_key` hanno ora default `''`, con il commento che dice
-  dove si impostano; `docs/architecture/config.md` ha la sezione "Secrets and
-  local endpoints" riscritta: elenco aggiornato (i `claude_api_key` /
-  `openai_api_key` non esistono più con ADR-009, un config vecchio è innocuo),
-  la regola "nessun default è un segreto o un indirizzo", e la nota storica che
-  la chiave è stata in git con `1ab14ab` e va **ruotata** perché toglierla dal
-  working tree non la toglie dalla storia.
-- Tests and results: `pytest linux_tests -q` → **798 passed, 15 skipped, 0
-  failed**. Nessun test dipendeva dai default: `test_library_scanner_fake_server.py`
-  imposta url e chiave da sé, e la GUI già gestisce il vuoto
-  (`gui/library_scanner_widget.py` mostra `config_missing`).
-- Decisions / ADRs: no ADR. Empty string, non un valore di esempio: un
-  placeholder tipo `http://example:6680` verrebbe copiato in una config vera ed è
-  comunque un indirizzo inventato da mantenere. Con il vuoto la GUI dice "config
-  mancante", che è lo stato vero di un'installazione nuova.
-- Known issues: la chiave resta nella storia git (commit `1ab14ab`): va ruotata
-  sul servizio, azione del proprietario. Restano inoltre altri riferimenti allo
-  stesso indirizzo privato nel working tree — `gui/general_settings_widget.py:131`
-  (placeholder), `utils/path_map.py:8` (esempio nel docstring), `CHANGELOG.md:183`
-  (voce storica) e sei occorrenze nel servizio `docker/library_scanner/` (dati di
-  esempio e placeholder) — **non toccati qui**: la GUI è congelata (ADR-002) e
-  sostituirli è una decisione a sé (la sostituzione ovvia è `192.0.2.10`, TEST-NET-1
-  di RFC 5737, riservato alla documentazione).
-- Next step: merge `--no-ff` in `development`; rotazione della chiave; decidere
-  se sanare gli altri riferimenti (GUI compresa).
+- Goal: remove the two default values that cannot stay in the repository — an API
+  key and a private network address — without breaking the Library Scanner.
+- Done (files, commands): in `utils/config.py` `library_scanner_url` and
+  `library_scanner_api_key` default to `''`, with a comment saying where to set
+  them; `docs/architecture/config.md` has a rewritten "Secrets and local
+  endpoints" section: updated list (`claude_api_key` / `openai_api_key` no longer
+  exist with ADR-009, an old config is harmless), the rule that no default is a
+  secret or an address, and the historical note that the key has been in git
+  since `1ab14ab` and must be **rotated**, because removing it from the working
+  tree does not remove it from history.
+- Tests and results: `pytest linux_tests -q` -> **798 passed, 15 skipped, 0
+  failed**. No test depended on the defaults:
+  `test_library_scanner_fake_server.py` sets url and key itself, and the GUI
+  already handles empty values (`gui/library_scanner_widget.py` shows
+  `config_missing`).
+- Decisions / ADRs: no ADR. Empty string, not an example value: a placeholder
+  such as `http://example:6680` would be copied into a real config and is an
+  invented address to maintain. With the empty value the GUI says "config
+  missing", which is the true state of a fresh installation.
+- Known issues: the key stays in git history (commit `1ab14ab`): it must be
+  rotated on the service, an owner action. Other references to the same private
+  address remain in the working tree — `gui/general_settings_widget.py:131`
+  (placeholder), `utils/path_map.py:8` (docstring example), `CHANGELOG.md:183`
+  (historical entry) and six occurrences in the `docker/library_scanner/` service
+  (sample data and placeholders) — **not touched here**: the GUI is frozen
+  (ADR-002) and replacing them is a separate decision (the obvious replacement is
+  `192.0.2.10`, TEST-NET-1 from RFC 5737, reserved for documentation).
+- Next step: `--no-ff` merge into `development`; rotating the key; deciding
+  whether to sanitise the other references (GUI included).
 
-## 2026-10-27 — Residui di Whisper: lo stash `docs/cleanup-after-whisper`
+## 2026-10-27 — Whisper leftovers: the `docs/cleanup-after-whisper` stash
 
 - Branch / commits: `chore/cleanup-after-whisper` (`150a366`), from
   `origin/development` (`c5b856d`).
-- Goal: chiudere il debito rimasto in `stash@{0}` — la pulizia dei commenti
-  dell'architettura multi-engine che ADR-008 ha reso falsa — e allargarla ai
-  punti che lo stash non copriva, prima che un'altra sessione la ritrovi
-  invecchiata.
-- Done (files, commands): applicato lo stash (`git stash apply` pulito su
-  `origin/development`) e corretto l'indentazione del banner che introduceva;
-  poi la stessa classe di difetti dove lo stash non arrivava. Commenti e
-  docstring: `core/pipeline.py` (blocco "STEP 2.5: pre-carica WhisperModel"
-  sopra codice che non precarica nulla; docstring del cleanup CUDA-workspace che
-  citava `ctranslate2 4.6.0` e il crash sotto PyQt6; "whisper + Canary/Qwen3"
-  nel cleanup risorse),
-  `core/engines/base_engine.py` e `core/engines/qwen3_asr_engine.py` (il
-  `LanguageNotAlignable` "ri-trascrive con faster-whisper" non è più vero: dal
-  ADR-008 il job fallisce), `core/pipeline_cli.py`, `core/sync_cli.py` (che
-  pubblicizzava ancora il motore `llm` di sincronizzazione rimosso con ADR-009),
-  `core/subtitle_synchronizer.py` (VAD "incluso in faster-whisper" → `core/vad.py`),
-  `core/diarizer.py`, `core/translator.py` (commento sul cap del batch),
+- Goal: close the debt left in `stash@{0}` — the comment cleanup for the
+  multi-engine architecture that ADR-008 made false — and extend it to the places
+  the stash did not cover, before another session finds it stale.
+- Done (files, commands): the stash was applied (clean `git stash apply` on
+  `origin/development`) and the misindented banner it introduced was fixed; then
+  the same class of defect wherever the stash did not reach. Comments and
+  docstrings: `core/pipeline.py` (the "STEP 2.5: preload WhisperModel" block above
+  code that preloads nothing; the CUDA-workspace cleanup docstring that cited
+  `ctranslate2 4.6.0` and the crash under PyQt6; "whisper + Canary/Qwen3" in the
+  resource cleanup), `core/engines/base_engine.py` and
+  `core/engines/qwen3_asr_engine.py` (`LanguageNotAlignable` "retranscribes with
+  faster-whisper" is no longer true: since ADR-008 the job fails),
+  `core/pipeline_cli.py`, `core/sync_cli.py` (which still advertised the `llm`
+  sync engine removed with ADR-009, and still described the ctranslate2 load
+  order), `core/subtitle_synchronizer.py` (VAD "included in faster-whisper" ->
+  `core/vad.py`), `core/diarizer.py`, `core/translator.py` (batch cap comment),
   `core/gender_line_selector.py`, `core/gender_selector_cli.py`,
-  `utils/cache_bootstrap.py` (`whisperx` → `qwen3` fra i moduli da importare
-  dopo il bootstrap delle cache). Due voci morte rimosse:
-  `ENGINE_CHUNK_CAP_S` in `core/audio_processor.py` (restano solo `qwen3`; il
-  `min()` sul dizionario continua a dare il cap prudente a chi non nomina
-  l'engine) e `_ASR_BY_ENGINE` in `core/jobs/progress.py` (riga `canary`).
-  Condizione `_planned_engine != 'faster-whisper'` → `len(chunk_list) > 1`:
-  era sempre vera. `git stash drop` eseguito: il contenuto è nel commit.
-- Tests and results: `pytest linux_tests -q` → **798 passed, 15 skipped, 0
-  failed**; nessun test modificato, com'era atteso per un branch di soli
-  commenti e voci morte.
-- Decisions / ADRs: no ADR. Un branch separato da ADR-009 perché il lavoro non
-  c'entra con la traduzione a motore unico: mescolarlo avrebbe reso illeggibile
-  la serie di ADR-009.
-- Known issues: restano nomi e chiavi che citano Whisper, deliberatamente
-  **non** toccati perché sono API e configurazione, non commenti: il keyword
-  `whisper_language` (8 punti in `core/pipeline.py`, `core/transcriber.py`,
-  `core/subtitle_synchronizer.py`), `_step1_whisper_fallback` e
-  `sync_allow_whisper_fallback`, 30 chiavi i18n `sy_*`/`er_*`/`ca_*` che parlano
-  di Whisper/Canary, 8 chiavi di config `whisper_*` (`whisper_model`,
-  `whisper_vad_*` comprese) e la chiave `pl_early_unload_of_demucs_whisper`.
-  Rinominarle cambia API, stringhe utente e config: serve una decisione, non una
-  pulizia.
-- Next step: merge `--no-ff` in `development` e cancellazione del branch; il
-  rinomina di nomi e chiavi, se si vuole, come passo separato con la sua voce.
+  `utils/cache_bootstrap.py` (`whisperx` -> `qwen3` among the modules to import
+  after the cache bootstrap). Two dead entries removed: `ENGINE_CHUNK_CAP_S` in
+  `core/audio_processor.py` (only `qwen3` remains; `min()` on the dictionary still
+  gives the prudent cap to a caller that does not name the engine) and
+  `_ASR_BY_ENGINE` in `core/jobs/progress.py` (the `canary` row). The condition
+  `_planned_engine != 'faster-whisper'` became `len(chunk_list) > 1`: it was
+  always true. `git stash drop` executed: the content is in the commit.
+- Tests and results: `pytest linux_tests -q` -> **798 passed, 15 skipped, 0
+  failed**; no test changed, as expected for a branch of comments and dead
+  entries only.
+- Decisions / ADRs: no ADR. A branch separate from ADR-009 because the work is
+  unrelated to the single-engine translation: mixing them would have made the
+  ADR-009 series unreadable.
+- Known issues: names and keys that mention Whisper remain, deliberately **not**
+  touched because they are API and configuration rather than comments: the
+  `whisper_language` keyword (8 places across `core/pipeline.py`,
+  `core/transcriber.py`, `core/subtitle_synchronizer.py`),
+  `_step1_whisper_fallback` and `sync_allow_whisper_fallback`, 30 `sy_*`/`er_*`/
+  `ca_*` i18n keys that mention Whisper or Canary, 8 `whisper_*` config keys
+  (`whisper_model` and `whisper_vad_*` included) and the
+  `pl_early_unload_of_demus_whisper` key. Renaming them changes API, user
+  strings and config: that needs a decision, not a cleanup.
+- Next step: `--no-ff` merge into `development` and branch deletion; the rename
+  of names and keys, if wanted, as a separate step with its own entry.
 
 ## 2026-10-27 — Venv rebuilt from the new requirements (no Whisper)
 
