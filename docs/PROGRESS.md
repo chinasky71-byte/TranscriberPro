@@ -27,6 +27,53 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-27 — Residui di Whisper: lo stash `docs/cleanup-after-whisper`
+
+- Branch / commits: `chore/cleanup-after-whisper` (`150a366`), from
+  `origin/development` (`c5b856d`).
+- Goal: chiudere il debito rimasto in `stash@{0}` — la pulizia dei commenti
+  dell'architettura multi-engine che ADR-008 ha reso falsa — e allargarla ai
+  punti che lo stash non copriva, prima che un'altra sessione la ritrovi
+  invecchiata.
+- Done (files, commands): applicato lo stash (`git stash apply` pulito su
+  `origin/development`) e corretto l'indentazione del banner che introduceva;
+  poi la stessa classe di difetti dove lo stash non arrivava. Commenti e
+  docstring: `core/pipeline.py` (blocco "STEP 2.5: pre-carica WhisperModel"
+  sopra codice che non precarica nulla; docstring del cleanup CUDA-workspace che
+  citava `ctranslate2 4.6.0` e il crash sotto PyQt6; "whisper + Canary/Qwen3"
+  nel cleanup risorse),
+  `core/engines/base_engine.py` e `core/engines/qwen3_asr_engine.py` (il
+  `LanguageNotAlignable` "ri-trascrive con faster-whisper" non è più vero: dal
+  ADR-008 il job fallisce), `core/pipeline_cli.py`, `core/sync_cli.py` (che
+  pubblicizzava ancora il motore `llm` di sincronizzazione rimosso con ADR-009),
+  `core/subtitle_synchronizer.py` (VAD "incluso in faster-whisper" → `core/vad.py`),
+  `core/diarizer.py`, `core/translator.py` (commento sul cap del batch),
+  `core/gender_line_selector.py`, `core/gender_selector_cli.py`,
+  `utils/cache_bootstrap.py` (`whisperx` → `qwen3` fra i moduli da importare
+  dopo il bootstrap delle cache). Due voci morte rimosse:
+  `ENGINE_CHUNK_CAP_S` in `core/audio_processor.py` (restano solo `qwen3`; il
+  `min()` sul dizionario continua a dare il cap prudente a chi non nomina
+  l'engine) e `_ASR_BY_ENGINE` in `core/jobs/progress.py` (riga `canary`).
+  Condizione `_planned_engine != 'faster-whisper'` → `len(chunk_list) > 1`:
+  era sempre vera. `git stash drop` eseguito: il contenuto è nel commit.
+- Tests and results: `pytest linux_tests -q` → **798 passed, 15 skipped, 0
+  failed**; nessun test modificato, com'era atteso per un branch di soli
+  commenti e voci morte.
+- Decisions / ADRs: no ADR. Un branch separato da ADR-009 perché il lavoro non
+  c'entra con la traduzione a motore unico: mescolarlo avrebbe reso illeggibile
+  la serie di ADR-009.
+- Known issues: restano nomi e chiavi che citano Whisper, deliberatamente
+  **non** toccati perché sono API e configurazione, non commenti: il keyword
+  `whisper_language` (8 punti in `core/pipeline.py`, `core/transcriber.py`,
+  `core/subtitle_synchronizer.py`), `_step1_whisper_fallback` e
+  `sync_allow_whisper_fallback`, 30 chiavi i18n `sy_*`/`er_*`/`ca_*` che parlano
+  di Whisper/Canary, 8 chiavi di config `whisper_*` (`whisper_model`,
+  `whisper_vad_*` comprese) e la chiave `pl_early_unload_of_demucs_whisper`.
+  Rinominarle cambia API, stringhe utente e config: serve una decisione, non una
+  pulizia.
+- Next step: merge `--no-ff` in `development` e cancellazione del branch; il
+  rinomina di nomi e chiavi, se si vuole, come passo separato con la sua voce.
+
 ## 2026-10-27 — Venv rebuilt from the new requirements (no Whisper)
 
 - Branch / commits: `fix/venv-rebuild-notes`.
