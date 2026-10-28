@@ -2,15 +2,16 @@
 """Impostazioni semplici (fetta 1c): generali, opzioni dei job, batch adattivo, OCR, OpenSubtitles. Usa i servizi senza Qt di G1.
 Le chiavi API e le password NON escono mai dal server: la pagina vede solo se sono impostate (`*_set`) e puo' sostituirle."""
 import asyncio
+import sys
 from typing import Literal, Optional
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from core.services.adaptive_batch_service import AdaptiveBatchService, AdaptiveBatchValues
+from core.services.adaptive_batch_service import AdaptiveBatchService, AdaptiveBatchValues, DEFAULTS
 from core.services.general_settings_service import GeneralSettingsService, LANGUAGES, ping_scanner
-from core.services.job_options_service import JobOptionsService, defaults_summary
+from core.services.job_options_service import JobOptionsService, SUBTITLE_LANGUAGE_CODES, defaults_summary, engine_short
 from core.services.ocr_settings_service import OcrSettingsService
 from core.services.opensubtitles_settings_service import IMPLEMENTATIONS, OpenSubtitlesSettingsService
 from core.pgs_types import WRITEBACK_MUX, WRITEBACK_SIDECAR, STRATEGY_AUTO, STRATEGY_REVIEW
@@ -57,13 +58,21 @@ class OsBody(BaseModel):
 
 class OsComBody(BaseModel):
     username: str
-    password: str
-    api_key: str = ''
+    password: Optional[str] = None       # None = lascia quella salvata (la pagina non la conosce: i segreti non escono dal server)
+    api_key: Optional[str] = None
 
 
 class OsOrgBody(BaseModel):
     username: str
-    password: str
+    password: Optional[str] = None
+
+
+class RevealBody(BaseModel):
+    name: Literal['scanner_api_key', 'os_com_password', 'os_com_api_key', 'os_org_password']
+
+
+class LastTabBody(BaseModel):
+    tab: Literal['general', 'jobs', 'transcription', 'translation', 'batch', 'opensubtitles', 'ocr']
 
 
 class PingBody(BaseModel):
@@ -76,20 +85,30 @@ def add_settings_routes(app: FastAPI, config) -> None:
     abs_, ocr, osub = AdaptiveBatchService(config), OcrSettingsService(config), OpenSubtitlesSettingsService(config)
 
     def general() -> dict:
-        return {'language': gen.language(), 'languages': list(LANGUAGES), 'scanner_url': gen.scanner_url(),
+        return {'language': gen.language(), 'languages': list(LANGUAGES), 'platform': 'windows' if sys.platform == 'win32' else 'other',
+                'scanner_url': gen.scanner_url(),
                 'scanner_api_key_set': bool(gen.scanner_api_key()), 'scanner_path_map': gen.scanner_path_map()}
 
     def job_options() -> dict:
         o = job.load()
-        return {'target_language': o.target_language, 'opensubtitles_upload': o.opensubtitles_upload,
+        return {'target_language': o.target_language, 'languages': list(SUBTITLE_LANGUAGE_CODES), 'opensubtitles_upload': o.opensubtitles_upload,
                 'mux_into_video': o.mux_into_video, 'gender_correction': o.gender_correction, 'shutdown_after': o.shutdown_after,
-                'defaults_summary': defaults_summary(config)}
+                'defaults_summary': defaults_summary(config), 'engine_short': engine_short(config),
+                'ocr_mode_key': 'job_ocr_mode_auto' if config.get('ocr_strategy', 'review') == 'auto' else 'job_ocr_mode_targeted'}
 
     def adaptive() -> dict:
         v = abs_.load()
         return {'enabled': v.enabled, 'initial_size': v.initial_size, 'min_size': v.min_size, 'max_size': v.max_size,
                 'warmup_batches': v.warmup_batches, 'high_threshold': v.high_threshold, 'low_threshold': v.low_threshold,
-                'status_text': abs_.status_text(v.enabled)}
+                'status': adaptive_status(v.enabled)}
+
+    def adaptive_status(enabled: bool) -> dict:
+        """Il testo di stato, con le sue parti: la pagina lo traduce (`abs_disabled_status` / `abs_active_status`). Come nella GUI usa i
+        valori SALVATI, non quelli del modulo."""
+        if not enabled:
+            return {'key': 'abs_disabled_status'}
+        c = config.get_adaptive_batch_config()
+        return {'key': 'abs_active_status', 'initial': c['initial_size'] or 0, 'min': c['min_size'], 'max': c['max_size'], 'warmup': c['warmup_batches']}
 
     def ocr_values() -> dict:
         v = ocr.load((WRITEBACK_MUX, WRITEBACK_SIDECAR))
@@ -110,7 +129,7 @@ def add_settings_routes(app: FastAPI, config) -> None:
 
     @app.get('/api/settings')
     async def get_all():
-        return {k: fn() for k, fn in sections.items()}
+        return {**{k: fn() for k, fn in sections.items()}, 'last_tab': config.get('ui_settings_last_tab', 'general')}
 
     @app.put('/api/settings/general')
     async def put_general(b: GeneralBody):
@@ -154,11 +173,14 @@ def add_settings_routes(app: FastAPI, config) -> None:
         abs_.save(AdaptiveBatchValues(**merged))
         return adaptive()
 
-    @app.post('/api/settings/adaptive_batch/reset')
-    async def reset_adaptive():
-        from core.services.adaptive_batch_service import DEFAULTS
-        abs_.save(DEFAULTS)
-        return adaptive()
+    @app.get('/api/settings/adaptive_batch/defaults')
+    async def adaptive_defaults():
+        """«Ripristina i valori»: riempie il modulo con i predefiniti, NON salva (si salva con «Salva», come la GUI)."""
+        return {k: getattr(DEFAULTS, k) for k in AdaptiveBatchValues.__dataclass_fields__}
+
+    @app.get('/api/settings/adaptive_batch/status')
+    async def adaptive_status_route(enabled: bool):
+        return adaptive_status(enabled)
 
     @app.put('/api/settings/ocr')
     async def put_ocr(b: OcrBody):
@@ -186,15 +208,32 @@ def add_settings_routes(app: FastAPI, config) -> None:
 
     @app.put('/api/settings/opensubtitles/com')
     async def put_os_com(b: OsComBody):
-        if not osub.save_com(b.username, b.password, b.api_key):
+        saved = osub.credentials_com()
+        password = saved.get('password') or '' if b.password is None else b.password
+        api_key = saved.get('api_key') or '' if b.api_key is None else b.api_key
+        if not osub.save_com(b.username, password, api_key):
             return JSONResponse({'error': 'username e password obbligatori'}, status_code=422)
         return opensubtitles()
 
     @app.put('/api/settings/opensubtitles/org')
     async def put_os_org(b: OsOrgBody):
-        if not osub.save_org(b.username, b.password):
+        password = osub.credentials_org().get('password') or '' if b.password is None else b.password
+        if not osub.save_org(b.username, password):
             return JSONResponse({'error': 'username e password obbligatori'}, status_code=422)
         return opensubtitles()
+
+    @app.post('/api/settings/reveal')
+    async def reveal(b: RevealBody):
+        """«Mostra» di un campo password: unico punto da cui un segreto esce, solo su richiesta esplicita (POST: controllo di Origin)."""
+        com, org = osub.credentials_com(), osub.credentials_org()
+        value = {'scanner_api_key': gen.scanner_api_key(), 'os_com_password': com.get('password'), 'os_com_api_key': com.get('api_key'),
+                 'os_org_password': org.get('password')}[b.name]
+        return {'value': value or ''}
+
+    @app.put('/api/settings/last_tab')
+    async def put_last_tab(b: LastTabBody):
+        config.set('ui_settings_last_tab', b.tab)
+        return {'tab': b.tab}
 
     @app.post('/api/settings/opensubtitles/test')
     async def test_os():
