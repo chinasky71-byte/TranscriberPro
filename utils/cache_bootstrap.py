@@ -2,7 +2,7 @@
 Cache bootstrap - redireziona cache modelli AI nella cartella progetto.
 
 DEVE essere importato PRIMA di torch, transformers, huggingface_hub,
-whisperx, demucs, pyannote. Sets HF_HOME, HUGGINGFACE_HUB_CACHE,
+demucs, pyannote, qwen3. Sets HF_HOME, HUGGINGFACE_HUB_CACHE,
 TORCH_HOME a sottocartelle di models/.cache/.
 (TRANSFORMERS_CACHE non va impostato: deprecato — transformers usa HF_HOME
 e impostarlo genera un FutureWarning in ogni processo.)

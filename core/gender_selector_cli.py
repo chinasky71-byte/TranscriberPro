@@ -4,8 +4,8 @@ Gender Selector CLI — subprocess spaCy usa-e-getta.
 File: core/gender_selector_cli.py
 
 Gira nel venv NLP SEPARATO (spaCy + it_core_news_lg), NON nel venv
-principale dell'app: le dipendenze fragili (ctranslate2/setuptools) non
-vengono toccate, e alla fine del processo l'OS recupera TUTTA la RAM di
+principale dell'app: il modello linguistico non deve entrare nel venv del
+runtime GPU, e alla fine del processo l'OS recupera TUTTA la RAM di
 spaCy — niente unload manuale.
 
 Uso:  <venv_nlp>/python.exe core/gender_selector_cli.py <in.json> <out.json>

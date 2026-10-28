@@ -4,14 +4,14 @@ Pipeline CLI - Entrypoint subprocess isolato per l'elaborazione di UN film.
 File: core/pipeline_cli.py
 
 Esegue ProcessingPipeline.process() in un processo Python SEPARATO, così che
-tutta la RAM/VRAM trattenuta dagli allocatori nativi ML (PyTorch, ctranslate2,
-CUDA, NLLB) venga restituita all'OS quando il processo termina. Su code lunghe
+tutta la RAM/VRAM trattenuta dagli allocatori nativi ML (PyTorch, CUDA,
+llama.cpp) venga restituita all'OS quando il processo termina. Su code lunghe
 questo evita l'accumulo di RAM di sistema che gc + EmptyWorkingSet non liberano
 (vedi memory project_ram_commit_accumulo).
 
-Vantaggio collaterale: essendo headless (niente PyQt6), un eventuale crash di
-ctranslate2 (std::abort) resta confinato a questo processo → il film va in
-'failed' e la coda prosegue, invece di abbattere la GUI.
+Vantaggio collaterale: essendo headless (niente PyQt6), un crash di una libreria
+nativa (in passato ctranslate2, oggi llama.cpp) resta confinato a questo
+processo → il film va in 'failed' e la coda prosegue, invece di abbattere la GUI.
 
 Uso (chiamato dal ProcessingWorker, NON manuale):
     python -m core.pipeline_cli <args.json>
@@ -43,7 +43,7 @@ def _suppress_subprocess_windows() -> None:
     """Su Windows forza CREATE_NO_WINDOW su TUTTE le subprocess lanciate nel child.
 
     Le nostre classi (audio_processor, ecc.) già lo usano, ma le librerie
-    (whisperx/torchaudio che invocano ffmpeg durante l'alignment) no: senza
+    (torchaudio che invoca ffmpeg, o Demucs) no: senza
     questo una finestra console lampeggia a schermo. Il monkeypatch di
     Popen.__init__ copre ogni subprocess, nostra o di libreria.
     """

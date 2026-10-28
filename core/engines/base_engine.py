@@ -26,8 +26,8 @@ class LanguageNotAlignable(Exception):
     """Sollevata da un engine quando la lingua rilevata in auto-detect non è
     supportata dal suo sistema di timestamp (es. ForcedAligner Qwen3).
 
-    Il router la intercetta e ri-trascrive UNA volta con faster-whisper,
-    passando la lingua rilevata (attributo detected_language_639_1).
+    Con ADR-008 non c'è più un motore su cui ri-trascrivere: l'eccezione risale
+    e il job fallisce con un messaggio — (attributo detected_language_639_1).
     """
 
     def __init__(self, detected_language_639_1: Optional[str], message: str = ""):

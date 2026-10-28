@@ -507,12 +507,13 @@ class Diarizer:
 
         # Passo 5: costruisce sotto-segmenti per ogni run
         #
-        # Join robusto multi-engine: whisper incorpora lo spazio ad inizio
-        # parola (" trasferita"), Qwen3/Canary restituiscono parole nude
+        # Join robusto multi-engine: gli engine storici non concordavano sullo
+        # spazio (Whisper lo incorporava ad inizio parola, " trasferita"),
+        # Qwen3 restituisce parole nude
         # ("trasferita", spazio implicito nel join di _words_to_segments).
         # strip() per-parola + join con spazio esplicito normalizza
         # entrambe le convenzioni — un '' .join() ingenuo (come prima)
-        # produceva testo con parole incollate su segmenti Qwen3/Canary.
+        # produceva testo con parole incollate.
         #
         # Passo 6: 'speaker_confidence' per run (v. _run_confidence) — usata
         # da SubtitleFormatter per decidere se fidarsi dell'attribuzione ai

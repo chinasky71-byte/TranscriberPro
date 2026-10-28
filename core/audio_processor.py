@@ -38,16 +38,14 @@ from utils.translations import tr
 
 logger = setup_logger(__name__)
 
-# Durata massima per chunk accettata da ciascun engine (v. piano_fix_
-# pipeline_trascrizione punto B.5). Cappa i valori di config: alzare i
-# chunk per Qwen3 non deve rompere gli altri engine.
-#   - canary: Canary-Qwen addestrato su audio ≤40s (core/engines/canary_engine.py)
+# Durata massima per chunk accettata dall'engine (v. piano_fix_
+# pipeline_trascrizione punto B.5). Cappa i valori di config.
 #   - qwen3: ForcedAligner MAX_FORCE_ALIGN_INPUT_SECONDS=180 (17% di margine)
-#   - faster-whisper: finestra nativa Whisper (~30s)
+# Canary (~35 s) e Whisper (~30 s) sono usciti con ADR-008: qui resta solo
+# l'engine che esiste, e `min()` sul dizionario e' il ripiego prudente per chi
+# non dichiara l'engine.
 ENGINE_CHUNK_CAP_S = {
-    'canary':         35.0,
-    'qwen3':         150.0,
-    'faster-whisper': 30.0,
+    'qwen3': 150.0,
 }
 
 
@@ -125,7 +123,7 @@ class AudioProcessor:
             min_chunk_duration: DEPRECATO (usa self.CHUNK_MIN_DURATION)
             use_batched_pipeline: Se True, salta il chunking e restituisce il file
                                    vocals intero (ottimizzato per BatchedInferencePipeline)
-            engine: nome engine pianificato ('canary'|'qwen3'|'faster-whisper').
+            engine: nome engine pianificato (oggi sempre 'qwen3', ADR-008).
                     Cappa la durata massima dei chunk richiesta in config
                     (v. ENGINE_CHUNK_CAP_S). None (nessun chiamante lo
                     specifica, es. subtitle_synchronizer) usa il cap PIÙ
