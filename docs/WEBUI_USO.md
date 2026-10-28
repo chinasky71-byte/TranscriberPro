@@ -1,7 +1,7 @@
 # Transcriber Pro – interfaccia web (guida)
 
-L'interfaccia web e' una **seconda interfaccia** per lo stesso programma: stessa coda, stessi motori, stessa configurazione. La GUI Qt resta quella predefinita.
-E' in `master` (dalla 1.34.41 + web UI): si avvia con `--ui web` o con `Lancia Transcriptor Web.bat/.vbs`; l'interfaccia predefinita resta la GUI Qt. Verificata su Windows contro la finestra Qt vera (rapporti in `docs/webui_rapporti/`).
+L'interfaccia web e' una **seconda interfaccia** per lo stesso programma: stessa coda, stessi motori, stessa configurazione. **E' l'interfaccia predefinita**: `python main.py` e `Lancia Transcriptor.bat/.vbs` avviano la web UI; la GUI Qt (in dismissione) si ottiene con `--ui qt` o `ui: qt` nel config.
+E' in `master` (dalla 1.34.41 + web UI): si avvia senza argomenti, con `--ui web` o con `Lancia Transcriptor Web.bat/.vbs`. Verificata su Windows contro la finestra Qt vera (rapporti in `docs/webui_rapporti/`).
 
 ## Avvio
 | Come | Comando |
