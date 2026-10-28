@@ -61,12 +61,19 @@ def js_keys():
     for p in (STATIC / 'js').glob('*.js'):
         if p.name == 'icons.js':
             continue
-        for m in re.finditer(r"""\bt\(\s*(['"])([A-Za-z0-9_]+)\1""", code_of(p)):
+        for m in re.finditer(r"""\bt\(\s*(['"])([A-Za-z0-9_]+)\1\s*[,)]""", code_of(p)):
             keys.setdefault(m.group(2), p.name)
         for m in re.finditer(r"""\[\s*'[a-z]+'\s*,\s*'([a-z_]+)'\s*\]""", code_of(p)):   # tabelle [chiave, etichetta]
             if m.group(1).startswith(('seg_', 'dl_')):
                 keys.setdefault(m.group(1), p.name)
     return keys
+
+
+def test_nomi_delle_lingue_dei_sottotitoli_in_italiano_e_in_inglese():
+    from utils import job_overrides as JO
+    from utils.translations import Translations
+    for lang in ('it', 'en'):
+        assert [c for c in JO.LANGUAGES if f'lang_name_{c}' not in Translations.TEXTS[lang]] == []
 
 
 def test_ogni_chiave_di_traduzione_dei_js_esiste_in_italiano_e_in_inglese():

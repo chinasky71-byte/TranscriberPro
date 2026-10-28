@@ -458,3 +458,147 @@ def test_geometria_a_pagina_vuota(env):
     qt, _ = qt_widgets('vuota')
     assert close(dom_box(page, '[data-testid=file-list]'), qt['fileList'][0], 2)
     assert close(dom_box(page, '[data-testid=start]'), qt['startButton'][0], 2)
+
+
+# ------------------------------------------------------------------------------------------ 2c: menu contestuale e riordino
+def menu_labels(page):
+    page.wait_for_selector('[data-testid=context-menu]')
+    return page.locator('[data-testid=context-menu] > .ctx-item').evaluate_all('els => els.map(e => e.dataset.label + (e.classList.contains("disabled") ? " [x]" : ""))')
+
+
+def test_menu_contestuale_voci_e_applicazione_delle_eccezioni(env):
+    env.wq.add(['/a.mkv', '/b.mkv', '/c.mkv'])
+    page = env.open()
+    wait_rows(page, 3)
+    page.click('.file-row[data-path="/a.mkv"]', button='right')
+    page.wait_for_selector('[data-testid=context-menu]')
+    assert menu_labels(page) == ['Lingua sottotitoli', 'Motore di traduzione', 'Forza trascrizione da audio', 'Correzione del genere',
+                                 'Muxa nel video', 'Upload su OpenSubtitles', 'Ripristina i predefiniti [x]', 'Rimuovi dalla coda']
+    assert page.locator('.file-row.selected').count() == 1                 # il clic destro seleziona la riga come in Qt
+    page.hover('.ctx-item[data-label="Lingua sottotitoli"]')
+    langs = page.locator('.ctx-sub .ctx-label').all_inner_texts()
+    assert langs[:3] == ['Predefinito', 'Italiano', 'Inglese'] and len(langs) == 15
+    assert page.locator('.ctx-sub .ctx-item[data-label="Predefinito"] .ctx-check').inner_text() == '✓'
+    page.click('.ctx-sub .ctx-item[data-label="Inglese"]')
+    page.wait_for_function('() => document.querySelector(".file-row .meta-ov")')
+    assert env.wq.overrides_of('/a.mkv') == {'target_language': 'eng'}
+    assert page.locator('.file-row[data-path="/a.mkv"] .meta-ov').inner_text() == 'ENG'
+    # seconda eccezione, poi la voce spuntata e il ripristino
+    page.click('.file-row[data-path="/a.mkv"]', button='right')
+    page.hover('.ctx-item[data-label="Muxa nel video"]')
+    page.click('.ctx-sub .ctx-item[data-label="Sì"]')
+    page.wait_for_function('() => document.querySelector(".file-row .meta-ov").innerText.includes("mux")')
+    assert page.locator('.file-row[data-path="/a.mkv"] .meta-ov').inner_text() == 'ENG · mux'
+    page.click('.file-row[data-path="/a.mkv"]', button='right')
+    page.hover('.ctx-item[data-label="Lingua sottotitoli"]')
+    assert page.locator('.ctx-sub .ctx-item[data-label="Inglese"] .ctx-check').inner_text() == '✓'
+    page.keyboard.press('Escape')
+    assert page.locator('[data-testid=context-menu]').count() == 0
+    page.click('.file-row[data-path="/a.mkv"]', button='right')
+    page.click('.ctx-item[data-label="Ripristina i predefiniti"]')
+    page.wait_for_function('() => !document.querySelector(".file-row .meta-ov")')
+    assert env.wq.overrides_of('/a.mkv') == {}
+
+
+def test_menu_su_piu_righe_voce_comune_e_mista(env):
+    env.wq.add(['/a.mkv', '/b.mkv'])
+    env.wq.set_overrides(['/a.mkv'], 'mux_subtitle_into_video', True)
+    page = env.open()
+    wait_rows(page, 2)
+    page.click('.file-row[data-path="/a.mkv"]')
+    page.click('.file-row[data-path="/b.mkv"]', modifiers=['Control'])
+    page.click('.file-row[data-path="/b.mkv"]', button='right')
+    assert page.locator('.file-row.selected').count() == 2                 # il clic destro su una riga gia' selezionata mantiene la selezione
+    page.hover('.ctx-item[data-label="Muxa nel video"]')
+    assert page.locator('.ctx-sub .ctx-check').all_inner_texts() == ['', '', '']       # valori diversi: nessuna voce spuntata
+    page.click('.ctx-sub .ctx-item[data-label="No"]')
+    page.wait_for_function('() => document.querySelectorAll(".file-row .meta-ov").length === 2')
+    assert env.wq.overrides_of('/a.mkv') == env.wq.overrides_of('/b.mkv') == {'mux_subtitle_into_video': False}
+
+
+def test_menu_file_in_lavorazione_senza_eccezioni_e_area_vuota_con_rimuovi_disattivato(env):
+    paths = e2e.seed_rows(env.wq)
+    page = env.open()
+    wait_rows(page, 3)
+    page.click('.file-row[data-path="%s"]' % paths[1], button='right')              # in lavorazione: niente eccezioni, niente rimozione
+    assert menu_labels(page) == ['Rimuovi dalla coda [x]']
+    page.keyboard.press('Escape')
+    page.click('[data-testid=file-list]', button='right', position={'x': 100, 'y': 400})
+    assert menu_labels(page) == ['Rimuovi dalla coda [x]']
+    page.keyboard.press('Escape')
+    page.click('.file-row[data-path="%s"]' % paths[2], button='right')
+    page.click('.ctx-item[data-label="Rimuovi dalla coda"]')
+    wait_rows(page, 2)
+    assert env.wq.queue.snapshot() == []
+
+
+def test_eccezione_su_file_gia_preso_dal_motore_avvisa_nel_log(env):
+    env.wq.add(['/a.mkv'])
+    page = env.open()
+    wait_rows(page, 1)
+    page.click('.file-row[data-path="/a.mkv"]', button='right')
+    page.wait_for_selector('[data-testid=context-menu]')
+    env.wq.queue.take_next()                                                # il motore prende il file mentre il menu e' aperto
+    env.wq.on_file_started('/a.mkv')
+    page.hover('.ctx-item[data-label="Correzione del genere"]')
+    page.click('.ctx-sub .ctx-item[data-label="Sì"]')
+    deadline = time.time() + 5
+    while time.time() < deadline and not [e for e in env.wq.bus.since(0)[0] if e['k'] == 'log']:
+        time.sleep(0.05)
+    logs = [e['d'] for e in env.wq.bus.since(0)[0] if e['k'] == 'log']
+    assert logs == ['⚠️ 1 file non modificati: già in elaborazione, finiti o non più in coda.']
+
+
+def drag(page, src, dst, after=False):
+    s = page.locator(f'.file-row[data-path="{src}"]')
+    d = page.locator(f'.file-row[data-path="{dst}"]')
+    box = d.bounding_box()
+    s.drag_to(d, target_position={'x': 40, 'y': box['height'] * (0.8 if after else 0.2)})
+
+
+def test_riordino_con_il_trascinamento(env):
+    env.wq.add(['/a.mkv', '/b.mkv', '/c.mkv', '/d.mkv'])
+    page = env.open()
+    wait_rows(page, 4)
+    drag(page, '/d.mkv', '/b.mkv')                                          # sopra b
+    page.wait_for_function('() => document.querySelectorAll(".file-row")[1].dataset.path === "/d.mkv"')
+    assert env.wq.queue.snapshot() == ['/a.mkv', '/d.mkv', '/b.mkv', '/c.mkv']
+    drag(page, '/a.mkv', '/c.mkv', after=True)                              # sotto c
+    page.wait_for_function('() => document.querySelectorAll(".file-row")[3].dataset.path === "/a.mkv"')
+    assert env.wq.queue.snapshot() == ['/d.mkv', '/b.mkv', '/c.mkv', '/a.mkv']
+    assert [Path(x['path']).name for x in rows(page)] == ['d.mkv', 'b.mkv', 'c.mkv', 'a.mkv']
+    drag(page, '/b.mkv', '/c.mkv')                                          # rilascio che non cambia l'ordine: nessuna richiesta
+    time.sleep(0.4)
+    assert env.wq.queue.snapshot() == ['/d.mkv', '/b.mkv', '/c.mkv', '/a.mkv']
+
+
+def test_riordino_non_vale_per_righe_non_in_attesa_ne_con_selezione_multipla(env):
+    env.wq.add(['/a.mkv', '/b.mkv', '/c.mkv'])
+    env.wq.queue.take_next()
+    env.wq.on_file_started('/a.mkv')
+    page = env.open()
+    wait_rows(page, 3)
+    assert page.locator('.file-row[data-path="/a.mkv"]').get_attribute('draggable') == 'false'
+    assert page.locator('.file-row[data-path="/b.mkv"]').get_attribute('draggable') == 'true'
+    drag(page, '/a.mkv', '/c.mkv', after=True)
+    time.sleep(0.4)
+    assert env.wq.queue.snapshot() == ['/b.mkv', '/c.mkv']
+    page.click('.file-row[data-path="/b.mkv"]')
+    page.click('.file-row[data-path="/c.mkv"]', modifiers=['Control'])      # due selezionate: il trascinamento di una riga non parte
+    drag(page, '/b.mkv', '/c.mkv', after=True)
+    time.sleep(0.4)
+    assert env.wq.queue.snapshot() == ['/b.mkv', '/c.mkv']
+
+
+def test_riordino_annullato_se_la_riga_e_gia_stata_presa(env):
+    env.wq.add(['/a.mkv', '/b.mkv', '/c.mkv'])
+    page = env.open()
+    wait_rows(page, 3)
+    from tpweb import queue_backend
+    env.wq.queue.take_next()                                                # il motore prende a mentre l'utente trascina a
+    env.wq.on_file_started('/a.mkv')
+    r = env.srv.app  # noqa: F841
+    import httpx
+    res = httpx.post(f'http://127.0.0.1:{env.srv.port}/api/queue/reorder', json={'order': ['/b.mkv', '/a.mkv', '/c.mkv'], 'moved': '/a.mkv'},
+                     headers={'X-TP-Token': env.srv.token})
+    assert res.json() == {'ok': False} and env.wq.queue.snapshot() == ['/b.mkv', '/c.mkv']
