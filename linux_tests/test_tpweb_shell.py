@@ -2,6 +2,7 @@
 """Fase 6a: il guscio nativo con un finto `webview` (la finestra vera e i dialoghi di Windows si provano sulla macchina Windows)."""
 import sys
 import threading
+import time
 import types
 from pathlib import Path
 
@@ -146,7 +147,11 @@ def test_chiusura_a_coda_libera_chiede_l_uscita_e_a_coda_al_lavoro_chiede_alla_p
     sh, log = make_shell(wv, busy=True)
     sh.run()
     closing = wv.windows[0].events.closing.handlers[0]
-    assert closing() is False and log.quit == 0 and log.asked == [wv.windows[0]]          # la finestra resta aperta: decide la pagina
+    assert closing() is False and log.quit == 0
+    deadline = time.time() + 2
+    while not log.asked and time.time() < deadline:                                       # la domanda parte in un thread a parte
+        time.sleep(0.01)
+    assert log.asked == [wv.windows[0]]                                                    # la finestra resta aperta: decide la pagina
     sh.close_window()
     assert wv.windows[0].destroyed.is_set() and closing() is True and log.quit == 0       # server gia' in uscita: si chiude e basta
 
@@ -187,3 +192,29 @@ def test_il_server_segnala_la_prima_pagina_collegata():
         assert s.wait_page(2.0) is True
     finally:
         s.stop()
+
+
+def test_la_chiusura_dalla_pagina_non_distrugge_la_finestra_e_destroy_parte_una_volta_sola():
+    wv = FakeWebview(script=['close'])
+    sh, log = make_shell(wv)
+    sh.run()
+    api = ShellApi(wv, lambda: wv.windows[0], sh._request_quit_and_close)
+    api.quit()
+    assert log.quit == 1 and not wv.windows[0].destroyed.is_set()          # destroy() dentro la chiamata JS bloccava la finestra su Windows
+    calls = []
+    sh.window = types.SimpleNamespace(destroy=lambda: calls.append(1))
+    sh.close_window(); sh.close_window()
+    assert calls == [1]
+
+
+def test_run_shell_rete_di_sicurezza_se_la_finestra_non_si_chiude():
+    class Srv:
+        url = 'http://x'
+        queue = types.SimpleNamespace(is_processing=False)
+        wait_page = staticmethod(lambda t: True)
+    wv = FakeWebview()
+    quit_event = threading.Event()
+    hit = threading.Event()
+    threading.Timer(0.2, quit_event.set).start()
+    launcher.run_shell(Srv, quit_event, wv, hard_exit=hit.set, hard_exit_after=0.1)
+    assert hit.wait(2)

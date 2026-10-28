@@ -21,7 +21,11 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['matplotlib', 'pandas'],
+    excludes=['matplotlib', 'pandas',
+              # P14 (Windows): l'exe pesava ~3 GB perche' seguiva gli import pesanti del venv, e pyi_rth_pkgres falliva con
+              # `No module named 'pkg_resources.extern'`. La web UI non li usa nel proprio processo: l'elaborazione gira nel sottoprocesso.
+              'pkg_resources', 'setuptools', 'torch', 'torchaudio', 'torchvision', 'tensorflow', 'transformers', 'faster_whisper',
+              'ctranslate2', 'onnxruntime', 'scipy', 'numba', 'llvmlite', 'sklearn', 'cv2', 'PySide6', 'PyQt5', 'PyQt6', 'tkinter'],
     noarchive=False,
     optimize=0,
 )
