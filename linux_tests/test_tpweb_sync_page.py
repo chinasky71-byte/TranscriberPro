@@ -185,3 +185,20 @@ def test_apertura_bloccata_a_coda_in_lavoro_o_con_il_glossario(env):
     assert env.srv.queue.start() == 'ok'
     until(page, "() => document.querySelector('[data-testid=open-sync]').disabled")
     env.srv.queue.stop(); env.srv.queue.join(20)
+
+
+def test_l_esito_si_annuncia_una_volta_per_run_e_non_ricaricando(env):
+    page = env.open()
+    d = env.tmp / 'm'; d.mkdir()
+    (d / 'Film.mkv').write_text('x'); (d / 'Film.it.srt').write_text('x')
+    open_sync(page)
+    pick_file(page, 'sy-video-browse', d, str(d / 'Film.mkv'))
+    pick_file(page, 'sy-srt-browse', d, str(d / 'Film.it.srt'))
+    for _ in range(2):                                           # due run nello stesso dialogo: due messaggi
+        page.click('[data-testid=sy-start]')
+        assert message(page)[0] == IT['sync_done_title']
+    page.reload()                                                # a run concluso, ricaricare e riaprire non ripete il messaggio
+    page.wait_for_selector('[data-testid=left-panel]')
+    open_sync(page)
+    settle(page); settle(page)
+    assert page.locator('[data-testid=message-box]').count() == 0

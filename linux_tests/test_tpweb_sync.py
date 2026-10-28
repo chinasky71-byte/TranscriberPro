@@ -211,3 +211,44 @@ def test_chiusura_del_server_annulla_e_attende(srv):
     mgr = c.srv.app.state.tools.sync
     c.srv.stop()
     assert not mgr._thread.is_alive() and FakeSync.made[0].cancelled.is_set()
+
+
+def test_run_id_cresce_a_ogni_run_e_la_scelta_srt_e_bloccata_col_run(srv):
+    c = srv
+    ids = []
+    for _ in range(2):
+        run_single(c)
+        ids.append(wait_status(c, {'finished'})['run_id'])
+        c.post('/api/tools/sync/reset')
+    assert ids[1] == ids[0] + 1 and c.get('/api/tools/sync').json()['run_id'] == ids[1]            # sopravvive al reset
+    v, s = make_tree(c.tmp, ('A.slow.S01E01', 'B.Show.S01E02'))
+    c.post('/api/tools/sync/scan', json={'video_dir': str(v), 'srt_dir': str(s)})
+    c.post('/api/tools/sync/run', json={'mode': 'batch'})
+    t0 = time.time()
+    while not any('STUB_SLOW_STARTED' in l for l in c.get('/api/tools/sync').json()['log']) and time.time() - t0 < 20:
+        time.sleep(0.05)
+    assert c.post('/api/tools/sync/plan/srt', json={'row': 0, 'value': None}).json() == {'ok': False}
+    c.post('/api/tools/sync/cancel'); wait_status(c, {'finished'})
+
+
+def test_avanzamento_della_coda_dopo_una_coppia_fallita(srv):
+    """Una coppia che fallisce non manda mai il 100% della coppia: l'avanzamento complessivo deve comunque salire a coppie concluse."""
+    c = srv
+    v, s = make_tree(c.tmp, ('A.fail.S01E01', 'B.slow.S01E02'))
+    c.post('/api/tools/sync/scan', json={'video_dir': str(v), 'srt_dir': str(s)})
+    c.post('/api/tools/sync/run', json={'mode': 'batch'})
+    t0 = time.time()
+    while not any('STUB_SLOW_STARTED' in l for l in c.get('/api/tools/sync').json()['log']) and time.time() - t0 < 20:
+        time.sleep(0.05)
+    st = c.get('/api/tools/sync').json()
+    assert st['rows_rt']['0']['kind'] == 'failed' and st['progress'] >= 50
+    c.post('/api/tools/sync/cancel'); wait_status(c, {'finished'})
+
+
+def test_coda_con_l_ultima_coppia_fallita_chiude_al_cento(srv):
+    c = srv
+    v, s = make_tree(c.tmp, ('A.fail.S01E01',))
+    c.post('/api/tools/sync/scan', json={'video_dir': str(v), 'srt_dir': str(s)})
+    c.post('/api/tools/sync/run', json={'mode': 'batch'})
+    st = wait_status(c, {'finished'})
+    assert st['outcome'] == {'kind': 'batch_done', 'ok': 0, 'fail': 1, 'skipped': 0} and st['progress'] == 100
