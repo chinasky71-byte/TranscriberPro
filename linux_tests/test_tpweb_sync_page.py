@@ -140,7 +140,7 @@ def test_coda_di_coppie_abbina_scegli_conferma_ed_esegui(env):
     page.click('[data-testid=sy-start]')
     page.wait_for_selector('.modal-confirm')
     assert page.locator('.modal-confirm .modal-text').inner_text() == IT['sync_batch_confirm'].format(n=1)
-    page.click('.modal-confirm .btn-start')
+    page.click('[data-testid=confirm-yes]')
     title, text = message(page)
     assert title == IT['sync_done_title'] and text == IT['sync_batch_done'].format(ok=1, fail=0, skipped=0)
     assert page.locator('[data-testid=sy-state-0]').inner_text() == IT['sync_batch_state_ok']
