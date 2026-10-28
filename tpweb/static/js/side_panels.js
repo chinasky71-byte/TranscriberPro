@@ -2,6 +2,7 @@ import { html, useState, useEffect, useRef, useLayoutEffect } from '/static/js/l
 import { t } from '/static/js/i18n.js';
 import { Icon } from '/static/js/icon.js';
 import { useStore, setCompact } from '/static/js/store.js';
+import { get, put } from '/static/js/api.js';
 import { PipelineCard } from '/static/js/pipeline_card.js';
 
 const pct = (v) => (v === null || v === undefined ? '–' : v.toFixed(1) + '%');
@@ -72,15 +73,47 @@ function InfoStrip() {
   </div>`;
 }
 
+const MIN_CENTER = 120;
+
+/** QSplitter verticale tra anteprima e monitor (centerSplitter della GUI): senza misure salvate il monitor resta alto 217 px. */
+function useCenterSplit() {
+  const [sizes, setSizes] = useState(null);
+  const ref = useRef(null);
+  useEffect(() => { get('/api/settings/center_split').then((r) => { if (r.ok && r.data.sizes) setSizes(r.data.sizes); }); }, []);
+  function drag(e) {
+    e.preventDefault();
+    const kids = [...ref.current.children].filter((c) => !c.classList.contains('split-handle-h'));
+    const start = kids.map((c) => c.getBoundingClientRect().height);
+    const y0 = e.clientY;
+    let latest = start;
+    const move = (ev) => {
+      const dy = Math.max(MIN_CENTER - start[0], Math.min(start[1] - MIN_CENTER, ev.clientY - y0));
+      latest = [Math.round(start[0] + dy), Math.round(start[1] - dy)];
+      setSizes(latest);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      put('/api/settings/center_split', { sizes: latest });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+  const rows = sizes ? `${sizes[0]}fr 6px ${sizes[1]}fr` : '1fr 6px 217px';
+  return { ref, drag, rows };
+}
+
 export function CenterPanel() {
+  const split = useCenterSplit();
   const rows = useStore((s) => s.queue.rows);
   const current = useStore((s) => s.ui.current);
   const row = current ? rows.find((r) => r.path === current) : null;
   return html`<section class="panel center-panel" data-testid="center-panel">
     <div class="preview-header"><span class="panel-title">${t('web_preview_title')}</span>
       ${row ? html`<span class="filename-pill" data-testid="filename-pill">${row.filename}</span>` : null}</div>
-    <div class="center-split">
+    <div class="center-split" ref=${split.ref} style=${{ gridTemplateRows: split.rows }}>
       <div class="poster-stage"><${Poster} /><${InfoStrip} /></div>
+      <div class="split-handle-h" data-testid="split-handle-center" onPointerDown=${split.drag}></div>
       <${ResourceMonitor} />
     </div>
   </section>`;

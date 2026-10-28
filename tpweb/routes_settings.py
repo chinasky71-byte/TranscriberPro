@@ -76,6 +76,10 @@ class SplitterBody(BaseModel):
     sizes: List[int] = Field(min_length=3, max_length=3)
 
 
+class CenterSplitBody(BaseModel):
+    sizes: List[int] = Field(min_length=2, max_length=2)
+
+
 class LastTabBody(BaseModel):
     tab: Literal['general', 'jobs', 'transcription', 'translation', 'batch', 'opensubtitles', 'ocr']
 
@@ -246,6 +250,17 @@ def add_settings_routes(app: FastAPI, config) -> None:
             return JSONResponse({'error': 'dimensioni non valide'}, status_code=422)
         ui_state.save_main_splitter_sizes(b.sizes)
         return {'sizes': ui_state.main_splitter_sizes()}
+
+    @app.get('/api/settings/center_split')
+    async def get_center_split():
+        return {'sizes': ui_state.center_split_sizes()}                  # None = predefinite (monitor alto 217 px)
+
+    @app.put('/api/settings/center_split')
+    async def put_center_split(b: CenterSplitBody):
+        if not all(x > 0 for x in b.sizes):
+            return JSONResponse({'error': 'dimensioni non valide'}, status_code=422)
+        ui_state.save_center_split_sizes(b.sizes)
+        return {'sizes': ui_state.center_split_sizes()}
 
     @app.put('/api/settings/last_tab')
     async def put_last_tab(b: LastTabBody):
