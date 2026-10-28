@@ -77,6 +77,23 @@ def open_tab(page, tab):
     page.wait_for_selector(f'.settings-page[data-page={tab}]:not(.hidden) .page')
 
 
+def until(page, expr, timeout=5000):
+    """Attende che `expr` (funzione JS) torni vero: `wait_for_function` usa eval e la CSP della pagina lo vieta."""
+    for _ in range(timeout // 50):
+        if page.evaluate(expr):
+            return
+        page.wait_for_timeout(50)
+    raise AssertionError('condizione non raggiunta: ' + expr)
+
+
+def tick(page, testid, on=True):
+    """Casella o radio: la vera <input> e' nascosta, si clicca l'etichetta come farebbe una persona."""
+    loc = page.locator(f'[data-testid={testid}]')
+    if loc.is_checked() != on:
+        (loc.check() if testid.endswith('-radio') else loc.locator('xpath=..').click())
+    assert loc.is_checked() == on
+
+
 def settle(page):
     page.wait_for_timeout(250)
 
@@ -161,7 +178,7 @@ def test_generali_lingua_url_chiave_e_mostra_nascondi(env):
     assert page.locator('[data-testid=gs-key]').get_attribute('placeholder') == '••••••••••••'
     assert page.locator('[data-testid=gs-show]').inner_text() == EN['gs_show']      # la lingua e' stata portata a EN poco sopra
     page.click('[data-testid=gs-show]')
-    page.wait_for_function("document.querySelector('[data-testid=gs-key]').value === 'chiave-segreta-1234567890'")
+    until(page, "() => document.querySelector('[data-testid=gs-key]').value === 'chiave-segreta-1234567890'")
     assert page.locator('[data-testid=gs-key]').get_attribute('type') == 'text'
     assert page.locator('[data-testid=gs-show]').inner_text() == EN['gs_hide']
     page.click('[data-testid=gs-show]')
@@ -171,6 +188,7 @@ def test_generali_lingua_url_chiave_e_mostra_nascondi(env):
 def test_generali_prova_connessione_url_vuoto_e_cartelle_montate(env):
     page = env.open()
     open_tab(page, 'general')
+    page.fill('[data-testid=gs-url]', ''); page.press('[data-testid=gs-url]', 'Enter')
     page.click('[data-testid=gs-test]')
     assert page.locator('[data-testid=gs-ping]').inner_text() == IT['gs_invalid_url']
     page.fill('[data-testid=gs-map]', '\\\\srv\\film=/mnt/film')
@@ -184,9 +202,9 @@ def test_opzioni_job_si_salvano_subito(env):
     open_tab(page, 'jobs')
     assert page.locator('[data-testid=jo-lang] option').count() == 14
     page.select_option('[data-testid=jo-lang]', 'fra')
-    page.check('[data-testid=jo-mux]')
-    page.check('[data-testid=jo-gender]')
-    page.check('[data-testid=jo-upload]')
+    tick(page, 'jo-mux')
+    tick(page, 'jo-gender')
+    tick(page, 'jo-upload')
     settle(page)
     j = api(page, '/api/settings')['job_options']
     assert (j['target_language'], j['mux_into_video'], j['gender_correction'], j['opensubtitles_upload']) == ('fra', True, True, True)
@@ -197,9 +215,9 @@ def test_batch_attiva_disattiva_ripristina_e_salva(env):
     page = env.open()
     open_tab(page, 'batch')
     spin = lambda k: page.locator(f'[data-testid=ab-{k}]')            # noqa: E731
-    page.uncheck('[data-testid=ab-enable]')
+    tick(page, 'ab-enable', False)
     assert all(spin(k).is_disabled() for k in ('initial', 'min', 'max', 'warmup', 'high', 'low'))
-    page.check('[data-testid=ab-enable]')
+    tick(page, 'ab-enable')
     assert not any(spin(k).is_disabled() for k in ('initial', 'min', 'max', 'warmup', 'high', 'low'))
     spin('max').fill('48'); spin('max').press('Tab')
     spin('high').fill('0,9'); spin('high').press('Tab')
@@ -220,7 +238,7 @@ def test_batch_attiva_disattiva_ripristina_e_salva(env):
 def test_ocr_strategia_lingua_soglia_worker_e_scrittura(env):
     page = env.open()
     open_tab(page, 'ocr')
-    page.check('[data-testid=oc-auto]')
+    tick(page, 'oc-auto')
     page.fill('[data-testid=oc-lang]', 'ita+eng'); page.press('[data-testid=oc-lang]', 'Enter')
     page.locator('[data-testid=oc-conf]').fill('70 %'); page.press('[data-testid=oc-conf]', 'Tab')
     page.locator('[data-testid=oc-workers]').fill('4'); page.press('[data-testid=oc-workers]', 'Tab')
@@ -232,7 +250,7 @@ def test_ocr_strategia_lingua_soglia_worker_e_scrittura(env):
         ('auto', 'ita+eng', 70, 4, 'sidecar', '/usr/bin/tesseract')
     page.locator('[data-testid=oc-workers]').fill('0'); page.press('[data-testid=oc-workers]', 'Tab')
     assert page.locator('[data-testid=oc-workers]').input_value() == IT['ocr_workers_auto']       # valore speciale come QSpinBox
-    page.check('[data-testid=oc-review]')
+    tick(page, 'oc-review')
     settle(page)
     assert api(page, '/api/settings')['ocr']['strategy'] == 'review'
 
@@ -257,9 +275,9 @@ def test_opensubtitles_credenziali_mantieni_invariata_e_guida(env):
     os_ = api(page, '/api/settings')['opensubtitles']
     assert os_['org_username'] == 'mario2' and os_['org_password_set'] is True
     page.click('[data-testid=os-org-show]')
-    page.wait_for_function("document.querySelector('[data-testid=os-org-pass]').value === 'pw-uno'")
+    until(page, "() => document.querySelector('[data-testid=os-org-pass]').value === 'pw-uno'")
     assert page.locator('[data-testid=os-upload]').is_enabled()
-    page.check('[data-testid=os-upload]')
+    tick(page, 'os-upload')
     page.select_option('[data-testid=os-impl]', 'rest')
     settle(page)
     os_ = api(page, '/api/settings')['opensubtitles']
@@ -280,7 +298,7 @@ def test_trascrizione_motore_stile_dialoghi_e_schede_nascoste(env):
     values = page.locator('[data-testid=tr-engine] option').evaluate_all('els => els.map(e => e.value)')
     assert values[0] == 'auto' and len(values) >= 3
     page.select_option('[data-testid=tr-engine]', values[1])
-    page.check('[data-testid=tr-dialogue]')
+    tick(page, 'tr-dialogue')
     settle(page)
     s = api(page, '/api/settings/transcription')
     assert s['engine_mode'] == values[1] and s['dialogue_style'] is True
@@ -291,7 +309,7 @@ def test_traduzione_modelli_percorsi_e_chiavi(env, tmp_path):
     page = env.open()
     open_tab(page, 'translation')
     for m, tid in (('claude', 'tm-claude'), ('opensubtitles', 'tm-os'), ('openai', 'tm-openai'), ('llm', 'tm-llm'), ('nllb_finetuned', 'tm-nllbft'), ('nllb', 'tm-nllb')):
-        page.check(f'[data-testid={tid}-radio]')
+        tick(page, tid + '-radio')
         settle(page)
         assert api(page, '/api/settings/translation')['model'] == m
     # percorso inesistente / vuoto / valido
@@ -321,10 +339,10 @@ def test_traduzione_flag_diarizzazione_genere_e_audio(env):
     open_tab(page, 'translation')
     for tid, key in (('tm-align', 'enable_forced_alignment'), ('tm-diar', 'enable_diarization'), ('tm-gender-enable', 'gender_correction_enabled'),
                      ('tm-force-audio', 'force_audio_transcription')):
-        page.check(f'[data-testid={tid}]')
+        tick(page, tid)
         settle(page)
         assert api(page, '/api/settings/translation')['flags'][key] is True
-    page.uncheck('[data-testid=tm-gender-p2]')
+    tick(page, 'tm-gender-p2', False)
     page.fill('[data-testid=tm-speakers]', '3'); page.press('[data-testid=tm-speakers]', 'Tab')
     settle(page)
     f = api(page, '/api/settings/translation')['flags']
@@ -337,7 +355,7 @@ def test_traduzione_test_diarizzazione_e_scaricamento_con_righe_in_diretta(env):
     page = env.open()
     open_tab(page, 'translation')
     page.click('[data-testid=tm-diar-test]')                           # senza token: avviso, nessun sottoprocesso
-    page.wait_for_function("document.querySelector('[data-testid=tm-diar-result]').innerText.length > 0")
+    until(page, "() => document.querySelector('[data-testid=tm-diar-result]').innerText.length > 0")
     assert page.locator('[data-testid=tm-diar-result]').inner_text() == IT['tmd_token_not_set_save_first']
     page.click('[data-testid=tm-llm-download]')                         # senza token HF: messaggio
     assert message(page)[0] == IT['tmd_token_missing_title']
@@ -345,9 +363,9 @@ def test_traduzione_test_diarizzazione_e_scaricamento_con_righe_in_diretta(env):
     assert message(page)[0] == IT['creds_saved_title']
     FakeRunner.gate = threading.Event()
     page.click('[data-testid=tm-diar-test]')
-    page.wait_for_function("document.querySelector('[data-testid=tm-diar-test]').disabled")
+    until(page, "() => document.querySelector('[data-testid=tm-diar-test]').disabled")
     FakeRunner.gate.set()
-    page.wait_for_function("document.querySelector('[data-testid=tm-diar-result]').innerText.includes('esito finale')")
+    until(page, "() => document.querySelector('[data-testid=tm-diar-result]').innerText.includes('esito finale')")
     assert '⏳' not in page.locator('[data-testid=tm-diar-result]').inner_text()          # le righe di avanzamento non fanno parte del verdetto
     FakeRunner.exit_code = 2
     page.click('[data-testid=tm-llm-download]')
