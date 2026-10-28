@@ -89,3 +89,15 @@ La web UI non sostituisce la Qt finché ogni riga non e' `verificato Win`. Rifer
 | Chiusura del server: annulla e attende i run (nessun sottoprocesso orfano) | `ToolRuns.shutdown` | fatto | `test_chiusura_del_server_*` |
 | Differenza voluta: a run in corso il dialogo si puo' riaprire (e' una vista sul run, non un secondo run); un secondo avvio e' rifiutato dal server | | da confermare | |
 | Aspetto confrontato con Qt (SSIM) | | da misurare in C-011 (Windows) | |
+
+
+## Library Scanner (fase 5a)
+| Elemento GUI | Web | Stato | Test |
+|---|---|---|---|
+| Card collassabile (titolo, badge, stato Attivo/Inattivo, pallino, aggiorna), apertura ricordata, primo caricamento a ~2,5 s, aggiornamento ogni 5 min a card aperta | `scanner.js`, `tpweb/library.py` | fatto | `test_card_chiusa_apertura_ricordata_*` |
+| Ricerca (500 ms), tipo, giorni, formato (ASS/SSA e ritorno ricaricano dal server; gli altri filtri no), ordinamento colonne | idem | fatto | `test_filtri_giorni_formato_ricerca_e_ordinamento`, `test_filtri_giorni_e_formato_senza_ricaricare` |
+| Righe: colori giorni, audio ITA, badge PGS/VOB/MIX e ASS, pulsante «+» / ✓ | idem | fatto (clic sul badge bitmap: 5b) | `test_righe_badge_colori_e_statistiche` |
+| Importa singolo / tutti i filtrati (mappa dei percorsi, niente doppioni, riga con ASS converte) | `LibraryManager.import_paths` | fatto | `test_import_*` |
+| Conversione ASS/SSA sul server (messaggi e log come la GUI) | `convert_ass` | fatto | `test_conversione_ass_*` |
+| Notifica al server a ogni sottotitolo creato (solo dopo il primo caricamento; in batch niente ricarica) | `notify_subtitle_created` + evento `library_changed` | fatto | `test_notifica_*` |
+| Pulsante Superpower, OCR dal badge, revisione OCR | | 5b / 5c | |
