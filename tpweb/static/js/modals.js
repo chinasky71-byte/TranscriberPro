@@ -23,7 +23,30 @@ export function Confirm({ title, text, onYes, onNo }) {
 
 
 /** Navigatore del file system al posto dei dialoghi nativi (con il guscio nativo di pywebview si useranno quelli veri). */
-export function FileBrowser({ mode, title, exts, onPick, onCancel }) {
+/** Dialoghi nativi del guscio (pywebview): `null` se la pagina gira in un browser. Esito: lista di percorsi o `[]` se annullato. */
+export async function pickNative(mode, title, exts) {
+  const api = window.pywebview && window.pywebview.api;
+  if (!api) return null;
+  try {
+    const res = mode === 'folder' ? await api.pick_folder(title) : await api.pick_files(title, exts || null);
+    return res || [];
+  } catch (e) { return null; }
+}
+
+/** Navigatore del file system; nel guscio nativo al suo posto si apre il dialogo di Windows (stessi parametri, stesso esito). */
+export function FileBrowser(props) {
+  const [native, setNative] = useState(!!(window.pywebview && window.pywebview.api));
+  useEffect(() => {
+    if (!native) return;
+    pickNative(props.mode, props.title, props.exts).then((paths) => {
+      if (paths === null) setNative(false);                // dialogo non disponibile: ripiego sul navigatore
+      else if (paths.length) props.onPick(paths); else props.onCancel();
+    });
+  }, []);
+  return native ? null : html`<${WebFileBrowser} ...${props} />`;
+}
+
+function WebFileBrowser({ mode, title, exts, onPick, onCancel }) {
   const [roots, setRoots] = useState([]);
   const [cur, setCur] = useState(null);       // {path, parent, dirs, files}
   const [err, setErr] = useState('');

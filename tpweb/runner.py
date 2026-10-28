@@ -42,6 +42,10 @@ class ServerThread:
             self.gpu.start()
         return self
 
+    def wait_page(self, timeout: float) -> bool:
+        """True quando una pagina si e' collegata al server (primo /events): e' il segnale che la finestra non e' rimasta bianca."""
+        return self.app.state.page_ready.wait(timeout)
+
     def stop(self) -> None:
         ocr = self.app.state.ocr
         if ocr is not None:
