@@ -27,6 +27,8 @@ EXIT_OK, EXIT_BUSY = 0, 3
 def build(config, history_path=None, project_root=None, shutdown_fn=None, opener=None, sampler=None, quit_event=None,
           port=None, token=None) -> ServerThread:
     """Compone il server completo (non lo avvia)."""
+    from tpweb.lang import apply_to_process
+    apply_to_process(config)
     bus = EventBus()
     history = HistoryService(history_path)
     history.load()

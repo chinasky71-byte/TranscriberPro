@@ -60,9 +60,21 @@ def add_queue_routes(app: FastAPI, wq: WebQueue) -> None:
     async def reorder(body: ReorderBody):
         return {'ok': wq.reorder(body.order, body.moved)}
 
+    @app.get('/api/queue/override-options')
+    async def override_options():
+        """Valori ammessi delle eccezioni per file (i nomi delle lingue sono le chiavi `lang_name_<codice>` del dizionario)."""
+        from utils import job_overrides as JO
+        return {'keys': list(JO.ALL_KEYS), 'languages': list(JO.LANGUAGES), 'translation_models': list(JO.TRANSLATION_MODELS),
+                'bool_keys': list(JO.BOOL_KEYS)}
+
     @app.post('/api/queue/overrides')
     async def overrides(body: OverridesBody):
-        return {'changed': wq.set_overrides(body.paths, body.key, body.value)}
+        changed = wq.set_overrides(body.paths, body.key, body.value)
+        skipped = len(body.paths) - len(changed)
+        if skipped > 0 and (body.value is None or wq.valid_override(body.key, body.value)):
+            from utils.translations import tr
+            wq.bus.publish('log', tr('job_ov_skipped_log').format(n=skipped))      # come la GUI: file in lavorazione, finiti o non piu' in coda
+        return {'changed': changed, 'skipped': skipped}
 
     @app.post('/api/queue/clear')
     async def clear():
