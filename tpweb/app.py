@@ -20,18 +20,31 @@ KEEPALIVE_S = 15
 
 
 def create_app(token: str, port: int, bus: Optional[EventBus] = None,
-               get_state: Optional[Callable[[], dict]] = None, queue=None) -> FastAPI:
+               get_state: Optional[Callable[[], dict]] = None, queue=None, history=None, config=None,
+               opener: Optional[Callable[[str], None]] = None, mapped_roots: Optional[Callable[[], list]] = None) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.state.bus = bus or EventBus()
     if get_state is None and queue is not None:
         get_state = lambda: {'queue': queue.state()}      # noqa: E731
     app.state.get_state = get_state or (lambda: {})
     app.state.queue = queue
+    if opener is None:
+        from tpweb.opener import open_path as opener
+    app.state.opener = opener
     install_guard(app, token, port)
 
     if queue is not None:
         from tpweb.routes_queue import add_queue_routes
         add_queue_routes(app, queue)
+
+    if history is not None:
+        from tpweb.routes_history import add_history_routes
+        add_history_routes(app, history)
+    if config is not None:
+        from tpweb.routes_settings import add_settings_routes
+        add_settings_routes(app, config)
+    from tpweb.routes_fs import add_fs_routes
+    add_fs_routes(app, mapped_roots or (lambda: []))
 
     @app.get('/', response_class=HTMLResponse)
     async def index():

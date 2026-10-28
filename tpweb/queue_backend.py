@@ -18,7 +18,9 @@ from typing import Callable, Dict, List, Optional
 
 from core.jobs.engine import QueueEngine, QueueListener
 from core.jobs.job_queue import JobQueue
+from core.services.file_scan import VIDEO_EXTENSIONS, iter_videos, size_text
 from core.services.job_model import JobRecord, JobStatus, KIND_OCR, is_reorderable
+from core.services.shutdown_policy import ShutdownPolicy
 from tpweb.events import EventBus
 
 EMPTY, RUNNING, OK = 'empty', 'running', 'ok'     # esiti di start()
@@ -29,8 +31,18 @@ def _key(path: str) -> str:
 
 
 class WebQueue(QueueListener):
-    def __init__(self, bus: EventBus, engine_factory: Optional[Callable[['WebQueue'], QueueEngine]] = None):
+    def __init__(self, bus: EventBus, engine_factory: Optional[Callable[['WebQueue'], QueueEngine]] = None,
+                 history=None, shutdown_enabled: Optional[Callable[[], bool]] = None,
+                 shutdown_fn: Optional[Callable[[], None]] = None, shutdown_delay_s: float = ShutdownPolicy.DELAY_MS / 1000):
+        """`history`: HistoryService su cui salvare le voci dei file completati. `shutdown_enabled`/`shutdown_fn`: la casella
+        'Spegni' (letta a fine coda) e l'azione; senza `shutdown_fn` il server non spegne MAI il computer."""
         self.bus = bus
+        self.history = history
+        self._shutdown_enabled = shutdown_enabled
+        self._shutdown_fn = shutdown_fn
+        self._shutdown_delay_s = shutdown_delay_s
+        self._scan_thread: Optional[threading.Thread] = None
+        self._scan_cancel = False
         self.queue = JobQueue()
         self._rows_lock = threading.RLock()
         self._rows: List[JobRecord] = []
@@ -152,6 +164,48 @@ class WebQueue(QueueListener):
         self.bus.publish('jobs_cleared')
         return True
 
+    # ------------------------------------------------------------------------------------- scansione cartelle, dimensioni
+    def scan_folder(self, folder: str, exts: Optional[List[str]] = None) -> bool:
+        """Enumerazione in background (rglob su SMB e' lenta). False se una scansione e' gia' in corso. Ogni video trovato segue
+        le regole di `add` (nessun doppione); a fine scansione 'scan_finished' col numero di file TROVATI."""
+        t = self._scan_thread
+        if t is not None and t.is_alive():
+            return False
+        self._scan_cancel = False
+        self.bus.publish('scan_started', folder)
+
+        def work():
+            found = 0
+            for path, size in iter_videos(folder, list(exts) if exts is not None else list(VIDEO_EXTENSIONS),
+                                          lambda: self._scan_cancel):
+                found += 1
+                self.add([path], {path: size})
+            self.bus.publish('scan_finished', found)
+        self._scan_thread = threading.Thread(target=work, name='tpweb-scan', daemon=True)
+        self._scan_thread.start()
+        return True
+
+    def cancel_scan(self) -> None:
+        self._scan_cancel = True
+
+    def join_scan(self, timeout: Optional[float] = None) -> None:
+        t = self._scan_thread
+        if t is not None:
+            t.join(timeout)
+
+    def request_sizes(self, paths: List[str]) -> None:
+        """Calcola le dimensioni in background (un file su un NAS in standby puo' metterci secondi): le righe nascono senza e la
+        dimensione arriva con 'size_ready'."""
+        def work():
+            for p in list(paths):
+                size = size_text(p)
+                with self._rows_lock:
+                    for i, r in enumerate(self._rows):
+                        if r.path == p and not r.is_ocr:
+                            self._rows[i] = dataclasses.replace(r, size=size)
+                self.bus.publish('size_ready', {'path': p, 'size': size})
+        threading.Thread(target=work, name='tpweb-sizes', daemon=True).start()
+
     # ------------------------------------------------------------------------------------------------------ avvio / arresto
     def start(self) -> str:
         if self.is_processing:
@@ -233,6 +287,9 @@ class WebQueue(QueueListener):
         self.bus.publish('file_error', {'path': path, 'message': message})
 
     def on_history(self, entry: dict) -> None:
+        if self.history is not None:
+            self.history.load()                 # rilegge: mai riscrivere il file con la sola voce nuova (o con una copia vecchia)
+            self.history.append(entry)
         self.bus.publish('history', entry)
 
     def on_queue_updated(self, remaining: int) -> None:
@@ -240,3 +297,9 @@ class WebQueue(QueueListener):
 
     def on_finished(self) -> None:
         self.bus.publish('finished', {'completed': self.completed_count, 'errors': self.error_count})
+        # anche dopo uno Stop (i restanti restano in coda): comportamento preservato dalla GUI
+        if self._shutdown_fn is not None and self._shutdown_enabled is not None and self._shutdown_enabled():
+            self.bus.publish('shutdown_scheduled', self._shutdown_delay_s)
+            timer = threading.Timer(self._shutdown_delay_s, self._shutdown_fn)
+            timer.daemon = True
+            timer.start()
