@@ -21,25 +21,51 @@ def _is_tpweb_process(pid: int) -> bool:
         return False
 
 
+def _create_time(pid: int) -> Optional[float]:
+    try:
+        import psutil
+        return psutil.Process(pid).create_time()
+    except Exception:
+        return None
+
+
 class ServerLock:
-    def __init__(self, path: Optional[Path] = None, is_server: Callable[[int], bool] = _is_tpweb_process):
+    """Il lock porta il pid e l'ORA DI CREAZIONE del processo: il server e' quel processo se esiste ancora con la stessa ora di creazione
+    (cosi' vale per qualunque modo di avvio, anche `python main.py` senza flag, e un pid riusato da un altro programma non inganna).
+    Un lock senza ora di creazione (vecchio formato) si riconosce dalla riga di comando, come prima."""
+
+    def __init__(self, path: Optional[Path] = None, is_server: Optional[Callable[[int], bool]] = None):
         self.path = Path(path) if path else HOME / 'tpweb.lock'
         self._is_server = is_server
+
+    def _holds(self, pid: int, data: dict) -> bool:
+        if self._is_server is not None:
+            return self._is_server(pid)
+        created = data.get('created')
+        if created:
+            now = _create_time(pid)
+            return now is not None and abs(now - float(created)) < 2.0
+        return _is_tpweb_process(pid)
 
     def holder(self) -> Optional[int]:
         """Pid del server che tiene il lock, None se libero o orfano."""
         try:
-            pid = int(json.loads(self.path.read_text(encoding='utf-8')).get('pid', 0))
+            data = json.loads(self.path.read_text(encoding='utf-8'))
+            pid = int(data.get('pid', 0))
         except Exception:
             return None
-        return pid if pid and pid != os.getpid() and self._is_server(pid) else None
+        return pid if pid and pid != os.getpid() and self._holds(pid, data) else None
 
     def acquire(self) -> bool:
         if self.holder() is not None:
             return False
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(json.dumps({'pid': os.getpid(), 'since': time.strftime('%Y-%m-%dT%H:%M:%S')}), encoding='utf-8')
+            info = {'pid': os.getpid(), 'since': time.strftime('%Y-%m-%dT%H:%M:%S')}
+            created = _create_time(os.getpid())
+            if created:
+                info['created'] = created
+            self.path.write_text(json.dumps(info), encoding='utf-8')
         except Exception:
             pass
         return True
