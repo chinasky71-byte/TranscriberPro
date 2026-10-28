@@ -23,6 +23,28 @@ class RunBody(BaseModel):
     names: List[str] = []
 
 
+class ScanBody(BaseModel):
+    video_dir: str = ''
+    srt_dir: str = ''
+    recursive: bool = False
+
+
+class ChooseBody(BaseModel):
+    row: int
+    value: Optional[str] = None
+
+
+class IncludeBody(BaseModel):
+    row: int
+    include: bool
+
+
+class SyncRunBody(BaseModel):
+    mode: str
+    video: str = ''
+    srt: str = ''
+
+
 class Row(BaseModel):
     term: str
     approved: bool
@@ -86,3 +108,52 @@ def add_tool_routes(app: FastAPI, tools: ToolRuns) -> None:
         except Exception as e:
             return JSONResponse({'ok': False, 'reason': 'error', 'error': str(e)}, status_code=500)
         return JSONResponse(res, status_code=200 if res['ok'] or res['reason'] == 'no_terms' else 422)
+
+
+def add_sync_routes(app: FastAPI, tools: ToolRuns) -> None:
+    m = tools.sync
+
+    @app.get('/api/tools/sync')
+    async def sync_state():
+        return m.state()
+
+    @app.post('/api/tools/sync/scan')
+    async def sync_scan(b: ScanBody):
+        if not await asyncio.to_thread(m.scan, b.video_dir, b.srt_dir, b.recursive):       # le cartelle possono stare su un NAS lento
+            return JSONResponse({'error': 'nothing'}, status_code=422)
+        return m.plan_view()
+
+    @app.post('/api/tools/sync/plan/srt')
+    async def sync_choose(b: ChooseBody):
+        return JSONResponse({'ok': m.choose_srt(b.row, b.value)})
+
+    @app.post('/api/tools/sync/plan/include')
+    async def sync_include(b: IncludeBody):
+        return JSONResponse({'ok': m.set_include(b.row, b.include)})
+
+    @app.post('/api/tools/sync/run')
+    async def sync_run(b: SyncRunBody):
+        if b.mode == 'single':
+            if not b.video.strip():
+                return JSONResponse({'error': 'missing_video'}, status_code=422)
+            if not b.srt.strip():
+                return JSONResponse({'error': 'missing_srt'}, status_code=422)
+            reason = await asyncio.to_thread(m.start_single, b.video.strip(), b.srt.strip())
+        elif b.mode == 'batch':
+            reason = await asyncio.to_thread(m.start_batch)
+            if reason == 'nothing':
+                return JSONResponse({'error': 'nothing'}, status_code=422)
+        else:
+            return JSONResponse({'error': 'mode'}, status_code=422)
+        if reason is not None:
+            return JSONResponse({'blocked': reason, 'title_key': 'sync_dialog_title'}, status_code=409)
+        return {'started': True}
+
+    @app.post('/api/tools/sync/cancel')
+    async def sync_cancel():
+        return {'cancelling': m.cancel()}
+
+    @app.post('/api/tools/sync/reset')
+    async def sync_reset():
+        ok = m.reset()
+        return JSONResponse({'reset': ok}, status_code=200 if ok else 409)

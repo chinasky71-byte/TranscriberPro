@@ -60,8 +60,9 @@ def create_app(token: str, port: int, bus: Optional[EventBus] = None,
         from tpweb.routes_models import add_model_routes
         add_model_routes(app, config, app.state.bus, env_jobs, translator_ok)
     if app.state.tools is not None:
-        from tpweb.routes_tools import add_tool_routes
+        from tpweb.routes_tools import add_sync_routes, add_tool_routes
         add_tool_routes(app, app.state.tools)
+        add_sync_routes(app, app.state.tools)
     if preview is not None:
         from tpweb.routes_preview import add_preview_routes
         add_preview_routes(app, preview)
