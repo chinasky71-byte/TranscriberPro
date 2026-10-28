@@ -124,3 +124,9 @@ Ordine delle fette (ognuna: PR in `webui/main`, test del contratto, prova di mut
 - **4c:** Sincronizzazione (singola e coda), `ProgressLog` identico al log del dialogo, esito annunciato una volta per run (`run_id`).
 - **Difetti trovati dai test:** messaggio finale perso con run istantaneo (eventi accorpati), stato delle righe escluse, riapertura a run in corso.
 - **Mutazioni:** 4a 7/7, 4b 12/12, 4c 15/15 uccise dopo i test aggiunti.
+
+## Fase 5 – Library Scanner e OCR (rami `webui/p11-scanner` #66, `webui/p12-ocr`, 28/10/2026)
+- **5a (unita):** card (elenco, filtri locali senza ricaricare, import con mappa dei percorsi, conversione ASS/SSA, notifica al server a ogni sottotitolo creato).
+- **5b/5c:** `OcrManager` — macchina a stati di `LibraryScannerWidget` portata sul server: OCR singolo, revisione mirata (eventi e immagini sul server), write-back, coda differita a coda libera, batch e Superpower. `finished_hooks` della coda (a coda davvero finita), `schedule_shutdown` riusato dal batch.
+- **Difetti trovati dai test:** pallino dello scanner con la stessa classe di quello della barra; nomi dei file con percorsi di Windows sul server Linux (`base_name`); hook di fine coda chiamati quando il thread della coda era ancora vivo (i differiti non sarebbero mai partiti).
+- **Mutazioni:** 5a 15/16 (1 equivalente), 5b 22/22 e 5c 7/7 uccise dopo i test aggiunti.
