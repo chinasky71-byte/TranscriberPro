@@ -1,0 +1,118 @@
+{
+ "widgets": {
+  "settingsHeader#0": [
+   0,
+   0,
+   840,
+   48
+  ],
+  "settingsTitle#1": [
+   20,
+   0,
+   808,
+   48
+  ],
+  "settingsHeaderSep#2": [
+   0,
+   48,
+   840,
+   3
+  ],
+  "settingsSidebar#3": [
+   0,
+   51,
+   200,
+   569
+  ],
+  "qt_scrollarea_viewport#4": [
+   5,
+   56,
+   190,
+   559
+  ],
+  "settingsContentWrap#5": [
+   200,
+   51,
+   640,
+   569
+  ],
+  "settingsStack#6": [
+   220,
+   67,
+   600,
+   537
+  ],
+  "qt_scrollarea_viewport#7": [
+   240,
+   164,
+   552,
+   412
+  ],
+  "nllb#8": [
+   258,
+   286,
+   28,
+   20
+  ],
+  "nllb_finetuned#9": [
+   258,
+   651,
+   28,
+   20
+  ],
+  "qt_spinbox_lineedit#10": [
+   463,
+   951,
+   14,
+   25
+  ],
+  "llm#11": [
+   258,
+   1304,
+   28,
+   20
+  ],
+  "claude#12": [
+   258,
+   1894,
+   28,
+   20
+  ],
+  "opensubtitles#13": [
+   258,
+   2376,
+   28,
+   20
+  ],
+  "openai#14": [
+   258,
+   2876,
+   28,
+   20
+  ],
+  "qt_spinbox_lineedit#15": [
+   391,
+   3770,
+   49,
+   25
+  ],
+  "qt_scrollarea_hcontainer#16": [
+   240,
+   576,
+   552,
+   8
+  ],
+  "qt_scrollarea_vcontainer#17": [
+   792,
+   164,
+   8,
+   412
+  ]
+ },
+ "rows": [],
+ "window": [
+  840,
+  620
+ ],
+ "dpr": 1.5
+}

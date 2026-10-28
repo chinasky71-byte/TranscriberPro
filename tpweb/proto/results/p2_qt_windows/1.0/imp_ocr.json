@@ -1,0 +1,76 @@
+{
+ "widgets": {
+  "settingsHeader#0": [
+   0,
+   0,
+   840,
+   48
+  ],
+  "settingsTitle#1": [
+   20,
+   0,
+   808,
+   48
+  ],
+  "settingsHeaderSep#2": [
+   0,
+   48,
+   840,
+   3
+  ],
+  "settingsSidebar#3": [
+   0,
+   51,
+   200,
+   569
+  ],
+  "qt_scrollarea_viewport#4": [
+   5,
+   56,
+   190,
+   559
+  ],
+  "settingsContentWrap#5": [
+   200,
+   51,
+   640,
+   569
+  ],
+  "settingsStack#6": [
+   220,
+   67,
+   600,
+   537
+  ],
+  "commentLabel#7": [
+   253,
+   152,
+   534,
+   36
+  ],
+  "commentLabel#8": [
+   253,
+   226,
+   534,
+   21
+  ],
+  "qt_spinbox_lineedit#9": [
+   386,
+   365,
+   356,
+   22
+  ],
+  "qt_spinbox_lineedit#10": [
+   386,
+   400,
+   356,
+   22
+  ]
+ },
+ "rows": [],
+ "window": [
+  840,
+  620
+ ],
+ "dpr": 1.0
+}

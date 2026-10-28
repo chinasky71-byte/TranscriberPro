@@ -22,6 +22,11 @@ HISTORY = [{'name': 'Film Uno', 'date_iso': '2026-10-27T21:05:09', 'src_lang': '
             'srt_path': 'C:/v/uno.srt', 'video_path': 'C:/v/uno.mkv'},
            {'name': 'Serie Due S01E02', 'date_iso': '2026-10-28T08:00:00', 'src_lang': 'auto', 'dst_lang': 'ita', 'duration_seconds': 2710,
             'size_bytes': 904857600, 'srt_path': 'C:/v/due.srt', 'video_path': 'C:/v/due.mkv'}]
+SELECTORS_EXTRA = {'miniTitleBar': '[data-testid=titlebar]', 'titleBarMark': '.brand-mark', 'titleBarBrand': '.brand-name', 'titleBarSep': '.brand-sep',
+                   'titleBarSubtitle': '.brand-sub', 'statusPill': '.status-pill', 'titleBarToolsBtn': '[data-testid=tools-menu]',
+                   'titleBarSyncBtn': '[data-testid=open-sync]', 'titleBarSettingsBtn': '[data-testid=open-settings]', 'mainTabBar': '[data-testid=tabbar]',
+                   'scannerCard': '[data-testid=scanner-card]', 'defaultsSummary': '[data-testid=defaults-summary]', 'modernCheckbox': '.defaults-row .check',
+                   'settingsHeader': '.settings-header', 'settingsSidebar': '.settings-sidebar', 'settingsContentWrap': '.settings-content'}
 SELECTORS = {'titlebar': '[data-testid=titlebar]', 'tabbar': '[data-testid=tabbar]', 'leftPanel': '[data-testid=left-panel]',
              'centerPanel': '[data-testid=center-panel]', 'rightPanel': '[data-testid=right-panel]', 'fileList': '[data-testid=file-list]',
              'add-files': '[data-testid=add-files]', 'add-folder': '[data-testid=add-folder]', 'clear': '[data-testid=clear]',
@@ -43,6 +48,17 @@ class _OfflineTmdb:
         return None
 
 
+def window_size(qt_dir, scale, state):
+    """Dimensione logica della finestra Qt catturata (1400x900 se non c'e' il riferimento)."""
+    if qt_dir:
+        f = Path(qt_dir) / str(scale) / (state + '.json')
+        if f.exists():
+            w = json.loads(f.read_text(encoding='utf-8')).get('window')
+            if w and not state.startswith('imp_'):
+                return int(w[0]), int(w[1])
+    return 1400, 900
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=str(Path(__file__).resolve().parent / 'results' / ('p2_web_' + ('windows' if sys.platform == 'win32' else 'linux'))))
@@ -50,6 +66,7 @@ def main():
     ap.add_argument('--states', nargs='+', default=STATES + SETTINGS_STATES)
     ap.add_argument('--channel', default=None, help="es. msedge (Edge installato); senza: Chromium di Playwright")
     ap.add_argument('--executable', default=None)
+    ap.add_argument('--qt-dir', default=None, help="cartella delle catture Qt: la pagina usa la STESSA dimensione logica della finestra Qt di ogni scala/stato (a 125%/150% su un monitor 1080p la finestra Qt e' piu' piccola di 1400x900)")
     a = ap.parse_args()
     orig_env = dict(os.environ)                      # il browser va lanciato con l'ambiente VERO: Edge cerca il suo profilo in USERPROFILE
     home = Path(tempfile.mkdtemp(prefix='tp_p2w_home_'))
@@ -70,8 +87,9 @@ def main():
         kw = {'channel': a.channel} if a.channel else ({'executable_path': a.executable} if a.executable else {})
         browser = p.chromium.launch(args=['--no-sandbox', '--headless=new'] if a.channel else ['--no-sandbox'], env=orig_env, **kw)
         for scale in a.scales:
-            ctx = browser.new_context(viewport={'width': 1400, 'height': 900}, device_scale_factor=scale)
             for state in a.states:
+                vw, vh = window_size(a.qt_dir, scale, state)
+                ctx = browser.new_context(viewport={'width': vw, 'height': vh}, device_scale_factor=scale)
                 wq.clear()
                 if state not in ('vuota', 'cronologia'):
                     wq.add(PATHS, {PATHS[0]: '1.5 GB', PATHS[1]: '862 MB', PATHS[2]: '2.1 GB'})
@@ -111,7 +129,7 @@ def main():
                 else:
                     page.screenshot(path=str(d / (state + '.png')))
                 boxes = {}
-                for k, sel in SELECTORS.items():
+                for k, sel in {**SELECTORS, **SELECTORS_EXTRA}.items():
                     loc = page.locator(sel)
                     if loc.count():
                         b = loc.first.bounding_box()
@@ -120,7 +138,7 @@ def main():
                 report[f'{scale}/{state}'] = 'ok'
                 print(f'{scale} {state}: ok', flush=True)
                 page.close()
-            ctx.close()
+                ctx.close()
         browser.close()
     srv.stop()
     (Path(a.out) / 'report.json').write_text(json.dumps(report, indent=1), encoding='utf-8')

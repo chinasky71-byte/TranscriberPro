@@ -1,0 +1,88 @@
+{
+ "widgets": {
+  "settingsHeader#0": [
+   0,
+   0,
+   840,
+   48
+  ],
+  "settingsTitle#1": [
+   20,
+   0,
+   808,
+   48
+  ],
+  "settingsHeaderSep#2": [
+   0,
+   48,
+   840,
+   3
+  ],
+  "settingsSidebar#3": [
+   0,
+   51,
+   200,
+   569
+  ],
+  "qt_scrollarea_viewport#4": [
+   5,
+   56,
+   190,
+   559
+  ],
+  "settingsContentWrap#5": [
+   200,
+   51,
+   640,
+   569
+  ],
+  "settingsStack#6": [
+   220,
+   67,
+   600,
+   537
+  ],
+  "mutedLabel#7": [
+   220,
+   67,
+   600,
+   16
+  ],
+  "modernCheckbox#8": [
+   220,
+   139,
+   600,
+   18
+  ],
+  "modernCheckbox#9": [
+   220,
+   167,
+   600,
+   18
+  ],
+  "modernCheckbox#10": [
+   220,
+   195,
+   600,
+   18
+  ],
+  "primaryButton#11": [
+   736,
+   223,
+   84,
+   36
+  ],
+  "primaryButton#12": [
+   736,
+   269,
+   84,
+   36
+  ]
+ },
+ "rows": [],
+ "window": [
+  840,
+  620
+ ],
+ "dpr": 1.0
+}
