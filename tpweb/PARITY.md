@@ -87,7 +87,7 @@ La web UI non sostituisce la Qt finché ogni riga non e' `verificato Win`. Rifer
 | Chiudere il dialogo annulla il run; ricaricare la pagina no; stato ripristinato dopo un buco di eventi | idem | fatto (scelta di prodotto per il web) | `test_ricaricare_la_pagina_non_annulla_chiudere_il_dialogo_si` |
 | Sincronizzazione: singola, coda di coppie (tabella, scelta SRT, spunte, riepilogo), progresso, log con barre sul posto, annulla | `tools_sync.js`, `SyncManager`, `core/services/progress_log.py` | fatto | `test_tpweb_sync.py`, `test_tpweb_sync_page.py`, `test_progress_log.py` (identico a `append_log_line`) |
 | Chiusura del server: annulla e attende i run (nessun sottoprocesso orfano) | `ToolRuns.shutdown` | fatto | `test_chiusura_del_server_*` |
-| Differenza voluta: a run in corso il dialogo si puo' riaprire (e' una vista sul run, non un secondo run); un secondo avvio e' rifiutato dal server | | da confermare | |
+| Differenza voluta: a run in corso il dialogo si puo' riaprire (e' una vista sul run, non un secondo run); un secondo avvio e' rifiutato dal server | | confermato dal proprietario (28/10/2026) | |
 | Aspetto confrontato con Qt (SSIM) | | da misurare in C-011 (Windows) | |
 
 
@@ -109,7 +109,7 @@ La web UI non sostituisce la Qt finché ogni riga non e' `verificato Win`. Rifer
 | Coda al lavoro: il job aspetta («in coda») e parte a fine coda; revisione per file dal menu (Predefinita / Mirata / Automatica) | `finished_hooks`, `deferred-mode`, menu in `queue_panel.js` | fatto | `test_con_la_coda_al_lavoro_*`, `test_fine_coda_*`, `test_menu_dei_job_ocr_differiti` |
 | Revisione mirata: lista con pallini, «solo dubbi», contatore, immagine, editor (Invio salva e salta; Maiusc/Ctrl+Invio riga nuova), corsivo, precedente/successivo, «verificato», «Fatto» (write-back), chiudere = annulla | `ocr_review.js`; eventi e immagini sul server | fatto | `test_revisione_*` |
 | Superpower: controlli, conferma, elenco dal server, batch automatico, riepilogo, spegnimento a fine batch | `OcrManager.superpower` | fatto | `test_superpower_*` |
-| Differenza voluta: con la revisione aperta il lavoro conta come «OCR in corso» (la coda non parte, nessun altro OCR) | `gate.ocr_running` | da confermare | `test_revisione_elenco_*` |
+| Differenza voluta: con la revisione aperta il lavoro conta come «OCR in corso» (la coda non parte, nessun altro OCR) | `gate.ocr_running` | confermato dal proprietario (28/10/2026) | `test_revisione_elenco_*` |
 | Aspetto confrontato con Qt (SSIM) | | da misurare in C-011 (Windows) | |
 
 ## Guscio, finestra e pacchetto (fase 6)

@@ -135,3 +135,9 @@ Ordine delle fette (ognuna: PR in `webui/main`, test del contratto, prova di mut
 - Guscio pywebview 6.2.1 (API verificate sul sorgente della ruota): `tpweb/shell.py` con watchdog all'avvio (la prima pagina collegata a `/events` e' il segnale), secondo tentativo con profilo pulito (`private_mode=False` + cartella nuova), ripiego sul browser; dialoghi nativi, trascinamento, chiusura con conferma.
 - Maniglie dei pannelli, script di avvio, `requirements-web.txt`, `TranscriberProWeb.spec`, guida `docs/WEBUI_USO.md`.
 - **Resta per Windows (sessione locale):** finestra vera, dialoghi, trascinamento, build PyInstaller, confronto d'aspetto (C-011).
+
+## Decisioni del proprietario (28/10/2026)
+- Differenze volute elencate in `tpweb/PARITY.md` («da confermare»): **confermate cosi'**.
+- Tessera «Errori» della diagnostica: in attesa di decisione (scelta A: come la GUI Qt, scelta B: contare i file falliti); inviato uno schizzo.
+- La chiave del Library Scanner in `utils/config.py` la ruota il proprietario a fine lavori.
+- Percorso di rilascio: prima le prove su Windows, poi bugcheck e bugfix, **poi** unione in `master` quando tutto funziona. Nessuna unione prima.
