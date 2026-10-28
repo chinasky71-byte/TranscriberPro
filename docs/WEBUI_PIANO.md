@@ -116,3 +116,4 @@ Ordine delle fette (ognuna: PR in `webui/main`, test del contratto, prova di mut
 - **Pagina:** dialogo con 7 schede (`settings.js`, `settings_basic.js`, `settings_models.js`, `form.js`, `dialogs.js`), testi solo via `t()`.
 - **Difetti trovati dai test e corretti:** campo numerico che perdeva il testo digitato se arrivava un aggiornamento dal server; messaggio non chiudibile con Esc se subito dopo l'apertura; `EnvJobs` fissava il runner troppo presto.
 - Resta: confronto d'aspetto con Qt (C-011).
+- **Prova di mutazione (fase 3):** 13 mutazioni, 10 uccise, 3 equivalenti documentate: `if (typed === null) return` in `Spin.commit` (senza, `parseFloat('null')` e' NaN e non scrive), richiesta della chiave del Scanner a ogni «Mostra» (il server restituisce lo stesso valore salvato) e `put(last_tab)` anche alla selezione iniziale (la GUI salva l'ultima scheda a ogni cambio di riga, anche programmatico).

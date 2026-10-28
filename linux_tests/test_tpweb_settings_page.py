@@ -391,3 +391,29 @@ def test_traduzione_non_disponibile_mostra_la_pagina_di_errore(env):
     assert page.locator('[data-testid=tm-nllb]').count() == 0
     open_tab(page, 'batch')                                  # le altre schede restano usabili
     assert page.locator('[data-testid=ab-save]').count() == 1
+
+
+def test_opensubtitles_com_password_non_toccata_resta_quella_salvata(env):
+    page = env.open()
+    open_tab(page, 'opensubtitles')
+    for tid, v in (('os-com-user', 'luigi'), ('os-com-pass', 'pw-com'), ('os-com-key', 'k' * 32)):
+        page.fill(f'[data-testid={tid}]', v); page.press(f'[data-testid={tid}]', 'Tab')
+    page.click('[data-testid=os-com-save]')
+    assert message(page)[0] == IT['os_creds_saved_title']
+    page.fill('[data-testid=os-com-user]', 'luigi2'); page.press('[data-testid=os-com-user]', 'Tab')
+    page.click('[data-testid=os-com-save]')                     # password e chiave non toccate: si mantengono, niente avviso di campi mancanti
+    assert message(page)[0] == IT['os_creds_saved_title']
+    os_ = api(page, '/api/settings')['opensubtitles']
+    assert os_['com_username'] == 'luigi2' and os_['com_password_set'] is True and os_['com_api_key_set'] is True
+    page.click('[data-testid=os-com-show]')
+    until(page, "() => document.querySelector('[data-testid=os-com-pass]').value === 'pw-com'")
+
+
+def test_esc_nel_navigatore_cartelle_non_chiude_le_impostazioni(env):
+    page = env.open()
+    open_tab(page, 'translation')
+    page.click('[data-testid=tm-ft-browse]')
+    page.wait_for_selector('[data-testid=file-browser]')
+    page.keyboard.press('Escape')
+    page.wait_for_selector('[data-testid=file-browser]', state='detached')
+    assert page.locator('[data-testid=settings-dialog]').count() == 1
