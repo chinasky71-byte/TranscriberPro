@@ -1,0 +1,9 @@
+# ============================================================
+# Transcriber Pro - interfaccia web: dipendenze AGGIUNTIVE (venv principale)
+# ============================================================
+# fastapi e uvicorn sono gia' in requirements.txt (stesse versioni provate). Qui c'e' solo il guscio nativo, OPZIONALE:
+# senza pywebview la web UI si apre nel browser predefinito. Su Windows usa WebView2 (gia' presente in Windows 11 e nelle versioni
+# aggiornate di Windows 10; altrimenti https://developer.microsoft.com/microsoft-edge/webview2/).
+# Versione: 6.2.1 (PyPI, controllata il 2026-10-28; API usate: create_window, start(storage_path, private_mode), FileDialog,
+# create_file_dialog, events.closing, DOM pywebviewFullPath). NON ancora provata su Windows: la prova e' un compito della sessione locale.
+pywebview==6.2.1
