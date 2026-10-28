@@ -44,6 +44,7 @@ class WebQueue(QueueListener):
         self.bus = bus
         self.config = config
         self.gate = gate if gate is not None else ToolGate()
+        self.subtitle_created_hooks: List[Callable[[str], None]] = []      # chiamati a ogni file completato (notifica del Library Scanner)
         self.gate.processing = lambda: self.is_processing
         self.history = history
         self.log = LogBuffer()
@@ -377,6 +378,11 @@ class WebQueue(QueueListener):
         self.completed_count += 1
         self._update(path, JobRecord.completed)
         self.bus.publish('file_completed', path)
+        for hook in list(self.subtitle_created_hooks):
+            try:
+                hook(path)
+            except Exception:
+                pass                                  # una notifica fallita non deve fermare la coda
 
     def on_file_failed(self, path: str) -> None:
         self.error_count += 1
