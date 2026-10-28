@@ -144,16 +144,11 @@ def test_chiusura_del_server_annulla_il_run_e_non_lascia_processi(srv):
         time.sleep(0.05)
     pid = c.srv.app.state.tools.glossary._engine._proc.pid
     c.srv.stop()
-    import os
-    with pytest.raises(OSError):
-        os.kill(pid, 0) if not _is_zombie(pid) else (_ for _ in ()).throw(OSError())
-
-
-def _is_zombie(pid):
-    try:
-        return Path(f'/proc/{pid}/status').read_text().split('State:')[1].split()[0] == 'Z'
-    except Exception:
-        return False
+    import psutil
+    deadline = time.time() + 5
+    while time.time() < deadline and psutil.pid_exists(pid) and psutil.Process(pid).status() != psutil.STATUS_ZOMBIE:
+        time.sleep(0.05)                                            # portabile (os.kill(pid, 0) su Windows termina il processo)
+    assert not psutil.pid_exists(pid) or psutil.Process(pid).status() == psutil.STATUS_ZOMBIE
 
 
 def test_nomi_dalla_cartella_e_ricerca_tmdb_fuori_dal_ciclo_degli_eventi(srv, monkeypatch):

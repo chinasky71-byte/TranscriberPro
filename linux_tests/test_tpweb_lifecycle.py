@@ -256,3 +256,30 @@ def test_config_con_ui_web_avvia_la_web(tmp_path):
         assert url.startswith('http://127.0.0.1:')
     finally:
         stop(p, url)
+
+
+def test_riconoscimento_della_gui_qt_dalla_riga_di_comando():
+    gui = lambda *a: lifecycle.is_qt_gui_cmdline(['python.exe', '/x/Transcriber/main.py', *a])      # noqa: E731
+    assert gui() is True and gui('--ui', 'qt') is True and gui('--ui=qt') is True
+    assert gui('--ui', 'web') is False and gui('--ui=web') is False and gui('--ui', 'web', '--no-browser') is False
+    assert lifecycle.is_qt_gui_cmdline(['python', '/x/Transcriber/main.py', 'queue_runner']) is False
+    assert lifecycle.is_qt_gui_cmdline(['python', '/altro/main.py']) is False and lifecycle.is_qt_gui_cmdline([]) is False
+
+
+def test_conflitti_ignorano_gli_antenati_come_il_launcher_del_venv_su_windows(tmp_path, monkeypatch):
+    """P17: su Windows python.exe del venv e' il PADRE dell'interprete vero, con la stessa riga di comando: non e' un'altra istanza."""
+    import types
+    import psutil
+    fake = lambda pid, cl: types.SimpleNamespace(info={'pid': pid, 'cmdline': cl})       # noqa: E731
+    cl = ['python.exe', '/x/Transcriber/main.py']                                       # senza --ui web: come con `ui: web` nel config
+    monkeypatch.setattr(psutil, 'process_iter', lambda attrs=None: iter([fake(900001, cl), fake(900002, cl)]))
+    monkeypatch.setattr(lifecycle, '_related_pids', lambda ps, me: {me, 900001})        # 900001 = launcher padre
+    assert lifecycle.conflicts(tmp_path) == ['gui']                                      # 900002 e' un'altra istanza vera
+    monkeypatch.setattr(lifecycle, '_related_pids', lambda ps, me: {me, 900001, 900002})
+    assert lifecycle.conflicts(tmp_path) == []
+
+
+def test_i_parenti_reali_comprendono_il_processo_padre():
+    import psutil
+    rel = lifecycle._related_pids(psutil, os.getpid())
+    assert os.getpid() in rel and os.getppid() in rel
