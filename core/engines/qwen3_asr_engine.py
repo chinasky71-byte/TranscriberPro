@@ -12,10 +12,10 @@ MODIFICHE v1.0:
    i chunk della pipeline sono 10-25s → ampiamente nei limiti)
 ✅ Auto-detect lingua (LID nativo) quando language=None: probe sul primo chunk;
    se la lingua rilevata è FUORI dalle 11 lingue dell'aligner solleva
-   LanguageNotAlignable → il router ri-trascrive con faster-whisper
+   LanguageNotAlignable → nessun ripiego: il job fallisce (ADR-008)
 ✅ Timestamp: word items dell'aligner + offset start del chunk
-   (come faster-whisper: segment.start + start_time)
-✅ Segmentazione sottotitoli con gli stessi parametri dello splitting whisper
+   (stessa convenzione del vecchio motore: segment.start + start_time)
+✅ Segmentazione sottotitoli con gli stessi parametri dello splitting storico
    (max 80 caratteri, max 6s) + break su punteggiatura forte e pause
 """
 import gc
@@ -56,7 +56,8 @@ QWEN_NAME_TO_ISO = {
     'Hungarian': 'hu', 'Macedonian': 'mk',
 }
 # ForcedAligner: 11 lingue (subset delle 30 ASR). Le lingue ASR fuori da questo
-# set NON possono produrre timestamp affidabili → routing su faster-whisper.
+# set NON possono produrre timestamp affidabili → LanguageNotAlignable, che il
+# job riporta come errore (nessun motore di ripiego, ADR-008).
 ALIGNER_LANGS_639_1 = {'zh', 'en', 'yue', 'fr', 'de', 'it', 'ja', 'ko', 'pt', 'ru', 'es'}
 
 # Punteggiatura forte per la chiusura dei sottotitoli
@@ -364,8 +365,8 @@ class Qwen3AsrEngine(TranscriptionEngine):
         Trascrive i chunk con Qwen3-ASR e timestamp del ForcedAligner.
 
         Con language=None esegue un probe LID sul primo chunk: se la lingua
-        rilevata non è allineabile solleva LanguageNotAlignable (il router
-        ripiega su faster-whisper con la lingua rilevata).
+        rilevata non è allineabile solleva LanguageNotAlignable (ADR-008: nessun
+        motore di ripiego, il job fallisce con la lingua rilevata nel messaggio).
         """
         from core.transcriber import save_srt_file
 

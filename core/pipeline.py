@@ -971,35 +971,18 @@ class ProcessingPipeline:
                         return None
 
                     # ================================================
-                    # STEP 2.5: Pre-carica WhisperModel PRIMA di Demucs
-                    #
-                    # ctranslate2 ≥4.7 usa lazy CUDA init: il suo backend
-                    # CUDA si inizializza al primo WhisperModel().
-                    # Se PyTorch ha già usato CUDA pesantemente (Demucs),
-                    # ctranslate2 trova il contesto in uno stato che non
-                    # gestisce → std::abort() silenzioso.
-                    #
-                    # Caricando Whisper QUI (contesto CUDA vergine), Demucs
-                    # viene poi eseguito con ctranslate2 già inizializzato,
-                    # senza conflitti. VRAM: ~1.5GB Whisper + ~5GB Demucs
-                    # peak = ~6.5GB su 12GB → sicuro.
-                    #
-                    # Multi-engine: whisper viene pre-caricato SEMPRE
-                    # (fallback caldo + ordine CUDA garantito); se il
-                    # routing sceglie Canary/Qwen3, la facade lo scarica
-                    # prima di caricare l'engine nuovo.
+                    # STEP 2 → 3: nessun preload da fare (ADR-008: solo
+                    # Qwen3-ASR, che carica al suo step, senza ctranslate2
+                    # da inizializzare prima di torch).
                     # ================================================
                     self._ev('phase', name='extract')
                     _planned_lang = self.LANG_MAP_639_2_TO_639_1.get(source_language_639_2)
                     if _planned_lang == 'und':
                         _planned_lang = None
 
-                    # ── Pianificazione engine (sistema multi-engine) ──
-                    # Decide QUI (prima di Demucs) l'engine per la lingua
-                    # della traccia: determina anche la strategia di
-                    # chunking — la modalità batched (file unico) è
-                    # gestibile solo da faster-whisper (Qwen3 max 1200s,
-                    # Canary max ~40s per input).
+                    # ── Pianificazione engine ──
+                    # Con ADR-008 la risposta è sempre qwen3; la domanda resta
+                    # perché il motivo finisce nel log e nei test.
                     from core.engine_router import EngineRouter
                     _planned_engine, _plan_reason = EngineRouter.plan(_planned_lang, self.config)
 
@@ -1075,15 +1058,10 @@ class ProcessingPipeline:
                             return None
 
                         # ================================================
-                        # Unload anticipato (solo engine ≠ whisper):
-                        # Demucs e whisper pre-caricato non servono più —
-                        # scaricarli QUI fa partire il load di Qwen3/
-                        # Canary con VRAM massima (niente spillover WDDM).
-                        # Con len==1 la facade forza whisper → non si
-                        # scarica (evita unload/reload inutile).
-                        # Whisper resta ricaricabile per il fallback.
+                        # Unload anticipato di Demucs: qwen3 carica così con la
+                        # VRAM massima disponibile (niente spillover WDDM).
                         # ================================================
-                        if _planned_engine != 'faster-whisper' and len(chunk_list) > 1:
+                        if len(chunk_list) > 1:      # ADR-008: sempre, tranne il chunk unico
                             self._log(tr('pl_early_unload_of_demucs_whisper').format(engine_label=_engine_label))
                             if self._audio_processor:
                                 self._audio_processor.cleanup_model()
@@ -2033,10 +2011,9 @@ class ProcessingPipeline:
         torch._C._cuda_clearCublasWorkspaces() forza il rilascio di questi
         workspace -> i segmenti diventano vuoti -> empty_cache() puo' liberarli.
 
-        SICURO solo dopo l'unload di Whisper (ctranslate2 4.6.0). Non chiamare
-        PRIMA di WhisperModel(): pre-inizializzerebbe il contesto CUDA e farebbe
-        crashare ctranslate2 sotto PyQt6 (vedi memory/MEMORY.md - Critical
-        Dependency Constraints).
+        SICURO in qualunque momento: con ADR-008 non c'e' piu' ctranslate2
+        (ne' il caricamento di Whisper che ne inizializzava il contesto CUDA), e
+        da ADR-009 il traduttore lavora in un sottoprocesso suo.
         """
         gc.collect()
         if torch.cuda.is_available():
@@ -2079,7 +2056,7 @@ class ProcessingPipeline:
             _ram_before = _proc.memory_info().rss / 1024**3
             self._log(tr('pl_resource_cleanup_process_ram_gb').format(ram_before=_ram_before))
 
-            # 1. Unload engine di trascrizione (whisper + eventuali Canary/Qwen3)
+            # 1. Unload engine di trascrizione (Qwen3-ASR)
             if self._transcriber:
                 self._transcriber.cleanup()
                 self._transcriber = None
