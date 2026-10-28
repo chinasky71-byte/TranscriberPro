@@ -16,10 +16,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from utils.config import get_config
 from utils.translations import tr
 from gui.services.job_options_service import JobOptionsService
-
-
-# Lingue sottotitoli supportate: i nomi si traducono con la lingua dell'interfaccia.
-SUBTITLE_LANGUAGE_CODES = ("ita", "eng", "fra", "spa", "deu", "por", "rus", "jpn", "zho", "ara", "kor", "nld", "pol", "tur")
+from core.services.job_options_service import SUBTITLE_LANGUAGE_CODES   # lingue sottotitoli: i nomi si traducono con la lingua dell'interfaccia
 
 
 def subtitle_languages():

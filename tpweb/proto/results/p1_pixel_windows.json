@@ -1,0 +1,117 @@
+{
+  "system": "Windows 10",
+  "soglia_per_pixel": 24,
+  "scale": {
+    "1.0": {
+      "qt_px": [
+        360,
+        150
+      ],
+      "dpr_qt": 1.0,
+      "immagine": {
+        "qt": [
+          150,
+          360
+        ],
+        "web": [
+          150,
+          360
+        ],
+        "identiche_dimensioni": true
+      },
+      "totale_pixel_diversi_pct": 3.276,
+      "regioni": {
+        "titolo": {
+          "pixel_diversi_pct": 12.6,
+          "diff_medio": 19.24
+        },
+        "primario": {
+          "pixel_diversi_pct": 11.29,
+          "diff_medio": 12.87
+        },
+        "avvia": {
+          "pixel_diversi_pct": 2.74,
+          "diff_medio": 2.05
+        },
+        "barra": {
+          "pixel_diversi_pct": 0.1,
+          "diff_medio": 0.12
+        }
+      }
+    },
+    "1.25": {
+      "qt_px": [
+        450,
+        188
+      ],
+      "dpr_qt": 1.25,
+      "immagine": {
+        "qt": [
+          188,
+          450
+        ],
+        "web": [
+          188,
+          450
+        ],
+        "identiche_dimensioni": true
+      },
+      "totale_pixel_diversi_pct": 3.247,
+      "regioni": {
+        "titolo": {
+          "pixel_diversi_pct": 11.39,
+          "diff_medio": 18.31
+        },
+        "primario": {
+          "pixel_diversi_pct": 10.63,
+          "diff_medio": 13.03
+        },
+        "avvia": {
+          "pixel_diversi_pct": 3.42,
+          "diff_medio": 3.38
+        },
+        "barra": {
+          "pixel_diversi_pct": 2.19,
+          "diff_medio": 1.02
+        }
+      }
+    },
+    "1.5": {
+      "qt_px": [
+        540,
+        225
+      ],
+      "dpr_qt": 1.5,
+      "immagine": {
+        "qt": [
+          225,
+          540
+        ],
+        "web": [
+          225,
+          540
+        ],
+        "identiche_dimensioni": true
+      },
+      "totale_pixel_diversi_pct": 2.955,
+      "regioni": {
+        "titolo": {
+          "pixel_diversi_pct": 11.03,
+          "diff_medio": 17.77
+        },
+        "primario": {
+          "pixel_diversi_pct": 10.32,
+          "diff_medio": 12.43
+        },
+        "avvia": {
+          "pixel_diversi_pct": 2.83,
+          "diff_medio": 2.83
+        },
+        "barra": {
+          "pixel_diversi_pct": 0.15,
+          "diff_medio": 0.09
+        }
+      }
+    }
+  }
+}
