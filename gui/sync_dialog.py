@@ -20,7 +20,7 @@ from gui.progress_log import append_log_line
 from gui.styles import load_qss
 from gui.sync_worker import SyncWorker
 from gui.sync_batch_worker import SyncBatchWorker
-from core import sync_pairing as SP
+from core.services.sync_batch_plan import SyncBatchPlan
 from utils.translations import tr
 
 logger = logging.getLogger(__name__)
@@ -37,8 +37,7 @@ class SyncDialog(QDialog):
 
         self._worker: SyncWorker | None = None
         self._batch_worker: SyncBatchWorker | None = None
-        self._pairs: list = []
-        self._srt_files: list = []
+        self._plan = SyncBatchPlan()
         self._batch_done = 0
         self._batch_total = 0
         self._loading_table = False
@@ -50,6 +49,16 @@ class SyncDialog(QDialog):
 
         if video_path:
             self.video_input.setText(video_path)
+
+    # ── Piano della coda (stato della tabella, in core/services/sync_batch_plan.py) ───
+
+    @property
+    def _pairs(self) -> list:
+        return self._plan.pairs
+
+    @property
+    def _srt_files(self) -> list:
+        return self._plan.srt_files
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -201,23 +210,13 @@ class SyncDialog(QDialog):
             edit.setText(d)
 
     def _batch_pair(self):
-        vd, sd = self.bv_dir.text().strip(), self.bs_dir.text().strip()
-        if not vd or not sd:
+        if not self._plan.scan(self.bv_dir.text(), self.bs_dir.text(), self.b_recursive.isChecked()):
             QMessageBox.warning(self, tr('warning'), tr('sync_batch_nothing'))
             return
-        rec = self.b_recursive.isChecked()
-        videos = SP.list_files(vd, SP.VIDEO_EXT, rec)
-        self._srt_files = SP.list_files(sd, ('.srt',), rec)
-        self._pairs, left = SP.pair_files(videos, self._srt_files)
-        self._left_srts = left
         self._populate_table()
 
     def _srt_label(self, p) -> str:
-        base = self.bs_dir.text().strip()
-        try:
-            return str(Path(p).relative_to(base))
-        except Exception:
-            return Path(p).name
+        return SyncBatchPlan.srt_label(p, self.bs_dir.text())
 
     def _populate_table(self):
         self._loading_table = True
@@ -253,49 +252,31 @@ class SyncDialog(QDialog):
     def _on_srt_changed(self, row: int):
         if self._loading_table or row >= len(self._pairs):
             return
-        combo = self.b_table.cellWidget(row, 2)
-        val = combo.currentData()
-        p = self._pairs[row]
-        p.srt = Path(val) if val else None
-        p.score = 1.0 if val else 0.0          # scelta manuale dell'utente
-        p.note = ''
-        p.include = bool(val)
-        p.refresh_output()
+        self._plan.choose_srt(row, self.b_table.cellWidget(row, 2).currentData())
         self._refresh_rows()
 
     def _on_table_item_changed(self, item):
         if self._loading_table or item.column() != 0 or item.row() >= len(self._pairs):
             return
-        self._pairs[item.row()].include = item.checkState() == Qt.CheckState.Checked
+        self._plan.set_include(item.row(), item.checkState() == Qt.CheckState.Checked)
         self._refresh_rows()
 
     def _refresh_rows(self):
         self._loading_table = True
         try:
-            SP.mark_duplicates(self._pairs)
-            ready = check = nosrt = 0
+            summary = self._plan.refresh()
             for r, p in enumerate(self._pairs):
                 out = self.b_table.item(r, 3)
                 st = self.b_table.item(r, 4)
                 chk = self.b_table.item(r, 0)
-                want = Qt.CheckState.Checked if (p.include and p.srt is not None) else Qt.CheckState.Unchecked
+                want = Qt.CheckState.Checked if self._plan.is_checked(p) else Qt.CheckState.Unchecked
                 if chk.checkState() != want:
                     chk.setCheckState(want)
                 out.setText(str(p.output) if p.output else '')
                 out.setToolTip(out.text())
-                if p.srt is None:
-                    text, nosrt = tr('sync_batch_state_nosrt'), nosrt + 1
-                elif p.duplicate:
-                    text = tr('sync_batch_state_dup')
-                elif p.note:
-                    text, check = tr('sync_batch_state_check'), check + (1 if p.include else 0)
-                else:
-                    text = tr('sync_batch_state_ready')
-                if p.include and p.srt is not None and not p.duplicate:
-                    ready += 1
-                st.setText(text)
+                st.setText(tr(f'sync_batch_state_{self._plan.state_of(p)}'))
             self.b_summary.setText(tr('sync_batch_summary').format(
-                ready=ready, check=check, nosrt=nosrt, left=len(getattr(self, '_left_srts', []))))
+                ready=summary.ready, check=summary.check, nosrt=summary.nosrt, left=summary.left))
         finally:
             self._loading_table = False
 
@@ -312,8 +293,7 @@ class SyncDialog(QDialog):
         self.tabs.setEnabled(not running)
 
     def _start_batch(self):
-        SP.mark_duplicates(self._pairs)
-        run = SP.runnable(self._pairs)
+        run = self._plan.runnable()
         if not run:
             QMessageBox.warning(self, tr('warning'), tr('sync_batch_nothing'))
             return

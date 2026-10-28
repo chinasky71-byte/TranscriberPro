@@ -13,6 +13,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 import logging
 
+from core.services.adaptive_batch_service import DEFAULTS, AdaptiveBatchService, AdaptiveBatchValues
 from gui.design_tokens import T
 from utils.config import get_config
 from utils.translations import tr
@@ -41,6 +42,7 @@ class AdaptiveBatchSettingsWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.config = get_config()
+        self._svc = AdaptiveBatchService(self.config)
         self.init_ui()
         self._load_values()
 
@@ -150,18 +152,18 @@ class AdaptiveBatchSettingsWidget(QWidget):
 
     def _load_values(self):
         """Carica i valori correnti dalla config."""
-        cfg = self.config.get_adaptive_batch_config()
+        v = self._svc.load()
 
-        self.enable_checkbox.setChecked(cfg['enabled'])
-        self.initial_spin.setValue(self.config.get('adaptive_batch_initial_size', 0))
-        self.min_spin.setValue(cfg['min_size'])
-        self.max_spin.setValue(cfg['max_size'])
-        self.warmup_spin.setValue(cfg['warmup_batches'])
-        self.high_spin.setValue(cfg['high_threshold'])
-        self.low_spin.setValue(cfg['low_threshold'])
+        self.enable_checkbox.setChecked(v.enabled)
+        self.initial_spin.setValue(v.initial_size)
+        self.min_spin.setValue(v.min_size)
+        self.max_spin.setValue(v.max_size)
+        self.warmup_spin.setValue(v.warmup_batches)
+        self.high_spin.setValue(v.high_threshold)
+        self.low_spin.setValue(v.low_threshold)
 
-        self._update_status(cfg['enabled'])
-        self._update_controls_state(cfg['enabled'])
+        self._update_status(v.enabled)
+        self._update_controls_state(v.enabled)
 
     def _on_enable_changed(self, state):
         enabled = bool(state)
@@ -169,19 +171,7 @@ class AdaptiveBatchSettingsWidget(QWidget):
         self._update_controls_state(enabled)
 
     def _update_status(self, enabled: bool):
-        if enabled:
-            cfg = self.config.get_adaptive_batch_config()
-            initial_txt = tr('abs_autodetect') if not cfg['initial_size'] else str(cfg['initial_size'])
-            self.status_label.setText(
-                tr('abs_active_status').format(
-                    initial=initial_txt,
-                    min=cfg['min_size'],
-                    max=cfg['max_size'],
-                    warmup=cfg['warmup_batches']
-                )
-            )
-        else:
-            self.status_label.setText(tr('abs_disabled_status'))
+        self.status_label.setText(self._svc.status_text(enabled))
 
     def _update_controls_state(self, enabled: bool):
         for w in [self.initial_spin, self.min_spin, self.max_spin,
@@ -190,14 +180,10 @@ class AdaptiveBatchSettingsWidget(QWidget):
 
     def _save(self):
         """Salva i valori nel config."""
-        self.config.set('adaptive_batch_enabled',       self.enable_checkbox.isChecked(), save=False)
-        self.config.set('adaptive_batch_initial_size',  self.initial_spin.value(),         save=False)
-        self.config.set('adaptive_batch_min_size',      self.min_spin.value(),             save=False)
-        self.config.set('adaptive_batch_max_size',      self.max_spin.value(),             save=False)
-        self.config.set('adaptive_batch_warmup_batches',self.warmup_spin.value(),          save=False)
-        self.config.set('adaptive_batch_high_threshold',self.high_spin.value(),            save=False)
-        self.config.set('adaptive_batch_low_threshold', self.low_spin.value(),             save=False)
-        self.config.save()
+        self._svc.save(AdaptiveBatchValues(
+            enabled=self.enable_checkbox.isChecked(), initial_size=self.initial_spin.value(), min_size=self.min_spin.value(),
+            max_size=self.max_spin.value(), warmup_batches=self.warmup_spin.value(),
+            high_threshold=self.high_spin.value(), low_threshold=self.low_spin.value()))
 
         self._update_status(self.enable_checkbox.isChecked())
         self.settings_changed.emit()
@@ -205,10 +191,11 @@ class AdaptiveBatchSettingsWidget(QWidget):
 
     def _reset_defaults(self):
         """Ripristina i valori di default."""
-        self.enable_checkbox.setChecked(True)
-        self.initial_spin.setValue(0)
-        self.min_spin.setValue(1)
-        self.max_spin.setValue(24)
-        self.warmup_spin.setValue(5)
-        self.high_spin.setValue(0.85)
-        self.low_spin.setValue(0.60)
+        d = DEFAULTS
+        self.enable_checkbox.setChecked(d.enabled)
+        self.initial_spin.setValue(d.initial_size)
+        self.min_spin.setValue(d.min_size)
+        self.max_spin.setValue(d.max_size)
+        self.warmup_spin.setValue(d.warmup_batches)
+        self.high_spin.setValue(d.high_threshold)
+        self.low_spin.setValue(d.low_threshold)
