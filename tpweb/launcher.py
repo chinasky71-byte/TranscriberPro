@@ -25,7 +25,7 @@ EXIT_OK, EXIT_BUSY = 0, 3
 
 
 def build(config, history_path=None, project_root=None, shutdown_fn=None, opener=None, sampler=None, quit_event=None,
-          port=None, token=None, tmdb_client=None, gpu_detect=None) -> ServerThread:
+          port=None, token=None, tmdb_client=None, gpu_detect=None, tool_engines=None) -> ServerThread:
     """Compone il server completo (non lo avvia)."""
     from tpweb.lang import apply_to_process
     apply_to_process(config)
@@ -49,7 +49,7 @@ def build(config, history_path=None, project_root=None, shutdown_fn=None, opener
     gpu = GpuBadge(bus, gpu_detect or default_detect)
     queue.preview = preview
     srv = ServerThread(token=token, port=port, bus=bus, queue=queue, history=history, config=config, opener=opener,
-                       sampler=sampler, on_quit=(quit_event.set if quit_event is not None else None), preview=preview, gpu=gpu)
+                       sampler=sampler, on_quit=(quit_event.set if quit_event is not None else None), preview=preview, gpu=gpu, tool_engines=tool_engines)
     _startup_log(queue, config, preview)
     return srv
 
