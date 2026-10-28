@@ -22,7 +22,7 @@ function onDrop(e) {
 }
 
 const MIN_PANEL = 200;
-const DEFAULT_SIZES = [414, 472, 472];                  // 2:3:3 alla larghezza 1400 della finestra Qt di riferimento
+const DEFAULT_SIZES = [419, 470, 469];                  // misure della finestra Qt su Windows a 1400 px (C-011)
 
 /** QSplitter a tre colonne: le maniglie spostano il confine tra due pannelli vicini (minimo 200 px); la misura si salva a fine trascinamento. */
 function SplitRow() {
@@ -52,7 +52,7 @@ function SplitRow() {
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   }
-  return html`<div class="splitter" ref=${ref} style=${{ gridTemplateColumns: `${sizes[0]}fr 6px ${sizes[1]}fr 6px ${sizes[2]}fr` }}>
+  return html`<div class="splitter" ref=${ref} style=${{ gridTemplateColumns: `minmax(419px, ${sizes[0]}fr) 6px ${sizes[1]}fr 6px ${sizes[2]}fr` }}>
     <${QueuePanel} /><div class="split-handle" data-testid="split-handle-0" onPointerDown=${(e) => drag(0, e)}></div>
     <${CenterPanel} /><div class="split-handle" data-testid="split-handle-1" onPointerDown=${(e) => drag(1, e)}></div><${RightPanel} />
   </div>`;

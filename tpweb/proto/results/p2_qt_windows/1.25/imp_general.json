@@ -1,0 +1,52 @@
+{
+ "widgets": {
+  "settingsHeader#0": [
+   0,
+   0,
+   840,
+   48
+  ],
+  "settingsTitle#1": [
+   20,
+   0,
+   808,
+   48
+  ],
+  "settingsHeaderSep#2": [
+   0,
+   48,
+   840,
+   3
+  ],
+  "settingsSidebar#3": [
+   0,
+   51,
+   200,
+   569
+  ],
+  "qt_scrollarea_viewport#4": [
+   5,
+   56,
+   190,
+   559
+  ],
+  "settingsContentWrap#5": [
+   200,
+   51,
+   640,
+   569
+  ],
+  "settingsStack#6": [
+   220,
+   67,
+   600,
+   537
+  ]
+ },
+ "rows": [],
+ "window": [
+  840,
+  620
+ ],
+ "dpr": 1.25
+}
