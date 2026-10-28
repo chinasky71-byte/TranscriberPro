@@ -99,6 +99,8 @@ def test_nessun_testo_italiano_o_inglese_scritto_a_mano_nei_js():
             txt = m.group(1).strip()
             if txt and txt not in allowed and re.search(r'[A-Za-zÀ-ÿ]{3,}', txt):
                 bad.append((p.name, txt))
+    for p in (STATIC / 'js').glob('*.js'):          # anche le etichette passate come attributo: label="Testo"
+        bad += [(p.name, m.group(1)) for m in re.finditer(r'\blabel="([^"$]*[A-Za-zÀ-ÿ]{3,}[^"$]*)"', code_of(p))]
     assert bad == []
 
 

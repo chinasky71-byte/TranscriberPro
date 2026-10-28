@@ -1,7 +1,7 @@
 import { html, useState, useRef, useLayoutEffect } from '/static/js/lib.js';
 import { t } from '/static/js/i18n.js';
 import { Icon } from '/static/js/icon.js';
-import { useStore, setUi, getState, refreshQueue, loadPreview, addPaths, addFolder, removePaths, startQueue, stopQueue, clearQueue, setShutdown } from '/static/js/store.js';
+import { useStore, setUi, getState, refreshQueue, loadPreview, addPaths, addFolder, removePaths, startQueue, stopQueue, clearQueue, setShutdown, openSettings } from '/static/js/store.js';
 import { Confirm, FileBrowser } from '/static/js/modals.js';
 import { ContextMenu } from '/static/js/context_menu.js';
 import { get, post } from '/static/js/api.js';
@@ -210,7 +210,7 @@ export function QueuePanel() {
       <button class="btn btn-stop" data-testid="stop" disabled=${!running} onClick=${() => setModal('stop')}><${Icon} name="stop" size=${15} />${t('stop')}</button>
     </div>
     <div class="defaults-row">
-      <button class="defaults-summary" title=${t('job_defaults_tip')}>${job.defaults_summary ? t('job_defaults_label', { summary: job.defaults_summary }) : ''}</button>
+      <button class="defaults-summary" data-testid="defaults-summary" title=${t('job_defaults_tip')} onClick=${() => openSettings('jobs')}>${job.defaults_summary ? t('job_defaults_label', { summary: job.defaults_summary }) : ''}</button>
       <label class="check" title=${t('shutdown_tip')}><input type="checkbox" data-testid="shutdown" checked=${!!job.shutdown_after}
           onChange=${(e) => setShutdown(e.target.checked)} /><span class="box"></span><span>${t('shutdown_checkbox')}</span></label>
     </div>
