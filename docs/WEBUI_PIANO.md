@@ -1,5 +1,8 @@
 # Piano della web UI (ramo `webui/main`)
 
+> **Stato (28/10/2026):** il piano e' stato eseguito: la web UI (	pweb/) e' unita in master dopo le prove su Windows (suite 1357 verdi, 11 rossi ambientali; rapporti in docs/webui_rapporti/). Resta da fare: il pacchetto TranscriberProWeb.exe (sperimentale, elaborazione vera non provata) e la rifinitura dell'aspetto delle Impostazioni (SSIM 0,72-0,91 contro 0,985).
+
+
 Stato al 27/10/2026. Studio di partenza: `docs/STUDIO_WEBUI.md` (PR #35). **Solo `master` come base; nessun altro ramo si considera.**
 
 ## Decisioni del proprietario (vincolanti)
