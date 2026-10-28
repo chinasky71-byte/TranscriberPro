@@ -1,8 +1,8 @@
 # Project status
 
-Updated: 2026-10-26
+Updated: 2026-10-27
 Line: `development` (active product); `master` is legacy (ADR-006)
-Branch: `development` · last merge: `d17f601` (test isolation)
+Branch: `development` · last merge: ADR-009, one translation engine
 WebUI: **not running** (start it with the command in `web/README.md`; `--no-auth` for a private network)
 Environment: Ubuntu 26.04, Radeon RX 9060 XT 16 GB (gfx1200, RDNA4),
 ROCm 7.0, torch 2.10.0+rocm7.0 only — no ctranslate2/whisperx (ADR-008);
@@ -17,8 +17,16 @@ nothing reads).
 - **ASR**: **Qwen3-ASR only** (ADR-008): faster-whisper, Canary, ctranslate2 and
   whisperx were removed; the VAD needed by the subtitle synchroniser is ours
   (`core/vad.py`, Silero on onnxruntime, vendored weights).
-- **Translation**: NLLB base, NLLB fine-tuned (4-bit), TranslateGemma 12B GGUF
-  on Vulkan; HTTP engines for benchmark experiments.
+- **Translation**: **TranslateGemma-12B GGUF on llama.cpp only**, English →
+  Italian (ADR-009). The GGUF file is resolved from `llm_translator_gguf_dir`
+  and `llm_translator_gguf_quant` (`Q4_K_M` by default; `Q3_K_M`/`IQ3_M` as
+  alternatives) and a missing file is a job error, not a silent substitute. A
+  non-English source is refused with a message. `check_translation_ready()` runs
+  at pipeline STEP 0 (file, llama.cpp, GPU offload) and STEP 6 (free VRAM against
+  `gguf_need_gib`), so a broken engine costs seconds. What survives L1/L2 stays
+  in the source language, is counted by the audit and is judged by
+  `translation_max_untranslated_pct`. NLLB base and fine-tuned survive in
+  `core/translator.py` for `bench/` only.
 - **Measured throughput** (reference machine, ROCm, one job at a time): a
   134-minute episode in 25 min and a 144-minute one in 27 min, i.e. ~5.3x
   realtime. During a run the GPU is busy at 94% of the samples (96% of them
@@ -49,7 +57,7 @@ nothing reads).
   ROCm on AMD RDNA3/RDNA4/CDNA; a job whose GPU does not answer fails in a
   second with the remedy (`allow_cpu` per job to override). `install.sh` detects the hardware (`auto` is the
   default), refuses anything else instead of falling back, verifies the
-  installed backend by importing torch/ctranslate2, and stamps the result in
+  installed backend by importing torch, and stamps the result in
   `venv/.tp-backend`; a mismatched re-run refuses to replace torch. CPU and
   Vulkan installs no longer exist.
 - **Containers**: `docker/Dockerfile` (one image per backend) and
@@ -57,19 +65,23 @@ nothing reads).
   items.
 - **GUI optional**: PyQt6 moved to `requirements-gui.txt`; `main.py` exits with
   a message pointing at the WebUI when Qt is absent.
-- **ADRs** 001–008, support matrix, contributing rules, guard tests.
+- **ADRs** 001–009, support matrix, contributing rules, guard tests.
 - **Tests**: unit/guard tests in `linux_tests/` (bench, boundaries, events,
   docs links, translation gate, i18n, web API/UI/picker/OCR/glossary, Docker,
-  install isolation). The suite is fully green: 689 passed, 11 skipped.
+  install isolation). The suite is fully green: 701 passed, 15 skipped.
 
 ## In progress / next
 
 1. **Container validation** — build the three images on a host with a container
    daemon and run the `rocm` profile on the reference machine (Step 8
    acceptance is still open).
-2. **Robustness item closed by ADR-008** — the Whisper preload (and the
-   ctranslate2 initialisation order it protected) no longer exists, because
-   Whisper no longer exists.
+2. **End-to-end run of the translation engine** — the single-engine branch
+   merged with the suite green and the code path exercised by unit tests, but
+   the acceptance run is still missing: an English clip through the pipeline
+   (expected ≈ WER 0.41 / chrF 0.76 / ~8.8 GB, the `llm` row of
+   `docs/benchmarks/2026-10-25/translation/summary.md`) and a French clip that
+   must fail with the refusal message. Numbers go into this file and a new
+   export under `docs/benchmarks/`.
 3. **Library scanner in the WebUI** — separate FastAPI + SQLite service, needs
    a database location decision and real media to validate (`docs/webui/PLAN.md`,
    Step 6 notes).
@@ -81,7 +93,7 @@ nothing reads).
    faster-whisper with a tuned VAD. Weighted over 1742 reference words qwen3 has
    the lower error (6.95% vs 8.60%) and better alignment; Whisper's ASR phase is
    40% faster but its coverage stays below 93% on two clips of three. **qwen3
-   stays the default**; Whisper remains a per-install choice —
+   stays, and it is the only one (ADR-008) —
    `docs/benchmarks/2026-10-26-asr-reference-clip-a.md`. The end-to-end round
    (Italian reference) confirmed it and taught the important lesson: WER against
    a human translation rewards under-transcription, so the engine with the best
@@ -112,7 +124,19 @@ nothing reads).
   a few typos; results reject clearly worse candidates, they do not crown a
   winner.
 - **NLLB-FT** weights are published under **CC-BY-NC-4.0** (non-commercial);
-  they are downloaded locally, never committed.
+  they are downloaded locally, never committed. Since ADR-009 nothing in the
+  product loads them: only the `bench/` comparison arms do.
+- Names and config keys still say `whisper` although no such engine exists:
+  the `whisper_language` keyword (8 call sites), `_step1_whisper_fallback`,
+  `sync_allow_whisper_fallback`, 8 `whisper_*` config keys and 30 `sy_*`/`er_*`/
+  `ca_*` i18n keys. Renaming them is an API/config change, so it waits for its
+  own decision (recorded in `docs/PROGRESS.md`, 2026-10-27).
+- ~190 i18n keys are dead (they belonged to the Whisper/Canary code paths).
+  They are harmless and cost nothing at runtime, but the two tables are harder
+  to read than they need to be.
+- The 2026-10-25 translation benchmark table compares six engines; four of them
+  no longer exist. It is marked historical and its `llm` row is the reference
+  figure for the GGUF engine.
 - Many legacy documents under `docs/` are still in Italian. They are marked
   `historical` in `docs/README.md` and must be translated when touched.
 - The local `venv` must stay ROCm; a CPU-only reinstall breaks GPU
