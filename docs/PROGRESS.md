@@ -27,6 +27,39 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-27 — Via la chiave e l'indirizzo committati
+
+- Branch / commits: `fix/no-committed-endpoint`, from `development` (`95729de`).
+- Goal: togliere dal repository i due valori predefiniti che non ci possono
+  stare — una chiave API e un indirizzo privato di rete — senza perdere il
+  funzionamento del Library Scanner.
+- Done (files, commands): in `utils/config.py` `library_scanner_url` e
+  `library_scanner_api_key` hanno ora default `''`, con il commento che dice
+  dove si impostano; `docs/architecture/config.md` ha la sezione "Secrets and
+  local endpoints" riscritta: elenco aggiornato (i `claude_api_key` /
+  `openai_api_key` non esistono più con ADR-009, un config vecchio è innocuo),
+  la regola "nessun default è un segreto o un indirizzo", e la nota storica che
+  la chiave è stata in git con `1ab14ab` e va **ruotata** perché toglierla dal
+  working tree non la toglie dalla storia.
+- Tests and results: `pytest linux_tests -q` → **798 passed, 15 skipped, 0
+  failed**. Nessun test dipendeva dai default: `test_library_scanner_fake_server.py`
+  imposta url e chiave da sé, e la GUI già gestisce il vuoto
+  (`gui/library_scanner_widget.py` mostra `config_missing`).
+- Decisions / ADRs: no ADR. Empty string, non un valore di esempio: un
+  placeholder tipo `http://example:6680` verrebbe copiato in una config vera ed è
+  comunque un indirizzo inventato da mantenere. Con il vuoto la GUI dice "config
+  mancante", che è lo stato vero di un'installazione nuova.
+- Known issues: la chiave resta nella storia git (commit `1ab14ab`): va ruotata
+  sul servizio, azione del proprietario. Restano inoltre altri riferimenti allo
+  stesso indirizzo privato nel working tree — `gui/general_settings_widget.py:131`
+  (placeholder), `utils/path_map.py:8` (esempio nel docstring), `CHANGELOG.md:183`
+  (voce storica) e sei occorrenze nel servizio `docker/library_scanner/` (dati di
+  esempio e placeholder) — **non toccati qui**: la GUI è congelata (ADR-002) e
+  sostituirli è una decisione a sé (la sostituzione ovvia è `192.0.2.10`, TEST-NET-1
+  di RFC 5737, riservato alla documentazione).
+- Next step: merge `--no-ff` in `development`; rotazione della chiave; decidere
+  se sanare gli altri riferimenti (GUI compresa).
+
 ## 2026-10-27 — Residui di Whisper: lo stash `docs/cleanup-after-whisper`
 
 - Branch / commits: `chore/cleanup-after-whisper` (`150a366`), from
