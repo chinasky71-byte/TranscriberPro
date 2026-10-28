@@ -49,7 +49,7 @@ SAFE_CONFIG_KEYS = {
     TARGET_LANGUAGE_KEY,
     "translation_model",
     "llm_translator_model",
-    "llm_translator_gguf_enabled",
+    "llm_translator_gguf_quant",
     PERCENT_KEY,
     "enable_diarization",
     "dialogue_style_enabled",
@@ -71,7 +71,6 @@ SECRET_CONFIG_KEYS = {
 
 BOOL_CONFIG_KEYS = {
     "use_gpu",
-    "llm_translator_gguf_enabled",
     "enable_diarization",
     "dialogue_style_enabled",
     "gender_correction_enabled",
@@ -85,6 +84,7 @@ ENUM_CONFIG_KEYS: Dict[str, Tuple[str, ...]] = {
     "language": ("auto", "it", "en"),
     "transcription_engine_mode": tuple(Config.VALID_TRANSCRIPTION_ENGINE_MODES),
     "translation_model": tuple(Config.VALID_TRANSLATION_MODELS),
+    "llm_translator_gguf_quant": ("Q4_K_M", "Q3_K_M", "IQ3_M"),
     "punctuation_restore_mode": ("auto", "off", "missing", "all"),
 }
 

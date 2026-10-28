@@ -1,62 +1,28 @@
 """
-Motore LLM per la traduzione di sottotitoli — caricamento e generazione
-=======================================================================
-Unico punto del package che conosce i pesi. Il resto della pipeline lavora su
-messaggi in formato chat e non sa quale modello ci sia dietro: cambiare
-occupante dello slot è una riga in MODEL_SPECS.
+TranslateGemma-12B: lo spec del modello e il suo prompt
+======================================================
+Quello che RESTA del vecchio motore transformers dopo ADR-009: i pesi sono un
+GGUF eseguito da llama.cpp (`gguf_engine.py`), quindi caricamento e generazione
+non stanno piu' qui — ma lo `ModelSpec` (etichetta, contesto, tetto al batch) e
+il prompt sì, perché sono caratteristiche del MODELLO, non del runtime.
 
-Quattro difetti del ramo LLM storico sono corretti qui, e vale la pena
-tenerli a mente prima di aggiungere un modello nuovo:
+Il resto della pipeline lavora su messaggi in formato chat e non sa quale
+runtime ci sia dietro: `build_mt_messages()` produce i messaggi, `gguf_engine`
+li rende con il chat template di TranslateGemma.
 
-1. Il prompt passa da `tokenizer.apply_chat_template()`. Ogni modello ha il
-   proprio formato di turno; usarlo in raw completion mode significa
-   valutarlo fuori distribuzione.
-2. `padding_side = "left"`. Con il padding a destra (default del tokenizer) e
-   batch > 1, lo slice `outputs[:, input_len:]` cade in mezzo al padding e
-   restituisce testo corrotto per ogni sequenza più corta della più lunga del
-   batch.
-3. Decoding deterministico e nessuna `repetition_penalty`: quel parametro
-   agisce sull'identità dei token e in traduzione forza sinonimi innaturali,
-   perché non distingue una ripetizione legittima (un nome che ricorre) da un
-   loop degenerato.
-4. Quantizzazione NF4 invece di LLM.int8(), che è la modalità bitsandbytes più
-   lenta e lascia meno VRAM per il contesto.
-
-I parametri di generazione sono PER MODELLO e vengono dai rispettivi vendor:
-non vanno trasferiti da un modello all'altro (Hunyuan-MT è calibrato su
-sampling, Tower+ su temperature 0, TranslateGemma su greedy).
+Le regole del sottotitolo (`mt_prefix`, `mt_budget_rule`) vivono qui perché
+TranslateGemma non prevede un ruolo di sistema: il campo `text` è l'unico
+canale aperto per dargli un'istruzione, ed è una proprietà dei pesi.
 """
 
 from __future__ import annotations
 
-import gc
-import os
 import re
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from threading import Lock
-from typing import Any, Callable, Dict, List, Optional
-
-from utils.logger import setup_logger
-from utils.translations import tr
+from typing import Any, Dict, List, Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-
-logger = setup_logger(__name__)
-
-# L'allocatore di PyTorch riserva blocchi di dimensione fissa e, quando il
-# batch cambia da una chiamata all'altra, li frammenta: su una scheda da 12 GB
-# occupata per tre quarti dai soli pesi di un 12B quantizzato, la frammentazione
-# basta a far sconfinare l'allocazione successiva nella RAM di sistema. I
-# segmenti espandibili riusano lo stesso blocco invece di chiederne uno nuovo.
-#
-# MISURATO: su Windows non è disponibile — PyTorch lo ignora con
-# "expandable_segments not supported on this platform" (CUDAAllocatorConfig.h).
-# Resta impostato per il ramo Docker headless, che gira su Linux; su Windows
-# l'unico regolatore del picco è quindi il tetto al batch, non l'allocatore.
-if sys.platform != "win32":
-    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 
 @dataclass(frozen=True)
@@ -65,21 +31,11 @@ class ModelSpec:
 
     model_id: str
     label: str
-    # Parametri passati a model.generate(). Fonte: model card del vendor.
+    # Parametri di decoding. Fonte: model card del vendor.
     generation: Dict[str, Any] = field(default_factory=dict)
-    # Come si carica il modello:
-    #   "causal"  — AutoModelForCausalLM + AutoTokenizer, il caso normale.
-    #   "gemma3"  — AutoModelForImageTextToText + AutoProcessor. I modelli
-    #               TranslateGemma sono Gemma3ForConditionalGeneration e il
-    #               loro chat template NON sta nel tokenizer ma nel processor;
-    #               vuole inoltre un `content` strutturato con i campi
-    #               source_lang_code / target_lang_code.
-    loader: str = "causal"
-    # Finestra di contesto utile (token). Tower+ si ferma a 8K.
+    # Finestra di contesto utile (token).
     context_window: int = 8192
-    # VRAM libera (GB) sotto la quale conviene NF4 invece di bf16.
-    bf16_min_free_gb: float = 20.0
-    # Quante conversazioni al massimo nella stessa `generate()`. È il vero
+    # Quante conversazioni al massimo nella stessa generazione. È il vero
     # regolatore del picco di VRAM: i pesi sono una costante, mentre la KV
     # cache e le attivazioni crescono in proporzione al batch. Su WDDM
     # superare la memoria dedicata non produce un OOM ma uno sconfinamento
@@ -155,9 +111,7 @@ TRANSLATEGEMMA_SUBTITLE_RULES = (
 #
 # La clausola sul registro resta comunque condizionata, ma per un'altra ragione:
 # su una battuta senza parolacce non ha niente da fare, e toglierla accorcia il
-# preambolo — meno testo che il modello possa tradurre invece di applicare. Il
-# guadagno sui blocchi normali veniva dalla parte sulla lunghezza, che ora è
-# MT_BUDGET_RULE e si applica sempre.
+# preambolo — meno testo che il modello possa tradurre invece di applicare.
 MT_PREFIX_TRIGGER = re.compile(
     r"\b(fuck\w*|shit\w*|bullshit|asshole|bitch\w*|cunt|dick|prick|"
     r"motherfuck\w*|goddamn|bastard|cock|pussy|balls|piss\w*|whore|slut|"
@@ -186,447 +140,68 @@ MT_PREFIX_TRIGGER = re.compile(
 MT_BUDGET_RULE = ("Rendi come sottotitolo italiano in non più di {budget} "
                   "caratteri, tagliando i riempitivi.")
 
-# I due modelli Aya sono stati RIMOSSI il 2026-08-18. Non è una preferenza:
-# hanno perso entrambi i confronti su film reale (Deadpool 2 MQM 2,85 contro
-# 2,06 di NLLB, A Man Called Otto 2,38 contro 1,66) e soprattutto il loro
-# percorso "adapt" — un solo prompt con dentro tutti i blocchi, identificati
-# per id — può DISALLINEARE battute e tempi: su blocchi consecutivi il modello
-# fonde due sottotitoli la cui frase prosegue e poi scrive le rese successive
-# sotto gli id sbagliati. Il percorso "mt" di TranslateGemma è immune per
-# costruzione (una conversazione per battuta, nessun id da sbagliare).
-# Dettagli in memory/pipeline_path_defects_2026_08.md.
-MODEL_SPECS: Dict[str, ModelSpec] = {
-    "hunyuan-mt-7b": ModelSpec(
-        model_id="tencent/Hunyuan-MT-7B",
-        label="Hunyuan-MT-7B",
-        # Raccomandati dalla model card: il modello è RL-tunato su queste.
-        generation=dict(do_sample=True, top_k=20, top_p=0.6, temperature=0.7,
-                        repetition_penalty=1.05),
-        notes="Vincitore traccia constrained WMT25; miglior en-it sotto 20B.",
-    ),
-    "translategemma-12b": ModelSpec(
-        # Locale, non hub. Merge dell'adattatore "finale" (promosso il
-        # 20/08/26 via promuovi_produzione.py contro g300k) nel base
-        # TranslateGemma-12B (25/08/26) — NB: "finale" ha perso il banco a
-        # 108 film contro NLLB-FT (41.9% vs 58.1%, z=-7.88); promosso qui
-        # comunque su decisione esplicita dell'utente, non per verdetto
-        # vinto contro il campione di produzione attuale.
-        model_id=str(PROJECT_ROOT / "models" / "translategemma-12b-it-finale"),
-        label="TranslateGemma 12B",
-        generation=dict(do_sample=False, num_beams=1),
-        mt_prefix=TRANSLATEGEMMA_SUBTITLE_RULES,
-        mt_prefix_when=MT_PREFIX_TRIGGER,
-        mt_budget_rule=MT_BUDGET_RULE,
-        loader="gemma3",
-        gated=True,
-        context_window=131072,
-        # MISURATO (mt_eval/vram_probe.py, scheda da 12.288 MiB). I soli pesi
-        # in NF4 occupano 8.401 MiB: restano meno di 4 GB per tutto il resto.
-        # Picco di una singola generate() sui 48 blocchi più lunghi del film,
-        # e tempo per blocco:
-        #   batch  4 ->  8.877 MiB (72%)  8,88 s/blocco
-        #   batch  8 ->  9.449 MiB (77%)  4,54 s/blocco
-        #   batch 12 -> 10.133 MiB (82%)  3,20 s/blocco   <- scelto
-        #   batch 16 -> 10.817 MiB (88%)  2,54 s/blocco
-        # Su questo percorso ("mt", una conversazione per battuta in parallelo)
-        # il batch conta davvero: da 4 a 16 il tempo per blocco scende di 3,5
-        # volte. Dodici era il compromesso prudente: fino a qui initial_size E
-        # max_size di SubtitleLLMTranslator coincidevano (12=12), quindi il
-        # gestore adattivo poteva solo RESTRINGERSI, mai crescere — nessuna
-        # run reale ha mai sfruttato il -21% di v1.10.2 già misurato a batch
-        # 16 (2,54 s/blocco, 88% di VRAM, ~1,4 GB liberi). Tetto alzato a 16:
-        # il gestore parte comunque da 12 e sale solo se la memoria letta
-        # resta sotto l'80% (soglia bassa), scendendo da solo sopra il 90% —
-        # stesso meccanismo già validato contro lo sconfinamento WDDM su NLLB
-        # in v1.9.5. Da rivalidare su una run intera reale prima di salire
-        # oltre 16 (unico punto misurato da vram_probe.py finora).
-        max_batch=16,
-        notes="Addestrato con RL contro la letteralità (MetricX-QE, AutoMQM). "
-              "La variante 4B era stata bocciata a luglio; il 12B è la taglia "
-              "che nei benchmark supera il baseline Gemma 3 27B.",
-    ),
-}
+TRANSLATEGEMMA_SPEC = ModelSpec(
+    # Pesi locali (GGUF): il traduttore non li carica da qui, ma l'etichetta e
+    # il contesto sì — e questo percorso è l'unico che il prodotto usa.
+    model_id=str(PROJECT_ROOT / "models" / "translategemma-12b-it-finale"),
+    label="TranslateGemma 12B",
+    generation=dict(do_sample=False, num_beams=1),
+    mt_prefix=TRANSLATEGEMMA_SUBTITLE_RULES,
+    mt_prefix_when=MT_PREFIX_TRIGGER,
+    mt_budget_rule=MT_BUDGET_RULE,
+    gated=True,
+    context_window=131072,
+    # MISURATO (mt_eval/vram_probe.py, scheda da 12.288 MiB, percorso NF4 non
+    # più esistente; il numero resta perché `max_batch` è il tetto al numero di
+    # conversazioni che il traduttore manda al motore in un colpo). Il tetto
+    # vero del percorso GGUF è `n_parallel` (KV cache), e `gguf_engine` lo
+    # sostituisce nello spec dell'istanza.
+    max_batch=16,
+    notes="Addestrato con RL contro la letteralità (MetricX-QE, AutoMQM). "
+          "La variante 4B era stata bocciata a luglio; il 12B è la taglia "
+          "che nei benchmark supera il baseline Gemma 3 27B.",
+)
 
 DEFAULT_MODEL_KEY = "translategemma-12b"
 
-
-# --------------------------------------------------------------------------
-# Singleton di processo: il modello resta caricato tra un file e l'altro della
-# coda, come già fa il ramo NLLB.
-# --------------------------------------------------------------------------
-_engine_lock = Lock()
-_engine: Optional["SubtitleLLMEngine"] = None
+# Un solo occupante dello slot (ADR-009). Il dizionario resta perché il WebUI
+# (`/api/system`) e il cache cleaner chiedono "quale modello" senza sapere se
+# ce n'e' uno o dieci.
+MODEL_SPECS: Dict[str, ModelSpec] = {DEFAULT_MODEL_KEY: TRANSLATEGEMMA_SPEC}
 
 
-def get_engine(model_key: str = DEFAULT_MODEL_KEY,
-               log_callback: Optional[Callable] = None,
-               adapter: Optional[str] = None,
-               model_path: Optional[str] = None) -> "SubtitleLLMEngine":
-    """Restituisce il motore per `model_key`, caricandolo se serve.
+def build_mt_messages(text: str, src_lang: str = "en", tgt_lang: str = "it",
+                      budget: int = 0,
+                      spec: ModelSpec = TRANSLATEGEMMA_SPEC) -> List[Dict[str, Any]]:
+    """Il prompt di traduzione nativo di `spec` (una conversazione per battuta).
 
-    Cambiare modello scarica il precedente: due 8B non stanno in 12 GB.
+    Vive qui e non in `prompt_builder` perché è una caratteristica dei pesi,
+    non dello stile che vogliamo ottenere: TranslateGemma vuole un `content`
+    strutturato con i codici lingua. Il resto della pipeline non deve saperlo.
+
+    Se il modello dichiara un `mt_prefix`, le regole del sottotitolo entrano
+    qui — dentro il testo — perché è l'unico varco che il suo chat template
+    lascia aperto.
     """
-    global _engine
-    with _engine_lock:
-        # Anche cambiare adattatore o cartella dei pesi vuol dire ricaricare:
-        # applicarne uno sopra un modello che ne ha gia' un altro darebbe la
-        # somma dei due, e il gradino misurato non sarebbe quello che si crede.
-        if _engine is not None and (_engine.model_key != model_key
-                                    or _engine.adapter != adapter
-                                    or _engine.model_id != (model_path or MODEL_SPECS[model_key].model_id)):
-            _engine.unload()
-            _engine = None
-        if _engine is None:
-            _engine = SubtitleLLMEngine(model_key, log_callback, adapter, model_path)
-        elif log_callback:
-            _engine.log_callback = log_callback
-        _engine.load()
-        return _engine
+    # Una riga sola, composta: due istruzioni su due righe allungano il
+    # preambolo e aumentano la probabilità che il modello le traduca invece di
+    # applicarle.
+    regole: List[str] = []
+    if spec.mt_budget_rule and budget > 0:
+        regole.append(spec.mt_budget_rule.format(budget=budget))
+    if spec.mt_prefix and (spec.mt_prefix_when is None
+                           or spec.mt_prefix_when.search(text)):
+        regole.append(spec.mt_prefix)
+    if regole:
+        regole.append("Traduci solo la battuta:")
+        text = " ".join(regole) + "\n" + text
 
-
-def unload_engine() -> None:
-    global _engine
-    with _engine_lock:
-        if _engine is not None:
-            _engine.unload()
-            _engine = None
-
-
-def _free_vram_gb() -> float:
-    try:
-        import torch
-        if torch.cuda.is_available():
-            free_b, _ = torch.cuda.mem_get_info()
-            return free_b / 1024 ** 3
-    except Exception:
-        pass
-    return 0.0
-
-
-class SubtitleLLMEngine:
-    """Carica un LLM open-weight e genera completamenti da messaggi chat."""
-
-    def __init__(self, model_key: str = DEFAULT_MODEL_KEY,
-                 log_callback: Optional[Callable] = None,
-                 adapter: Optional[str] = None,
-                 model_path: Optional[str] = None):
-        if model_key not in MODEL_SPECS:
-            raise ValueError(
-                f"Modello '{model_key}' sconosciuto. "
-                f"Disponibili: {', '.join(MODEL_SPECS)}"
-            )
-        self.model_key = model_key
-        # Adattatore LoRA da applicare sopra i pesi base. Assente in
-        # produzione: serve a misurare i checkpoint del fine-tuning con
-        # ESATTAMENTE lo stesso percorso di generazione della pipeline,
-        # perche' un banco che genera per conto suo misura il banco.
-        self.adapter = adapter
-        self.spec = MODEL_SPECS[model_key]
-        # Cartella locale che sovrascrive model_id dello spec, se impostata
-        # da config (llm_translator_model_path) - stesso schema del path
-        # override di NLLB fine-tuned, per cambiare i pesi senza toccare
-        # il codice.
-        self.model_id = model_path or self.spec.model_id
-        self.log_callback = log_callback
-        self.model = None
-        self.tokenizer = None
-        self.processor = None      # solo per i modelli con loader "gemma3"
-        self.device = None
-        self._quantized = False
-
-    # -- logging ----------------------------------------------------------
-    def log(self, message: str) -> None:
-        logger.info(message)
-        if self.log_callback:
-            try:
-                self.log_callback(message)
-            except Exception:
-                pass
-
-    # -- caricamento ------------------------------------------------------
-    def load(self) -> None:
-        if self.model is not None:
-            return
-
-        import torch
-        from transformers import AutoTokenizer
-
-        use_gpu = torch.cuda.is_available()
-        self.device = torch.device("cuda" if use_gpu else "cpu")
-
-        # Il token si passa sempre: sui repo pubblici è innocuo, e capire quali
-        # siano gated non è affidabile — TranslateGemma lo è, e senza token il
-        # processor tenta comunque una richiesta anonima all'hub per il chat
-        # template e riceve un 401.
-        token = self._hf_token()
-        is_gemma3 = self.spec.loader == "gemma3"
-
-        self.log(tr('le_loading_model').format(label=self.spec.label))
-
-        if is_gemma3:
-            # Il chat template di TranslateGemma sta nel processor, non nel
-            # tokenizer: caricare solo quest'ultimo darebbe chat_template=None.
-            from transformers import AutoProcessor
-            self.processor = AutoProcessor.from_pretrained(
-                self.model_id, token=token,
-            )
-            self.tokenizer = getattr(self.processor, "tokenizer", None)
-        else:
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                self.model_id, trust_remote_code=True, token=token,
-            )
-
-        if self.tokenizer is not None:
-            # CRITICO: con padding a destra e batch > 1 la generazione parte
-            # dopo il padding e lo slice dei token nuovi restituisce spazzatura.
-            self.tokenizer.padding_side = "left"
-            if self.tokenizer.pad_token is None:
-                self.tokenizer.pad_token = self.tokenizer.eos_token
-
-        if not is_gemma3 and self.tokenizer.chat_template is None:
-            raise RuntimeError(
-                f"{self.spec.label} non espone un chat template: "
-                f"il motore lo richiede per costruire i prompt."
-            )
-
-        free_gb = _free_vram_gb()
-        kwargs: Dict[str, Any] = dict(
-            trust_remote_code=True, low_cpu_mem_usage=True, token=token,
-        )
-
-        if not use_gpu:
-            self.log(tr('le_gpu_not_available_loading_on'))
-        elif free_gb >= self.spec.bf16_min_free_gb:
-            self.log(tr('le_free_vram_gb_bfloat16').format(free_gb=free_gb))
-            kwargs.update(dtype=torch.bfloat16, device_map="auto")
-        else:
-            self.log(tr('le_free_vram_gb_nf4').format(free_gb=free_gb))
-            from transformers import BitsAndBytesConfig
-            kwargs.update(
-                # `dtype` NON è ridondante con `bnb_4bit_compute_dtype`, ed è
-                # il parametro decisivo: senza, bitsandbytes FORZA float16 su
-                # tutto il modello, sovrascrivendo il bfloat16 dichiarato nel
-                # config (transformers, quantizer_bnb_4bit.py: "We force the
-                # dtype to be float16"). `bnb_4bit_compute_dtype` copre solo i
-                # layer quantizzati; norm, embedding e testa di output restano
-                # in float16.
-                #
-                # Per Gemma3 è fatale: l'output degli embedding è scalato per
-                # sqrt(hidden_size) — 3840 sul 12B — e supera il massimo di
-                # float16 (65504). Le attivazioni vanno a infinito, i logit
-                # diventano NaN, argmax su NaN restituisce l'indice 0 che è
-                # <pad>: il modello genera solo padding senza sollevare alcun
-                # errore. Vedi transformers#36822.
-                dtype=torch.bfloat16,
-                quantization_config=BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_quant_type="nf4",
-                    bnb_4bit_use_double_quant=True,
-                    bnb_4bit_compute_dtype=torch.bfloat16,
-                ),
-                device_map="auto",
-            )
-            self._quantized = True
-
-        if is_gemma3:
-            from transformers import AutoModelForImageTextToText
-            self.model = AutoModelForImageTextToText.from_pretrained(
-                self.model_id, **kwargs
-            )
-        else:
-            from transformers import AutoModelForCausalLM
-            self.model = AutoModelForCausalLM.from_pretrained(
-                self.model_id, **kwargs
-            )
-        if self.adapter:
-            from peft import PeftModel
-            self.log(tr('le_applying_adapter').format(adapter=self.adapter))
-            self.model = PeftModel.from_pretrained(
-                self.model, self.adapter, is_trainable=False)
-        if not use_gpu:
-            self.model.to(self.device)
-        self.model.eval()
-
-        if self.model.config.pad_token_id is None:
-            self.model.config.pad_token_id = self.tokenizer.pad_token_id
-
-        self.log(tr('le_ready_on').format(label=self.spec.label, device=self.device))
-
-    def _hf_token(self) -> Optional[str]:
-        try:
-            from utils.config import get_config
-            return get_config().get_huggingface_token() or None
-        except Exception as exc:
-            logger.warning(f"Token HuggingFace non recuperato: {exc}")
-            return None
-
-    # -- prompt di traduzione ---------------------------------------------
-    def mt_messages(self, text: str, src_lang: str = "en",
-                    tgt_lang: str = "it",
-                    budget: int = 0) -> List[Dict[str, Any]]:
-        """Il prompt di traduzione nativo di QUESTO modello.
-
-        Vive qui e non in `prompt_builder` perché è una caratteristica dei
-        pesi, non dello stile che vogliamo ottenere: TranslateGemma vuole un
-        `content` strutturato con i codici lingua, gli altri una frase in
-        linguaggio naturale. Il resto della pipeline non deve saperlo.
-
-        Se il modello dichiara un `mt_prefix`, le regole del sottotitolo
-        entrano qui — dentro il testo — perché è l'unico varco che il suo chat
-        template lascia aperto.
-        """
-        # Una riga sola, composta: due istruzioni su due righe allungano il
-        # preambolo e aumentano la probabilità che il modello le traduca
-        # invece di applicarle.
-        regole: List[str] = []
-        if self.spec.mt_budget_rule and budget > 0:
-            regole.append(self.spec.mt_budget_rule.format(budget=budget))
-        if self.spec.mt_prefix and (
-                self.spec.mt_prefix_when is None
-                or self.spec.mt_prefix_when.search(text)):
-            regole.append(self.spec.mt_prefix)
-        if regole:
-            regole.append("Traduci solo la battuta:")
-            text = " ".join(regole) + "\n" + text
-
-        if self.spec.loader == "gemma3":
-            return [{
-                "role": "user",
-                "content": [{
-                    "type": "text",
-                    "source_lang_code": src_lang,
-                    "target_lang_code": tgt_lang,
-                    "text": text,
-                }],
-            }]
-
-        target = {"it": "Italian", "en": "English"}.get(tgt_lang, tgt_lang)
-        return [{
-            "role": "user",
-            "content": (
-                f"Translate the following segment into {target}, "
-                f"without additional explanation.\n\n{text}"
-            ),
-        }]
-
-    # -- generazione ------------------------------------------------------
-    def generate(self, conversations: List[List[Dict[str, str]]],
-                 max_new_tokens: int = 512,
-                 **overrides: Any) -> List[str]:
-        """Genera una risposta per ogni conversazione.
-
-        `conversations` è una lista di liste di messaggi in formato chat
-        ({"role": "system"|"user"|"assistant", "content": str}). Restituisce
-        il solo testo generato, nell'ordine di input.
-        """
-        if self.model is None:
-            self.load()
-
-        import torch
-
-        if self.processor is not None:
-            # Percorso Gemma3: il template vive nel processor e i messaggi
-            # portano un `content` strutturato, quindi la tokenizzazione va
-            # fatta in un colpo solo invece che in due passaggi.
-            inputs = self.processor.apply_chat_template(
-                conversations,
-                tokenize=True,
-                add_generation_prompt=True,
-                return_dict=True,
-                return_tensors="pt",
-                padding=True,
-            ).to(self.model.device)
-        else:
-            prompts = [
-                self.tokenizer.apply_chat_template(
-                    conv, tokenize=False, add_generation_prompt=True
-                )
-                for conv in conversations
-            ]
-            # add_special_tokens=False: il chat template ha già messo il BOS.
-            inputs = self.tokenizer(
-                prompts,
-                return_tensors="pt",
-                padding=True,
-                truncation=True,
-                max_length=self.spec.context_window - max_new_tokens,
-                add_special_tokens=False,
-            ).to(self.model.device)
-
-        # Alcuni tokenizer (Hunyuan-MT fra questi) restituiscono anche
-        # `token_type_ids`, che i modelli decoder-only non accettano: passarlo
-        # a generate() solleva "model_kwargs are not used by the model" e fa
-        # fallire l'intero batch.
-        #
-        # Per Gemma3 vale l'opposto: lì `token_type_ids` distingue i token di
-        # testo da quelli immagine ed è parte dell'input atteso. Filtrarlo non
-        # dà errore — il modello genera silenziosamente solo token di padding.
-        if self.spec.loader != "gemma3":
-            inputs = {k: v for k, v in inputs.items()
-                      if k in ("input_ids", "attention_mask")}
-        else:
-            inputs = dict(inputs)
-
-        gen_kwargs: Dict[str, Any] = dict(self.spec.generation)
-        gen_kwargs.update(overrides)
-        gen_kwargs.update(
-            max_new_tokens=max_new_tokens,
-            pad_token_id=self.tokenizer.pad_token_id,
-            eos_token_id=self.tokenizer.eos_token_id,
-        )
-
-        with torch.no_grad():
-            outputs = self.model.generate(**inputs, **gen_kwargs)
-
-        # Con padding a sinistra tutti i prompt finiscono allo stesso indice,
-        # quindi questo slice è corretto per ogni riga del batch.
-        new_tokens = outputs[:, inputs["input_ids"].shape[1]:]
-        return [
-            text.strip()
-            for text in self.tokenizer.batch_decode(
-                new_tokens, skip_special_tokens=True
-            )
-        ]
-
-    # -- scarico ----------------------------------------------------------
-    def unload(self) -> None:
-        """Libera la VRAM. Senza `remove_hook_from_module` gli hook di
-        accelerate trattengono i tensori e il modello resta in memoria anche
-        dopo il `del` — è il difetto che il ramo LLM storico aveva rispetto a
-        quello NLLB."""
-        if self.model is None and self.tokenizer is None:
-            return
-
-        self.log(tr('le_unloading_from_vram').format(label=self.spec.label))
-        try:
-            import torch
-            if self.model is not None:
-                try:
-                    from accelerate.hooks import remove_hook_from_module
-                    remove_hook_from_module(self.model, recurse=True)
-                except Exception as exc:
-                    logger.debug(f"remove_hook_from_module: {exc}")
-                if not self._quantized:
-                    # I moduli quantizzati bitsandbytes non tornano su CPU.
-                    try:
-                        self.model.to("cpu")
-                    except Exception as exc:
-                        logger.debug(f"model.to(cpu): {exc}")
-
-            self.model = None
-            self.tokenizer = None
-            gc.collect()
-
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-                try:
-                    torch._C._cuda_clearCublasWorkspaces()
-                except Exception:
-                    pass
-                torch.cuda.empty_cache()
-        except Exception as exc:
-            logger.warning(f"Errore durante l'unload: {exc}")
-        finally:
-            self.model = None
-            self.tokenizer = None
-            self._quantized = False
+    return [{
+        "role": "user",
+        "content": [{
+            "type": "text",
+            "source_lang_code": src_lang,
+            "target_lang_code": tgt_lang,
+            "text": text,
+        }],
+    }]

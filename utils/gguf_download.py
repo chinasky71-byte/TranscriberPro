@@ -2,17 +2,17 @@
 """Download dei GGUF di TranslateGemma-12B dall'installer (install.sh / install.ps1).
 
 Solo libreria standard piu' `utils` (il pacchetto importa psutil e altro): l'installer lo lancia col Python del venv principale, dopo il pip install. Regole:
-  - quale quantizzazione scaricare lo decide `utils.translator_path_select.choose_translator_path` (stesse soglie del router
-    a runtime: nessuna copia dei numeri qui). Con bf16 (cuda/rocm, VRAM sufficiente) o sotto la soglia di IQ3_M (NLLB-FT): nessun download.
-    Su Vulkan non esiste bf16: il GGUF e' l'unica via, quindi si scarica anche con molta VRAM.
+  - ADR-009: il GGUF non e' piu' uno dei percorsi possibili, e' l'unico motore di traduzione. Quindi la quantizzazione
+    non si sceglie dalla VRAM: il default e' `utils.gguf_quant.DEFAULT_QUANT` (Q4_K_M), le altre solo se chieste per nome
+    (`--gguf=q3|iq3`), `--gguf=none` per non scaricare niente. `--no-gpu` resta accettato per install.ps1 (linea Windows
+    congelata): senza GPU non si scarica nulla, perche' non c'e' un secondo motore su cui ripiegare.
   - mai senza dirlo: l'installer lo chiama solo se l'utente ha chiesto i modelli, mostra file e dimensione e chiede
     conferma (--yes la salta);
   - anonimo (nessun token), RIPRENDIBILE (file `.part` + intestazione Range), con controllo di dimensione e SHA-256
     sul valore del manifesto; il file finale compare solo con la rinomina atomica a controllo superato;
   - si scarica solo se il file manca o il suo SHA-256 non coincide con quello atteso (aggiornamenti: il repository porta la versione nel nome,
     es. `...-gguf-v2`); un file diverso viene sostituito con la rinomina atomica, solo a download verificato;
-  - nome file, byte, SHA-256 e repository stanno SOLO qui (MANIFEST, HF_REPO): install.sh e install.ps1 non ne hanno copie;
-  - NON accende `llm_translator_gguf_enabled`: scrive solo i file.
+  - nome file, byte, SHA-256 e repository stanno SOLO qui (MANIFEST, HF_REPO): install.sh e install.ps1 non ne hanno copie.
 
 CLI:  python utils/gguf_download.py --gguf auto|q4|iq3|q3|none [--dest DIR] [--yes] [--no-gpu] [--dry-run]
 Codici di uscita: 0 = fatto o nulla da fare, 1 = download fallito, 2 = argomenti errati.
@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from utils import translator_path_select as sel  # noqa: E402
+from utils import gguf_quant  # noqa: E402
 
 HF_REPO = 'Chinasky71/translategemma-12b-it-subtitles-gguf'
 DEFAULT_BASE_URL = 'https://huggingface.co/' + HF_REPO + '/resolve/main'
@@ -84,18 +84,12 @@ def _gib(n: float) -> str:
 
 
 # ------------------------------------------------------------------ scelta
-def quant_for_vram(vram_gib: Optional[float], backend: str) -> Optional[str]:
-    """Quantizzazione da scaricare per una GPU con `vram_gib` GiB, o None (bf16, NLLB-FT, nessuna GPU).
+def resolve_choice(gguf: str, no_gpu: bool = False) -> Tuple[Optional[str], str]:
+    """(quant o None, motivo). Il motivo e' un codice stabile per i test.
 
-    Chiede al selettore come se tutti i GGUF ci fossero e con il GGUF davanti a NF4 (e' la fascia 12-20 GB che lo vuole):
-    lo stesso codice e le stesse soglie del router. La VRAM e' quella TOTALE (a installazione non c'e' un desktop da
-    misurare): al piu' si scarica un file che a runtime il router non usa se la VRAM libera non basta."""
-    c = sel.choose_translator_path(vram_gib, backend, gguf_available=sel.QUANT_PREFERENCE, gguf_before_nf4=True)
-    return c.quant if c.kind == sel.GGUF else None
-
-
-def resolve_choice(gguf: str, vram_gib: Optional[float], backend: str) -> Tuple[Optional[str], str]:
-    """(quant o None, motivo). Il motivo e' un codice stabile per i test."""
+    ADR-009: una sola macchina di traduzione, quindi non c'e' piu' niente da scegliere in base alla VRAM. 'auto' vuol
+    dire la quantizzazione di default; senza GPU non si scarica nulla, perche' non esiste un ripiego su cui tradurre.
+    """
     g = (gguf or 'auto').lower()
     if g not in GGUF_CHOICES:
         raise ValueError(g)
@@ -103,14 +97,9 @@ def resolve_choice(gguf: str, vram_gib: Optional[float], backend: str) -> Tuple[
         return None, 'none'
     if g in _QUANT_OF:
         return _QUANT_OF[g], 'explicit'
-    q = quant_for_vram(vram_gib, backend)
-    if q:
-        return q, 'vram'
-    if not vram_gib or backend == 'cpu':
+    if no_gpu:
         return None, 'no_gpu'
-    if backend in ('cuda', 'rocm') and vram_gib >= sel.DEFAULT_BF16_MIN_FREE_GIB:
-        return None, 'bf16'
-    return None, 'vram_too_low'
+    return gguf_quant.DEFAULT_QUANT, 'default'
 
 
 # ------------------------------------------------------------------ download
@@ -231,19 +220,6 @@ def _fetch(url: str, entry: GGUFFile, part: Path, timeout: float, progress) -> N
 
 
 # ------------------------------------------------------------------ CLI
-def _detect(no_gpu: bool) -> Tuple[Optional[float], str]:
-    if no_gpu:
-        return None, 'cpu'
-    try:
-        from utils import gpu_detect
-        rep = gpu_detect.detect_gpus(force=True)
-        b = gpu_detect.recommended_backend(rep)
-        mib = gpu_detect.usable_vram_mib(rep, b)
-        return (mib / 1024.0 if mib else None), b
-    except Exception:
-        return None, 'cpu'
-
-
 def _progress_printer() -> Callable[[int, int], None]:
     state = {'t': 0.0}
 
@@ -255,12 +231,12 @@ def _progress_printer() -> Callable[[int, int], None]:
     return p
 
 
-def main(argv=None, *, detect=_detect, input_fn=input, is_tty: Optional[bool] = None, sleep=time.sleep) -> int:
+def main(argv=None, *, input_fn=input, is_tty: Optional[bool] = None, sleep=time.sleep) -> int:
     ap = argparse.ArgumentParser(description='Scarica i GGUF di TranslateGemma-12B.')
     ap.add_argument('--gguf', default='auto', choices=GGUF_CHOICES)
     ap.add_argument('--dest', default='')
     ap.add_argument('--yes', action='store_true')
-    ap.add_argument('--no-gpu', action='store_true')
+    ap.add_argument('--no-gpu', action='store_true', help='nessuna GPU: non scarica nulla (linea Windows congelata)')
     ap.add_argument('--dry-run', action='store_true')
     ap.add_argument('--base-url', default=os.environ.get('TP_GGUF_BASE_URL', '') or DEFAULT_BASE_URL)
     for stream in (sys.stdout, sys.stderr):
@@ -278,10 +254,9 @@ def main(argv=None, *, detect=_detect, input_fn=input, is_tty: Optional[bool] = 
     except Exception:
         pass
     dest = Path(a.dest) if a.dest else DEFAULT_DEST
-    vram, backend = detect(a.no_gpu)
-    quant, why = resolve_choice(a.gguf, vram, backend)
+    quant, why = resolve_choice(a.gguf, a.no_gpu)
     if quant is None:
-        print('  ' + _tr('gd_none_' + why, vram=f'{vram:.1f}' if vram else '0', backend=backend))
+        print('  ' + _tr('gd_none_' + why))
         return 0
     entry = MANIFEST[quant]
     print(_tr('gd_plan', quant=quant, name=entry.name, size=_gib(entry.size), dest=str(dest)))

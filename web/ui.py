@@ -53,7 +53,7 @@ SETTINGS_GROUPS = (
     ("Translation", (
         ("enum", "translation_model", "Translation engine"),
         ("text", "llm_translator_model", "LLM model key"),
-        ("bool", "llm_translator_gguf_enabled", "Prefer GGUF models"),
+        ("enum", "llm_translator_gguf_quant", "GGUF quantization"),
         ("number", "translation_max_untranslated_pct", "Max untranslated share (%)"),
         ("text", "target_language", "Target language (ISO 639-2)"),
     )),

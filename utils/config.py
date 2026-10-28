@@ -215,28 +215,21 @@ class Config:
         # 2026-08-18 insieme ai modelli Aya; restano innocue nelle config
         # esistenti, semplicemente non le legge piu nessuno.
         'llm_translator_model': 'translategemma-12b',
-        # Cartella di un adattatore LoRA da applicare sopra il modello
-        # LLM. Vuota = modello base, che e' il comportamento storico.
-        # Serve a mettere in produzione un fine-tuning senza toccare il
-        # codice ne' sostituire i pesi base da 23 GB.
+        # Cartella di un adattatore LoRA. ADR-009: i pesi GGUF sono gia' fusi e
+        # il percorso transformers non esiste piu', quindi questo valore non
+        # viene piu' applicato — il traduttore lo dice nel log se lo trova
+        # impostato, invece di ignorarlo in silenzio. La chiave resta perche'
+        # la Qt (congelata) la scrive.
         'llm_translator_adapter': '',
-        # Cartella locale dei pesi del modello LLM stesso (non l'adattatore).
-        # Vuota = usa il model_id di default in MODEL_SPECS. Permette di
-        # puntare a un merge diverso (es. una nuova promozione) senza
-        # toccare il codice, stesso schema di 'nllb_finetuned_model_path'.
+        # Cartella locale dei pesi. ADR-009: il percorso di produzione e' il
+        # GGUF, quindi questa chiave vale come ALTERNATIVA a
+        # `llm_translator_gguf_dir` (la Qt congelata fa scegliere da qui).
         'llm_translator_model_path': '',
-        # Percorso GGUF del traduttore (TranslateGemma quantizzato, llama.cpp) per le schede da 8-12 GB e per AMD/Vulkan.
-        # ACCESO di default dal 24/10 (banco di qualita' non inferiore a NF4, prova reale su Windows: docs/HANDOFF_LOG_GGUF_TRANSLATOR.md).
-        # False = percorso storico (bf16 / NF4). Le altre chiavi contano solo con il flag acceso. Chi ha gia' il file di config con
-        # False lo mantiene (il load salva i default alla prima apertura): nessuna migrazione nascosta.
-        'llm_translator_gguf_enabled': True,
+        # Pesi GGUF del traduttore (TranslateGemma quantizzato, llama.cpp):
+        # l'unico motore di traduzione (ADR-009).
         'llm_translator_gguf_dir': '',          # vuoto = models/translategemma-12b-gguf
-        'llm_translator_gguf_quant': 'auto',    # auto = la migliore che entra; oppure Q4_K_M | Q3_K_M | IQ3_M
+        'llm_translator_gguf_quant': 'Q4_K_M',  # Q4_K_M | Q3_K_M | IQ3_M (niente piu' 'auto': vedi utils/gguf_quant.py)
         'llm_translator_gguf_parallel': 4,      # sequenze decodificate insieme (KV cache = parallel x 512 token)
-        'llm_translator_gguf_before_nf4': True,   # True = Q4_K_M davanti a NF4 sulle schede 10-20 GiB (NF4 ripiego); False = NF4 prima (regola storica: forza NF4)
-        'llm_translator_gguf_q4_min_free_gb': 10.0,   # VRAM libera minima per Q4_K_M
-        'llm_translator_gguf_iq3_min_free_gb': 7.5,   # VRAM libera minima per IQ3_M (sotto: NLLB fine-tuned)
-        'llm_translator_nf4_min_free_gb': 10.5,  # VRAM libera minima per NF4 (provvisorio: vedi translator_path_select)
         
         # NLLB model
         'nllb_model_path': '',  # Vuoto usa default HuggingFace

@@ -1821,13 +1821,9 @@ class LLMSubtitleTranslator(BaseTranslator):
                  glossary: Optional[Dict[str, str]] = None):
         super().__init__(log_callback, context, glossary)
         # Import LAZY: importare il package a livello di modulo tirerebbe
-        # dentro torch/transformers all'avvio della GUI.
-        from core.llm_subtitle_translator.engine import (DEFAULT_MODEL_KEY,
-                                                         get_engine)
-        self._get_engine = get_engine
+        # dentro llama_cpp all'avvio della GUI.
+        from core.llm_subtitle_translator.engine import DEFAULT_MODEL_KEY
         self._model_key = self._configured_model(DEFAULT_MODEL_KEY)
-        self._adapter = self._configured_adapter()
-        self._model_path = self._configured_model_path()
         self._engine = None
         # Copia d'istanza di SOURCE_LABEL: modificabile per singola istanza.
         self.source_label = self.SOURCE_LABEL
@@ -1916,95 +1912,45 @@ class LLMSubtitleTranslator(BaseTranslator):
             pass
         return default_key
 
-    def _configured_adapter(self):
-        """Adattatore LoRA da applicare sopra i pesi base, se configurato.
-
-        Una cartella che non esiste NON e' un errore fatale: si prosegue col
-        modello base e lo si dice a schermo. Far fallire una coda notturna
-        perche' un percorso e' stato spostato costerebbe molto piu' di una
-        traduzione fatta col modello non adattato.
-        """
-        import os
-        try:
-            if not get_config:
-                return None
-            p = (get_config().get('llm_translator_adapter', '') or '').strip()
-        except Exception:
-            return None
-        if not p:
-            return None
-        if not os.path.isdir(p):
-            self.log(tr('tl_adapter_not_found_using_the').format(p=p))
-            return None
-        self.log(tr('tl_lora_adapter').format(basename=os.path.basename(p.rstrip(os.sep))))
-        return p
-
-    def _configured_model_path(self):
-        """Cartella locale che sovrascrive i pesi base del modello, se
-        configurata (llm_translator_model_path). Stessa logica di
-        _configured_adapter: un percorso inesistente non è fatale, si
-        ricade sul model_id di default dello spec.
-        """
-        import os
-        try:
-            if not get_config:
-                return None
-            p = (get_config().get('llm_translator_model_path', '') or '').strip()
-        except Exception:
-            return None
-        if not p:
-            return None
-        if not os.path.isdir(p):
-            self.log(tr('tl_model_folder_not_found_using').format(p=p))
-            return None
-        return p
-
     def _acquire_engine(self):
-        """Il motore LLM per questo file. Con `llm_translator_gguf_enabled` spento e' ESATTAMENTE la chiamata storica a
-        `get_engine`; acceso (default dal 24/10), decide `path_router` (bf16 / NF4 / GGUF / None = NLLB-FT)."""
-        gguf = False
-        try:
-            from utils.config import Config
-            gguf = bool(get_config and get_config().get('llm_translator_gguf_enabled',
-                                                      Config.DEFAULTS['llm_translator_gguf_enabled']))
-        except Exception:
-            gguf = False
-        if not gguf:
-            import sys as _sys
-            gm = _sys.modules.get('core.llm_subtitle_translator.gguf_engine')
-            if gm is not None:
-                gm.unload_gguf_engine()     # flag spento a meta' coda: libera la VRAM del processo GGUF prima di NF4
-            return self._get_engine(self._model_key, self.log_callback,
-                                    adapter=self._adapter,
-                                    model_path=self._model_path)
-        from core.llm_subtitle_translator import path_router
-        return path_router.acquire_engine(
-            self._model_key, self.log_callback, self._adapter, self._model_path,
-            get_engine_fn=self._get_engine, cfg_get=get_config().get, log=self.log)
+        """Il motore GGUF per questo file.
 
-    def _translate_via_nllb_ft(self, input_path, output_path, src_lang, tgt_lang,
-                               context, glossary) -> bool:
-        """Ripiego dichiarato del percorso GGUF: traduce tutto il file con NLLB fine-tuned (o NLLB base se il
-        fine-tuned non e' utilizzabile), come fa `get_translator('nllb_finetuned')`."""
+        ADR-009: un solo motore, nessun ripiego. Se i pesi non ci sono, o
+        llama.cpp non li puo' caricare, `resolve_gguf_path` / `get_gguf_engine`
+        sollevano e il job fallisce con un messaggio che dice cosa manca. Non
+        si traduce con un altro modello di nascosto: una traduzione fatta da un
+        motore diverso e' peggio di una traduzione mancante, perche' nessuno la
+        distingue.
+        """
+        from core.llm_subtitle_translator import gguf_engine as ge
+        from utils.gguf_quant import DEFAULT_N_PARALLEL
+
+        def cfg_get(key, default=None):
+            try:
+                return get_config().get(key, default) if get_config else default
+            except Exception:
+                return default
+
+        adapter = str(cfg_get('llm_translator_adapter') or '').strip()
+        if adapter:
+            # L'adattatore LoRA non esiste piu' nel percorso di produzione: i
+            # pesi GGUF sono gia' fusi. Dirlo, invece di ignorarlo in silenzio.
+            self.log(tr('tl_adapter_not_applied').format(path=adapter))
+        directory = (str(cfg_get('llm_translator_gguf_dir') or '').strip()
+                     # `llm_translator_model_path` e' la cartella che la Qt
+                     # (congelata) fa scegliere: se punta a una cartella di
+                     # GGUF vale ancora, altrimenti si usa quella canonica.
+                     or str(cfg_get('llm_translator_model_path') or '').strip()
+                     or None)
+        path, quant = ge.resolve_gguf_path(directory, cfg_get('llm_translator_gguf_quant'))
         try:
-            try:
-                nllb = NLLBFineTunedTranslator(self.log_callback, self.context, self.glossary)
-            except Exception as exc:
-                logger.error(f"NLLB fine-tuned non disponibile: {exc}")
-                self.log(tr('gg_nllb_ft_unavailable').format(exc=exc))
-                nllb = NLLBTranslator(self.log_callback, self.context, self.glossary)
-            try:
-                return nllb.translate_file(input_path, output_path, src_lang, tgt_lang,
-                                           context, glossary)
-            finally:
-                try:
-                    nllb.cleanup()
-                except Exception as exc:
-                    logger.debug(f"cleanup NLLB di ripiego: {exc}")
-        except Exception as exc:
-            logger.error(f"Errore nel ripiego NLLB: {exc}", exc_info=True)
-            self.log(tr('tl_error').format(exc=exc))
-            return False
+            n_parallel = max(1, int(cfg_get('llm_translator_gguf_parallel') or DEFAULT_N_PARALLEL))
+        except (TypeError, ValueError):
+            n_parallel = DEFAULT_N_PARALLEL
+        self.log(tr('gg_path_chosen').format(quant=quant, path=path,
+                                             n=n_parallel))
+        return ge.get_gguf_engine(path, quant, self._model_key,
+                                  self.log_callback, n_parallel=n_parallel)
 
     def _lang_to_iso(self, lang_code: str) -> Optional[str]:
         result = self.LANGUAGE_CODES.get(lang_code.lower())
@@ -2091,12 +2037,6 @@ class LLMSubtitleTranslator(BaseTranslator):
                 ))
 
             engine = self._acquire_engine()
-            if engine is None:
-                # Percorso GGUF acceso e nessun percorso LLM praticabile su questa scheda: il motivo e' gia'
-                # nel log. NLLB fine-tuned traduce il file intero, nessun blocco resta inglese.
-                return self._translate_via_nllb_ft(input_path, output_path,
-                                                   src_lang, tgt_lang,
-                                                   context, glossary)
             self._engine = engine
 
             # Lingua sorgente dichiarata nel prompt: 'en' di default (come
@@ -2268,17 +2208,9 @@ class LLMSubtitleTranslator(BaseTranslator):
     def cleanup(self):
         """Libera la VRAM occupata dal modello."""
         try:
-            from core.llm_subtitle_translator.engine import unload_engine
             self._engine = None
-            try:
-                unload_engine()
-            finally:
-                # Il motore GGUF esiste solo se il percorso GGUF e' stato acceso; il modulo si importa soltanto in
-                # quel caso (con il flag spento questo blocco non cambia nulla). Scarico indipendente dal primo.
-                import sys
-                _gguf = sys.modules.get('core.llm_subtitle_translator.gguf_engine')
-                if _gguf is not None:
-                    _gguf.unload_gguf_engine()
+            from core.llm_subtitle_translator import gguf_engine as _gguf
+            _gguf.unload_gguf_engine()
         except Exception as exc:
             logger.error(f"Errore durante cleanup: {exc}")
 

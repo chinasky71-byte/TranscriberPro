@@ -1,13 +1,14 @@
 """
-Motore GGUF (llama.cpp) per TranslateGemma — stessa interfaccia del motore transformers
-========================================================================================
-Per le schede da 8-12 GB di VRAM, dove NF4 (picco misurato 10,1 GB) non entra o non regge, e per AMD/Vulkan, dove
-bitsandbytes non c'e'. Eseguito con llama-cpp-python (stessa ruota del glossario Qwen, pin 0.3.34).
+Motore GGUF (llama.cpp) per TranslateGemma — l'unico motore di traduzione
+=========================================================================
+Eseguito con llama-cpp-python (stessa ruota del glossario Qwen, pin 0.3.34). Da ADR-009 non esiste un secondo
+motore: non c'e' un ripiego su NF4, su NLLB o su un modello transformers. Se il file GGUF non c'e', il motore lo
+dice con un errore esplicito che nomina la cartella e i file trovati (`resolve_gguf_path`), e il job fallisce: non
+si traduce con un altro modello di nascosto.
 
-E' una sottoclasse di `SubtitleLLMEngine`: `mt_messages` (regole di sottotitolo, budget di caratteri, codice lingua
-sorgente), `log` e lo `spec` sono QUELLI del motore transformers, ereditati e non copiati, quindi il prompt costruito
-e' identico per costruzione. Cambiano solo `load`, `generate` e `unload`. Chi lo usa (`SubtitleLLMTranslator`) vede
-la stessa interfaccia: `spec.max_batch`, `mt_messages()`, `generate(conversations, max_new_tokens)`.
+Lo `spec` e il prompt vengono da `engine.py` (`MODEL_SPECS`, `build_mt_messages`): sono caratteristiche dei pesi, non
+del runtime. Chi lo usa (`LLMSubtitleTranslator`) vede l'interfaccia `spec.max_batch`, `mt_messages()`,
+`generate(conversations, max_new_tokens)`.
 
 Scelte di esecuzione:
 
@@ -31,20 +32,60 @@ from __future__ import annotations
 import ctypes
 import dataclasses
 import gc
+import re
 from pathlib import Path
 from threading import Lock, RLock
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from utils import gguf_quant
 from utils.logger import setup_logger
 from utils.translations import tr
 
-from .engine import DEFAULT_MODEL_KEY, MODEL_SPECS, SubtitleLLMEngine
+from .engine import (DEFAULT_MODEL_KEY, MODEL_SPECS, PROJECT_ROOT,
+                     build_mt_messages)
 
 logger = setup_logger(__name__)
 
 # Il motore e' valido solo per questa architettura: caricare un altro GGUF con il prompt di TranslateGemma darebbe
 # testo senza senso e nessun errore.
 EXPECTED_ARCH = "gemma3"
+
+# Dove stanno i pesi quando la config non dice altro.
+DEFAULT_GGUF_DIR = PROJECT_ROOT / "models" / "translategemma-12b-gguf"
+
+# Nome del file: qualunque prefisso, poi la quantizzazione subito prima di ".gguf" (es.
+# translategemma-12b-it-finale-Q3_K_M.gguf). I file a pezzi ('-00001-of-0000N') non sono supportati: i 12B quantizzati
+# a 3-4 bit stanno in un file solo, e un pezzo mancante darebbe un modello rotto.
+_QUANT_FILE = re.compile(r"[-_.](" + "|".join(gguf_quant.QUANT_PREFERENCE) + r")\.gguf$", re.I)
+
+
+def scan_gguf_dir(directory) -> Dict[str, str]:
+    """{quantizzazione: percorso del file} per i GGUF presenti in `directory` (vuoto se la cartella non esiste)."""
+    found: Dict[str, str] = {}
+    try:
+        for f in sorted(Path(directory).glob("*.gguf")):
+            m = _QUANT_FILE.search(f.name)
+            if m and f.is_file():
+                found.setdefault(m.group(1).upper(), str(f))
+    except Exception as exc:
+        logger.debug(f"scan_gguf_dir: {exc}")
+    return found
+
+
+def resolve_gguf_path(directory=None, quant: Optional[str] = None) -> Tuple[str, str]:
+    """(percorso del file GGUF, quantizzazione) per la cartella e la quantizzazione richieste.
+
+    Non sceglie al posto di chi chiama: se il file della quantizzazione richiesta non c'e', solleva un errore che
+    nomina la cartella e i file trovati. Con la quantizzazione non indicata vale `utils.gguf_quant.DEFAULT_QUANT`.
+    """
+    where = Path(directory) if directory else DEFAULT_GGUF_DIR
+    wanted = gguf_quant.normalize_quant(quant)
+    found = scan_gguf_dir(where)
+    path = found.get(wanted)
+    if path:
+        return path, wanted
+    raise RuntimeError(tr('gg_err_quant_missing').format(
+        path=where, quant=wanted, found=', '.join(sorted(found)) or tr('gg_err_none_found')))
 
 # Dopo la risposta del modello. <end_of_turn> e' di norma gia' un token EOG per llama.cpp; qui lo si cerca comunque.
 END_OF_TURN = "<end_of_turn>"
@@ -181,7 +222,7 @@ def _meta_str(ll, model, key: str) -> Optional[str]:
     return buf.value.decode("utf-8", errors="replace") if n >= 0 else None
 
 
-class GGUFEngine(SubtitleLLMEngine):
+class GGUFEngine:
     """Carica un GGUF di TranslateGemma con llama.cpp e genera completamenti da messaggi chat."""
 
     def __init__(self, gguf_path: str, quant: str,
@@ -189,7 +230,12 @@ class GGUFEngine(SubtitleLLMEngine):
                  log_callback: Optional[Callable] = None,
                  n_parallel: int = 4, ctx_per_seq: int = 512,
                  n_gpu_layers: int = -1, expected_arch: Optional[str] = EXPECTED_ARCH):
-        super().__init__(model_key, log_callback, adapter=None, model_path=str(gguf_path))
+        if model_key not in MODEL_SPECS:
+            raise ValueError(
+                f"Modello '{model_key}' sconosciuto. "
+                f"Disponibili: {', '.join(MODEL_SPECS)}")
+        self.model_key = model_key
+        self.log_callback = log_callback
         self.quant = quant
         self.gguf_path = str(gguf_path)
         self.n_parallel = max(1, int(n_parallel))
@@ -212,6 +258,22 @@ class GGUFEngine(SubtitleLLMEngine):
         # generate() e unload() non devono mai sovrapporsi (neppure da thread diversi: annullo dalla GUI, cleanup):
         # liberare contesto e batch mentre llama_decode li usa chiude l'intero processo.
         self._run_lock = RLock()
+
+    # -- logging ----------------------------------------------------------
+    def log(self, message: str) -> None:
+        logger.info(message)
+        if self.log_callback:
+            try:
+                self.log_callback(message)
+            except Exception:
+                pass
+
+    # -- prompt ------------------------------------------------------------
+    def mt_messages(self, text: str, src_lang: str = "en",
+                    tgt_lang: str = "it",
+                    budget: int = 0) -> List[Dict[str, Any]]:
+        """Il prompt di traduzione nativo di questo modello (vedi `engine.build_mt_messages`)."""
+        return build_mt_messages(text, src_lang, tgt_lang, budget, self.spec)
 
     # -- caricamento ------------------------------------------------------
     def load(self) -> None:
