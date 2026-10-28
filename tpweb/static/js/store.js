@@ -14,9 +14,10 @@ let state = {
   job: { defaults_summary: '', shutdown_after: false },
   resources: null,
   historyCount: null,
-  ui: { filter: 'all', selected: [], anchor: null, current: null, tab: 'queue', scannerOpen: false, settings: null },
+  ui: { filter: 'all', selected: [], anchor: null, current: null, tab: 'queue', scannerOpen: false, settings: null, tool: null },
   message: null,
   env: {},
+  tools: { glossary: { status: 'idle', log: [], report: null, error: null, gate: null, venv_available: true, phase: '', done: 0, total: 0, msg: '', run_info: null } },
   log: [],                                   // {id, text, kind}: le righe le decide il server (filtro, barre sul posto, colori)
   logOptions: { compact: true, pipeline_open: true },
   diag: { elapsed: '–', errors: '0', model: '–', translator: '–', engine: '–' },
@@ -112,6 +113,8 @@ function onMessages(msgs) {
       case 'poster_failed': setState({ preview: { path: m.d.path, status: 'failed', poster_id: null } }); break;
       case 'poster_cleared': setState({ preview: { path: null, status: 'none', poster_id: null } }); break;
       case 'gpu_badge': setState({ gpu: m.d }); break;
+      case 'glossary_state': setState({ tools: { ...state.tools, glossary: { ...state.tools.glossary, ...m.d } } }); break;
+      case 'glossary_log': setState({ tools: { ...state.tools, glossary: { ...state.tools.glossary, log: [...state.tools.glossary.log, m.d.line].slice(-300) } } }); break;
       case 'env_line': setState({ env: { ...state.env, [m.d.job]: { ...state.env[m.d.job], running: true, lines: [...((state.env[m.d.job] || {}).lines || []), m.d.line].slice(-50), last_line: m.d.line } } }); break;
       case 'env_done': setState({ env: { ...state.env, [m.d.job]: { ...state.env[m.d.job], running: false, exit_code: m.d.exit_code, last_line: m.d.last_line } } }); break;
       case 'scan_finished': selectLast(); structural = true; break;
@@ -153,6 +156,7 @@ function applyFull(st) {
   if (st.log_options) patch.logOptions = st.log_options;
   if (st.preview) patch.preview = st.preview;
   if ('gpu' in st) patch.gpu = st.gpu;
+  if (st.tools) patch.tools = { ...state.tools, ...st.tools };
   if (st.queue && st.queue.steps && st.queue.steps.server_time) patch.clockOffset = st.queue.steps.server_time - Date.now() / 1000;
   setState(patch);
 }
@@ -212,3 +216,19 @@ export async function setShutdown(on) {
   const r = await (await import('/static/js/api.js')).put('/api/settings/job_options', { shutdown_after: on });
   if (r.ok) setState({ job: r.data });
 }
+
+/** Apre uno strumento (come MainWindow._open_glossary_dialog): a coda in lavoro o con l'altro strumento attivo mostra l'avviso e non apre. */
+export async function openTool(tool) {
+  const r = await get('/api/queue');                           // lo stato fresco del server: i flag degli strumenti non passano dalle righe
+  if (!r.ok) return;
+  const q = r.data, tl = r.data.tools || {};
+  const warn = (key) => setState({ message: { kind: 'warning', title: t(tool === 'glossary' ? 'tools_glossary' : 'sync_dialog_title'), text: t(key) } });
+  if (q.running) return warn(tool === 'glossary' ? 'glossary_blocked_processing' : 'sync_blocked_processing');
+  if (tool === 'glossary' && tl.sync && state.tools.glossary.status !== 'running') return warn('glossary_blocked_sync');
+  if (tool === 'sync') {
+    if (tl.glossary) return warn('sync_blocked_glossary');
+    if (tl.sync && state.ui.tool !== 'sync') return warn('sync_already_running');
+  }
+  setUi({ tool });
+}
+export const closeTool = () => setUi({ tool: null });

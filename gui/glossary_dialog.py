@@ -114,27 +114,7 @@ class _TmdbResolveWorker(QThread):
         self._candidates = [c for c in candidates if c and c.strip()]
 
     def run(self):
-        result = used = None
-        try:
-            from utils.tmdb_client import get_tmdb_client
-            client = get_tmdb_client()
-            tried = set()
-            for cand in self._candidates:
-                if _SEASON_DIR_RE.match(cand.strip()):
-                    continue
-                # Stessa pulizia usata per le locandine (get_media_info):
-                # rimuove punti/underscore, tag release group, risoluzione.
-                parsed = client.parse_filename(cand)
-                clean = (parsed.get('title') or cand).strip()
-                if not clean or clean.lower() in tried:
-                    continue
-                tried.add(clean.lower())
-                r = client.search_tv(clean, year=parsed.get('year'))
-                if r and r.get('id'):
-                    result, used = r, clean
-                    break
-        except Exception as e:
-            logger.warning(f"Ricerca TMDB fallita: {e}")
+        result, used = GS.resolve_tmdb(self._candidates)
         self.resolved.emit(result, used)
 
 

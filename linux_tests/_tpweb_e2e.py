@@ -39,7 +39,7 @@ class FakeTmdb:
         return self.poster
 
 
-def make_server(tmp_path, monkeypatch, language='it', sampler=None, tmdb=None, gpu_detect=None):
+def make_server(tmp_path, monkeypatch, language='it', sampler=None, tmdb=None, gpu_detect=None, tool_engines=None):
     """Server di prova: config e cronologia isolate, il finto `pipeline_cli` al posto del vero, nessuno spegnimento reale."""
     from utils import config as cfg
     from tpweb.launcher import build
@@ -54,7 +54,7 @@ def make_server(tmp_path, monkeypatch, language='it', sampler=None, tmdb=None, g
     import utils.cache_cleaner as cc
     monkeypatch.setattr(cc, 'cleanup_non_italian_caches', lambda log_callback=None: {'removed': [], 'failed': []})
     srv = build(config, history_path=tmp_path / 'history.json', project_root=ROOT, shutdown_fn=lambda: None, sampler=sampler,
-                 tmdb_client=tmdb or FakeTmdb(), gpu_detect=gpu_detect or (lambda first: ('NVIDIA RTX 4090', 'nvidia', False))).start()
+                 tmdb_client=tmdb or FakeTmdb(), gpu_detect=gpu_detect or (lambda first: ('NVIDIA RTX 4090', 'nvidia', False)), tool_engines=tool_engines).start()
     return srv, config
 
 
@@ -71,3 +71,7 @@ def seed_rows(wq):
     wq.queue.take_next()
     wq.on_file_started(p[1]); wq.on_file_progress(p[1], 45)
     return p
+
+
+def make_server_with_tools(tmp_path, monkeypatch, tool_engines):
+    return make_server(tmp_path, monkeypatch, tool_engines=tool_engines)
