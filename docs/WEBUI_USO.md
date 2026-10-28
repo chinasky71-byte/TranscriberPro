@@ -1,7 +1,7 @@
 # Transcriber Pro – interfaccia web (guida)
 
 L'interfaccia web e' una **seconda interfaccia** per lo stesso programma: stessa coda, stessi motori, stessa configurazione. La GUI Qt resta quella predefinita.
-Non e' ancora in produzione: vive nel ramo `webui/main` e si prova con `--ui web`.
+E' in `master` (dalla 1.34.41 + web UI): si avvia con `--ui web` o con `Lancia Transcriptor Web.bat/.vbs`; l'interfaccia predefinita resta la GUI Qt. Verificata su Windows contro la finestra Qt vera (rapporti in `docs/webui_rapporti/`).
 
 ## Avvio
 | Come | Comando |
@@ -44,4 +44,4 @@ GUI sta in `core/` (servizi senza Qt estratti dalla GUI, con test di caratterizz
 confrontato con Qt, finestra pywebview, dialoghi nativi, pacchetto PyInstaller) sono elencate in `tpweb/PARITY.md` e le fa la sessione locale.
 
 ## Pacchetto
-`TranscriberProWeb.spec` (PyInstaller): non ancora costruito. `test_tpweb_packaging.py` verifica che tutto cio' che elenca esista.
+`TranscriberProWeb.spec` (PyInstaller): SPERIMENTALE. Costruisce un unico `TranscriberProWeb.exe` da ~70 MB (senza torch, CUDA e bitsandbytes) che si avvia e mostra la pagina della coda; l'elaborazione vera richiede ancora l'ambiente Python con le librerie pesanti (sottoprocesso `core.pipeline_cli`) e non e' stata provata dall'exe. Non fa parte dell'installazione supportata. `test_tpweb_packaging.py` verifica che tutto cio' che elenca esista.
