@@ -335,7 +335,7 @@ class Config:
         # Library Scanner Settings
         'library_scanner_url': 'http://192.168.1.12:6680',
         'library_scanner_path_map': '',   # una regola per riga: <prefisso server>=<prefisso locale> (Linux/macOS; vuoto = invariato)
-        'library_scanner_api_key': 'IDu_J0LvpqcmJ0nCFjXc6rlu2oKNoDE2bEO8CUVrNng',
+        'library_scanner_api_key': '',
         'library_scanner_enabled': True,
 
         # Gender Correction (LLM post-traduzione)
