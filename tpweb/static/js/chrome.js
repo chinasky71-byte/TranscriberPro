@@ -1,14 +1,16 @@
 import { html, useState, useLayoutEffect } from '/static/js/lib.js';
 import { t } from '/static/js/i18n.js';
 import { Icon } from '/static/js/icon.js';
-import { useStore, setUi, openSettings } from '/static/js/store.js';
+import { useStore, setUi, openSettings, openTool } from '/static/js/store.js';
 import { post } from '/static/js/api.js';
 import { Confirm } from '/static/js/modals.js';
+import { ContextMenu } from '/static/js/context_menu.js';
 
 export function TitleBar() {
   const running = useStore((s) => s.queue.running);
   const connected = useStore((s) => s.connected);
   const [quitAsk, setQuitAsk] = useState(false);
+  const [toolsMenu, setToolsMenu] = useState(null);
   async function quit(force) {
     const r = await post('/api/quit', { force });
     if (r.status === 409) setQuitAsk(true);
@@ -21,11 +23,14 @@ export function TitleBar() {
     <div class="status-pill"><span class=${'status-dot' + (running ? ' busy' : '')}></span><span class="status-label" data-testid="status">${!connected ? t('web_connection_lost') : (running ? t('mw_status_processing') : t('mw_status_ready'))}</span></div>
     <span class="grow"></span>
     <div class="title-actions">
-      <button class="tool-btn" title=${t('tools_menu')}><${Icon} name="wrench" size=${16} /></button>
+      <button class="tool-btn" data-testid="tools-menu" title=${t('tools_menu')} disabled=${running}
+        onClick=${(e) => { const r = e.currentTarget.getBoundingClientRect(); setToolsMenu({ x: r.left, y: r.bottom + 4 }); }}><${Icon} name="wrench" size=${16} /></button>
       <button class="tool-btn" title=${t('sync_dialog_title')}><${Icon} name="sync" size=${16} /></button>
       <button class="tool-btn" data-testid="open-settings" title=${t('settings_dialog_title')} onClick=${() => openSettings()}><${Icon} name="settings" size=${16} /></button>
       <button class="tool-btn" data-testid="quit" title=${t('web_quit')} onClick=${() => quit(false)}><${Icon} name="power" size=${16} /></button>
     </div>
+    ${toolsMenu ? html`<${ContextMenu} x=${toolsMenu.x} y=${toolsMenu.y} onClose=${() => setToolsMenu(null)}
+        items=${[{ label: t('tools_glossary'), onClick: () => openTool('glossary') }]} />` : null}
     ${quitAsk ? html`<${Confirm} title=${t('web_quit')} text=${t('web_quit_busy')} onNo=${() => setQuitAsk(false)}
         onYes=${() => { setQuitAsk(false); quit(true); }} />` : null}
   </header>`;
