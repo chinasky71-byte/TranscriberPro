@@ -189,6 +189,7 @@ def test_aggiungi_file_con_il_navigatore(env):
     page = env.open()
     page.click('[data-testid=add-files]')
     page.wait_for_selector('[data-testid=file-browser]')
+    page.wait_for_selector('.fs-row')                                  # l'elenco arriva dopo l'apertura del navigatore
     assert page.locator('[data-testid=fs-path]').inner_text() == str(d)
     names = page.locator('.fs-row .fs-name').all_inner_texts()
     assert names == ['sub', 'due.mp4', 'uno.mkv']                      # cartelle prima, nessun .txt (filtro video), ordine alfabetico

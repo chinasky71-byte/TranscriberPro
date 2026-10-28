@@ -3,6 +3,7 @@
 // /api/queue (poche righe, semplice e sempre coerente); solo avanzamento e dimensioni si applicano sul posto.
 import { useState, useEffect } from '/static/js/lib.js';
 import { get, post } from '/static/js/api.js';
+import { t } from '/static/js/i18n.js';
 
 const EMPTY_QUEUE = { running: false, rows: [], counts: { all: 0, queued: 0, processing: 0, completed: 0, failed: 0 }, remaining: 0,
   completed: 0, errors: 0, progress: 0, steps: null, stats: null, started_at: null };
@@ -199,7 +200,12 @@ export const addFolder = (folder) => post('/api/queue/scan', { folder });
 export const setCompact = (enabled) => post('/api/log/compact', { enabled });
 export const setPipelineOpen = (open) => post('/api/log/pipeline-card', { open });
 export async function removePaths(paths) { for (const p of paths) await post('/api/queue/remove', { path: p }); }
-export const startQueue = () => post('/api/queue/start');
+/** Avvia la coda; se un altro strumento la blocca (OCR, Glossario, Sincronizzazione) mostra lo stesso avviso della GUI. */
+export async function startQueue() {
+  const r = await post('/api/queue/start');
+  if (r.status === 409 && r.data && r.data.text_key) setState({ message: { kind: 'warning', title: t(r.data.title_key), text: t(r.data.text_key) } });
+  return r;
+}
 export const stopQueue = () => post('/api/queue/stop');
 export const clearQueue = () => post('/api/queue/clear');
 export async function setShutdown(on) {
