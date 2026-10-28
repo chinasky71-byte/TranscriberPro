@@ -43,7 +43,9 @@ def test_i_nomi_vecchi_in_gui_sono_alias_degli_stessi_moduli():
     import core.jobs.step_plan as b
     import gui.file_progress as ga
     import gui.services.step_plan as gb
-    assert ga is a and gb is b
+    import core.services.job_model as c
+    import gui.services.job_model as gc
+    assert ga is a and gb is b and gc is c
 
 
 def test_core_utils_e_glossary_engine_non_importano_gui_nemmeno_dentro_le_funzioni():

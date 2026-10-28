@@ -20,11 +20,12 @@ def free_port() -> int:
 
 class ServerThread:
     def __init__(self, token: Optional[str] = None, port: Optional[int] = None, bus: Optional[EventBus] = None,
-                 get_state: Optional[Callable[[], dict]] = None):
+                 get_state: Optional[Callable[[], dict]] = None, queue=None):
         self.token = token or secrets.token_urlsafe(24)
         self.port = port or free_port()
         self.bus = bus or EventBus()
-        self.app = create_app(self.token, self.port, self.bus, get_state)
+        self.queue = queue
+        self.app = create_app(self.token, self.port, self.bus, get_state, queue)
         self.server = uvicorn.Server(uvicorn.Config(self.app, host='127.0.0.1', port=self.port, log_level='warning'))
         self.thread = threading.Thread(target=self.server.run, daemon=True)
 
