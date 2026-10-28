@@ -209,7 +209,7 @@ def stop(p, url):
         p.kill()
 
 
-@pytest.mark.parametrize('argv', [['-m', 'tpweb', '--no-browser'], ['main.py', '--ui', 'web', '--no-browser'], ['main.py', '--ui=web', '--no-browser']])
+@pytest.mark.parametrize('argv', [['-m', 'tpweb', '--no-browser'], ['main.py', '--ui', 'web', '--no-browser'], ['main.py', '--ui=web', '--no-browser'], ['main.py', '--no-browser']])
 def test_avvio_vero_secondo_server_rifiutato_e_uscita_ordinata(tmp_path, argv):
     env = env_for(tmp_path, block_qt=True)
     p, url = start(argv, env)
@@ -299,3 +299,25 @@ def test_conflitti_senza_flag_seguono_l_interfaccia_predefinita(tmp_path, monkey
     assert lifecycle.conflicts(tmp_path) == []                                           # predefinita web: e' un'altra web UI
     monkeypatch.setattr(lifecycle, '_default_ui', lambda: 'qt')
     assert lifecycle.conflicts(tmp_path) == ['gui']                                      # `ui: qt` nel config: e' la GUI
+
+
+def test_il_lock_riconosce_il_server_dall_ora_di_creazione_qualunque_sia_la_riga_di_comando(tmp_path):
+    """P20 (L-020): `python main.py` senza flag e' ora il caso normale; la riga di comando non contiene piu' `tpweb` ne' `--ui web`."""
+    import psutil
+    plain = sleeper('niente_di_riconoscibile')                                        # un processo qualunque: stand-in del server avviato senza flag
+    try:
+        time.sleep(0.2)
+        p = tmp_path / 'tpweb.lock'
+        p.write_text(json.dumps({'pid': plain.pid, 'since': 'x', 'created': psutil.Process(plain.pid).create_time()}))
+        assert lifecycle.ServerLock(p).holder() == plain.pid and lifecycle.ServerLock(p).acquire() is False      # secondo avvio rifiutato
+        p.write_text(json.dumps({'pid': plain.pid, 'since': 'x', 'created': psutil.Process(plain.pid).create_time() - 500}))
+        assert lifecycle.ServerLock(p).holder() is None                               # pid riusato da un altro programma: lock orfano
+        p.write_text(json.dumps({'pid': plain.pid, 'since': 'x'}))
+        assert lifecycle.ServerLock(p).holder() is None                               # vecchio formato: riga di comando non riconoscibile -> orfano
+    finally:
+        plain.kill()
+    lock = lifecycle.ServerLock(tmp_path / 'nuovo.lock')
+    assert lock.acquire() is True
+    data = json.loads((tmp_path / 'nuovo.lock').read_text())
+    assert data['pid'] == os.getpid() and abs(data['created'] - psutil.Process().create_time()) < 1
+    lock.release()
