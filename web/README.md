@@ -1,8 +1,8 @@
 # Web API
 
 FastAPI application that exposes the shared job queue and the browser UI.
-Steps 2 (API), 3 (MVP UI), 4 (settings, history) and 5 (OCR review) of
-`docs/webui/PLAN.md` are done.
+Steps 2 (API), 3 (MVP UI), 4 (settings, history), 5 (OCR review) and 9 (file
+picker) of `docs/webui/PLAN.md` are done.
 
 ## Run
 
@@ -32,9 +32,36 @@ A non-loopback host **refuses to start** without a token unless `--no-auth` (or
 a token `/login` redirects to `/`.
 
 The dashboard shows the system status: backend from `venv/.tp-backend`, whether
-the GPU answers (`utils/backend_preflight.py`), the torch/HIP/CUDA/ctranslate2
-versions, the work directory with its free space, and the auth state. Jobs are
-refused when the GPU does not answer (per-job "Allow CPU" overrides it).
+the GPU answers (`utils/backend_preflight.py`), the torch/HIP/CUDA versions, the
+work directory with its free space, and the auth state. Jobs are refused when the
+GPU does not answer (per-job "Allow CPU" overrides it).
+
+It also shows a **Translator** line: the configured GGUF quantization, whether the
+file is where the resolver looks, and the VRAM it needs against the VRAM free
+right now. After ADR-009 that engine is the only translator, so a missing file is
+not a degraded mode — every job would fail at its first step — and the line turns
+red with the reason before anything is queued. The check is
+`utils/backend_preflight.translation_status()`; the probe runs in a subprocess and
+is cached for 300 s.
+
+## Settings that exist
+
+The settings page only lists choices that change something (ADR-009 removed the
+alternatives):
+
+| Key | Meaning |
+|---|---|
+| `transcription_engine_mode` | `qwen3` or `auto` (ADR-008: no other engine) |
+| `llm_translator_gguf_quant` | `Q4_K_M` (default), `Q3_K_M`, `IQ3_M` |
+| `llm_translator_gguf_dir` | where the `.gguf` file lives; empty = `models/translategemma-12b-gguf` |
+| `target_language` | `ita` (the engine translates into Italian only) |
+| `translation_max_untranslated_pct` | failure threshold for blocks left untranslated |
+| `allowed_media_roots`, `picker_start_dir` | what the queue and the picker may reach |
+
+`whisper_model`, the Whisper VAD pair, `translation_model` and
+`llm_translator_model` are **not** settings any more: the engines they configured
+do not exist, and the ones they name have a single possible value. The keys stay
+in `Config` for old `config.json` files and for the frozen Qt dialog.
 
 ## Environment
 

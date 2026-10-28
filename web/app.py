@@ -89,6 +89,17 @@ def _system_status(config: Any) -> Dict[str, Any]:
     }
 
 
+def _translator_status(config: Any) -> Dict[str, Any]:
+    """Stato del motore di traduzione per la dashboard (sonda in cache 300 s)."""
+    from utils import backend_preflight
+    try:
+        return backend_preflight.translation_status(
+            config, probe=backend_preflight.translation_facts_subprocess)
+    except Exception as exc:                    # pragma: no cover - difensivo
+        return {"ok": False, "message": str(exc), "quant": "", "path": "",
+                "directory": "", "free_gib": 0.0, "need_gib": None}
+
+
 def _gpu_status() -> Dict[str, Any]:
     try:
         report = detect_gpus()
@@ -159,6 +170,7 @@ def create_app(manager: JobManager, token: Optional[str] = None,
             "models_dir": str(MODELS_ROOT),
             "auth_enabled": bool(app.state.token),
             "system": app.state.system,
+            "translator": _translator_status(config),
         }
 
     @app.get("/api/jobs", dependencies=auth)

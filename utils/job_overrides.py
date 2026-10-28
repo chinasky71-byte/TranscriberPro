@@ -15,7 +15,11 @@ ALLOW_CPU = 'allow_cpu'                        # accetta di elaborare senza GPU 
 # Lingua di destinazione: una sola (ADR-009). Il motore traduce verso l'italiano
 # e rifiuta tutto il resto, quindi offrire un elenco sarebbe una promessa falsa.
 LANGUAGES = ('ita',)
-# Un solo motore (ADR-009). Il valore e' quello canonico di `Config`.
+# Un solo motore (ADR-009). Il valore e' quello canonico di `Config`; la costante
+# `TRANSLATION` resta perche' la Qt congelata costruisce il menu delle eccezioni
+# con quella chiave (gui/main_window.py). I valori che offriva -- 'nllb_finetuned',
+# 'llm' -- ora non sono piu' in questa tupla, quindi `clean_value` li scarta: non
+# c'e' un secondo motore da nominare.
 TRANSLATION_MODELS = ('translategemma-12b-gguf',)
 BOOL_KEYS = (UPLOAD, MUX, GENDER, FORCE_AUDIO, ALLOW_CPU)
 ALL_KEYS = (TARGET_LANGUAGE, TRANSLATION, FORCE_AUDIO, GENDER, MUX, UPLOAD, ALLOW_CPU)

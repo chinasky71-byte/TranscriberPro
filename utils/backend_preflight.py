@@ -312,3 +312,57 @@ def check_translation_ready(config: Any, allow_cpu: bool = False,
                     free_gb=free, need_gb=need, quant=quant),
                 remedy=tr("pf_remedy_vram"))
     return True, ""
+
+
+def translation_status(config: Any, probe: Optional[Callable[..., Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """I fatti che la WebUI mostra nella riga "Translator" della dashboard.
+
+    Non e' `check_translation_ready`: quella decide se un job puo' partire e
+    quindi rifiuta quando la VRAM libera adesso non basta; qui si descrive lo
+    STATO DEL MOTORE (file presente? llama.cpp utilizzabile? quanta VRAM
+    chiederebbe?). La differenza conta: mentre un job gira, la VRAM libera e'
+    poca per definizione, e una dashboard che diventa rossa a ogni traduzione in
+    corso sarebbe rumore.
+
+    Nessuna eccezione verso il chiamante: un guasto della sonda diventa un
+    dizionario con `ok: False` e il motivo.
+    """
+    from core.llm_subtitle_translator import gguf_engine
+    from utils.gguf_quant import QUANT_WEIGHTS_GIB, gguf_need_gib, normalize_quant
+    from utils.translations import tr
+
+    out: Dict[str, Any] = {"ok": False, "message": "", "quant": "", "path": "",
+                           "directory": "", "free_gib": 0.0, "need_gib": None,
+                           "llama": "", "gpu_offload": False}
+    raw_quant, directory, n_parallel = _translation_config(config)
+    out["directory"] = str(directory or gguf_engine.DEFAULT_GGUF_DIR)
+    try:
+        quant = normalize_quant(raw_quant)
+    except ValueError as exc:
+        out["message"] = tr("pf_translation_not_ready").format(
+            reason=str(exc), remedy=tr("pf_remedy_translation"))
+        return out
+    out["quant"] = quant
+    if quant in QUANT_WEIGHTS_GIB:
+        out["need_gib"] = gguf_need_gib(quant, n_parallel)
+    try:
+        out["path"], out["quant"] = gguf_engine.resolve_gguf_path(directory, quant)
+    except Exception as exc:
+        out["message"] = tr("pf_translation_not_ready").format(
+            reason=str(exc), remedy=tr("pf_remedy_translation"))
+        return out
+
+    facts = (probe or translation_facts)()
+    out["free_gib"] = float(facts.get("free_gib") or 0.0)
+    out["llama"] = facts.get("llama") or ""
+    out["gpu_offload"] = bool(facts.get("gpu_offload"))
+    if facts.get("error"):
+        out["message"] = tr("pf_translation_not_ready").format(
+            reason=facts["error"], remedy=tr("pf_remedy_translation"))
+        return out
+    if not out["gpu_offload"]:
+        out["message"] = tr("pf_translation_not_ready").format(
+            reason=tr("pf_reason_llama_no_gpu"), remedy=tr("pf_remedy_translation"))
+        return out
+    out["ok"] = True
+    return out

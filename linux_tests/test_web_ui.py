@@ -57,14 +57,12 @@ SETTINGS_VALUES = {
     "language": "auto",
     "model_cache_cleanup_enabled": True,
     "transcription_engine_mode": "auto",
-    "whisper_model": "large-v3",
     "punctuation_restore_mode": "auto",
     "enable_diarization": False,
     "dialogue_style_enabled": True,
     "gender_correction_enabled": False,
-    "translation_model": "translategemma-12b-gguf",
-    "llm_translator_model": "translategemma-12b",
     "llm_translator_gguf_quant": "Q4_K_M",
+    "llm_translator_gguf_dir": "",
     "translation_max_untranslated_pct": 80.0,
     "target_language": "ita",
     "opensubtitles_upload_enabled": True,
@@ -76,17 +74,13 @@ SETTINGS_VALUES = {
 SETTINGS_FORM = {
     "language": "it",
     "transcription_engine_mode": "qwen3",
-    "whisper_model": "large-v3",
     "punctuation_restore_mode": "auto",
-    "translation_model": "translategemma-12b-gguf",
-    "llm_translator_model": "translategemma-12b",
     "llm_translator_gguf_quant": "Q4_K_M",
+    "llm_translator_gguf_dir": "",
     "translation_max_untranslated_pct": "75",
     "target_language": "ita",
     "use_gpu": "true",
     "model_cache_cleanup_enabled": "true",
-    "whisper_vad_threshold": "0.5",
-    "whisper_vad_min_silence_ms": "500",
 }
 
 
@@ -311,6 +305,43 @@ def test_api_status_espone_lo_stato_di_sistema(tmp_path):
         assert payload["auth_enabled"] is False
 
 
+def _stub_translator(monkeypatch, **values):
+    """La riga "Translator" senza sonda: llama.cpp e torch non si toccano nei test."""
+    from web import ui as web_ui
+    status = {"ok": True, "message": "", "quant": "Q4_K_M",
+              "path": "/models/translategemma-12b-gguf/translategemma-12b-it-finale-Q4_K_M.gguf",
+              "directory": "/models/translategemma-12b-gguf", "free_gib": 15.8,
+              "need_gib": 8.75, "llama": "0.3.34", "gpu_offload": True}
+    status.update(values)
+    monkeypatch.setattr(web_ui, "_translation_status", lambda config: status)
+    return status
+
+
+def test_la_dashboard_mostra_il_motore_di_traduzione(tmp_path, monkeypatch):
+    """Il motore e' l'unica cosa che puo' mancare senza che si veda: se il GGUF non
+    c'e', il job fallisce a STEP 0 in secondi, ma la dashboard lo dice prima."""
+    _stub_translator(monkeypatch)
+    app, _ = _make(tmp_path)
+    with TestClient(app) as client:
+        page = client.get("/status").text
+    assert "Translator" in page
+    assert "Q4_K_M" in page and "ready" in page
+    assert "translategemma-12b-it-finale-Q4_K_M.gguf" in page
+    assert "needs" in page and "8.8" in page and "15.8" in page
+    assert "Translation engine not ready" not in page
+
+
+def test_la_dashboard_avvisa_se_il_motore_manca(tmp_path, monkeypatch):
+    _stub_translator(monkeypatch, ok=False, path="", quant="Q4_K_M",
+                     message="GGUF file for quantization Q4_K_M not found in /models/gguf: files found: none")
+    app, _ = _make(tmp_path)
+    with TestClient(app) as client:
+        page = client.get("/status").text
+    assert "Translation engine not ready" in page
+    assert "not found in /models/gguf" in page
+    assert "not ready" in page
+
+
 # --------------------------------------------------------------- layout: sidebar + stato della coda
 def test_layout_ha_il_menu_a_sinistra_e_il_contenuto_a_destra(tmp_path):
     app, _ = _make(tmp_path)
@@ -391,25 +422,42 @@ def test_status_page_mostra_i_dettagli_di_elaborazione(tmp_path):
         assert "Work dir" in page and "Models dir" in page
 
 
-def test_vad_knobs_in_settings(tmp_path):
+def test_settings_have_only_the_choices_that_still_exist(tmp_path):
+    """ADR-008/009: niente piu' modello Whisper, soglie VAD, motore di traduzione o
+    chiave del modello: la UI mostrava comandi che nessun modulo leggeva."""
     app, _ = _make(tmp_path)
-    config = app.state.config
-    form = dict(SETTINGS_FORM, allowed_media_roots=str(tmp_path),
-                whisper_vad_threshold="0.35", whisper_vad_min_silence_ms="300")
     with TestClient(app) as client:
         page = client.get("/settings").text
-        assert 'name="whisper_vad_threshold"' in page and 'step="0.05"' in page
-        assert 'name="whisper_vad_min_silence_ms"' in page and 'max="2000"' in page
-        saved = client.post("/settings", data=form)
+    for gone in ('name="whisper_model"', 'name="whisper_vad_threshold"',
+                 'name="whisper_vad_min_silence_ms"', 'name="translation_model"',
+                 'name="llm_translator_model"'):
+        assert gone not in page, gone
+    assert 'name="llm_translator_gguf_quant"' in page and 'value="IQ3_M"' in page
+    assert 'name="llm_translator_gguf_dir"' in page
+    assert 'name="target_language"' in page
+    assert 'value="eng"' not in page            # una sola lingua di destinazione
+
+
+def test_gguf_folder_is_saved_and_validated(tmp_path):
+    app, _ = _make(tmp_path)
+    config = app.state.config
+    form = dict(SETTINGS_FORM, allowed_media_roots=str(tmp_path))
+    weights = tmp_path / "gguf"
+    weights.mkdir()
+    with TestClient(app) as client:
+        saved = client.post("/settings", data=dict(form, llm_translator_gguf_dir=str(weights)))
         assert "Settings saved" in saved.text
-        assert config.get("whisper_vad_threshold") == 0.35
-        assert config.get("whisper_vad_min_silence_ms") == 300
-        for bad in ("1.5", "-0.1"):
-            rejected = client.post("/settings", data=dict(form, whisper_vad_threshold=bad))
-            assert "between 0 and 1" in rejected.text
-        too_long = client.post("/settings", data=dict(form, whisper_vad_min_silence_ms="5000"))
-        assert "between 0 and 2000" in too_long.text
-        assert config.get("whisper_vad_threshold") == 0.35      # niente salvato sull'errore
+        assert config.get("llm_translator_gguf_dir") == str(weights)
+
+        relative = client.post("/settings", data=dict(form, llm_translator_gguf_dir="pesi/gguf"))
+        assert "must be absolute" in relative.text
+        missing = client.post("/settings", data=dict(form, llm_translator_gguf_dir="/nope/gguf"))
+        assert "not a directory" in missing.text
+        assert config.get("llm_translator_gguf_dir") == str(weights)   # niente salvato
+
+        empty = client.post("/settings", data=dict(form, llm_translator_gguf_dir=""))
+        assert "Settings saved" in empty.text
+        assert config.get("llm_translator_gguf_dir") == ""              # vuoto = default
 
 
 def test_glossary_path_tmdb_e_manuale(tmp_path, monkeypatch):

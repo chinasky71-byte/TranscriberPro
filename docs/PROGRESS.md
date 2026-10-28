@@ -27,6 +27,62 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-27 — WebUI allineata al motore unico
+
+- Branch / commits: `feat/webui-single-engine`, from `development` (`1e6507b`).
+- Goal: dopo ADR-008 e ADR-009 la pagina Impostazioni mostrava comandi che non
+  comandavano piu' niente e la dashboard taceva sull'unica cosa che puo' mancare.
+  Tre chiavi (`whisper_model`, `whisper_vad_threshold`,
+  `whisper_vad_min_silence_ms`) non erano nemmeno in `Config.DEFAULTS`: la UI le
+  scriveva nel config e nessun modulo le leggeva. `llm_translator_model` e'
+  un testo libero che puo' solo essere sbagliato (un solo valore valido), e
+  `translation_model` un select con una opzione. Nessun modo, invece, di dire
+  dove stanno i pesi GGUF.
+- Done (files, commands):
+  - `web/config_schema.py`: via le tre chiavi morte e i loro limiti numerici,
+    via `translation_model` e `llm_translator_model` dalle chiavi scrivibili,
+    `FREE_TEXT_KEYS` vuoto (nessun campo libero); `target_language` diventa un
+    enum `('ita',)` invece di una regex su codici ISO; nuova `as_dir(key, value)`
+    usata da `picker_start_dir` e dalla nuova `llm_translator_gguf_dir` (vuoto =
+    default, altrimenti cartella assoluta che esiste).
+  - `web/ui.py`: Impostazioni ridotte a cio' che cambia qualcosa, con i pesi
+    (`llm_translator_gguf_quant`, `llm_translator_gguf_dir`); la dashboard
+    calcola lo stato del motore a ogni render.
+  - `utils/backend_preflight.py`: `translation_status(config)` — file GGUF,
+    llama.cpp con offload, quantizzazione, VRAM richiesta contro libera. Non e'
+    `check_translation_ready`: quella **rifiuta** quando la VRAM adesso non
+    basta, questa **descrive** il motore, altrimenti la dashboard diventerebbe
+    rossa a ogni traduzione in corso.
+  - `web/templates/_status.html` + `web/app.py`: riga **Translator**
+    (quantizzazione, file, "needs ≥ 8,8 GiB, 15,8 free") e alert rosso con il
+    motivo e il rimedio quando il motore non e' pronto; `/api/status` espone lo
+    stesso blocco.
+  - `web/README.md`: via il riferimento a ctranslate2, sezione "Settings that
+    exist", spiegazione della riga Translator.
+  - `utils/job_overrides.py`: commento sul perche' `TRANSLATION` resta (lo usa la
+    Qt congelata) mentre i suoi valori storici vengono scartati.
+- Tests and results: `pytest linux_tests -q` → **704 passed, 15 skipped, 0
+  failed**. Nuovi: la pagina Impostazioni non mostra piu' le cinque chiavi morte
+  e mostra i pesi; la cartella GGUF si salva, rifiuta percorso relativo e
+  cartella inesistente, e vuota torna al default; la dashboard mostra la riga
+  Translator con i numeri e l'alert quando il motore manca (sonda sostituita da
+  uno stub: llama.cpp e torch non si toccano nei test); `/api/config` rifiuta
+  quantizzazione ignota, cartella relativa e `target_language: eng`. Rimosso
+  `test_vad_knobs_in_settings`, che verificava la presenza delle chiavi morte.
+- Decisions / ADRs: nessun ADR nuovo, si applica ADR-009. Due scelte esplicite:
+  (1) le chiavi restano in `Config` come legacy — la Qt congelata e i
+  `config.json` vecchi non si toccano — si smette solo di offrirle; (2) la
+  dashboard distingue "motore pronto" da "VRAM sufficiente adesso", perche' un
+  job in corso occupa la scheda per definizione.
+- Known issues: il server in esecuzione sulla macchina di riferimento e' stato
+  avviato prima di questi merge: `/api/models` risponde ancora con i sei motori
+  vecchi finche' non viene riavviato (il job invece gira col codice nuovo,
+  essendo un processo figlio). `translation_model` resta una chiave di override
+  per-file che accetta solo il valore canonico.
+- Next step: riavvio del server e verifica a mano delle due pagine; poi, se si
+  vuole, il passo di rinomina dei nomi/chiavi `whisper_*` (vedi la voce del
+  2026-10-27 sui residui di Whisper).
+
 ## 2026-10-27 — Un solo motore di traduzione (ADR-009)
 
 - Branch / commits: `feat/single-translation-engine` — `8906970` (1), `bf549f2`
