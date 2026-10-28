@@ -28,17 +28,22 @@ KEEPALIVE_S = 15
 def create_app(token: str, port: int, bus: Optional[EventBus] = None,
                get_state: Optional[Callable[[], dict]] = None, queue=None, history=None, config=None,
                opener: Optional[Callable[[str], None]] = None, mapped_roots: Optional[Callable[[], list]] = None,
-               sampler=None, on_quit: Optional[Callable[[], None]] = None, preview=None, gpu=None, env_jobs=None, translator_ok=None, tool_engines=None) -> FastAPI:
+               sampler=None, on_quit: Optional[Callable[[], None]] = None, preview=None, gpu=None, env_jobs=None, translator_ok=None, tool_engines=None, library_deps=None) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.state.bus = bus or EventBus()
     if get_state is None and queue is not None:
         get_state = lambda: {**queue.full_state(), **({'preview': preview.state()} if preview is not None else {}),      # noqa: E731
                              **({'gpu': gpu.value} if gpu is not None else {})}
     app.state.tools = None
+    app.state.library = None
     if queue is not None and config is not None:
         from tpweb.tools import ToolRuns
         app.state.tools = ToolRuns(app.state.bus, queue.gate, config, tool_engines)
         base_state = get_state
+        from tpweb.library import LibraryManager
+        deps = library_deps or {}
+        app.state.library = LibraryManager(app.state.bus, config, queue, deps.get('client'), deps.get('api'))
+        queue.subtitle_created_hooks.append(app.state.library.notify_subtitle_created)
         get_state = lambda: {**base_state(), 'tools': app.state.tools.state()}      # noqa: E731  (un client che ha perso eventi ritrova i dialoghi)
     app.state.get_state = get_state or (lambda: {})
     app.state.queue = queue
@@ -60,7 +65,8 @@ def create_app(token: str, port: int, bus: Optional[EventBus] = None,
         from tpweb.routes_models import add_model_routes
         add_model_routes(app, config, app.state.bus, env_jobs, translator_ok)
     if app.state.tools is not None:
-        from tpweb.routes_tools import add_sync_routes, add_tool_routes
+        from tpweb.routes_tools import add_library_routes, add_sync_routes, add_tool_routes
+        add_library_routes(app, app.state.library)
         add_tool_routes(app, app.state.tools)
         add_sync_routes(app, app.state.tools)
     if preview is not None:

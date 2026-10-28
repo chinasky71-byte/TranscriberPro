@@ -309,3 +309,22 @@ button:focus-visible, .file-list:focus-visible { outline: 1px solid var(--accent
 .sync-table-wrap { max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; } .sync-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .sync-table th, .sync-table td { padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; } .sync-table th { color: var(--fg-2); position: sticky; top: 0; background: var(--bg-1); }
 .tool-progress { position: relative; } .progress-text { position: absolute; inset: 0; text-align: center; font-size: 9px; line-height: 10px; color: var(--fg-0); }
+
+/* ---------------------------------------------------------------------------------------------------- Library Scanner (fase 5) */
+.scanner-card { height: auto; display: flex; flex-direction: column; padding: 0; gap: 0; overflow: hidden; }
+.scanner-card.open { flex: 1 1 0; min-height: 0; }
+.scanner-head { height: 32px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 12px; cursor: pointer; }
+.scanner-badge { background: var(--danger-deep); color: var(--white); font-size: 11px; font-weight: 600; border-radius: 9px; padding: 0 7px; min-width: 18px; text-align: center; }
+.scanner-dot { width: 10px; height: 10px; border-radius: 5px; background: var(--fg-3); } .scanner-dot.on { background: var(--success); } .scanner-dot.off { background: var(--danger); }
+.tool-btn.small { width: 22px; height: 22px; }
+.scanner-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 4px; padding: 2px 8px 6px; }
+.scanner-filters { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-2); } .scanner-filters .select-wrap, .scanner-filters .select { min-width: 0; width: 100%; flex: 1; } .scanner-filters select.select { height: 26px; padding: 0 6px; }
+.days-input { width: 64px; height: 26px; flex: none; text-align: center; }
+.scanner-table-wrap { flex: 1; min-height: 60px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+.scanner-table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; } .scanner-table th { position: sticky; top: 0; background: var(--bg-1); color: var(--fg-2); text-align: left; padding: 3px 6px; cursor: pointer; font-weight: 500; }
+.scanner-table td { padding: 0 6px; height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-bottom: 1px solid var(--white-a03); }
+.scanner-table .c-type { width: 60px; text-align: center; } .scanner-table .c-days { width: 50px; text-align: center; } .scanner-table .c-sub { width: 44px; } .scanner-table .c-add { width: 28px; padding: 0; }
+.audio-ita { color: #6aa9ff; } .days-danger { color: #ff7aa2; } .days-warn { color: #f5b450; }
+.badge-btn { height: 16px; padding: 0 5px; border: 0; border-radius: 4px; color: var(--white); font-size: 10px; font-weight: 600; cursor: pointer; } .badge-btn.bitmap { background: #d9741a; } .badge-btn.ass { background: #7c4dff; } .badge-btn.ass.done { background: #2e9b66; cursor: default; }
+.add-btn { width: 20px; height: 20px; padding: 0; background: transparent; border: 0; color: var(--success); cursor: pointer; } .add-btn:disabled { color: var(--fg-3); cursor: default; }
+.scanner-stats { text-align: center; font-size: 11px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

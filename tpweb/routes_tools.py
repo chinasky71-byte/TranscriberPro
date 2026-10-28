@@ -157,3 +157,43 @@ def add_sync_routes(app: FastAPI, tools: ToolRuns) -> None:
     async def sync_reset():
         ok = m.reset()
         return JSONResponse({'reset': ok}, status_code=200 if ok else 409)
+
+
+class ImportBody(BaseModel):
+    paths: List[str]
+    log: bool = False
+
+
+class AssBody(BaseModel):
+    video_ids: List[int] = []
+
+
+class CardBody(BaseModel):
+    open: bool
+
+
+def add_library_routes(app: FastAPI, lib) -> None:
+    @app.get('/api/library/state')
+    async def library_state():
+        return lib.card_state()
+
+    @app.put('/api/library/card')
+    async def library_card(b: CardBody):
+        lib.set_card_open(b.open)
+        return lib.card_state()
+
+    @app.get('/api/library')
+    async def library_fetch(search: str = '', type: str = '', format: Optional[str] = None, min_days: int = 0):
+        return await asyncio.to_thread(lib.fetch, search, type, format or None, max(0, min_days))        # rete: fuori dal ciclo degli eventi
+
+    @app.get('/api/library/view')
+    async def library_view(min_days: int = 0, format: Optional[str] = None):
+        return lib.view(max(0, min_days), format or None)
+
+    @app.post('/api/library/import')
+    async def library_import(b: ImportBody):
+        return {'added': lib.import_paths(b.paths, b.log)}
+
+    @app.post('/api/library/ass')
+    async def library_ass(b: AssBody):
+        return await asyncio.to_thread(lib.convert_ass, b.video_ids)
