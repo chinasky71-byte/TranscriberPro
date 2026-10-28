@@ -13,6 +13,7 @@ const typeText = (m) => (m === 'movie' ? t('film_type') : m === 'tvshow' ? t('tv
 /** Card «Library Scanner» (LibraryScannerWidget): elenco dei video senza sottotitoli italiani, filtri, import in coda, conversione ASS/SSA. */
 export function ScannerCard() {
   const tick = useStore((s) => s.libraryTick);
+  const ocr = useStore((s) => s.ocr);
   const [open, setOpen] = useState(null);                     // null = non ancora letto dal server
   const [enabled, setEnabled] = useState(true);
   const [data, setData] = useState(EMPTY);
@@ -46,7 +47,7 @@ export function ScannerCard() {
     const first = setTimeout(load, 2500);
     return () => clearTimeout(first);
   }, []);
-  useEffect(() => { if (tick > 0) load(); }, [tick]);          // il server ha notificato un sottotitolo creato
+  useEffect(() => { if (tick > 0 && open) load(); }, [tick]);   // il server ha notificato un sottotitolo creato (a card chiusa si aggiorna con il timer)
   useEffect(() => {                                           // aggiornamento automatico ogni 5 minuti, solo a card aperta
     if (!open) return undefined;
     const id = setInterval(load, 5 * 60 * 1000);
@@ -78,6 +79,10 @@ export function ScannerCard() {
     const r = await post('/api/library/ass', { video_ids: ids });
     if (r.ok) messageBox(r.data.level === 'information' ? 'info' : 'warning', t(r.data.title_key), r.data.message);
   }
+  async function startOcr(row) {
+    const r = await post('/api/ocr/start', { path: row.windows_path, kind: row.ocr_kind });
+    if (r.status === 409) messageBox('info', t('ocr_section_title'), t('ls_ocr_other_running'));       // un OCR alla volta
+  }
   async function importPaths(paths, log) {
     const r = await post('/api/library/import', { paths, log });
     if (r.ok && r.data.added > 0) await reapply(days, fmt);
@@ -105,6 +110,7 @@ export function ScannerCard() {
 
   if (!enabled) return null;
   let stats = t('waiting_connection');
+  const ocrText = ocr.progress_text;           // durante l'OCR l'avanzamento prende il posto delle statistiche (stessa riga)
   if (loading && !data.rows.length) stats = t('loading');
   else if (data.error === 'config_missing') stats = t('config_missing');
   else if (data.error) stats = t('error_status', { message: data.error });
@@ -139,13 +145,13 @@ export function ScannerCard() {
           <td class=${'c-file' + (r.audio_ita ? ' audio-ita' : '')} title=${r.audio_ita ? t('ls_audio_ita_tip', { path: r.windows_path }) : r.windows_path}>${r.filename}</td>
           <td class="c-type">${typeText(r.media_type)}</td>
           <td class=${'c-days' + (r.days_class ? ' days-' + r.days_class : '')}>${r.days}</td>
-          <td class="c-sub">${r.badge === 'bitmap' ? html`<button class="badge-btn bitmap" data-testid=${'badge-' + r.id} title=${t('ls_bitmap_tip')} data-kind=${r.ocr_kind}>${r.badge_label}</button>`
+          <td class="c-sub">${r.badge === 'bitmap' ? html`<button class="badge-btn bitmap" data-testid=${'badge-' + r.id} title=${t('ls_bitmap_tip')} data-kind=${r.ocr_kind} onClick=${() => startOcr(r)}>${r.badge_label}</button>`
             : r.badge === 'ass' ? html`<button class=${'badge-btn ass' + (r.ass_done ? ' done' : '')} data-testid=${'badge-' + r.id} disabled=${r.ass_done}
               title=${r.ass_done ? t('ls_ass_done_tip') : t('ls_ass_tip')} onClick=${() => convertAss([r.id])}>ASS</button>` : null}</td>
           <td class="c-add"><button class="add-btn" data-testid=${'add-' + r.id} disabled=${r.queued} title=${r.queued ? t('already_queued') : ''}
             onClick=${() => importOne(r)}>${r.queued ? '✓' : html`<${Icon} name="plus" size=${14} />`}</button></td></tr>`)}</tbody></table></div>
       <div class="btn-row"><button class="btn btn-primary" data-testid="scanner-import-all" disabled=${!shown.length} onClick=${importAll}>${fmt === 'assssa' ? t('ls_convert_ass') : t('import_filtered')}</button></div>
-      <div class="scanner-stats" data-testid="scanner-stats">${stats}</div>
+      <div class="scanner-stats" data-testid="scanner-stats">${ocrText || stats}</div>
     </div>` : null}
   </div>`;
 }
