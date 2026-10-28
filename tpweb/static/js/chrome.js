@@ -1,4 +1,4 @@
-import { html, useState, useLayoutEffect } from '/static/js/lib.js';
+import { html, useState, useEffect, useLayoutEffect } from '/static/js/lib.js';
 import { t } from '/static/js/i18n.js';
 import { Icon } from '/static/js/icon.js';
 import { useStore, setUi, openSettings, openTool } from '/static/js/store.js';
@@ -10,6 +10,11 @@ export function TitleBar() {
   const running = useStore((s) => s.queue.running);
   const connected = useStore((s) => s.connected);
   const [quitAsk, setQuitAsk] = useState(false);
+  useEffect(() => {                                           // il guscio nativo chiede di chiudere a coda al lavoro: decide la persona
+    const ask = () => setQuitAsk(true);
+    window.addEventListener('tp-quit-request', ask);
+    return () => window.removeEventListener('tp-quit-request', ask);
+  }, []);
   const [toolsMenu, setToolsMenu] = useState(null);
   async function quit(force) {
     const r = await post('/api/quit', { force });
