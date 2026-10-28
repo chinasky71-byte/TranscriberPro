@@ -1,5 +1,8 @@
 # Matrice di parità: GUI Qt  ->  web UI (pagina Coda e Cronologia)
 
+> **Verifica su Windows (28/10/2026):** la web UI e' unita in master. Aspetto confrontato con la finestra Qt vera a 100/125/150% (Coda SSIM 0,83-0,94, Impostazioni 0,72-0,91, obiettivo 0,985: non raggiunto, geometria entro 1-2 px, resto rasterizzazione del testo); guscio, dialoghi nativi, chiusura con coda al lavoro (1,9 s), Library Scanner e lifecycle provati a mano; suite 1357 verdi e 11 rossi ambientali. Dettagli in docs/webui_rapporti/. Le righe sotto restano con lo stato dato dal codice e dai test.
+
+
 Stati: `da fare` · `fatto` (codice + test nel cloud) · `verificato Win` (provato dalla sessione locale su Windows, C-010 e seguenti).
 La web UI non sostituisce la Qt finché ogni riga non e' `verificato Win`. Riferimento visivo: `tpweb/proto/p2_qt_capture.py` (finestra Qt vera).
 
