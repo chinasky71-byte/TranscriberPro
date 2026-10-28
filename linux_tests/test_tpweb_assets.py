@@ -90,7 +90,7 @@ def test_ogni_chiave_di_traduzione_dei_js_esiste_in_italiano_e_in_inglese():
 
 def test_nessun_testo_italiano_o_inglese_scritto_a_mano_nei_js():
     """Ogni testo visibile passa da t(): niente stringhe di prosa dentro html`...` (solo nomi propri, simboli e attributi tecnici)."""
-    allowed = {'Transcriber Pro', 'Library Scanner', 'Sub', 'ASS'}       # nomi propri e sigle di formato (come nella GUI)
+    allowed = {'Transcriber Pro', 'Library Scanner', 'Sub', 'ASS', 'Superpower'}       # nomi propri e sigle di formato (come nella GUI)
     bad = []
     for p in (STATIC / 'js').glob('*.js'):
         if p.name in ('icons.js',):

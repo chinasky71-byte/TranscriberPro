@@ -4,6 +4,7 @@ import { get, post, put } from '/static/js/api.js';
 import { Icon } from '/static/js/icon.js';
 import { useStore } from '/static/js/store.js';
 import { messageBox } from '/static/js/dialogs.js';
+import { Confirm } from '/static/js/modals.js';
 
 const FORMATS = [[null, 'all_formats'], ['pgs', 'PGS'], ['vobsub', 'VOBSUB'], ['assssa', 'ASS/SSA'], ['nosrt', 'No SRT']];
 const EMPTY = { connected: null, error: '', stats_text: '', without: 0, visible: 0, rows: [], import_enabled: false, import_is_ass: false };
@@ -22,6 +23,7 @@ export function ScannerCard() {
   const [type, setType] = useState('');
   const [days, setDays] = useState(0);
   const [fmt, setFmt] = useState(null);
+  const [askSp, setAskSp] = useState(false);
   const [sort, setSort] = useState(null);                     // {col, dir}
   const prevFmt = useRef(null);
   const filters = useRef({});
@@ -82,6 +84,16 @@ export function ScannerCard() {
   async function startOcr(row) {
     const r = await post('/api/ocr/start', { path: row.windows_path, kind: row.ocr_kind });
     if (r.status === 409) messageBox('info', t('ocr_section_title'), t('ls_ocr_other_running'));       // un OCR alla volta
+  }
+  async function superpower() {
+    const pre = await post('/api/ocr/superpower/check');
+    if (pre.ok && !pre.data.ok) { messageBox(pre.data.level === 'info' ? 'info' : 'warning', t('web_superpower_title'), pre.data.message); return; }
+    setAskSp(true);
+  }
+  async function superpowerGo() {
+    setAskSp(false);
+    const r = await post('/api/ocr/superpower');
+    if (r.ok && r.data.message) messageBox(r.data.level === 'info' ? 'info' : 'warning', t('web_superpower_title'), r.data.message);
   }
   async function importPaths(paths, log) {
     const r = await post('/api/library/import', { paths, log });
@@ -150,8 +162,10 @@ export function ScannerCard() {
               title=${r.ass_done ? t('ls_ass_done_tip') : t('ls_ass_tip')} onClick=${() => convertAss([r.id])}>ASS</button>` : null}</td>
           <td class="c-add"><button class="add-btn" data-testid=${'add-' + r.id} disabled=${r.queued} title=${r.queued ? t('already_queued') : ''}
             onClick=${() => importOne(r)}>${r.queued ? '✓' : html`<${Icon} name="plus" size=${14} />`}</button></td></tr>`)}</tbody></table></div>
-      <div class="btn-row"><button class="btn btn-primary" data-testid="scanner-import-all" disabled=${!shown.length} onClick=${importAll}>${fmt === 'assssa' ? t('ls_convert_ass') : t('import_filtered')}</button></div>
+      <div class="btn-row"><button class="btn btn-primary" data-testid="scanner-import-all" disabled=${!shown.length} onClick=${importAll}>${fmt === 'assssa' ? t('ls_convert_ass') : t('import_filtered')}</button>
+        <button class="btn btn-primary" data-testid="scanner-superpower" title=${t('ls_superpower_tip')} onClick=${superpower}><${Icon} name="sparkle" size=${14} />Superpower</button></div>
       <div class="scanner-stats" data-testid="scanner-stats">${ocrText || stats}</div>
     </div>` : null}
+    ${askSp ? html`<${Confirm} title=${t('web_superpower_confirm_title')} text=${t('ls_sp_confirm')} onNo=${() => setAskSp(false)} onYes=${superpowerGo} />` : null}
   </div>`;
 }

@@ -172,3 +172,26 @@ def test_menu_dei_job_ocr_differiti(env, monkeypatch):
     page.click('.ctx-item[data-label="%s"]' % IT['job_ov_default'])
     until(page, "() => !document.querySelector('.file-row[data-status=queued]').innerText.includes('%s')" % IT['job_ov_ocr_targeted_short'])
     assert env.srv.app.state.ocr.mode_override == {}
+
+
+def test_superpower_conferma_elenco_e_batch(env):
+    import json
+    env.srv.app.state.library._api = FakeApi()
+    FakeApi.reply = (200, json.dumps({'videos': [{'windows_path': 'V:\\auto_ok1.mkv', 'bitmap_format': 'pgs'}, {'windows_path': 'V:\\auto_ok2.mkv', 'bitmap_format': 'vobsub'}]}))
+    page = env.open()
+    open_card(page)
+    page.click('[data-testid=scanner-superpower]')
+    page.wait_for_selector('.modal-confirm')
+    assert page.locator('.modal-confirm .modal-title').inner_text() == IT['web_superpower_confirm_title']
+    assert page.locator('.modal-confirm .modal-text').inner_text() == IT['ls_sp_confirm']
+    page.click('[data-testid=confirm-no]')                                     # «No»: non parte nulla
+    settle(page)
+    assert FakeEngine.made == [] and FakeApi.calls == []
+    page.click('[data-testid=scanner-superpower]')
+    page.click('[data-testid=confirm-yes]')
+    assert message(page) == (IT['ocr_section_title'], IT['ls_batch_done'].format(ok=2, fail=0, total=2))
+    until(page, "() => document.querySelectorAll('.file-row[data-status=completed]').length === 2")
+    assert [e.args['strategy'] for e in FakeEngine.made] == ['auto', 'auto']
+    FakeApi.reply = (200, json.dumps({'videos': []}))
+    page.click('[data-testid=scanner-superpower]'); page.click('[data-testid=confirm-yes]')
+    assert message(page) == (IT['web_superpower_title'], IT['ls_sp_none'])

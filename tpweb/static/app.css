@@ -334,3 +334,4 @@ button:focus-visible, .file-list:focus-visible { outline: 1px solid var(--accent
 .review-item { padding: 4px 8px; font-size: 12px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .review-item:hover { background: var(--bg-2); } .review-item.selected { background: var(--accent-a15); color: var(--accent); }
 .review-image { flex: 1; min-height: 160px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-0); overflow: hidden; } .review-image img { max-width: 100%; max-height: 100%; image-rendering: auto; }
 .review-text { flex: 1; min-height: 80px; height: auto; font-size: 14px; padding: 8px 10px; resize: none; }
+.modal-text { white-space: pre-line; }

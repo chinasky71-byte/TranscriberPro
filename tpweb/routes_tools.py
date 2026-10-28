@@ -235,6 +235,15 @@ def add_ocr_routes(app: FastAPI, ocr) -> None:
         result = await asyncio.to_thread(ocr.start, b.path, b.kind)
         return JSONResponse({'result': result}, status_code=409 if result == 'busy' else 200)
 
+    @app.post('/api/ocr/superpower/check')
+    async def superpower_check():
+        warn = ocr.superpower_precheck()
+        return {'ok': warn is None, **(warn or {})}
+
+    @app.post('/api/ocr/superpower')
+    async def superpower_run():
+        return await asyncio.to_thread(ocr.superpower)
+
     @app.post('/api/ocr/cancel')
     async def ocr_cancel():
         return {'cancelling': ocr.cancel()}
