@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from utils import gguf_download as gd  # noqa: E402
-from utils import translator_path_select as sel  # noqa: E402
+from utils import gguf_quant  # noqa: E402
 
 DATA = bytes(range(256)) * 4000          # ~1 MB, contenuto non banale
 NAME = 'translategemma-12b-it-finale-IQ3_M.gguf'
@@ -86,51 +86,24 @@ def go(srv, dest, **kw):
     return gd.download_file(srv.url, ENTRY, dest, sleep=lambda s: None, **kw)
 
 
-# ------------------------------------------------------------------ scelta per VRAM
-@pytest.mark.parametrize('vram,backend,expected', [
-    (24, 'cuda', None),          # bf16
-    (20, 'cuda', None),
-    (16, 'cuda', 'Q4_K_M'),      # 12-20 GB: GGUF davanti a NF4 (la regola di Franz)
-    (12, 'cuda', 'Q4_K_M'),
-    (10.5, 'cuda', 'Q4_K_M'),
-    (9.5, 'cuda', 'IQ3_M'),      # sotto la soglia di Q4_K_M, sopra quella di IQ3_M
-    (8, 'cuda', 'IQ3_M'),
-    (7.4, 'cuda', None),         # < 8 GB: NLLB-FT
-    (6, 'cuda', None),
-    (16, 'vulkan', 'Q4_K_M'),    # AMD/Vulkan
-    (8, 'vulkan', 'IQ3_M'),
-    (16, 'rocm', 'Q4_K_M'),
-    (24, 'rocm', None),          # bf16 anche su ROCm
-    (16, 'cpu', None),
-    (None, 'cuda', None),
-])
-def test_quant_per_vram(vram, backend, expected):
-    assert gd.quant_for_vram(vram, backend) == expected
-
-
-def test_le_soglie_sono_quelle_del_selettore(monkeypatch):
-    """Nessuna copia dei numeri: cambiando le soglie del selettore cambia la scelta dell'installer."""
-    assert gd.quant_for_vram(9.0, 'cuda') == 'IQ3_M'
-    monkeypatch.setattr(sel, 'DEFAULT_GGUF_MIN_FREE_GIB', {'Q4_K_M': 8.5, 'IQ3_M': 7.5})
-    assert gd.quant_for_vram(9.0, 'cuda') == 'Q4_K_M'
-
-
+# ------------------------------------------------------------------ scelta della quantizzazione
 def test_resolve_choice():
-    assert gd.resolve_choice('none', 16, 'cuda') == (None, 'none')
-    assert gd.resolve_choice('auto', 16, 'cuda') == ('Q4_K_M', 'vram')
-    assert gd.resolve_choice('auto', None, 'cpu') == (None, 'no_gpu')
-    assert gd.resolve_choice('auto', 24, 'cuda') == (None, 'bf16')
-    assert gd.resolve_choice('auto', 6, 'cuda') == (None, 'vram_too_low')
-    assert gd.resolve_choice('q3', None, 'cpu') == ('Q3_K_M', 'explicit')       # Q3_K_M solo se chiesta per nome
-    assert gd.resolve_choice('iq3', 24, 'cuda') == ('IQ3_M', 'explicit')
+    """ADR-009: non c'e' piu' una scelta per VRAM. 'auto' = la quantizzazione di default."""
+    assert gd.resolve_choice('none') == (None, 'none')
+    assert gd.resolve_choice('auto') == (gguf_quant.DEFAULT_QUANT, 'default')
+    assert gd.resolve_choice('') == (gguf_quant.DEFAULT_QUANT, 'default')
+    assert gd.resolve_choice('q3') == ('Q3_K_M', 'explicit')       # Q3_K_M solo se chiesta per nome
+    assert gd.resolve_choice('iq3') == ('IQ3_M', 'explicit')
+    assert gd.resolve_choice('q4') == ('Q4_K_M', 'explicit')
+    # install.ps1 (linea Windows congelata): senza GPU non si scarica niente
+    assert gd.resolve_choice('auto', no_gpu=True) == (None, 'no_gpu')
     with pytest.raises(ValueError):
-        gd.resolve_choice('q9', 16, 'cuda')
+        gd.resolve_choice('q9')
 
 
-def test_auto_non_sceglie_mai_q3_k_m():
-    for v in range(1, 80):
-        for b in ('cuda', 'rocm', 'vulkan', 'cpu'):
-            assert gd.quant_for_vram(v / 2, b) != 'Q3_K_M'
+def test_la_quantizzazione_di_default_e_una_di_quelle_riconosciute():
+    assert gguf_quant.DEFAULT_QUANT in gguf_quant.QUANT_WEIGHTS_GIB
+    assert gd.MANIFEST[gguf_quant.DEFAULT_QUANT]
 
 
 # ------------------------------------------------------------------ manifesto
@@ -139,13 +112,13 @@ def test_manifesto_valori_dichiarati_e_nomi_riconosciuti_dal_router():
     assert gd.MANIFEST['Q3_K_M'].size == 6008833504
     for q, e in gd.MANIFEST.items():
         assert re.fullmatch(r'[0-9a-f]{64}', e.sha256)
-        assert re.search(r'[-_.](' + '|'.join(sel.QUANT_PREFERENCE) + r')\.gguf$', e.name, re.I).group(1) == q
-    assert set(gd.MANIFEST) == set(sel.QUANT_PREFERENCE)
+        assert re.search(r'[-_.](' + '|'.join(gguf_quant.QUANT_PREFERENCE) + r')\.gguf$', e.name, re.I).group(1) == q
+    assert set(gd.MANIFEST) == set(gguf_quant.QUANT_PREFERENCE)
 
 
-def test_cartella_di_default_e_quella_del_router():
-    from core.llm_subtitle_translator import path_router
-    assert gd.DEFAULT_DEST == path_router.DEFAULT_GGUF_DIR
+def test_cartella_di_default_e_quella_del_motore():
+    from core.llm_subtitle_translator import gguf_engine
+    assert gd.DEFAULT_DEST == gguf_engine.DEFAULT_GGUF_DIR
 
 
 # ------------------------------------------------------------------ download
@@ -285,9 +258,9 @@ def cli(server, tmp_path, monkeypatch):
     monkeypatch.setitem(gd.MANIFEST, 'IQ3_M', ENTRY)
     s = server()
 
-    def run(*args, vram=8.0, backend='cuda', tty=False, answers=(), capsys=None):
+    def run(*args, tty=False, answers=(), capsys=None):
         it = iter(answers)
-        rc = gd.main(['--dest', str(tmp_path), '--base-url', s.url, *args], detect=lambda no_gpu: (None, 'cpu') if no_gpu else (vram, backend),
+        rc = gd.main(['--dest', str(tmp_path), '--base-url', s.url, *args],
                      input_fn=lambda prompt: next(it), is_tty=tty, sleep=lambda x: None)
         return rc
     run.server, run.dest = s, tmp_path
@@ -305,27 +278,25 @@ def test_cli_dry_run_non_scarica(cli):
 
 
 def test_cli_yes_scarica_la_quant_giusta(cli):
-    assert cli('--gguf', 'auto', '--yes') == 0
+    assert cli('--gguf', 'iq3', '--yes') == 0
     assert (cli.dest / NAME).read_bytes() == DATA
 
 
 def test_cli_domanda_si_e_no(cli):
-    assert cli('--gguf', 'auto', tty=True, answers=['n']) == 0 and cli.server.requests == []
-    assert cli('--gguf', 'auto', tty=True, answers=['s']) == 0 and (cli.dest / NAME).exists()
+    assert cli('--gguf', 'iq3', tty=True, answers=['n']) == 0 and cli.server.requests == []
+    assert cli('--gguf', 'iq3', tty=True, answers=['s']) == 0 and (cli.dest / NAME).exists()
 
 
 def test_cli_none_e_senza_gpu_non_scaricano(cli, capsys):
     assert cli('--gguf', 'none', '--yes') == 0
     assert cli('--gguf', 'auto', '--yes', '--no-gpu') == 0
-    assert cli('--gguf', 'auto', '--yes', vram=6.0) == 0           # sotto gli 8 GB
-    assert cli('--gguf', 'auto', '--yes', vram=24.0) == 0          # bf16
     assert cli.server.requests == []
 
 
 def test_cli_errore_restituisce_1(server, tmp_path, monkeypatch):
     monkeypatch.setitem(gd.MANIFEST, 'IQ3_M', ENTRY)
     s = server(code=404)
-    rc = gd.main(['--dest', str(tmp_path), '--base-url', s.url, '--gguf', 'iq3', '--yes'], detect=lambda n: (8.0, 'cuda'))
+    rc = gd.main(['--dest', str(tmp_path), '--base-url', s.url, '--gguf', 'iq3', '--yes'])
     assert rc == 1
 
 
@@ -342,7 +313,7 @@ def test_tutte_le_chiavi_gd_esistono_in_en_e_it():
     """`_tr` non e' `tr`: lo scanner delle chiavi non le vede, quindi qui. (Una modifica di translations.py le aveva perse in 1.34.30.)"""
     from utils.translations import Translations as T
     src = (ROOT / 'utils' / 'gguf_download.py').read_text(encoding='utf-8')
-    keys = set(re.findall(r"_tr\('(gd_[a-z_0-9]+)'", src)) | {'gd_none_' + w for w in ('none', 'no_gpu', 'bf16', 'vram_too_low')}
+    keys = set(re.findall(r"_tr\('(gd_[a-z_0-9]+)'", src)) | {'gd_none_' + w for w in ('none', 'no_gpu')}
     keys |= {'gd_present', 'gd_done', 'gd_replaced'}
     keys.discard('gd_none_')
     for lang in ('en', 'it'):

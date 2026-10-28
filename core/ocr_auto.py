@@ -104,25 +104,22 @@ def convert_and_translate(ocr, events, content_lang: str, log_callback=None) -> 
     video = ocr.video_path
     it_path = video.with_name(f"{video.stem}.it.srt")
 
+    # ADR-009 — unico motore (TranslateGemma-12B GGUF), addestrato sulla sola
+    # coppia inglese→italiano: una sorgente non inglese viene RIFIUTATA e
+    # dichiarata nel log, non degradata da un ripiego automatico. Il testo OCR
+    # resta accanto al video nella lingua originale, che e' il risultato utile.
+    if content_lang != 'en':
+        _log(tr('oa_translation_refused_non_english_source').format(content_lang=content_lang))
+        return False
+
     from utils.events import emit as _tp_emit
     _tp_emit('phase', name='ocr_translate')
     _log(tr('oa_ocr_translation_it').format(content_lang=content_lang))
     try:
-        from core.translator import get_translator, route_non_english_away_from_llm
-        # Instradamento automatico (v1.25.0): questo percorso (OCR bitmap, coda
-        # principale E Library Scanner) chiama get_translator() a parte dallo
-        # STEP 6 di core/pipeline.py, quindi ha bisogno dello stesso instradamento
-        # esplicito. Senza, un PGS/VOBSUB francese finirebbe comunque su
-        # TranslateGemma etichettato "en" (vedi traduzione_non_inglese_2026_09_27.md).
-        try:
-            from utils.config import get_config
-            model_type = get_config().get_translation_model()
-        except Exception:
-            model_type = None
-        routed = route_non_english_away_from_llm(model_type, content_lang) if model_type else None
-        if routed and routed != model_type:
-            _log(tr('oa_translategemma_is_not_ready_for').format(content_lang=content_lang))
-        translator = get_translator(model_type=routed or model_type)
+        from core.translator import get_translator
+        # Nessun instradamento: c'e' un solo motore, e la lingua sorgente e'
+        # gia' stata verificata essere l'inglese qui sopra.
+        translator = get_translator()
         if log_callback:
             # Senza callback le barre di avanzamento / ETA / warm-up del traduttore non andavano da nessuna parte:
             # durante l'OCR+traduzione (~15 min per episodio) il log e la barra del file restavano muti.

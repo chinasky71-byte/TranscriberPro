@@ -16,7 +16,7 @@ docs/GGUF_CONVERSIONE.md. Passi, nell'ordine:
 Versione di llama.cpp: la STESSA vendorizzata da llama-cpp-python 0.3.34 (commit e3546c794), cosi' il file prodotto e il
 runtime del prodotto parlano la stessa versione del formato. Il pin del prodotto non si cambia.
 
-Il nome dei file prodotti, `<nome>-<QUANT>.gguf`, e' quello che il router (core/llm_subtitle_translator/path_router.py)
+Il nome dei file prodotti, `<nome>-<QUANT>.gguf`, e' quello che il motore (core/llm_subtitle_translator/gguf_engine.py)
 riconosce in `models/translategemma-12b-gguf/`.
 
 Solo libreria standard, tranne `merge` (torch, transformers, peft) e `verify --smoke` (llama-cpp-python).
@@ -185,7 +185,7 @@ def cmd_plan(a):
     print(f'llama.cpp da usare: commit {LLAMA_CPP_COMMIT} (git clone https://github.com/ggml-org/llama.cpp && git -C llama.cpp checkout {LLAMA_CPP_COMMIT})')
     print(f'GGUF f16: ~{r["f16_gib"]:.1f} GiB. Quantizzati (stime): ' + ', '.join(f'{k} ~{v:.1f} GiB' for k, v in r['sizes_gib'].items()))
     print(f'Disco totale (f16 + quantizzati): ~{r["disk_gib"]:.0f} GiB. Merge LoRA: ~{r["ram_merge_gib"]:.0f} GiB di RAM.')
-    print('Sono STIME: `verify` stampa le dimensioni reali, da riportare in utils/translator_path_select.py (QUANT_WEIGHTS_GIB).')
+    print('Sono STIME: `verify` stampa le dimensioni reali, da riportare in utils/gguf_quant.py (QUANT_WEIGHTS_GIB).')
     for qq in q:
         if qq in RECOMMEND_IMATRIX:
             print(f'{qq}: imatrix consigliata, non obbligatoria (passi `corpus` e `imatrix`).')
@@ -238,13 +238,12 @@ def cmd_convert(a):
 
 def cmd_corpus(a):
     sys.path.insert(0, str(ROOT))
-    from core.llm_subtitle_translator.engine import SubtitleLLMEngine
+    from core.llm_subtitle_translator.engine import build_mt_messages
     from core.llm_subtitle_translator.gguf_engine import render_prompt
-    eng = SubtitleLLMEngine('translategemma-12b')
     pairs = parse_pairs(Path(a.pairs).read_text(encoding='utf-8'), a.max_pairs)
     if len(pairs) < 100:
         sys.exit(f'solo {len(pairs)} coppie valide: per una imatrice utile ne servono almeno alcune centinaia')
-    text = corpus_from_pairs(pairs, lambda en: render_prompt(eng.mt_messages(en)))
+    text = corpus_from_pairs(pairs, lambda en: render_prompt(build_mt_messages(en)))
     Path(a.out).write_text(text, encoding='utf-8')
     print(f'{len(pairs)} coppie -> {a.out} ({len(text) // 1024} KiB)')
 

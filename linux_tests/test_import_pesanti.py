@@ -12,7 +12,7 @@ HEAVY = ('PyQt6', 'torch', 'onnxruntime', 'llama_cpp')
 
 
 @pytest.mark.parametrize('modules', [
-    ['utils', 'utils.translations', 'utils.config', 'utils.translator_path_select'],
+    ['utils', 'utils.translations', 'utils.config', 'utils.gguf_quant'],
     ['core.llm_subtitle_translator.gguf_subprocess', 'core.llm_subtitle_translator.gguf_engine'],
 ])
 def test_import_non_carica_moduli_pesanti(modules):

@@ -31,12 +31,6 @@
           {% for language in languages %}<option value="{{ language }}">{{ language }}</option>{% endfor %}
         </select>
       </label>
-      <label>Translator
-        <select name="translation_model">
-          <option value="">default</option>
-          {% for model in translation_models %}<option value="{{ model }}">{{ model }}</option>{% endfor %}
-        </select>
-      </label>
     </div>
     <div class="checks">
       <label><input type="checkbox" name="force_audio" value="true"> Force audio</label>

@@ -17,8 +17,8 @@
 #            --with-gui  installa anche requirements-gui.txt (GUI desktop legacy; senza, l'interfaccia e' la WebUI)
 #            --with-models  scarica da Hugging Face il Qwen2.5 (glossario/serbatoio) e il NLLB fine-tuned (molti GB)
 #            --gguf=auto|q4|iq3|q3|none  TranslateGemma-12B GGUF da Hugging Face (5-7 GB, anonimo, riprendibile, SHA-256) in models/translategemma-12b-gguf/.
-#                 auto = per VRAM TOTALE con le stesse soglie del selettore (utils/translator_path_select.py): Q4_K_M per le schede medie, IQ3_M per quelle da ~8 GB,
-#                 nulla se la VRAM e' troppo poca o se basta il bf16. Chiede conferma (--yes la salta).
+#                 auto = Q4_K_M, la quantizzazione di default (utils/gguf_quant.py): il GGUF e' l'unico motore di traduzione (ADR-009),
+#                 quindi non c'e' piu' una scelta per VRAM; q3 e iq3 solo se chieste per nome. Chiede conferma (--yes la salta).
 #            --gguf-dir=PATH  cartella di destinazione (default: models/translategemma-12b-gguf, quella che l'app scansiona)
 #            --qwen-size=auto|7b|14b  (auto = 14B con GPU da 12 GB o piu', 7B con GPU piu' piccola)
 #

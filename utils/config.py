@@ -190,7 +190,7 @@ class Config:
         # ========================================================================
         # Translation Model Settings (MODIFICATO v5.0 - Claude API Support)
         # ========================================================================
-        'translation_model': 'nllb',  # vedi VALID_TRANSLATION_MODELS
+        'translation_model': 'translategemma-12b-gguf',  # vedi VALID_TRANSLATION_MODELS
         # Traduzione considerata FALLITA se la percentuale di blocchi che
         # restano nella lingua di partenza supera questo valore (0-100).
         # 80 = molto permissivo: serve a intercettare i fallimenti sistemici
@@ -199,6 +199,10 @@ class Config:
         'translation_max_untranslated_pct': 80.0,
         'target_language': 'ita',     # ISO 639-2 lingua target sottotitoli
 
+        # LEGACY — chiavi dei motori cloud rimossi con ADR-009. Nessun motore
+        # le legge: restano solo perche' la GUI Qt congelata
+        # (gui/translation_model_dialog.py) le scrive ancora, e per non
+        # perdere il valore gia' salvato in un config.json esistente.
         # Claude API (cloud-based translation)
         'claude_api_key': '',  # API key Anthropic per Claude
 
@@ -211,28 +215,21 @@ class Config:
         # 2026-08-18 insieme ai modelli Aya; restano innocue nelle config
         # esistenti, semplicemente non le legge piu nessuno.
         'llm_translator_model': 'translategemma-12b',
-        # Cartella di un adattatore LoRA da applicare sopra il modello
-        # LLM. Vuota = modello base, che e' il comportamento storico.
-        # Serve a mettere in produzione un fine-tuning senza toccare il
-        # codice ne' sostituire i pesi base da 23 GB.
+        # Cartella di un adattatore LoRA. ADR-009: i pesi GGUF sono gia' fusi e
+        # il percorso transformers non esiste piu', quindi questo valore non
+        # viene piu' applicato — il traduttore lo dice nel log se lo trova
+        # impostato, invece di ignorarlo in silenzio. La chiave resta perche'
+        # la Qt (congelata) la scrive.
         'llm_translator_adapter': '',
-        # Cartella locale dei pesi del modello LLM stesso (non l'adattatore).
-        # Vuota = usa il model_id di default in MODEL_SPECS. Permette di
-        # puntare a un merge diverso (es. una nuova promozione) senza
-        # toccare il codice, stesso schema di 'nllb_finetuned_model_path'.
+        # Cartella locale dei pesi. ADR-009: il percorso di produzione e' il
+        # GGUF, quindi questa chiave vale come ALTERNATIVA a
+        # `llm_translator_gguf_dir` (la Qt congelata fa scegliere da qui).
         'llm_translator_model_path': '',
-        # Percorso GGUF del traduttore (TranslateGemma quantizzato, llama.cpp) per le schede da 8-12 GB e per AMD/Vulkan.
-        # ACCESO di default dal 24/10 (banco di qualita' non inferiore a NF4, prova reale su Windows: docs/HANDOFF_LOG_GGUF_TRANSLATOR.md).
-        # False = percorso storico (bf16 / NF4). Le altre chiavi contano solo con il flag acceso. Chi ha gia' il file di config con
-        # False lo mantiene (il load salva i default alla prima apertura): nessuna migrazione nascosta.
-        'llm_translator_gguf_enabled': True,
+        # Pesi GGUF del traduttore (TranslateGemma quantizzato, llama.cpp):
+        # l'unico motore di traduzione (ADR-009).
         'llm_translator_gguf_dir': '',          # vuoto = models/translategemma-12b-gguf
-        'llm_translator_gguf_quant': 'auto',    # auto = la migliore che entra; oppure Q4_K_M | Q3_K_M | IQ3_M
+        'llm_translator_gguf_quant': 'Q4_K_M',  # Q4_K_M | Q3_K_M | IQ3_M (niente piu' 'auto': vedi utils/gguf_quant.py)
         'llm_translator_gguf_parallel': 4,      # sequenze decodificate insieme (KV cache = parallel x 512 token)
-        'llm_translator_gguf_before_nf4': True,   # True = Q4_K_M davanti a NF4 sulle schede 10-20 GiB (NF4 ripiego); False = NF4 prima (regola storica: forza NF4)
-        'llm_translator_gguf_q4_min_free_gb': 10.0,   # VRAM libera minima per Q4_K_M
-        'llm_translator_gguf_iq3_min_free_gb': 7.5,   # VRAM libera minima per IQ3_M (sotto: NLLB fine-tuned)
-        'llm_translator_nf4_min_free_gb': 10.5,  # VRAM libera minima per NF4 (provvisorio: vedi translator_path_select)
         
         # NLLB model
         'nllb_model_path': '',  # Vuoto usa default HuggingFace
@@ -354,29 +351,17 @@ class Config:
         'gender_correction_enabled': False,
         'gender_correction_model_path': '',
         'llm_model_preference': 'auto',   # ripiego automatico 14B/7B (utils.llm_model_select)
-        # Serbatoio di traduzione (L3): modello Qwen di ripiego per le righe
-        # che sopravvivono a unmask tollerante + retry senza masking. Vuota
-        # per default -> get_fallback_translator_model_path() ricade sul
-        # modello del gender corrector (stesso GGUF, nessun download extra).
-        'fallback_translator_model_path': '',
+        # Il serbatoio L3 (`fallback_translator_model_path`, `reservoir_engine`)
+        # e' stato rimosso con ADR-009: non c'e' un secondo modello. Chiavi
+        # rimaste in un config.json esistente: innocue, nessuno le legge.
 
-        # Motore del serbatoio: 'auto' lascia scegliere alla classe del
-        # motore primario (ramo LLM -> NLLB fine-tuned, ramo NLLB -> Qwen),
-        # che è sempre un modello DIVERSO da quello che ha già fallito.
-        # 'qwen' o 'nllb_ft' forzano la scelta.
-        'reservoir_engine': 'auto',
-
-        # Subtitle Synchronization ("Anchor & Match" pipeline)
-        'sync_src_language':           'en',   # lingua embedded anchor (ISO 639-1) — usata solo se non rilevabile dallo stream/da Whisper
-        'sync_llm_window_size':        20,     # anchor per finestra Qwen
-        'sync_allow_whisper_fallback': True,   # fallback Whisper se no embedded subs
-        # Modello Qwen per il matching S3: se vuoto, ricade su
-        # 'gender_correction_model_path' (stesso Qwen2.5-14B-Q4_K) per
-        # compatibilità con chi l'ha già configurato — ma è un accoppiamento
-        # fragile: se l'utente cambia/svuota quel percorso per la correzione
-        # di genere, la sincronizzazione degrada silenziosamente al fallback
-        # posizionale. Impostare questa chiave per svincolarli.
-        'sync_qwen_model_path':        '',
+        # Subtitle Synchronization ("Anchor & Match" pipeline).
+        # ADR-009: allineamento SOLO temporale. Le chiavi del percorso 'llm'
+        # (sync_llm_window_size, sync_qwen_model_path, sync_engine) sono state
+        # rimosse insieme a NLLB e al matcher Qwen: restano innocue in un
+        # config.json esistente, semplicemente non le legge piu' nessuno.
+        'sync_src_language':           'en',   # lingua della traccia embedded usata per gli anchor (ISO 639-1)
+        'sync_allow_whisper_fallback': True,   # se il video non ha sottotitoli usabili: anchor dai tempi del parlato (VAD)
         'sync_max_offset_sec':         30,     # tolleranza di desync massima attesa (± secondi)
     }
     
@@ -568,10 +553,11 @@ class Config:
         """
         Verifica se sono presenti le credenziali per la REST API di
         opensubtitles.com a prescindere dall'implementazione preferita per
-        l'upload. Usato dal motore di traduzione "OpenSubtitles AI"
-        (core/translator.py, OpenSubtitlesAITranslator), che è sempre REST e
-        richiede sempre l'api_key — a differenza di is_opensubtitles_configured(),
-        che per l'upload la richiede solo se 'xmlrpc' non è selezionato.
+        l'upload: la REST richiede sempre l'api_key, mentre
+        is_opensubtitles_configured() la richiede solo se 'xmlrpc' non è
+        selezionato. (Il motore di traduzione "OpenSubtitles AI" che usava
+        questo metodo è stato rimosso con ADR-009; la GUI congelata lo legge
+        ancora.)
         """
         return bool(
             self.get('opensubtitles_username', '')
@@ -757,44 +743,56 @@ class Config:
     # METODI HELPER per Translation Models (MODIFICATO v4.2)
     # ========================================================================
     
-    VALID_TRANSLATION_MODELS = ['nllb', 'nllb_finetuned', 'llm', 'claude',
-                                'opensubtitles', 'openai']
+    # ADR-009: un solo motore di traduzione. Il valore canonico e' il GGUF di
+    # TranslateGemma; ogni valore scritto dalle versioni precedenti (o dalla Qt
+    # congelata) viene ricondotto a questo alla lettura, con una riga di log.
+    TRANSLATION_MODEL = 'translategemma-12b-gguf'
+    VALID_TRANSLATION_MODELS = [TRANSLATION_MODEL]
 
-    # Valori salvati da versioni precedenti e il loro equivalente attuale. La
-    # migrazione avviene alla lettura: chi aveva scelto Aya si ritrova il ramo
-    # LLM (oggi TranslateGemma) invece di un errore di validazione seguito da
-    # un ritorno silenzioso a NLLB.
-    LEGACY_TRANSLATION_MODELS = {'aya': 'llm'}
-    
+    LEGACY_TRANSLATION_MODELS = {
+        'nllb': TRANSLATION_MODEL,
+        'nllb_finetuned': TRANSLATION_MODEL,
+        'llm': TRANSLATION_MODEL,
+        'aya': TRANSLATION_MODEL,
+        'claude': TRANSLATION_MODEL,
+        'openai': TRANSLATION_MODEL,
+        'opensubtitles': TRANSLATION_MODEL,
+    }
+
     def get_translation_model(self) -> str:
-        """Ottieni modello di traduzione corrente"""
-        model = self.get('translation_model', 'nllb')
+        """Il motore di traduzione: sempre `TRANSLATION_MODEL`.
 
-        if model in self.LEGACY_TRANSLATION_MODELS:
-            nuovo = self.LEGACY_TRANSLATION_MODELS[model]
-            logger.info(f"Modello '{model}' rinominato in '{nuovo}': "
-                        f"aggiorno la configurazione")
-            model = nuovo
-            self.set('translation_model', model)
-
+        I valori storici (`nllb`, `nllb_finetuned`, `llm`, `aya`, `claude`,
+        `openai`, `opensubtitles`) sono accettati e riscritti: chi ha un
+        config.json vecchio non deve vedere un errore al primo file della coda.
+        """
+        model = self.get('translation_model', self.TRANSLATION_MODEL)
+        migrato = self.LEGACY_TRANSLATION_MODELS.get(model)
+        if migrato:
+            logger.info(f"Motore di traduzione '{model}' non esiste piu' "
+                        f"(ADR-009): uso '{migrato}'")
+            model = migrato
         if model not in self.VALID_TRANSLATION_MODELS:
-            print(f"⚠️ Modello '{model}' non valido. Uso 'nllb'.")
-            model = 'nllb'
+            logger.warning(f"Motore di traduzione '{model}' sconosciuto: "
+                           f"uso '{self.TRANSLATION_MODEL}'")
+            model = self.TRANSLATION_MODEL
+        if self.get('translation_model') != model:
             self.set('translation_model', model)
-        
         return model
-    
+
     def set_translation_model(self, model: str):
-        """Imposta modello di traduzione con validazione"""
-        if model not in self.VALID_TRANSLATION_MODELS:
+        """Accetta il valore canonico e i nomi storici (la Qt congelata li manda),
+        rifiutando solo cio' che non e' mai esistito."""
+        canonico = self.LEGACY_TRANSLATION_MODELS.get(model, model)
+        if canonico not in self.VALID_TRANSLATION_MODELS:
             raise ValueError(
-                f"Modello '{model}' non valido. "
-                f"Modelli disponibili: {', '.join(self.VALID_TRANSLATION_MODELS)}"
-            )
-        
-        self.set('translation_model', model)
-        print(f"✅ Modello traduzione impostato: {model}")
-    
+                f"Motore di traduzione '{model}' non valido. "
+                f"Motori disponibili: {', '.join(self.VALID_TRANSLATION_MODELS)}")
+        if canonico != model:
+            logger.info(f"Motore di traduzione '{model}' non esiste piu' "
+                        f"(ADR-009): salvo '{canonico}'")
+        self.set('translation_model', canonico)
+
     # RIMOSSI il 2026-08-18 insieme ai modelli Aya: `get_aya_model_path`,
     # `set_aya_model_path`, `set_aya_model_download_status`,
     # `is_aya_model_downloaded`. Non erano chiamati da nessuna parte tranne che
@@ -802,34 +800,6 @@ class Config:
     # `aya_model_download_status` era per giunta inaffidabile: risultava True
     # con il modello NON in cache.
 
-    def get_translation_model_info(self) -> Dict[str, Any]:
-        """Ottieni informazioni sul modello di traduzione corrente"""
-        current_model = self.get_translation_model()
-        
-        if current_model == 'nllb':
-            return {
-                'name': 'NLLB-200',
-                'full_name': 'facebook/nllb-200-3.3B',
-                'languages': '200+',
-                'size': '~3.3B parametri (quantizzato 8-bit)',
-                'vram': '~4-5 GB (quantizzazione 8-bit)',
-                'speed': 'Veloce',
-                'quality': 'Ottima',
-                'status': 'Auto-download da HuggingFace (quantizzazione al volo)'
-            }
-        else:  # llm — traduttore LLM locale
-            chiave = self.get('llm_translator_model', 'translategemma-12b')
-            return {
-                'name': 'TranslateGemma 12B',
-                'full_name': f'modello in uso: {chiave}',
-                'languages': 'multilingua',
-                'size': '~12B parametri (quantizzato NF4)',
-                'vram': '~8,4 GB di pesi, picco ~10,1 GB a batch 12',
-                'speed': 'Lenta (circa 3 s per battuta)',
-                'quality': 'Ottima su stile, piu debole su accuratezza',
-                'status': 'Auto-download da HuggingFace (repo gated)'
-            }
-    
     # ========================================================================
     # METODI HELPER per Token HuggingFace (v4.1)
     # ========================================================================
@@ -880,6 +850,21 @@ class Config:
         
         return (True, "")
     
+    # `get_translation_model` e `set_translation_model` erano definiti DUE
+    # volte in questo file, e in Python vince l'ultima definizione: la coppia
+    # che stava qui — senza validazione — sovrascriveva silenziosamente quella
+    # completa piu in alto. Rimossa il 2026-08-18. Restano valide le versioni
+    # sopra, che validano contro VALID_TRANSLATION_MODELS e migrano i valori
+    # storici (vedi LEGACY_TRANSLATION_MODELS).
+
+    # ========================================================================
+    # METODI LEGACY per le API cloud (Claude/OpenAI)
+    # ADR-009: i motori cloud sono stati rimossi, quindi NESSUN motore
+    # legge piu' queste chiavi. I metodi restano perche' la GUI Qt
+    # congelata (gui/translation_model_dialog.py) li chiama: togliere
+    # l'API sotto la GUI la romperebbe, e la GUI non si tocca.
+    # ========================================================================
+
     # ========================================================================
     # METODI HELPER per Claude API (v5.0)
     # ========================================================================
@@ -1052,39 +1037,6 @@ class Config:
             logger.warning(f"Scelta automatica modello Qwen fallita: {e}")
         return '', 0
 
-    def get_fallback_translator_model_path(self) -> str:
-        """Modello Qwen del serbatoio di traduzione (L3). Se non configurato
-        esplicitamente ricade sul modello del gender corrector: stesso GGUF,
-        stessa infrastruttura di caricamento, nessun download aggiuntivo per
-        chi non ha mai toccato questa chiave."""
-        return self.get_fallback_translator_model()[0]
-
-    def get_fallback_translator_model(self, preference=None):
-        """(percorso, n_gpu_layers) del serbatoio L3: stessa regola di get_fallback_translator_model_path."""
-        p = self.get('fallback_translator_model_path', '')
-        if p and Path(p).exists():
-            return p, -1
-        return self.resolve_llm_model('gender_correction_model_path', preference)
-
-    def set_fallback_translator_model_path(self, path: str):
-        self.set('fallback_translator_model_path', str(path))
-
-    VALID_RESERVOIR_ENGINES = ('auto', 'qwen', 'nllb_ft')
-
-    def get_reservoir_engine(self) -> str:
-        """Motore del serbatoio di traduzione (L3). Vedi la nota sulla chiave
-        nei default: 'auto' delega alla classe del motore primario."""
-        v = str(self.get('reservoir_engine', 'auto') or 'auto').lower()
-        return v if v in self.VALID_RESERVOIR_ENGINES else 'auto'
-
-    def set_reservoir_engine(self, engine: str):
-        e = str(engine or 'auto').lower()
-        if e not in self.VALID_RESERVOIR_ENGINES:
-            raise ValueError(
-                f"Motore del serbatoio non valido: {engine}. "
-                f"Ammessi: {', '.join(self.VALID_RESERVOIR_ENGINES)}")
-        self.set('reservoir_engine', e)
-
     # ========================================================================
     # METODI HELPER per Adaptive Batch Size
     # ========================================================================
@@ -1148,12 +1100,12 @@ if __name__ == '__main__':
     
     # Test 2: Migrazione dei valori storici del modello di traduzione
     print("\n" + "-" * 80)
-    print("Test Migrazione 'aya' -> 'llm':")
+    print("Test Migrazione dei motori storici -> TranslateGemma GGUF:")
 
-    precedente = config.get('translation_model', 'nllb')
+    precedente = config.get('translation_model', Config.TRANSLATION_MODEL)
     config.set('translation_model', 'aya', save=False)
     migrato = config.get_translation_model()
-    print(f"  'aya' letto come: {migrato} (Atteso: llm)")
+    print(f"  'aya' letto come: {migrato} (Atteso: {Config.TRANSLATION_MODEL})")
     config.set('translation_model', precedente, save=True)
 
     print("\n" + "=" * 80)

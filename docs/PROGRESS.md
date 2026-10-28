@@ -27,6 +27,84 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-27 — Un solo motore di traduzione (ADR-009)
+
+- Branch / commits: `feat/single-translation-engine` — `8906970` (1), `bf549f2`
+  (2), `4ca8f8a` (3), `fe749cc` (3b), `3d408fd` (4), `3e432a0` (5), `f10565f`
+  (6), `f3c7715` (7), `1040e66` (docs), `f66753c` (allineamento con
+  `development`).
+- Goal: la traduzione aveva quattro famiglie di motori (NLLB base e fine-tuned,
+  TranslateGemma in tre forme, tre motori cloud) più un serbatoio L3 che
+  passava le righe difficili a un secondo modello su una CLI sua. Ogni ramo
+  finiva in un sostituto **silenzioso**: un LLM che non partiva diventava
+  NLLB-FT, un GGUF che non si caricava diventava NF4, un GGUF mancante diventava
+  il percorso transformers, una sorgente non inglese veniva instradata su NLLB.
+  L'utente vedeva un sottotitolo finito e non sapeva quale modello l'avesse
+  scritto. Le misure dicevano che il motore buono era uno; il resto era costo.
+- Done (files, commands), per step:
+  1. sorgente non inglese **rifiutata** in `core/pipeline.py` STEP 6 e
+     `core/ocr_auto.py`; `route_non_english_away_from_llm()` eliminata;
+     `test_translation_routing.py` → `test_translation_refusal.py`.
+  2. `core/subtitle_synchronizer.py` solo temporale: via `_LocalQwenMatcher`,
+     `_step2_translate_anchors`, `_step3_match_subtitles`,
+     `_step1_whisper_fallback` come percorso LLM, `sync_engine` e 26 stringhe
+     `sy_*` (1942 → 1062 righe).
+  3. motori cloud rimossi (`ClaudeTranslator`, `OpenAITranslator`,
+     `utils/opensubtitles_ai_translator.py`, l'hallucination guard), chiavi e
+     stringhe; 3b: i metodi di config delle API cloud restano **legacy** perché
+     la Qt congelata li chiama (verifica statica: 0 metodi mancanti).
+  4. serbatoio L3 rimosso: `core/fallback_translate_cli.py` cancellato,
+     `RESERVOIR_*` e i due punti di chiamata via, chiavi
+     `reservoir_engine` / `fallback_translator_model_path` via, stringhe
+     `tl_reservoir_*` / `fb_*` via dai due dizionari e dal manifest.
+  5. politica quant: `utils/translator_path_select.py` → `utils/gguf_quant.py`
+     (restano i numeri misurati e `normalize_quant`), `path_router.py`
+     cancellato, `resolve_gguf_path()` in `gguf_engine.py` che **solleva**
+     nominando cartella e file trovati; `engine.py` tiene uno `ModelSpec` e
+     `build_mt_messages()`, perde `SubtitleLLMEngine`/`get_engine`/`unload_engine`
+     e i loader bf16/NF4/LoRA; `GGUFEngine` non eredita più da lui. Config:
+     `llm_translator_gguf_quant` default `Q4_K_M`, via `llm_translator_gguf_enabled`,
+     `_before_nf4`, `_nf4_min_free_gb`, `_q4_min_free_gb`, `_iq3_min_free_gb`.
+     Installer: `gguf_download.py` non chiede più la VRAM, `auto` = `Q4_K_M`.
+  6. un solo motore e una sola lingua: `VALID_TRANSLATION_MODELS =
+     ['translategemma-12b-gguf']` con `LEGACY_TRANSLATION_MODELS` che mappa
+     `nllb`, `nllb_finetuned`, `llm`, `aya`, `claude`, `openai`,
+     `opensubtitles` (in lettura **e** in scrittura, con riga di log);
+     `LANGUAGES = ('ita',)` in `web/ui.py` e `utils/job_overrides.py`; via il
+     select del motore nella coda; `_NOMI_MOTORE` e `_TM_SHORT` collassati;
+     `get_translation_model_info()` rimossa.
+  7. motore assente = job fallito in secondi:
+     `utils/backend_preflight.check_translation_ready()` (quantizzazione, file
+     GGUF, llama.cpp con offload GPU, e solo con `check_fit` la VRAM contro
+     `gguf_need_gib`) chiamata a STEP 0 e a STEP 6, con sonda in sottoprocesso
+     (llama_cpp non va importato dopo torch in un processo che ha già PyQt).
+- Tests and results: `pytest linux_tests -q` verde a ogni step: 801 → 692
+  (step 5: i test del selettore, del router, dei flag e del ripiego NLLB se ne
+  vanno col codice che provavano) → 701 (step 6 e 7 aggiungono quelli del
+  rifiuto, della mappatura legacy e del preflight, 8 nuovi). Dopo l'allineamento
+  con `development`: **701 passed, 15 skipped, 0 failed**.
+  `git diff origin/development -- gui/` vuoto a ogni commit.
+- Decisions / ADRs: **ADR-009** (`docs/adr/ADR-009-single-translation-engine.md`),
+  con il contesto misurato, le alternative rifiutate e le conseguenze. Scelte
+  dentro l'ADR: quantizzazione come **impostazione** e non come indovinello sulla
+  VRAM; GGUF **risolto** e non scelto; sorgente non inglese rifiutata; NLLB
+  tenuto in `core/translator.py` **solo** per i banchi, dichiarato nel log;
+  `llm_translator_adapter` e `llm_translator_model_path` tenuti perché la Qt
+  congelata li scrive (l'adattatore viene detto "non applicato", il percorso vale
+  come cartella GGUF alternativa).
+- Known issues: **il run end-to-end non è stato eseguito** — manca la prova su
+  una clip inglese (atteso ≈ WER 0.41 / chrF 0.76 / ~8,8 GB, la riga `llm` di
+  `docs/benchmarks/2026-10-25/translation/summary.md`) e il rifiuto su una clip
+  francese. È l'unico punto di accettazione ancora aperto e va fatto prima di
+  considerare chiusa la verifica, non il merge. Il branch `chore` di pulizia ha
+  lasciato nomi e chiavi che dicono ancora `whisper` (kwarg `whisper_language`,
+  `sync_allow_whisper_fallback`, 30 chiavi i18n, 8 chiavi di config): restano,
+  documentati. Restano ~190 chiavi i18n morte da prima (whisper/canary), fuori
+  da questo lavoro.
+- Next step: run end-to-end (clip inglese + rifiuto francese), esportazione in
+  `docs/benchmarks/` e aggiornamento dei numeri in `STATUS.md`; poi, se si vuole,
+  il passo di rinomina dei nomi/chiavi `whisper_*`.
+
 ## 2026-10-27 — Via la chiave e l'indirizzo committati
 
 - Branch / commits: `fix/no-committed-endpoint`, from `development` (`95729de`).

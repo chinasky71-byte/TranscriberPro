@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / 'scripts_manutenzione'))
 import pytest  # noqa: E402
 
 import gguf_convert as gc  # noqa: E402
-from utils import translator_path_select as sel  # noqa: E402
+from utils import gguf_quant  # noqa: E402
 
 
 def _s(x: str) -> bytes:
@@ -47,11 +47,11 @@ def test_read_gguf_meta_rifiuta_file_non_gguf(tmp_path):
         gc.read_gguf_meta(tmp_path / 'x')
 
 
-def test_nomi_file_riconosciuti_dal_router(tmp_path):
-    from core.llm_subtitle_translator import path_router as pr
+def test_nomi_file_riconosciuti_dal_motore(tmp_path):
+    from core.llm_subtitle_translator import gguf_engine as ge
     for q in gc.DEFAULT_QUANTS:
         (tmp_path / gc.quant_filename('translategemma-12b-it-finale', q)).write_bytes(b'x')
-    assert set(pr.scan_gguf_dir(tmp_path)) == set(gc.DEFAULT_QUANTS) == set(sel.QUANT_PREFERENCE)
+    assert set(ge.scan_gguf_dir(tmp_path)) == set(gc.DEFAULT_QUANTS) == set(gguf_quant.QUANT_PREFERENCE)
 
 
 def test_comandi():
@@ -75,10 +75,9 @@ def test_parse_pairs_e_corpus():
 
 
 def test_corpus_usa_il_prompt_del_motore():
-    from core.llm_subtitle_translator.engine import SubtitleLLMEngine
+    from core.llm_subtitle_translator.engine import build_mt_messages
     from core.llm_subtitle_translator.gguf_engine import render_prompt
-    eng = SubtitleLLMEngine('translategemma-12b')
-    out = gc.corpus_from_pairs([('Hello.', 'Ciao.')], lambda en: render_prompt(eng.mt_messages(en)))
+    out = gc.corpus_from_pairs([('Hello.', 'Ciao.')], lambda en: render_prompt(build_mt_messages(en)))
     assert out.startswith('<bos><start_of_turn>user\nYou are a professional English (en) to Italian (it)')
     assert out.endswith('Hello.<end_of_turn>\n<start_of_turn>model\nCiao.<end_of_turn>\n')
 
@@ -89,7 +88,7 @@ def test_stime_coerenti_con_le_dimensioni_dichiarate():
     # i GB dichiarati nell'incarico (7,3 / 5,9 / 5,4) sono decimali: in GiB le stime sono piu' basse, quindi quelle del selettore
     # (che le usa come GiB) sono prudenti
     for q, declared in (('Q4_K_M', 7.3), ('Q3_K_M', 5.9), ('IQ3_M', 5.4)):
-        assert r['sizes_gib'][q] <= sel.QUANT_WEIGHTS_GIB[q] + 0.1
+        assert r['sizes_gib'][q] <= gguf_quant.QUANT_WEIGHTS_GIB[q] + 0.1
         assert abs(r['sizes_gib'][q] * 1.0737 - declared) < 0.7
     assert r['disk_gib'] > 50
 

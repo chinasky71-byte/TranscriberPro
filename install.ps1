@@ -23,8 +23,8 @@
 .PARAMETER Yes                  Non chiede conferme (assume si').
 .PARAMETER SkipVerify           Salta il controllo finale.
 .PARAMETER Gguf                 TranslateGemma-12B GGUF da Hugging Face (5-7 GB, anonimo, riprendibile, SHA-256) in models\translategemma-12b-gguf\.
-                          auto = per VRAM TOTALE con le stesse soglie del selettore (utils/translator_path_select.py): Q4_K_M per le schede medie, IQ3_M per quelle da ~8 GB,
-                          nulla se la VRAM e' troppo poca, se basta il bf16 (cuda/rocm) o senza GPU; su Vulkan, dove il bf16 non esiste, si scarica anche con molta VRAM; q3 solo se la chiedi; none = niente. Senza il parametro: auto se c'e' -WithModels, altrimenti nulla.
+                          auto = Q4_K_M, la quantizzazione di default (utils/gguf_quant.py): il GGUF e' l'unico motore di traduzione (ADR-009),
+                          q3 e iq3 solo se le chiedi per nome; none = niente. Senza il parametro: auto (Q4_K_M) se c'e' -WithModels, altrimenti nulla.
                           Chiede conferma (-Yes la salta). Scarica i file e basta: non cambia nessuna impostazione dell'app.
 .PARAMETER GgufDir              Cartella di destinazione dei GGUF (default: models\translategemma-12b-gguf, quella che l'app scansiona).
 .PARAMETER QwenSize             Con -WithModels: Qwen2.5 da scaricare. auto = 14B con GPU da 12 GB o piu', 7B con GPU piu' piccola o senza GPU.

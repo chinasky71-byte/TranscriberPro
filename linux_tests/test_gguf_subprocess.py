@@ -332,9 +332,9 @@ def test_statico_nel_worker_llama_cpp_precede_utils_pyqt_torch_core():
 def test_il_genitore_non_importa_mai_llama_cpp():
     pytest.importorskip('llama_cpp')          # senza la ruota il test passerebbe a vuoto
     code = ("import sys\n"
-            "import core.llm_subtitle_translator.gguf_subprocess, core.llm_subtitle_translator.path_router\n"
-            "from core.llm_subtitle_translator import path_router as pr\n"
-            "pr.runtime_inputs(torch_cuda=False, torch_hip=False, marker='cpu')\n"
+            "import core.llm_subtitle_translator.gguf_subprocess, core.llm_subtitle_translator.gguf_engine\n"
+            "from utils import gguf_quant\n"
+            "gguf_quant.gguf_need_gib('Q4_K_M')\n"
             "assert 'llama_cpp' not in sys.modules, 'il genitore ha importato llama_cpp'\n")
     p = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, cwd=str(ROOT), timeout=120)
     assert p.returncode == 0, p.stderr[-800:]

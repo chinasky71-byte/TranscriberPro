@@ -33,10 +33,13 @@ single retry with the detected language.
 
 ## Translation routing
 
-- `translation_model` selects the engine: `nllb`, `nllb_finetuned`, `llm`,
-  `claude`, `openai`, `opensubtitles`.
-- Non-English sources are routed away from TranslateGemma to fine-tuned NLLB.
-- The LLM path chooses GGUF, NF4 or NLLB-FT from free VRAM (`path_router.py`).
+- There is one engine (ADR-009): TranslateGemma-12B GGUF on llama.cpp, English →
+  Italian. `translation_model` is a compatibility key: every historical value maps
+  onto `translategemma-12b-gguf` on read.
+- A non-English source is **refused**, not routed to another engine.
+- The GGUF file is resolved from `llm_translator_gguf_dir` and
+  `llm_translator_gguf_quant` (`gguf_engine.resolve_gguf_path`); a missing file is
+  a job error. `check_translation_ready()` runs at STEP 0 and STEP 6.
 - A translation is considered failed when the share of blocks left in the
   source language exceeds `translation_max_untranslated_pct` (default 80) or a
   fatal GPU error occurs (see `linux_tests/test_translation_success_gate.py`).

@@ -28,6 +28,13 @@ contradicted by this run.
 
 ## Translation — [in-process results](translation/summary.md), [LFM results](translation-lfm/summary.md)
 
+> **Historical (ADR-009).** This table compares engines that no longer exist in
+> the product: NLLB base, NLLB fine-tuned, the two HTTP models and the LFM run.
+> The only engine that stayed is the `llm` row (TranslateGemma-12B GGUF). The
+> numbers remain the reference for what the GGUF engine costs on this clip
+> (~14.5 s, ~8.8 GiB, WER 0.413, chrF 0.763) and are what a fresh run is
+> compared against.
+
 | Engine | Time | Peak VRAM | WER | CER | chrF | Similarity | Untranslated |
 |---|---|---|---|---|---|---|---|
 | `http:gemma4-12b-dense` | 25.5 s | 9017 MiB | 0.417 | 0.317 | **0.785** | **0.674** | 2.1% |

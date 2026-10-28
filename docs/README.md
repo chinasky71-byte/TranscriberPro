@@ -16,6 +16,7 @@ when touched (documentation hard rule).
 | [`PROGRESS.md`](PROGRESS.md) | append-only session log | authoritative |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | branch model, PR, session protocol, releases | authoritative |
 | [`SUPPORT_MATRIX.md`](SUPPORT_MATRIX.md) | supported platforms and tiers | authoritative |
+| [`HANDOFF_SINGLE_TRANSLATION_ENGINE.md`](HANDOFF_SINGLE_TRANSLATION_ENGINE.md) | resume point for the single-translation-engine work (ADR-009), closed | historical |
 
 ## Architecture
 
@@ -46,6 +47,7 @@ when touched (documentation hard rule).
 | [`adr/ADR-006-two-lines.md`](adr/ADR-006-two-lines.md) | legacy master, development product line |
 | [`adr/ADR-007-supported-backends.md`](adr/ADR-007-supported-backends.md) | only CUDA and recent ROCm are supported |
 | [`adr/ADR-008-single-asr-engine.md`](adr/ADR-008-single-asr-engine.md) | one ASR engine: Qwen3-ASR |
+| [`adr/ADR-009-single-translation-engine.md`](adr/ADR-009-single-translation-engine.md) | one translation engine: TranslateGemma-12B GGUF, English → Italian |
 
 ## Active work
 

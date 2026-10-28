@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Percorso GGUF del traduttore LLM: prompt identico al motore transformers, router, ripiego, flag spento.
+"""Motore GGUF del traduttore: prompt di TranslateGemma, risoluzione del file, nessun ripiego (ADR-009).
 
 Nessun modello pesante e nessuna GPU. Le prove con un GGUF vero (tiny, su CPU) partono solo se le variabili
 d'ambiente indicano il file e llama-cpp-python e' installato: provano il PERCORSO del codice, non la qualita'.
@@ -20,10 +20,12 @@ sys.path.insert(0, str(ROOT))
 import pytest  # noqa: E402
 
 from core.llm_subtitle_translator import gguf_engine as ge  # noqa: E402
-from core.llm_subtitle_translator import path_router as pr  # noqa: E402
-from core.llm_subtitle_translator.engine import SubtitleLLMEngine  # noqa: E402
-from utils import translator_path_select as sel  # noqa: E402
+from core.llm_subtitle_translator.engine import (DEFAULT_MODEL_KEY,  # noqa: E402
+                                                 MODEL_SPECS, build_mt_messages)
+from utils import gguf_quant  # noqa: E402
 from utils.translations import Translations  # noqa: E402
+
+REF = MODEL_SPECS[DEFAULT_MODEL_KEY]
 
 TEXTS = ["Where are you going?", "  padded \n", " Line one\nLine two ", "It's a \"test\" — àèé {x} {{y}}",
          "What the fuck is that?", "♪ la la ♪", "x"]
@@ -36,27 +38,25 @@ def _gguf_engine(**kw):
 
 
 # ------------------------------------------------------------------------------------------------ prompt
-def test_mt_messages_identico_al_motore_transformers():
-    """Il motore GGUF eredita mt_messages: stesse regole di sottotitolo, budget e codice lingua, per costruzione."""
-    ref = SubtitleLLMEngine('translategemma-12b')
+def test_mt_messages_usa_lo_spec_del_modello():
+    """Il motore GGUF non ha un prompt proprio: chiede quello di `engine.build_mt_messages`."""
     eng = _gguf_engine()
     for text in TEXTS:
         for code in CODES:
             for budget in (0, 35):
                 assert eng.mt_messages(text, src_lang=code, budget=budget) == \
-                    ref.mt_messages(text, src_lang=code, budget=budget)
+                    build_mt_messages(text, src_lang=code, budget=budget, spec=REF)
 
 
-def test_spec_gguf_eredita_tutto_tranne_batch_ed_etichetta():
-    ref = SubtitleLLMEngine('translategemma-12b').spec
+def test_spec_gguf_porta_etichetta_e_tetto_del_parallelismo():
     spec = _gguf_engine(n_parallel=3).spec
     assert spec.max_batch == 3 and 'GGUF Q3_K_M' in spec.label
-    for f in ('generation', 'mt_prefix', 'mt_prefix_when', 'mt_budget_rule', 'loader', 'context_window'):
-        assert getattr(spec, f) == getattr(ref, f)
+    for f in ('generation', 'mt_prefix', 'mt_prefix_when', 'mt_budget_rule', 'context_window'):
+        assert getattr(spec, f) == getattr(REF, f)
 
 
 def test_render_prompt_en_it_esatto():
-    msgs = SubtitleLLMEngine('translategemma-12b').mt_messages("Where are you going?")
+    msgs = build_mt_messages("Where are you going?")
     assert ge.render_prompt(msgs) == (
         "<bos><start_of_turn>user\n"
         "You are a professional English (en) to Italian (it) translator. Your goal is to accurately convey the "
@@ -68,13 +68,12 @@ def test_render_prompt_en_it_esatto():
 
 
 def test_render_prompt_porta_regole_e_budget_come_il_motore_storico():
-    eng = SubtitleLLMEngine('translategemma-12b')
-    p = ge.render_prompt(eng.mt_messages("What the fuck?", budget=20))
+    p = ge.render_prompt(build_mt_messages("What the fuck?", budget=20))
     assert "non più di 20 caratteri" in p and "Conserva le parolacce" in p and p.endswith("<start_of_turn>model\n")
 
 
 def test_render_prompt_codice_lingua_sconosciuto_si_ferma_come_il_template_jinja():
-    msgs = SubtitleLLMEngine('translategemma-12b').mt_messages("Hi", src_lang='xyz')
+    msgs = build_mt_messages("Hi", src_lang='xyz')
     with pytest.raises(ge.UnknownLanguageError):
         ge.render_prompt(msgs)
     try:
@@ -103,12 +102,11 @@ def test_render_prompt_uguale_al_template_ufficiale():
         raise ValueError(msg)
     env.globals['raise_exception'] = raise_exception
     tpl = env.from_string(Path(os.environ['TP_TEST_TG_TEMPLATE']).read_text(encoding='utf-8'))
-    eng = SubtitleLLMEngine('translategemma-12b')
     n = 0
     for code in CODES:
         for text in TEXTS:
             for budget in (0, 35):
-                m = eng.mt_messages(text, src_lang=code, budget=budget)
+                m = build_mt_messages(text, src_lang=code, budget=budget)
                 ref = tpl.render(messages=m, bos_token='<bos>', add_generation_prompt=True)
                 assert ge.render_prompt(m) == ref, (code, text, budget)
                 n += 1
@@ -120,290 +118,59 @@ def test_scan_gguf_dir(tmp_path):
     for n in ('translategemma-12b-it-finale-Q3_K_M.gguf', 'translategemma-12b-it-finale-iq3_m.gguf',
               'altro-Q8_0.gguf', 'x-Q4_K_M-00001-of-00002.gguf', 'note.txt'):
         (tmp_path / n).write_bytes(b'x')
-    got = pr.scan_gguf_dir(tmp_path)
+    got = ge.scan_gguf_dir(tmp_path)
     assert set(got) == {'Q3_K_M', 'IQ3_M'}
-    assert pr.scan_gguf_dir(tmp_path / 'non_esiste') == {}
+    assert ge.scan_gguf_dir(tmp_path / 'non_esiste') == {}
 
 
-# ------------------------------------------------------------------------------------------------ runtime_inputs
-def _report(gpus):
-    from utils.gpu_detect import GpuReport
-    return GpuReport(gpus=gpus)
-
-
-def _gpu(vram, free=None, backends=('vulkan',)):
-    from utils.gpu_detect import GpuInfo
-    return GpuInfo(vendor='amd', name='x', vram_mib=vram, vram_free_mib=free, backends=list(backends))
-
-
-def test_runtime_inputs_nvidia_cuda():
-    assert pr.runtime_inputs(True, False, marker='cuda', free_fn=lambda: 11.0) == ('cuda', 11.0, True)
-
-
-def test_runtime_inputs_rocm_senza_ruota_vulkan_non_puo_usare_llama():
-    assert pr.runtime_inputs(True, True, marker='cuda', free_fn=lambda: 11.0) == ('rocm', 11.0, False)
-    assert pr.runtime_inputs(True, True, marker='vulkan', free_fn=lambda: 11.0) == ('rocm', 11.0, True)
-
-
-def test_runtime_inputs_vulkan_usa_la_vram_libera_o_in_mancanza_la_totale():
-    r = _report([_gpu(8176, 7000), _gpu(4096, 4000)])
-    b, free, ok = pr.runtime_inputs(False, False, report=r, marker='vulkan')
-    assert (b, ok) == ('vulkan', True) and abs(free - 7000 / 1024) < 1e-9
-    b, free, ok = pr.runtime_inputs(False, False, report=_report([_gpu(8192, None)]), marker='vulkan')
-    assert abs(free - 8.0) < 1e-9
-
-
-def test_runtime_inputs_senza_gpu_utilizzabile():
-    assert pr.runtime_inputs(False, False, report=_report([]), marker='vulkan') == ('cpu', None, True)
-    assert pr.runtime_inputs(False, False, marker='cuda') == ('cpu', None, False)
-
-
-# ------------------------------------------------------------------------------------------------ router
-@pytest.fixture
-def router_env(monkeypatch, tmp_path):
-    """Router con motori finti: registra chi viene chiamato. llama_cpp 'installato' e GGUF presenti."""
-    calls = []
-    legacy_engine, gguf_engine = object(), object()
-
-    def get_engine_fn(key, cb, adapter=None, model_path=None):
-        calls.append(('legacy', key, adapter, model_path))
-        return legacy_engine
-
-    def get_gguf(path, quant, key, cb, n_parallel=4, ctx_per_seq=512):
-        calls.append(('gguf', Path(path).name, quant, n_parallel))
-        return gguf_engine
-
-    from core.llm_subtitle_translator import engine as engine_mod
-    monkeypatch.setattr(ge, 'get_gguf_engine', get_gguf)
-    monkeypatch.setattr(ge, 'unload_gguf_engine', lambda: calls.append(('unload_gguf',)))
-    monkeypatch.setattr(ge, 'current_gguf_engine', lambda: None)
-    monkeypatch.setattr(engine_mod, 'unload_engine', lambda: calls.append(('unload_tf',)))
-    monkeypatch.setattr(engine_mod, '_engine', None)
-    monkeypatch.setattr(pr.importlib.util, 'find_spec', lambda name: object())
-    for q in ('Q4_K_M', 'Q3_K_M', 'IQ3_M'):
+# ------------------------------------------------------------------------------------------------ risoluzione del file
+def _gguf_files(tmp_path, *quants):
+    for q in quants:
         (tmp_path / f'translategemma-12b-it-finale-{q}.gguf').write_bytes(b'x')
-    cfg = {'llm_translator_gguf_dir': str(tmp_path)}
-    logs = []
-
-    def acquire(inputs, key='translategemma-12b', adapter=None, model_path=None, cfg_over=None):
-        c = dict(cfg, **(cfg_over or {}))
-        return pr.acquire_engine(key, None, adapter, model_path, get_engine_fn=get_engine_fn,
-                                 cfg_get=lambda k, d=None: c.get(k, d), log=logs.append, inputs=inputs)
-
-    return types.SimpleNamespace(acquire=acquire, calls=calls, logs=logs, legacy=legacy_engine, gguf=gguf_engine,
-                                 engine_mod=engine_mod, monkeypatch=monkeypatch)
 
 
-def test_router_8gb_usa_il_gguf(router_env):
-    e = router_env.acquire(('cuda', 7.6, True))
-    assert e is router_env.gguf
-    assert ('unload_tf',) in router_env.calls
-    assert ('gguf', 'translategemma-12b-it-finale-IQ3_M.gguf', 'IQ3_M', 4) in router_env.calls
-    assert any('gguf:IQ3_M' in m for m in router_env.logs)
+def test_resolve_gguf_path_trova_la_quantizzazione_richiesta(tmp_path):
+    _gguf_files(tmp_path, 'Q4_K_M', 'IQ3_M')
+    path, quant = ge.resolve_gguf_path(tmp_path, 'iq3_m')
+    assert quant == 'IQ3_M' and path.endswith('-IQ3_M.gguf')
 
 
-@pytest.mark.parametrize('free,backend', [(24.0, 'cuda'), (48.0, 'rocm')])
-def test_router_schede_grandi_percorso_storico_con_gli_stessi_argomenti(router_env, free, backend):
-    e = router_env.acquire((backend, free, True), adapter=None, model_path='/m')
-    assert e is router_env.legacy
-    assert ('legacy', 'translategemma-12b', None, '/m') in router_env.calls
-    assert not any(c[0] == 'gguf' for c in router_env.calls)
+def test_resolve_gguf_path_senza_quantizzazione_usa_il_default(tmp_path):
+    _gguf_files(tmp_path, 'Q4_K_M', 'IQ3_M')
+    path, quant = ge.resolve_gguf_path(tmp_path, None)
+    assert quant == gguf_quant.DEFAULT_QUANT == 'Q4_K_M'
+    assert path.endswith('-Q4_K_M.gguf')
 
 
-@pytest.mark.parametrize('free', [11.0, 10.6, 15.0])
-def test_router_12_20_gib_regola_storica_con_gguf_before_nf4_spento(router_env, free):
-    """gguf_before_nf4 = False (opzione per forzare NF4), anche con il flag GGUF acceso: sulle schede 10,5-20 GiB resta NF4 come prima."""
-    e = router_env.acquire(('cuda', free, True), adapter=None, model_path='/m', cfg_over={'llm_translator_gguf_before_nf4': False})
-    assert e is router_env.legacy
-    assert ('legacy', 'translategemma-12b', None, '/m') in router_env.calls
-    assert not any(c[0] == 'gguf' for c in router_env.calls)
+def test_resolve_gguf_path_senza_file_nomina_cartella_e_file_trovati(tmp_path):
+    _gguf_files(tmp_path, 'IQ3_M')
+    with pytest.raises(RuntimeError) as exc:
+        ge.resolve_gguf_path(tmp_path, 'Q4_K_M')
+    msg = str(exc.value)
+    assert str(tmp_path) in msg and 'Q4_K_M' in msg and 'IQ3_M' in msg
 
 
-@pytest.mark.parametrize('free', [11.0, 10.6, 15.0])
-def test_router_12_20_gib_con_gguf_before_nf4_acceso_usa_il_gguf_q4(router_env, free):
-    # il default e' acceso: senza override e con il valore esplicito True il risultato e' lo stesso
-    e = router_env.acquire(('cuda', free, True), adapter=None, model_path='/m')
-    assert e is router_env.gguf
-    router_env.calls.clear()
-    e = router_env.acquire(('cuda', free, True), adapter=None, model_path='/m', cfg_over={'llm_translator_gguf_before_nf4': True})
-    assert e is router_env.gguf
-    assert ('gguf', 'translategemma-12b-it-finale-Q4_K_M.gguf', 'Q4_K_M', 4) in router_env.calls
+def test_resolve_gguf_path_cartella_vuota_dice_che_non_ce_ne_sono(tmp_path):
+    with pytest.raises(RuntimeError) as exc:
+        ge.resolve_gguf_path(tmp_path, 'Q4_K_M')
+    assert str(tmp_path) in str(exc.value) and 'Q4_K_M' in str(exc.value)
 
 
-def test_router_sotto_8gb_nllb_con_motivo_a_schermo(router_env):
-    assert router_env.acquire(('cuda', 5.0, True)) is None
-    assert not any(c[0] in ('gguf', 'legacy') for c in router_env.calls)
-    text = '\n'.join(router_env.logs)
-    assert 'NLLB' in text and '5.0' in text
+def test_resolve_gguf_path_quantizzazione_sconosciuta_e_un_errore_non_un_ripiego(tmp_path):
+    _gguf_files(tmp_path, 'Q4_K_M')
+    with pytest.raises(ValueError):
+        ge.resolve_gguf_path(tmp_path, 'Q9_Z')
 
 
-def test_router_gguf_mancanti_torna_al_percorso_storico(router_env, tmp_path):
-    # Nessun GGUF (installer non ancora aggiornato): nulla cambia rispetto a prima, e il log lo dice.
-    e = router_env.acquire(('cuda', 9.0, True), cfg_over={'llm_translator_gguf_dir': str(tmp_path / 'vuota')})
-    assert e is not None and 'GGUF' in '\n'.join(router_env.logs)
-    assert router_env.calls and router_env.calls[-1][0] == 'legacy'
+def test_resolve_gguf_path_cartella_di_default():
+    assert ge.DEFAULT_GGUF_DIR.name == 'translategemma-12b-gguf'
+    assert Path(ge.resolve_gguf_path.__defaults__[0] or ge.DEFAULT_GGUF_DIR) == ge.DEFAULT_GGUF_DIR
 
 
-def test_router_caricamento_gguf_fallito_ripiega_dichiarato(router_env):
-    def boom(*a, **k):
-        raise RuntimeError('VRAM esaurita')
-    router_env.monkeypatch.setattr(ge, 'get_gguf_engine', boom)
-    assert router_env.acquire(('cuda', 7.6, True)) is None
-    text = '\n'.join(router_env.logs)
-    assert 'VRAM esaurita' in text and 'NLLB' in text
-
-
-def test_router_caricamento_gguf_fallito_con_nf4_che_regge_ripiega_su_nf4(router_env):
-    def boom(*a, **k):
-        raise RuntimeError('VRAM esaurita')
-    router_env.monkeypatch.setattr(ge, 'get_gguf_engine', boom)
-    e = router_env.acquire(('cuda', 11.0, True), model_path='/m', cfg_over={'llm_translator_gguf_before_nf4': True})
-    assert e is router_env.legacy and ('legacy', 'translategemma-12b', None, '/m') in router_env.calls
-    text = '\n'.join(router_env.logs)
-    assert 'VRAM esaurita' in text and 'NF4' in text
-
-
-@pytest.mark.parametrize('backend,free', [('rocm', 12.0), ('vulkan', 12.0), ('cuda', 9.0)])
-def test_router_gguf_fallito_senza_nf4_possibile_nllb(router_env, backend, free):
-    def boom(*a, **k):
-        raise RuntimeError('VRAM esaurita')
-    router_env.monkeypatch.setattr(ge, 'get_gguf_engine', boom)
-    assert router_env.acquire((backend, free, True), cfg_over={'llm_translator_gguf_before_nf4': True}) is None
-    assert not any(c[0] == 'legacy' for c in router_env.calls)
-    assert 'NLLB' in '\n'.join(router_env.logs)
-
-
-def test_router_stop_durante_il_caricamento_non_ripiega_su_nf4(router_env):
-    def stopped(*a, **k):
-        raise ge.GGUFCancelled('stop')
-    router_env.monkeypatch.setattr(ge, 'get_gguf_engine', stopped)
-    assert router_env.acquire(('cuda', 11.0, True), cfg_over={'llm_translator_gguf_before_nf4': True}) is None
-    assert not any(c[0] == 'legacy' for c in router_env.calls)
-    assert not any('NLLB' in m or 'NF4' in m for m in router_env.logs)
-
-
-def test_router_ripiego_nf4_che_fallisce_va_a_nllb_senza_secondo_giro(router_env, tmp_path):
-    def boom(*a, **k):
-        raise RuntimeError('VRAM esaurita')
-    router_env.monkeypatch.setattr(ge, 'get_gguf_engine', boom)
-    n = []
-
-    def bad_legacy(*a, **k):
-        n.append(1)
-        raise RuntimeError('OOM NF4')
-    out = pr.acquire_engine('translategemma-12b', None, None, '/m', get_engine_fn=bad_legacy,
-                            cfg_get=lambda k, d=None: {'llm_translator_gguf_dir': str(tmp_path),
-                                                       'llm_translator_gguf_before_nf4': True}.get(k, d),
-                            log=router_env.logs.append, inputs=('cuda', 11.0, True))
-    assert out is None and len(n) == 1                      # una sola volta, poi NLLB dichiarato
-    assert 'OOM NF4' in '\n'.join(router_env.logs) and 'NLLB' in '\n'.join(router_env.logs)
-
-
-@pytest.mark.parametrize('val,exp', [('false', False), ('0', False), ('no', False), ('true', True), ('1', True), (True, True),
-                                     (False, False), ('', False)])
-def test_router_before_nf4_legge_anche_le_stringhe(val, exp):
-    assert pr._config_values(lambda k, d=None: val if k == 'llm_translator_gguf_before_nf4' else d)['gguf_before_nf4'] is exp
-
-
-@pytest.mark.parametrize('bad', [float('nan'), float('inf'), -1.0, 0, 'abc'])
-def test_router_soglie_non_valide_tornano_al_default(bad):
-    v = pr._config_values(lambda k, d=None: bad if k in ('llm_translator_nf4_min_free_gb', 'llm_translator_gguf_q4_min_free_gb') else d)
-    assert v['nf4_min'] == sel.DEFAULT_NF4_MIN_FREE_GIB and v['gguf_min_free']['Q4_K_M'] == sel.DEFAULT_GGUF_MIN_FREE_GIB['Q4_K_M']
-
-
-def test_router_soglie_gguf_configurabili(router_env):
-    assert router_env.acquire(('cuda', 7.6, True), cfg_over={'llm_translator_gguf_iq3_min_free_gb': 8.0}) is None
-    e = router_env.acquire(('cuda', 7.6, True), cfg_over={'llm_translator_gguf_iq3_min_free_gb': 7.0})
-    assert e is router_env.gguf
-
-
-def test_router_adattatore_lora_esclude_il_gguf(router_env):
-    assert router_env.acquire(('cuda', 7.6, True), adapter='/lora') is not None      # percorso storico, non GGUF
-    assert 'LoRA' in '\n'.join(router_env.logs) or 'adapter' in '\n'.join(router_env.logs).lower()
-    assert not any(c[0] == 'gguf' for c in router_env.calls)
-
-
-def test_router_llama_senza_gpu_o_assente(router_env):
-    assert router_env.acquire(('cuda', 7.6, False)) is not None      # senza GGUF utilizzabile: percorso storico dichiarato
-    router_env.monkeypatch.setattr(pr.importlib.util, 'find_spec', lambda name: None)
-    assert router_env.acquire(('cuda', 7.6, True)) is not None
-    assert not any(c[0] == 'gguf' for c in router_env.calls)
-
-
-def test_router_vulkan_amd_usa_il_gguf_senza_bitsandbytes(router_env):
-    e = router_env.acquire(('vulkan', 24.0, True))
-    assert e is router_env.gguf
-    assert ('gguf', 'translategemma-12b-it-finale-Q4_K_M.gguf', 'Q4_K_M', 4) in router_env.calls
-
-
-def test_router_altro_modello_non_ha_gguf(router_env):
-    e = router_env.acquire(('cuda', 7.6, True), key='hunyuan-mt-7b')
-    assert e is router_env.legacy
-
-
-def test_router_motore_gia_caricato_si_riusa_senza_ridecidere(router_env):
-    router_env.monkeypatch.setattr(router_env.engine_mod, '_engine', object())
-    assert router_env.acquire(('cuda', 1.0, True)) is router_env.legacy        # VRAM "bassa" perche' il motore la occupa
-    router_env.monkeypatch.setattr(router_env.engine_mod, '_engine', None)
-    router_env.monkeypatch.setattr(ge, 'current_gguf_engine', lambda: router_env.gguf)
-    assert router_env.acquire(('cuda', 1.0, True)) is router_env.gguf
-
-
-def test_router_vram_non_leggibile_vale_il_percorso_storico(router_env):
-    assert router_env.acquire(('cuda', 0.0, True)) is router_env.legacy
-    assert router_env.acquire(('rocm', None, True)) is router_env.legacy
-
-
-def test_router_nessun_messaggio_gguf_per_chi_finisce_su_bf16(router_env):
-    router_env.monkeypatch.setattr(pr.importlib.util, 'find_spec', lambda name: None)
-    assert router_env.acquire(('cuda', 24.0, True)) is router_env.legacy
-    assert not any('llama' in m for m in router_env.logs)
-
-
-def test_router_difetto_interno_torna_al_percorso_storico(router_env):
-    router_env.monkeypatch.setattr(sel, 'choose_translator_path', mock.Mock(side_effect=RuntimeError('bug')))
-    assert router_env.acquire(('cuda', 7.6, True)) is router_env.legacy
-    assert 'bug' in '\n'.join(router_env.logs)
-
-
-def test_router_sequenze_parallele_da_config(router_env):
-    router_env.acquire(('cuda', 12.0, True), cfg_over={'llm_translator_nf4_min_free_gb': 14.0,
-                                                       'llm_translator_gguf_parallel': 2})
-    assert ('gguf', 'translategemma-12b-it-finale-Q4_K_M.gguf', 'Q4_K_M', 2) in router_env.calls
-
-
-# ------------------------------------------------------------------------------------------------ i18n
-GG_KEYS = ['gg_ready', 'gg_path_chosen', 'gg_adapter_blocks_gguf', 'gg_llama_missing', 'gg_llama_no_gpu',
-           'gg_load_failed', 'gg_using_nllb', 'gg_reason_no_gpu', 'gg_reason_gguf_missing',
-           'gg_reason_quant_unknown', 'gg_reason_vram_too_low', 'gg_reason_load_failed', 'gg_router_error',
-           'gg_nllb_ft_unavailable', 'gg_err_llama', 'gg_err_file_missing', 'gg_err_no_gpu_offload', 'gg_err_load',
-           'gg_err_arch', 'gg_err_no_context', 'gg_load_failed_nf4', 'gg_missing_legacy']
-
-
-@pytest.mark.parametrize('key', GG_KEYS)
-def test_chiavi_gg_in_en_e_it_con_gli_stessi_segnaposto(key):
-    import re
-    en, it = Translations.TEXTS['en'][key], Translations.TEXTS['it'][key]
-    assert en != it
-    ph = lambda s: sorted(re.findall(r'\{(\w+)(?:[:!][^}]*)?\}', s))  # noqa: E731
-    assert ph(en) == ph(it)
-
-
-def test_gg_tutte_le_chiavi_usate_nel_codice_esistono():
-    import re
-    used = set()
-    for f in ('gguf_engine.py', 'path_router.py'):
-        used |= set(re.findall(r"tr\('(gg_\w+)'\)", (ROOT / 'core/llm_subtitle_translator' / f).read_text(encoding='utf-8')))
-    used |= set(re.findall(r"tr\('(gg_\w+)'\)", (ROOT / 'core/translator.py').read_text(encoding='utf-8')))
-    src = (ROOT / 'core/llm_subtitle_translator/path_router.py').read_text(encoding='utf-8')
-    indirect = {k for k in GG_KEYS if f"'{k}'" in src} - used     # chiavi passate a tr() tramite variabile
-    assert used | indirect == set(GG_KEYS)
-
-
-# ------------------------------------------------------------------------------------------------ flag spento
+# ------------------------------------------------------------------------------------------------ traduttore
 @pytest.fixture
 def translator_module(monkeypatch):
-    """core.translator importato anche senza torch/transformers (finti, solo per l'import) e con config finta."""
+    """core.translator importato anche senza torch/transformers (finti, solo per l'import)."""
     stubbed = []
     for m in ('torch', 'transformers', 'huggingface_hub'):
         try:
@@ -428,88 +195,55 @@ class _Cfg:
 
 def _translator(t, monkeypatch, **cfg):
     monkeypatch.setattr(t, 'get_config', lambda: _Cfg(**cfg))
-    tr_ = t.LLMSubtitleTranslator()
-    tr_._get_engine = mock.Mock(return_value='motore-storico')
-    return tr_
+    return t.LLMSubtitleTranslator()
 
 
-def test_flag_acceso_di_default_passa_dal_router(translator_module, monkeypatch):
-    """Default dal 24/10: senza la chiave in config il traduttore passa dal router (opzione a False = percorso storico)."""
-    assert Config_default('llm_translator_gguf_enabled') is True and Config_default('llm_translator_gguf_before_nf4') is True
-    tr_ = _translator(translator_module, monkeypatch, llm_translator_model_path='')
-    called = mock.Mock(return_value='dal-router')
-    monkeypatch.setattr(pr, 'acquire_engine', called)
-    assert tr_._acquire_engine() == 'dal-router'
-    called.assert_called_once()
-    tr_._get_engine.assert_not_called()
-
-
-def Config_default(key):
-    from utils.config import Config
-    return Config.DEFAULTS[key]
-
-
-def test_flag_spento_e_la_chiamata_storica_e_il_router_non_viene_importato(translator_module, monkeypatch):
-    for flag in ({'llm_translator_gguf_enabled': False},):
-        for m in ('core.llm_subtitle_translator.path_router', 'core.llm_subtitle_translator.gguf_engine'):
-            monkeypatch.delitem(sys.modules, m, raising=False)
-        tr_ = _translator(translator_module, monkeypatch, llm_translator_model_path='', **flag)
-        probe = mock.Mock(side_effect=AssertionError('con il flag spento non si legge la GPU'))
-        monkeypatch.setattr('utils.gpu_detect.detect_gpus', probe)
-        assert tr_._acquire_engine() == 'motore-storico'
-        tr_._get_engine.assert_called_once_with('translategemma-12b', None, adapter=None, model_path=None)
-        assert 'core.llm_subtitle_translator.path_router' not in sys.modules
-        assert 'core.llm_subtitle_translator.gguf_engine' not in sys.modules
-        probe.assert_not_called()
-
-
-def test_flag_spento_cleanup_identico(translator_module, monkeypatch):
-    monkeypatch.delitem(sys.modules, 'core.llm_subtitle_translator.gguf_engine', raising=False)
-    tr_ = _translator(translator_module, monkeypatch)
-    from core.llm_subtitle_translator import engine as engine_mod
-    unload = mock.Mock()
-    monkeypatch.setattr(engine_mod, 'unload_engine', unload)
-    tr_.cleanup()
-    unload.assert_called_once_with()
-    assert 'core.llm_subtitle_translator.gguf_engine' not in sys.modules
-
-
-def test_flag_acceso_passa_dal_router_e_none_porta_a_nllb_ft(translator_module, monkeypatch, tmp_path):
-    tr_ = _translator(translator_module, monkeypatch, llm_translator_gguf_enabled=True)
+def test_acquire_engine_risolve_il_file_e_carica_il_gguf(translator_module, monkeypatch, tmp_path):
+    _gguf_files(tmp_path, 'Q4_K_M')
+    tr_ = _translator(translator_module, monkeypatch,
+                      llm_translator_gguf_dir=str(tmp_path),
+                      llm_translator_gguf_quant='Q4_K_M',
+                      llm_translator_gguf_parallel=2)
     seen = {}
 
-    def fake_acquire(*a, **k):
-        seen['k'] = k
-        return None
-    monkeypatch.setattr(pr, 'acquire_engine', fake_acquire)
-    assert tr_._acquire_engine() is None
-    assert seen['k']['get_engine_fn'] is tr_._get_engine
+    def fake_get(path, quant, key, cb, n_parallel=4, ctx_per_seq=512):
+        seen.update(path=path, quant=quant, key=key, n_parallel=n_parallel)
+        return 'motore-gguf'
 
-    src = tmp_path / 'a.srt'
-    src.write_text("1\n00:00:01,000 --> 00:00:02,000\nHello\n\n", encoding='utf-8')
-    out = tmp_path / 'b.srt'
-    nllb = mock.Mock()
-    nllb.translate_file.return_value = True
-    monkeypatch.setattr(translator_module, 'NLLBFineTunedTranslator', mock.Mock(return_value=nllb))
-    assert tr_.translate_file(src, out, 'eng', 'ita') is True
-    nllb.translate_file.assert_called_once()
-    nllb.cleanup.assert_called_once_with()
-    tr_._get_engine.assert_not_called()
+    monkeypatch.setattr(ge, 'get_gguf_engine', fake_get)
+    assert tr_._acquire_engine() == 'motore-gguf'
+    assert seen['quant'] == 'Q4_K_M' and seen['key'] == DEFAULT_MODEL_KEY
+    assert seen['path'].endswith('-Q4_K_M.gguf') and seen['n_parallel'] == 2
 
 
-def test_nllb_ft_non_disponibile_ripiega_su_nllb_base(translator_module, monkeypatch, tmp_path):
-    tr_ = _translator(translator_module, monkeypatch, llm_translator_gguf_enabled=True)
-    monkeypatch.setattr(pr, 'acquire_engine', lambda *a, **k: None)
-    base = mock.Mock()
-    base.translate_file.return_value = True
-    monkeypatch.setattr(translator_module, 'NLLBFineTunedTranslator', mock.Mock(side_effect=RuntimeError('manca')))
-    monkeypatch.setattr(translator_module, 'NLLBTranslator', mock.Mock(return_value=base))
+def test_acquire_engine_senza_pesi_fallisce_invece_di_ripiegare(translator_module, monkeypatch, tmp_path):
+    """ADR-009: nessun secondo motore. Un file mancante e' un errore del job, non una traduzione con un altro modello."""
+    tr_ = _translator(translator_module, monkeypatch, llm_translator_gguf_dir=str(tmp_path))
+    loaded = mock.Mock()
+    monkeypatch.setattr(ge, 'get_gguf_engine', loaded)
+    with pytest.raises(RuntimeError, match=str(tmp_path)):
+        tr_._acquire_engine()
+    loaded.assert_not_called()
+
+
+def test_acquire_engine_avvisa_se_ce_un_adattatore_lora(translator_module, monkeypatch, tmp_path):
+    _gguf_files(tmp_path, 'Q4_K_M')
     logs = []
+    tr_ = _translator(translator_module, monkeypatch,
+                      llm_translator_gguf_dir=str(tmp_path),
+                      llm_translator_adapter='/tmp/una-cartella-lora')
     tr_.log_callback = logs.append
-    src = tmp_path / 'a.srt'
-    src.write_text("1\n00:00:01,000 --> 00:00:02,000\nHello\n\n", encoding='utf-8')
-    assert tr_.translate_file(src, tmp_path / 'b.srt', 'eng', 'ita') is True
-    assert any('manca' in m for m in logs)
+    monkeypatch.setattr(ge, 'get_gguf_engine', lambda *a, **k: 'motore-gguf')
+    tr_._acquire_engine()
+    assert any('LoRA' in m for m in logs)
+
+
+def test_cleanup_scarica_il_motore_gguf(translator_module, monkeypatch):
+    tr_ = _translator(translator_module, monkeypatch)
+    unload = mock.Mock()
+    monkeypatch.setattr(ge, 'unload_gguf_engine', unload)
+    tr_.cleanup()
+    unload.assert_called_once_with()
 
 
 # ------------------------------------------------------------------------------------------------ GGUF vero (tiny, CPU)
@@ -629,7 +363,7 @@ def test_decode_fallito_solleva_e_pulisce_la_cache():
     ll.llama_decode.return_value = -1
     e._ll, e._ctx, e._batch, e._sampler = ll, object(), mock.MagicMock(), object()
     e._tokenize = lambda text: list(range(10))
-    msgs = SubtitleLLMEngine('translategemma-12b').mt_messages("Hi")
+    msgs = build_mt_messages("Hi")
     with pytest.raises(RuntimeError, match='llama_decode'):
         e._generate_group([msgs], 8)
     assert ll.llama_memory_clear.call_count == 2          # all'inizio e nel finally

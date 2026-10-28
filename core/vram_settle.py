@@ -3,7 +3,7 @@
 
 Su Windows (WDDM) `cudaFree` / `empty_cache()` ritornano prima che il video memory manager abbia restituito le pagine: per
 qualche secondo `mem_get_info()` mostra ancora occupata la memoria di Whisper/Demucs/pyannote. Se in quel momento parte il
-caricamento del traduttore (GGUF nel sottoprocesso, NF4/bf16 nel processo) la somma eccede la VRAM e il driver sconfina in RAM
+caricamento del traduttore (GGUF nel sottoprocesso) la somma eccede la VRAM e il driver sconfina in RAM
 condivisa. `wait_vram_settled` legge la VRAM libera a intervalli e rientra quando e' stabile.
 
 Nessun import di torch (ne' di altri moduli pesanti): la lettura arriva da `read_free_bytes`, cosi' la funzione si prova senza GPU.

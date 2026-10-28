@@ -4,9 +4,9 @@ Sync CLI - Sincronizzazione di UNA coppia video/SRT esterno in un subprocess iso
 File: core/sync_cli.py
 
 Come core/pipeline_cli.py: esegue SubtitleSynchronizer.synchronize() in un processo Python SEPARATO, cosi' che
-la coda multi-file parta ogni volta da un contesto CUDA vergine e tutta la RAM/VRAM (PyTorch, Demucs, ASR)
-torni all'OS a fine coppia. L'allineamento e' quello di SubtitleSynchronizer (motore 'timing': e' l'unico che
-resta, ADR-009 — il percorso 'llm' e' stato rimosso con il sincronizzatore a soli tempi).
+la coda multi-file parta ogni volta da un contesto CUDA vergine e tutta la RAM/VRAM (PyTorch, Demucs, ASR,
+VAD) torni all'OS a fine coppia. L'allineamento e' quello di SubtitleSynchronizer: solo temporale (ADR-009 ha
+rimosso il percorso 'llm', che traduceva gli anchor con NLLB e li abbinava con Qwen).
 
 Uso (chiamato da gui/sync_batch_worker.py, non a mano):
     python -m core.sync_cli <args.json>

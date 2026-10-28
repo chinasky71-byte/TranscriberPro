@@ -12,13 +12,15 @@ TRANSLATION = 'translation_model'
 FORCE_AUDIO = 'force_audio_transcription'      # ignora i sottotitoli gia' presenti nel video e trascrive l'audio
 ALLOW_CPU = 'allow_cpu'                        # accetta di elaborare senza GPU (molto piu' lento): salta il preflight
 
-# lingue ammesse (stessi codici di gui/job_options_card.py::SUBTITLE_LANGUAGES)
-LANGUAGES = ('ita', 'eng', 'fra', 'spa', 'deu', 'por', 'rus', 'jpn', 'zho', 'ara', 'kor', 'nld', 'pol', 'tur')
-TRANSLATION_MODELS = ('nllb_finetuned', 'llm')
+# Lingua di destinazione: una sola (ADR-009). Il motore traduce verso l'italiano
+# e rifiuta tutto il resto, quindi offrire un elenco sarebbe una promessa falsa.
+LANGUAGES = ('ita',)
+# Un solo motore (ADR-009). Il valore e' quello canonico di `Config`.
+TRANSLATION_MODELS = ('translategemma-12b-gguf',)
 BOOL_KEYS = (UPLOAD, MUX, GENDER, FORCE_AUDIO, ALLOW_CPU)
 ALL_KEYS = (TARGET_LANGUAGE, TRANSLATION, FORCE_AUDIO, GENDER, MUX, UPLOAD, ALLOW_CPU)
 
-_TM_SHORT = {'nllb_finetuned': 'NLLB', 'llm': 'TG'}
+_TM_SHORT = {'translategemma-12b-gguf': 'TG'}
 
 
 def clean_value(key: str, value: Any) -> Optional[Any]:

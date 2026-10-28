@@ -34,10 +34,12 @@ recommended backend.
 - **llama.cpp:** GGUF models run on Vulkan on AMD; `gpu_offload=true`.
 - **Qwen3-ASR:** bf16 on GPU; falls back to faster-whisper when the detected
   language is outside the ForcedAligner set (`LanguageNotAlignable`).
-- **VRAM thresholds for translation** (`utils/config.py`):
-  `llm_translator_gguf_q4_min_free_gb = 10.0`,
-  `llm_translator_gguf_iq3_min_free_gb = 7.5`,
-  `llm_translator_nf4_min_free_gb = 10.5`.
+- **Translation VRAM:** measured weights per quantization live in
+  `utils/gguf_quant.py` (`QUANT_WEIGHTS_GIB`, 6,80 / 5,60 / 5,27 GiB for
+  Q4_K_M / Q3_K_M / IQ3_M) and `gguf_need_gib()` adds the KV cache, the compute
+  buffer and a safety margin. `check_translation_ready()` compares that figure
+  with the free VRAM right before loading; there are no per-quantization
+  configurable thresholds any more (ADR-009).
 
 ## Runtime policy (target)
 
@@ -71,7 +73,7 @@ re-derive them.
 | SIGSEGV in `encode()` / `detect_language()` | torch initialized the HIP context before ctranslate2 | ct2 bootstrap on Linux |
 | `MIOpen(HIP) IsEnoughWorkspace` warnings | fallback solver, harmless | ignore |
 | `CUDA out of memory` on translation | batch too large | adaptive batch manager reduces it |
-| Vulkan model fails to load | loader/ICD missing | fall back to CPU or NLLB |
+| Vulkan model fails to load | loader/ICD missing | the job fails with the llama.cpp error (no NLLB fallback, ADR-009) |
 
 ## Testing
 

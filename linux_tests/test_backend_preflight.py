@@ -24,8 +24,8 @@ CPU_ONLY = {"torch": "2.8.0+cpu", "runtime": "", "cuda_available": False, "devic
 
 
 class FakeConfig:
-    def __init__(self, use_gpu=True):
-        self.values = {"use_gpu": use_gpu}
+    def __init__(self, use_gpu=True, **values):
+        self.values = {"use_gpu": use_gpu, **values}
 
     def get(self, key, default=None):
         return self.values.get(key, default)
@@ -152,3 +152,119 @@ def test_manager_senza_preflight_invoca_il_runner(tmp_path):
 def test_allow_cpu_sopravvive_a_clean():
     assert clean({'allow_cpu': True}) == {'allow_cpu': True}
     assert clean({'allow_cpu': 'yes'}) == {}
+
+
+# ---------------------------------------------------------------------------
+# Traduzione (ADR-009): un solo motore, quindi un controllo che prima non serviva
+# ---------------------------------------------------------------------------
+OK_FACTS = {"llama": "0.3.34", "gpu_offload": True, "free_gib": 15.0, "error": ""}
+
+
+def _engine_config(tmp_path, **values):
+    """Cartella GGUF con il file Q4_K_M e la config che la punta."""
+    (tmp_path / "translategemma-12b-it-finale-Q4_K_M.gguf").write_bytes(b"x")
+    merged = {"llm_translator_gguf_dir": str(tmp_path),
+              "llm_translator_gguf_quant": "Q4_K_M",
+              "llm_translator_gguf_parallel": 4}
+    merged.update(values)
+    return FakeConfig(**merged)
+
+
+def test_engine_ready(tmp_path):
+    ok, message = bp.check_translation_ready(_engine_config(tmp_path), probe=lambda force=False: dict(OK_FACTS))
+    assert ok and message == ""
+
+
+def test_engine_missing_file_is_reported_with_the_directory(tmp_path):
+    ok, message = bp.check_translation_ready(
+        FakeConfig(llm_translator_gguf_dir=str(tmp_path / "vuota")),
+        probe=lambda force=False: dict(OK_FACTS))
+    assert not ok and str(tmp_path / "vuota") in message and "install.sh" in message
+
+
+def test_engine_reads_the_default_quantization_when_config_says_auto(tmp_path):
+    ok, _ = bp.check_translation_ready(
+        _engine_config(tmp_path, llm_translator_gguf_quant="auto"),
+        probe=lambda force=False: dict(OK_FACTS))
+    assert ok
+
+
+def test_unknown_quantization_is_an_error_not_a_fallback(tmp_path):
+    ok, message = bp.check_translation_ready(
+        _engine_config(tmp_path, llm_translator_gguf_quant="Q9_Z"),
+        probe=lambda force=False: dict(OK_FACTS))
+    assert not ok and "Q9_Z" in message
+
+
+def test_llama_cpp_broken(tmp_path):
+    ok, message = bp.check_translation_ready(
+        _engine_config(tmp_path),
+        probe=lambda force=False: {"llama": "", "gpu_offload": False, "free_gib": 0.0,
+                                   "error": "llama_cpp: no module named llama_cpp"})
+    assert not ok and "llama_cpp" in message
+
+
+def test_llama_without_gpu_is_refused_unless_the_job_allows_cpu(tmp_path):
+    facts = dict(OK_FACTS, gpu_offload=False)
+    config = _engine_config(tmp_path)
+    ok, message = bp.check_translation_ready(config, probe=lambda force=False: dict(facts))
+    assert not ok and "GPU" in message
+    assert bp.check_translation_ready(config, allow_cpu=True,
+                                      probe=lambda force=False: dict(facts))[0]
+
+
+def test_vram_is_checked_only_when_asked(tmp_path):
+    """All'accodamento il job precedente sta ancora occupando la scheda: la VRAM si guarda prima di caricare."""
+    facts = dict(OK_FACTS, free_gib=1.0)
+    config = _engine_config(tmp_path)
+    assert bp.check_translation_ready(config, probe=lambda force=False: dict(facts))[0]
+    ok, message = bp.check_translation_ready(config, check_fit=True,
+                                             probe=lambda force=False: dict(facts))
+    assert not ok and "Q4_K_M" in message and "1.0" in message
+
+
+def test_process_stops_before_the_transcriber_when_the_engine_is_missing(tmp_path, monkeypatch):
+    """Il controllo e' in STEP 0: nessun trascrittore costruito, nessun minuto speso, job fallito."""
+    from core import pipeline as pl
+
+    video = tmp_path / "movie.mp4"
+    video.write_bytes(b"x")
+    monkeypatch.setattr(pl, "get_config", lambda: FakeConfig())
+    monkeypatch.setattr(pl, "get_tmdb_client", lambda: None)
+    monkeypatch.setattr(pl, "check_translation_ready",
+                        lambda *a, **k: (False, "motore di traduzione mancante"))
+    made = []
+    monkeypatch.setattr(pl, "Transcriber", lambda *a, **k: made.append("transcriber"))
+
+    logs = []
+    pipeline = pl.ProcessingPipeline(str(video), log_callback=logs.append)
+    monkeypatch.setattr(pipeline, "_file_sig", lambda *a, **k: "sig")
+    monkeypatch.setattr(pipeline, "_sig_target", lambda: video)
+    assert pipeline.process("ita") is False
+    assert made == []
+    assert any("motore di traduzione mancante" in line for line in logs)
+
+
+def test_translate_step_fails_without_constructing_a_translator(tmp_path, monkeypatch):
+    """STEP 6: VRAM insufficiente -> job fallito, nessun traduttore costruito (prima si sarebbe tradotto con NLLB)."""
+    from core import pipeline as pl
+
+    monkeypatch.setattr(pl, "get_config", lambda: FakeConfig())
+    monkeypatch.setattr(pl, "get_tmdb_client", lambda: None)
+    monkeypatch.setattr(pl, "check_translation_ready",
+                        lambda *a, **k: (False, "VRAM insufficiente"))
+    built = []
+    monkeypatch.setattr(pl, "get_translator", lambda *a, **k: built.append("translator"))
+
+    logs = []
+    pipeline = pl.ProcessingPipeline(str(tmp_path / "movie.mp4"), log_callback=logs.append)
+    monkeypatch.setattr(pipeline, "_wait_vram_settled", lambda *a, **k: None)
+    monkeypatch.setattr(pipeline, "config", FakeConfig())
+    monkeypatch.setattr(pipeline.config, "get_translation_model",
+                        lambda: "translategemma-12b-gguf", raising=False)
+    monkeypatch.setattr(pl.torch.cuda, "is_available", lambda: False)
+
+    result = pipeline._translate_step(tmp_path / "a.srt", "eng", "ita")
+    assert result[1:] == ("en", False, True)
+    assert built == []
+    assert any("VRAM insufficiente" in line for line in logs)
