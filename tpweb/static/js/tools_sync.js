@@ -9,8 +9,8 @@ import { Confirm, FileBrowser } from '/static/js/modals.js';
 const VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.m4v'];
 
 /** Testo dello stato di una riga: quello del run in corso (pronta, in corso, %, ok, fallita, saltata) o quello del piano. */
-function rowState(row, rt, running) {
-  if (rt && (running || rt.kind)) {
+function rowState(row, rt) {
+  if (rt) {                                                   // la riga ha uno stato del run (anche vuoto: esclusa dalla coda)
     if (rt.kind === 'pct') return `${rt.pct}%`;
     if (rt.kind) return t('sync_batch_state_' + rt.kind);
     return '';
@@ -110,7 +110,7 @@ export function SyncDialog() {
                 onChange=${(e) => post('/api/tools/sync/plan/srt', { row: r.idx, value: e.target.value || null })}>
                 <option value="">${t('sync_batch_none')}</option>${files.map((f) => html`<option value=${f.value} selected=${f.value === r.srt}>${f.label}</option>`)}</select></td>
               <td title=${r.output}>${r.output}</td>
-              <td data-testid=${'sy-state-' + r.idx}>${rowState(r, sy.rows_rt[r.idx], running)}</td></tr>`)}</tbody></table></div>
+              <td data-testid=${'sy-state-' + r.idx}>${rowState(r, sy.rows_rt[r.idx])}</td></tr>`)}</tbody></table></div>
           <div data-testid="sy-summary">${t('sync_batch_summary', { ready: sum.ready, check: sum.check, nosrt: sum.nosrt, left: sum.left })}</div>
         </div>`}
         <div class="tool-progress" data-testid="sy-progress"><div class="tool-progress-fill" style=${{ width: pcts + '%' }}></div><span class="progress-text">${pcts}%</span></div>
