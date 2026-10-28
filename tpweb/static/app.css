@@ -315,7 +315,7 @@ button:focus-visible, .file-list:focus-visible { outline: 1px solid var(--accent
 .scanner-card.open { flex: 1 1 0; min-height: 0; }
 .scanner-head { height: 32px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 12px; cursor: pointer; }
 .scanner-badge { background: var(--danger-deep); color: var(--white); font-size: 11px; font-weight: 600; border-radius: 9px; padding: 0 7px; min-width: 18px; text-align: center; }
-.status-dot { width: 10px; height: 10px; border-radius: 5px; background: var(--fg-3); } .status-dot.on { background: var(--success); } .status-dot.off { background: var(--danger); }
+.scanner-dot { width: 10px; height: 10px; border-radius: 5px; background: var(--fg-3); } .scanner-dot.on { background: var(--success); } .scanner-dot.off { background: var(--danger); }
 .tool-btn.small { width: 22px; height: 22px; }
 .scanner-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 4px; padding: 2px 8px 6px; }
 .scanner-filters { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-2); } .scanner-filters .select-wrap, .scanner-filters .select { min-width: 0; width: 100%; flex: 1; } .scanner-filters select.select { height: 26px; padding: 0 6px; }
