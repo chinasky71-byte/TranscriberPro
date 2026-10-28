@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from core.services.adaptive_batch_service import AdaptiveBatchService, AdaptiveBatchValues
 from core.services.general_settings_service import GeneralSettingsService, LANGUAGES, ping_scanner
-from core.services.job_options_service import JobOptionsService
+from core.services.job_options_service import JobOptionsService, defaults_summary
 from core.services.ocr_settings_service import OcrSettingsService
 from core.services.opensubtitles_settings_service import IMPLEMENTATIONS, OpenSubtitlesSettingsService
 from core.pgs_types import WRITEBACK_MUX, WRITEBACK_SIDECAR, STRATEGY_AUTO, STRATEGY_REVIEW
@@ -82,7 +82,8 @@ def add_settings_routes(app: FastAPI, config) -> None:
     def job_options() -> dict:
         o = job.load()
         return {'target_language': o.target_language, 'opensubtitles_upload': o.opensubtitles_upload,
-                'mux_into_video': o.mux_into_video, 'gender_correction': o.gender_correction, 'shutdown_after': o.shutdown_after}
+                'mux_into_video': o.mux_into_video, 'gender_correction': o.gender_correction, 'shutdown_after': o.shutdown_after,
+                'defaults_summary': defaults_summary(config)}
 
     def adaptive() -> dict:
         v = abs_.load()
