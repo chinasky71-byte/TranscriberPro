@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 STATES = ['vuota', 'righe', 'filtro_attivi', 'filtro_coda', 'filtro_completati', 'pipeline', 'cronologia']
+SETTINGS_STATES = ['imp_general', 'imp_jobs', 'imp_transcription', 'imp_translation', 'imp_batch', 'imp_opensubtitles', 'imp_ocr']       # come p2_qt_capture.py
 PATHS = ['C:/Video/Film Uno.mkv', 'C:/Video/Serie Due S01E02 - Un episodio con un titolo molto lungo che deve essere accorciato.mkv',
          'C:/Video/Documentario.mp4']
 HISTORY = [{'name': 'Film Uno', 'date_iso': '2026-10-27T21:05:09', 'src_lang': 'eng', 'dst_lang': 'ita', 'duration_seconds': 3725, 'size_bytes': 1610612736,
@@ -46,7 +47,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=str(Path(__file__).resolve().parent / 'results' / ('p2_web_' + ('windows' if sys.platform == 'win32' else 'linux'))))
     ap.add_argument('--scales', nargs='+', type=float, default=[1.0, 1.25, 1.5])
-    ap.add_argument('--states', nargs='+', default=STATES)
+    ap.add_argument('--states', nargs='+', default=STATES + SETTINGS_STATES)
     ap.add_argument('--channel', default=None, help="es. msedge (Edge installato); senza: Chromium di Playwright")
     ap.add_argument('--executable', default=None)
     a = ap.parse_args()
@@ -94,6 +95,10 @@ def main():
                     pass
                 if state.startswith('filtro_'):
                     page.click('[data-filter=%s]' % {'filtro_attivi': 'processing', 'filtro_coda': 'queued', 'filtro_completati': 'completed'}[state])
+                if state.startswith('imp_'):                 # la finestra Impostazioni su una scheda, come SettingsDialog(initial_tab=...)
+                    page.evaluate("tab => fetch('/api/settings/last_tab', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tab})})", state[4:])
+                    page.click('[data-testid=open-settings]')
+                    page.wait_for_selector('[data-testid=settings-dialog] .settings-page:not(.hidden) .page')
                 if state == 'cronologia':
                     page.click('[data-tab=history]')
                     page.wait_for_selector('[data-testid=history] tbody tr')
@@ -101,7 +106,10 @@ def main():
                 page.mouse.move(5, 895)                          # il puntatore fuori da ogni controllo (niente hover)
                 d = Path(a.out) / str(scale)
                 d.mkdir(parents=True, exist_ok=True)
-                page.screenshot(path=str(d / (state + '.png')))
+                if state.startswith('imp_'):
+                    page.locator('[data-testid=settings-dialog]').screenshot(path=str(d / (state + '.png')))      # il dialogo, come dlg.grab()
+                else:
+                    page.screenshot(path=str(d / (state + '.png')))
                 boxes = {}
                 for k, sel in SELECTORS.items():
                     loc = page.locator(sel)
