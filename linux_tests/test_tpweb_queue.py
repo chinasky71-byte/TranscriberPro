@@ -123,6 +123,58 @@ def test_eccezioni_per_file(wq):
     assert wq.overrides_of('/a.mkv') == {}
 
 
+def test_etichetta_delle_eccezioni_sulla_riga_come_la_gui(wq):
+    wq.add(['/a.mkv', '/b.mkv'])
+    wq.set_overrides(['/a.mkv'], 'target_language', 'eng')
+    wq.set_overrides(['/a.mkv'], 'mux_subtitle_into_video', True)
+    assert [r.get('ov') for r in wq.rows()] == ['ENG · mux', None]
+    wq.queue.take_next()                                        # il motore prende il file: le eccezioni escono dal servizio, l'etichetta resta
+    assert wq.overrides_of('/a.mkv') == {} and wq.rows()[0]['ov'] == 'ENG · mux'
+    wq.set_overrides(['/b.mkv'], 'target_language', 'eng')
+    wq.set_overrides(['/b.mkv'], 'target_language', None)
+    assert 'ov' not in wq.rows()[1]
+    wq.set_overrides(['/b.mkv'], 'target_language', 'fra')
+    wq.remove('/b.mkv')
+    wq.add(['/b.mkv'])                                          # riaccodato: riparte senza eccezioni
+    assert 'ov' not in wq.rows()[-1]
+    wq.clear()
+    assert wq.rows() == []
+    wq.add(['/c.mkv'])
+    wq.set_overrides(['/c.mkv'], 'target_language', 'eng')
+    wq.queue.take_next()
+    wq.on_file_started('/c.mkv')
+    wq.on_file_completed('/c.mkv')
+    assert wq.rows()[0]['ov'] == 'ENG'
+    wq.add(['/c.mkv'])                                          # ricaricato dopo il completamento: la nuova riga non eredita l'etichetta
+    assert [r.get('ov') for r in wq.rows()] == ['ENG', None]
+    wq.set_overrides(['/c.mkv'], 'target_language', 'fra')      # va sulla riga IN ATTESA, non su quella gia' completata
+    assert [r.get('ov') for r in wq.rows()] == ['ENG', 'FRA']
+    wq.remove('/c.mkv')
+    assert [r.get('ov') for r in wq.rows()] == ['ENG']
+
+
+def test_tessere_eta_e_tempo_trascorso(wq, monkeypatch):
+    from core.services.formatting import EN_DASH
+    assert wq.stats() == {'completed': 0, 'in_progress': 0, 'queued': 0, 'errors': 0, 'eta': EN_DASH, 'elapsed': None}
+    wq.add(['/a.mkv', '/b.mkv', '/c.mkv'])
+    assert wq.stats()['queued'] == 3 and wq.stats()['eta'] == EN_DASH
+    clock = [1000.0]
+    monkeypatch.setattr('tpweb.queue_backend.time.time', lambda: clock[0])
+    wq.proc_start_time = 900.0
+    wq.queue.take_next()
+    wq.on_file_started('/a.mkv')
+    wq.on_file_completed('/a.mkv')                              # 1 fatto in 100 s, 2 rimasti: ETA 200 s
+    s = wq.stats()
+    assert (s['completed'], s['queued'], s['eta'], s['elapsed']) == (1, 2, '3m 20s', '01:40')
+    clock[0] = 900.0 + 3700
+    assert wq.stats()['elapsed'] == '01:01:40'
+    wq.queue.take_next()
+    wq.on_file_started('/b.mkv')                                # b e' in lavorazione: conta fra i «rimasti» dell'ETA (1 fatto in 3700 s)
+    assert wq.stats()['in_progress'] == 1 and wq.stats()['eta'] == '2h 03m'
+    wq.on_file_failed('/b.mkv')
+    assert wq.stats()['errors'] == 1 and wq.state()['stats'] == wq.stats()
+
+
 # ------------------------------------------------------------------------------------------------------ avvio e arresto
 def test_start_su_coda_vuota_e_doppio_start(wq, tmp_path):
     assert wq.start() == EMPTY

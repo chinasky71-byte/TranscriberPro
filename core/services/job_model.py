@@ -37,6 +37,7 @@ class JobRecord:
     progress: int = 0
     size: str = ''
     kind: Optional[str] = None
+    ov: str = ''           # etichetta breve delle eccezioni della riga (solo web UI; la GUI Qt la tiene nel dict della riga)
 
     # ------------------------------------------------------------------ costruzione
     @classmethod
@@ -52,7 +53,7 @@ class JobRecord:
         d = data or {}
         return cls(path=d.get('path', ''), filename=d.get('filename', ''),
                    status=d.get('status', JobStatus.QUEUED), progress=d.get('progress', 0),
-                   size=d.get('size', ''), kind=d.get('kind'))
+                   size=d.get('size', ''), kind=d.get('kind'), ov=d.get('ov', '') or '')
 
     def to_item_data(self) -> dict:
         data = {
@@ -64,6 +65,8 @@ class JobRecord:
         }
         if self.kind is not None:
             data['kind'] = self.kind
+        if self.ov:
+            data['ov'] = self.ov
         return data
 
     # ------------------------------------------------------------------ transizioni
@@ -79,12 +82,15 @@ class JobRecord:
     def failed(self) -> 'JobRecord':
         return self._with(status=JobStatus.FAILED, progress=0)
 
+    def with_ov(self, text: str) -> 'JobRecord':
+        return self._with(ov=text or '')
+
     def with_status(self, status: str, progress: int) -> 'JobRecord':
         return self._with(status=status, progress=int(progress))
 
     def _with(self, **changes) -> 'JobRecord':
         fields = dict(path=self.path, filename=self.filename, status=self.status,
-                      progress=self.progress, size=self.size, kind=self.kind)
+                      progress=self.progress, size=self.size, kind=self.kind, ov=self.ov)
         fields.update(changes)
         return JobRecord(**fields)
 

@@ -45,7 +45,11 @@ def test_i_nomi_vecchi_in_gui_sono_alias_degli_stessi_moduli():
     import gui.services.step_plan as gb
     import core.services.job_model as c
     import gui.services.job_model as gc
-    assert ga is a and gb is b and gc is c
+    import core.services.formatting as f1
+    import core.services.log_filter as f2
+    import gui.services.formatting as gf1
+    import gui.services.log_filter as gf2
+    assert ga is a and gb is b and gc is c and gf1 is f1 and gf2 is f2
 
 
 def test_core_utils_e_glossary_engine_non_importano_gui_nemmeno_dentro_le_funzioni():

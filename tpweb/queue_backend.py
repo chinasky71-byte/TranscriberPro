@@ -19,9 +19,11 @@ from typing import Callable, Dict, List, Optional
 from core.jobs.engine import QueueEngine, QueueListener
 from core.jobs.job_queue import JobQueue
 from core.services.file_scan import VIDEO_EXTENSIONS, iter_videos, size_text
+from core.services.formatting import EN_DASH, format_elapsed, format_eta
 from core.services.job_model import JobRecord, JobStatus, KIND_OCR, is_reorderable
 from core.services.shutdown_policy import ShutdownPolicy
 from tpweb.events import EventBus
+from utils import job_overrides
 
 EMPTY, RUNNING, OK = 'empty', 'running', 'ok'     # esiti di start()
 
@@ -66,6 +68,18 @@ class WebQueue(QueueListener):
         with self._rows_lock:
             return [r.to_item_data() for r in self._rows]
 
+    def stats(self) -> dict:
+        """Le tessere della GUI: completati, in corso, in coda, errori, ETA e tempo trascorso (testi gia' formattati)."""
+        c = self.counts()
+        remaining = c['queued'] + c['processing']
+        started = self.proc_start_time
+        eta = EN_DASH
+        if self.completed_count > 0 and remaining > 0 and started > 0:
+            eta = format_eta(time.time() - started, self.completed_count, remaining)
+        return {'completed': self.completed_count, 'in_progress': c['processing'], 'queued': c['queued'],
+                'errors': self.error_count, 'eta': eta,
+                'elapsed': format_elapsed(int(time.time() - started)) if started > 0 else None}
+
     def counts(self) -> Dict[str, int]:
         c = {'all': 0, 'queued': 0, 'processing': 0, 'completed': 0, 'failed': 0}
         with self._rows_lock:
@@ -78,6 +92,7 @@ class WebQueue(QueueListener):
         return {'running': self.is_processing, 'rows': self.rows(), 'counts': self.counts(),
                 'remaining': len(self.queue), 'completed': self.completed_count, 'errors': self.error_count,
                 'progress': self.last_progress, 'steps': self.last_steps, 'started_at': self.proc_start_time or None,
+                'stats': self.stats(),
                 'overrides': {p: o for p, o in self._overrides().items()}}
 
     def _overrides(self) -> dict:
@@ -152,7 +167,12 @@ class WebQueue(QueueListener):
             return []
         changed = self.queue.set_override(paths, key, value)
         if changed:
-            self.bus.publish('overrides_changed', {p: self.overrides_of(p) for p in changed})
+            labels = {p: job_overrides.label(self.overrides_of(p)) for p in changed}
+            with self._rows_lock:               # l'etichetta sta sulla riga IN ATTESA di quel file (le righe gia' finite con lo stesso percorso la tengono)
+                for i, r in enumerate(self._rows):
+                    if r.path in labels and r.status == JobStatus.QUEUED and not r.is_ocr:
+                        self._rows[i] = r.with_ov(labels[r.path])
+            self.bus.publish('overrides_changed', {p: {'overrides': self.overrides_of(p), 'ov': labels[p]} for p in changed})
         return changed
 
     def clear(self) -> bool:
