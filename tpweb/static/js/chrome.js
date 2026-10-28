@@ -25,7 +25,7 @@ export function TitleBar() {
     <div class="title-actions">
       <button class="tool-btn" data-testid="tools-menu" title=${t('tools_menu')} disabled=${running}
         onClick=${(e) => { const r = e.currentTarget.getBoundingClientRect(); setToolsMenu({ x: r.left, y: r.bottom + 4 }); }}><${Icon} name="wrench" size=${16} /></button>
-      <button class="tool-btn" title=${t('sync_dialog_title')}><${Icon} name="sync" size=${16} /></button>
+      <button class="tool-btn" data-testid="open-sync" title=${t('sync_dialog_title')} disabled=${running} onClick=${() => openTool('sync')}><${Icon} name="sync" size=${16} /></button>
       <button class="tool-btn" data-testid="open-settings" title=${t('settings_dialog_title')} onClick=${() => openSettings()}><${Icon} name="settings" size=${16} /></button>
       <button class="tool-btn" data-testid="quit" title=${t('web_quit')} onClick=${() => quit(false)}><${Icon} name="power" size=${16} /></button>
     </div>
