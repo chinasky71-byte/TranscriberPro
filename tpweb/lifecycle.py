@@ -52,18 +52,41 @@ class ServerLock:
             pass
 
 
+def is_qt_gui_cmdline(cmdline: List[str]) -> bool:
+    """La riga di comando di un processo e' quella della GUI Qt di Transcriber Pro? (non la web UI, non la coda headless)"""
+    cl = ' '.join(cmdline or [])
+    if 'main.py' not in cl or 'Transcriber' not in cl or 'queue_runner' in cl or 'tpweb' in cl:
+        return False
+    args = list(cmdline or [])
+    for i, a in enumerate(args):
+        if a == '--ui=web' or (a == '--ui' and args[i + 1:i + 2] == ['web']):
+            return False
+    return True
+
+
+def _related_pids(psutil, me: int) -> set:
+    """Il processo stesso e i suoi antenati: su Windows il venv avvia python.exe come launcher PADRE dell'interprete
+    vero (stessa riga di comando), che non e' un'altra istanza."""
+    related = {me}
+    try:
+        proc = psutil.Process(me)
+        related.update(p.pid for p in proc.parents())
+    except Exception:
+        pass
+    return related
+
+
 def conflicts(home: Optional[Path] = None) -> List[str]:
     """Altri programmi che possiedono la stessa coda (stessa GPU, stessa cache dei modelli): GUI Qt o coda headless."""
     out: List[str] = []
     home = Path(home) if home else HOME
     try:
         import psutil
-        me = os.getpid()
+        related = _related_pids(psutil, os.getpid())
         for p in psutil.process_iter(['pid', 'cmdline']):
-            if p.info['pid'] == me:
+            if p.info['pid'] in related:
                 continue
-            cl = ' '.join(p.info.get('cmdline') or [])
-            if 'main.py' in cl and 'Transcriber' in cl and 'queue_runner' not in cl and '--ui web' not in cl and 'tpweb' not in cl:
+            if is_qt_gui_cmdline(p.info.get('cmdline') or []):
                 out.append('gui')
                 break
     except Exception:
