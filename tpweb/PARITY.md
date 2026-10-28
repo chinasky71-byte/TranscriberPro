@@ -6,7 +6,7 @@ La web UI non sostituisce la Qt finché ogni riga non e' `verificato Win`. Rifer
 ## Cornice
 | Controllo (GUI Qt) | Web | Stato | Test |
 |---|---|---|---|
-| Titlebar 52 px: marchio, sottotitolo, pill di stato, strumenti, sincronizza, impostazioni | `chrome.js` TitleBar | fatto (strumenti/sincronizza/impostazioni: icone senza azione, fasi 3-4) | `test_geometria_come_la_finestra_qt_vera_stato_righe` |
+| Titlebar 52 px: marchio, sottotitolo, pill di stato, strumenti, sincronizza, impostazioni | `chrome.js` TitleBar | fatto (impostazioni apre il dialogo; strumenti/sincronizza: icone senza azione, fase 4) | `test_geometria_come_la_finestra_qt_vera_stato_righe` |
 | Pill «Pronto» / «In elaborazione» (punto che pulsa) (anche «connessione persa») | `chrome.js` | fatto | `test_badge_gpu_stato_in_barra...` |
 | Pulsante «Esci» (nuovo, assente in Qt: chiudere la finestra chiude l'app) | `chrome.js`, `/api/quit` | fatto | `test_uscita_senza_coda_e_con_coda_al_lavoro` |
 | Schede: «Coda di processamento  (n)» con n = in coda + in lavorazione (nessun numero se 0); «Cronologia  (n)» | `chrome.js` TabBar | fatto | `test_badge_gpu_stato_in_barra_e_conteggi_delle_schede` |
@@ -29,7 +29,7 @@ La web UI non sostituisce la Qt finché ogni riga non e' `verificato Win`. Rifer
 | Scheda Library Scanner (comprimibile) | segnaposto statico | da fare (fase 5) | - |
 | Avvia (disabilitato a coda vuota o al lavoro; blocchi per OCR/Glossario/Sync) | `QueuePanel` | fatto (blocchi: fasi 4-5) | `test_avvia_elabora...`, `test_avvia_con_coda_vuota...` |
 | Ferma con conferma (predefinito No, Esc = No) | `Confirm` | fatto | `test_stop_chiede_conferma...` |
-| Riga «Predefiniti: ...» (apre Impostazioni > Opzioni job) | `QueuePanel` | fatto il testo; il clic: fase 3 | `test_casella_spegni_salva_nel_config` |
+| Riga «Predefiniti: ...» (apre Impostazioni > Opzioni job) | `QueuePanel` | fatto (il clic apre Impostazioni > Opzioni job) | `test_casella_spegni_salva_nel_config` |
 | Casella «Spegni al termine» (salva in config, spegne a fine coda anche dopo Stop) | `QueuePanel`, `WebQueue` | fatto (azione reale: solo `--ui web` vero) | `test_casella_spegni...`, `test_spegnimento_*` |
 | Barra di avanzamento 14 px + percentuale a destra | `QueuePanel` | fatto | `test_avvia_elabora...` |
 
@@ -63,3 +63,17 @@ La web UI non sostituisce la Qt finché ogni riga non e' `verificato Win`. Rifer
 | Token e tema generati dalla GUI (una sola fonte) | fatto | `test_tokens_e_icone_coincidono_con_la_gui` |
 | Ripresa dopo caduta della connessione (stato completo se gli eventi sono scartati) | fatto | `test_ripresa_dopo_la_caduta_del_flusso` |
 | Aspetto misurato su Windows a 100/125/150% (forme <= 1%, testo SSIM) | da fare (C-010) | - |
+
+
+## Impostazioni (fase 3)
+| Elemento GUI | Web | Stato | Test |
+|---|---|---|---|
+| Dialogo 840x620, intestazione 48, barra laterale 200 con 7 schede, ultima scheda ricordata | `settings.js` | fatto | `test_finestra_barra_laterale_e_ultima_scheda`, `test_il_riepilogo_dei_predefiniti_apre_la_scheda_opzioni_job`, `test_esc_chiude_prima_il_messaggio_poi_la_finestra` |
+| Generali: lingua (+avviso riavvio), Library Scanner URL/API key (mostra/nascondi via server, mai nello stato), prova connessione, cartelle montate (solo fuori da Windows) | `settings_basic.js` | fatto | `test_generali_*` |
+| Opzioni job | idem | fatto | `test_opzioni_job_si_salvano_subito` |
+| Batch adattivo (abilita, Salva, Ripristina senza salvare, intervalli) | idem | fatto | `test_batch_*` |
+| OCR | idem | fatto | `test_ocr_*` |
+| OpenSubtitles (credenziali .org/.com «mantieni invariata», test, guida) | idem | fatto | `test_opensubtitles_*` |
+| Trascrizione (motore, stile dialoghi; schede profilo nascoste come nella GUI) | `settings_models.js` | fatto | `test_trascrizione_*` |
+| Traduzione (6 modelli, percorsi, chiavi, beams, diarizzazione, genere, forza audio, download LLM e test pyannote con righe in diretta, pagina d'errore) | idem | fatto | `test_traduzione_*`, `test_tpweb_settings_models.py` |
+| Aspetto confrontato con Qt (SSIM) | | da misurare in C-011 (Windows) | |
