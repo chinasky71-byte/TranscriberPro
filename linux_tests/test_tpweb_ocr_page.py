@@ -195,3 +195,12 @@ def test_superpower_conferma_elenco_e_batch(env):
     FakeApi.reply = (200, json.dumps({'videos': []}))
     page.click('[data-testid=scanner-superpower]'); page.click('[data-testid=confirm-yes]')
     assert message(page) == (IT['web_superpower_title'], IT['ls_sp_none'])
+
+
+def test_superpower_senza_configurazione_avvisa_e_non_chiede_conferma(env):
+    page = env.open()
+    open_card(page)
+    env.config.set('library_scanner_url', '', save=False)
+    page.click('[data-testid=scanner-superpower]')
+    assert message(page) == (IT['web_superpower_title'], IT['ls_not_configured'])
+    assert page.locator('.modal-confirm').count() == 0
