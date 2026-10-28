@@ -6,12 +6,12 @@ La web UI non sostituisce la Qt finché ogni riga non e' `verificato Win`. Rifer
 ## Cornice
 | Controllo (GUI Qt) | Web | Stato | Test |
 |---|---|---|---|
-| Titlebar 52 px: marchio, sottotitolo, pill di stato, strumenti, sincronizza, impostazioni | `chrome.js` TitleBar | fatto (impostazioni apre il dialogo; strumenti/sincronizza: icone senza azione, fase 4) | `test_geometria_come_la_finestra_qt_vera_stato_righe` |
+| Titlebar 52 px: marchio, sottotitolo, pill di stato, strumenti, sincronizza, impostazioni | `chrome.js` TitleBar | fatto (impostazioni, strumenti e sincronizza aprono i loro dialoghi) | `test_geometria_come_la_finestra_qt_vera_stato_righe` |
 | Pill «Pronto» / «In elaborazione» (punto che pulsa) (anche «connessione persa») | `chrome.js` | fatto | `test_badge_gpu_stato_in_barra...` |
 | Pulsante «Esci» (nuovo, assente in Qt: chiudere la finestra chiude l'app) | `chrome.js`, `/api/quit` | fatto | `test_uscita_senza_coda_e_con_coda_al_lavoro` |
 | Schede: «Coda di processamento  (n)» con n = in coda + in lavorazione (nessun numero se 0); «Cronologia  (n)» | `chrome.js` TabBar | fatto | `test_badge_gpu_stato_in_barra_e_conteggi_delle_schede` |
 | Badge scheda video (GPU): verde NVIDIA, rosso AMD, «CPU only»; secondo giro dopo 30 s se incompleto | `chrome.js`, `tpweb/gpu.py` | fatto | `test_badge_gpu_*` |
-| Tre pannelli 414/472/472 con maniglia 6 px; trascinare le maniglie (orizzontali e quella tra anteprima e monitor) e ricordare le dimensioni | CSS grid fisso | fatto le misure; maniglie mobili: da fare | `test_geometria...` |
+| Tre pannelli 414/472/472 con maniglia 6 px; trascinare le maniglie (orizzontali e quella tra anteprima e monitor) e ricordare le dimensioni | CSS grid fisso | fatto (misure e maniglie mobili, anche quella tra anteprima e monitor; salvate) | `test_geometria...` |
 
 ## Pannello sinistro (coda)
 | Controllo | Web | Stato | Test |
@@ -21,12 +21,12 @@ La web UI non sostituisce la Qt finché ogni riga non e' `verificato Win`. Rifer
 | Selezione: clic, Ctrl, Maiusc | `FileList` | fatto | `test_selezione_con_clic_ctrl_e_maiusc...` |
 | Canc: toglie solo le righe in attesa, anche a coda al lavoro | `FileList` + `/api/queue/remove` | fatto | idem |
 | Riordino per trascinamento (solo righe in attesa, una alla volta) | `FileList` (HTML5 drag and drop) | fatto | `test_riordino_*` |
-| Menu contestuale: eccezioni per file (lingua, modello, audio forzato, genere, mux, upload), ripristina, rimuovi; voce spuntata comune | `context_menu.js` | fatto (revisione OCR differita del menu: fase 5) | `test_menu_*` |
-| Aggiungi File (dialogo con filtro video, ricorda l'ultima cartella) | `FileBrowser` mode files | fatto (dialogo nativo: con pywebview, fase 6) | `test_aggiungi_file_con_il_navigatore` |
+| Menu contestuale: eccezioni per file (lingua, modello, audio forzato, genere, mux, upload), ripristina, rimuovi; voce spuntata comune | `context_menu.js` | fatto (compresa la revisione OCR dei job differiti) | `test_menu_*` |
+| Aggiungi File (dialogo con filtro video, ricorda l'ultima cartella) | `FileBrowser` mode files | fatto (con il guscio pywebview si apre il dialogo di Windows) | `test_aggiungi_file_con_il_navigatore` |
 | Aggiungi Cartella (scansione ricorsiva in background, nessun doppione) | `FileBrowser` mode folder + `/api/queue/scan` | fatto | `test_aggiungi_cartella_scansiona_e_aggiunge` |
-| Trascinamento di file da Esplora risorse | - | da fare (fase 6, guscio pywebview) | - |
+| Trascinamento di file da Esplora risorse | `main.js` (percorso vero con pywebview) | fatto lato cloud; da provare su Windows | `test_trascinamento_da_esplorer_*` |
 | Pulisci (rifiutato mentre lavora) | `QueuePanel` | fatto | `test_svuota_e_riga_aggiunta...`, `test_stop_chiede...` |
-| Scheda Library Scanner (comprimibile) | segnaposto statico | da fare (fase 5) | - |
+| Scheda Library Scanner (comprimibile) | `scanner.js` | fatto (vedi sezioni Library Scanner e OCR) | `test_tpweb_scanner_page.py` |
 | Avvia (disabilitato a coda vuota o al lavoro; blocchi per OCR/Glossario/Sync) | `QueuePanel` | fatto (blocchi: fasi 4-5) | `test_avvia_elabora...`, `test_avvia_con_coda_vuota...` |
 | Ferma con conferma (predefinito No, Esc = No) | `Confirm` | fatto | `test_stop_chiede_conferma...` |
 | Riga «Predefiniti: ...» (apre Impostazioni > Opzioni job) | `QueuePanel` | fatto (il clic apre Impostazioni > Opzioni job) | `test_casella_spegni_salva_nel_config` |
@@ -62,7 +62,7 @@ La web UI non sostituisce la Qt finché ogni riga non e' `verificato Win`. Rifer
 | Nessuna risorsa esterna, file solo dalla stessa origine, nessun traversal | fatto | `test_tpweb_assets.py` |
 | Token e tema generati dalla GUI (una sola fonte) | fatto | `test_tokens_e_icone_coincidono_con_la_gui` |
 | Ripresa dopo caduta della connessione (stato completo se gli eventi sono scartati) | fatto | `test_ripresa_dopo_la_caduta_del_flusso` |
-| Aspetto misurato su Windows a 100/125/150% (forme <= 1%, testo SSIM) | da fare (C-010) | - |
+| Aspetto misurato su Windows a 100/125/150% (forme <= 1%, testo SSIM) | da fare: C-011 (14 stati: Coda + 7 schede delle Impostazioni) | - |
 
 
 ## Impostazioni (fase 3)
@@ -82,7 +82,7 @@ La web UI non sostituisce la Qt finché ogni riga non e' `verificato Win`. Rifer
 ## Strumenti (fase 4)
 | Elemento GUI | Web | Stato | Test |
 |---|---|---|---|
-| Mutua esclusione coda / Glossario / Sincronizzazione / OCR (verdetti di avvio, apertura strumenti, avviso) | `core/services/tool_gate.py`, `WebQueue.start` atomico | fatto (OCR: flag pronto, lo imposta la fase 5) | `test_tool_gate.py` (16 combinazioni identiche a `QueueService.can_start`, gara, atomicita') |
+| Mutua esclusione coda / Glossario / Sincronizzazione / OCR (verdetti di avvio, apertura strumenti, avviso) | `core/services/tool_gate.py`, `WebQueue.start` atomico | fatto (compreso l'OCR) | `test_tool_gate.py` (16 combinazioni identiche a `QueueService.can_start`, gara, atomicita') |
 | Glossario per show: cartella, nome, ricerca TMDB (fuori dal ciclo degli eventi), run, annulla, schede candidato, salva | `tools_glossary.js`, `tpweb/tools.py`, `routes_tools.py` | fatto | `test_tpweb_tools.py`, `test_tpweb_tools_page.py`, `test_glossary_tmdb_resolve.py` (caratterizzazione sul vecchio codice) |
 | Chiudere il dialogo annulla il run; ricaricare la pagina no; stato ripristinato dopo un buco di eventi | idem | fatto (scelta di prodotto per il web) | `test_ricaricare_la_pagina_non_annulla_chiudere_il_dialogo_si` |
 | Sincronizzazione: singola, coda di coppie (tabella, scelta SRT, spunte, riepilogo), progresso, log con barre sul posto, annulla | `tools_sync.js`, `SyncManager`, `core/services/progress_log.py` | fatto | `test_tpweb_sync.py`, `test_tpweb_sync_page.py`, `test_progress_log.py` (identico a `append_log_line`) |
