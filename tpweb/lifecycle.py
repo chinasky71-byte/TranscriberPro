@@ -52,16 +52,18 @@ class ServerLock:
             pass
 
 
-def is_qt_gui_cmdline(cmdline: List[str]) -> bool:
-    """La riga di comando di un processo e' quella della GUI Qt di Transcriber Pro? (non la web UI, non la coda headless)"""
+def is_qt_gui_cmdline(cmdline: List[str], default_ui: str = 'qt') -> bool:
+    """La riga di comando di un processo e' quella della GUI Qt di Transcriber Pro? (non la web UI, non la coda headless)
+    Senza `--ui` vale `default_ui` (l'interfaccia predefinita, `ui` del config)."""
     cl = ' '.join(cmdline or [])
     if 'main.py' not in cl or 'Transcriber' not in cl or 'queue_runner' in cl or 'tpweb' in cl:
         return False
-    args = list(cmdline or [])
-    for i, a in enumerate(args):
-        if a == '--ui=web' or (a == '--ui' and args[i + 1:i + 2] == ['web']):
-            return False
-    return True
+    from tpweb.ui_choice import ui_from_args
+    try:
+        explicit = ui_from_args(list(cmdline or []))
+    except ValueError:
+        return False
+    return (explicit or default_ui) == 'qt'
 
 
 def _related_pids(psutil, me: int) -> set:
@@ -76,6 +78,16 @@ def _related_pids(psutil, me: int) -> set:
     return related
 
 
+def _default_ui() -> str:
+    """Interfaccia che un `main.py` senza `--ui` avvierebbe su questo computer (chiave `ui` del config; altrimenti il predefinito)."""
+    from tpweb.ui_choice import requested_ui
+    try:
+        from utils.config import get_config
+        return requested_ui([], get_config().get)
+    except Exception:
+        return requested_ui([])
+
+
 def conflicts(home: Optional[Path] = None) -> List[str]:
     """Altri programmi che possiedono la stessa coda (stessa GPU, stessa cache dei modelli): GUI Qt o coda headless."""
     out: List[str] = []
@@ -83,10 +95,11 @@ def conflicts(home: Optional[Path] = None) -> List[str]:
     try:
         import psutil
         related = _related_pids(psutil, os.getpid())
+        default_ui = _default_ui()
         for p in psutil.process_iter(['pid', 'cmdline']):
             if p.info['pid'] in related:
                 continue
-            if is_qt_gui_cmdline(p.info.get('cmdline') or []):
+            if is_qt_gui_cmdline(p.info.get('cmdline') or [], default_ui):
                 out.append('gui')
                 break
     except Exception:

@@ -37,7 +37,7 @@ from pathlib import Path
 
 warnings.filterwarnings("ignore", message="In 2.9, this function's implementation")
 
-# Interfaccia web (--ui web, o chiave `ui` del config): parte senza caricare PyQt6 ne' onnxruntime. Il predefinito resta Qt.
+# Interfaccia predefinita: web (tpweb/ui_choice.py), senza caricare PyQt6 ne' onnxruntime. La GUI Qt con `--ui qt` o `ui: qt` nel config.
 if __name__ == '__main__':
     from tpweb.ui_choice import requested_ui, ui_from_args
     try:
@@ -50,7 +50,7 @@ if __name__ == '__main__':
             from utils.config import get_config
             _ui = requested_ui(sys.argv[1:], get_config().get)
         except Exception:
-            _ui = 'qt'
+            from tpweb.ui_choice import DEFAULT_UI as _ui
     if _ui == 'web':
         from tpweb.launcher import main as _web_main
         sys.exit(_web_main([a for a in sys.argv[1:] if a not in ('--ui', 'web', 'qt') and not a.startswith('--ui=')]))
