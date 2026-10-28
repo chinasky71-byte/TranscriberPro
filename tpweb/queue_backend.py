@@ -24,6 +24,7 @@ from core.services.job_model import JobRecord, JobStatus, KIND_OCR, is_reorderab
 from core.services.log_buffer import LogBuffer
 from core.services.settings_service import SettingsService
 from core.services.shutdown_policy import ShutdownPolicy
+from core.services.tool_gate import ToolGate
 from tpweb.events import EventBus
 from utils import job_overrides
 
@@ -37,11 +38,13 @@ def _key(path: str) -> str:
 class WebQueue(QueueListener):
     def __init__(self, bus: EventBus, engine_factory: Optional[Callable[['WebQueue'], QueueEngine]] = None,
                  history=None, shutdown_enabled: Optional[Callable[[], bool]] = None,
-                 shutdown_fn: Optional[Callable[[], None]] = None, shutdown_delay_s: float = ShutdownPolicy.DELAY_MS / 1000, config=None):
+                 shutdown_fn: Optional[Callable[[], None]] = None, shutdown_delay_s: float = ShutdownPolicy.DELAY_MS / 1000, config=None, gate=None):
         """`history`: HistoryService su cui salvare le voci dei file completati. `shutdown_enabled`/`shutdown_fn`: la casella
         'Spegni' (letta a fine coda) e l'azione; senza `shutdown_fn` il server non spegne MAI il computer."""
         self.bus = bus
         self.config = config
+        self.gate = gate if gate is not None else ToolGate()
+        self.gate.processing = lambda: self.is_processing
         self.history = history
         self.log = LogBuffer()
         self.preview = None                       # PreviewService (impostato dal launcher)
@@ -153,7 +156,7 @@ class WebQueue(QueueListener):
         return {'queue': self.state(), 'log': lines, 'diag': self.diag(), 'log_options': self.log_options()}
 
     def state(self) -> dict:
-        return {'running': self.is_processing, 'rows': self.rows(), 'counts': self.counts(),
+        return {'running': self.is_processing, 'tools': self.gate.snapshot(), 'rows': self.rows(), 'counts': self.counts(),
                 'remaining': len(self.queue), 'completed': self.completed_count, 'errors': self.error_count,
                 'progress': self.last_progress, 'steps': self.last_steps, 'started_at': self.proc_start_time or None,
                 'stats': self.stats(),
@@ -298,24 +301,27 @@ class WebQueue(QueueListener):
 
     # ------------------------------------------------------------------------------------------------------ avvio / arresto
     def start(self) -> str:
-        if self.is_processing:
-            return RUNNING
-        if len(self.queue) == 0:
-            return EMPTY
-        self.completed_count = 0
-        self.error_count = 0
-        self.errors_shown = 0
-        self.model_name = None
-        self._final_elapsed = None
-        self.last_error = ''
-        self.last_steps = None
-        self.last_progress = 0
-        self.proc_start_time = time.time()
-        self._engine = self._engine_factory(self)
-        self.bus.publish('processing_started', self.counts()['all'])
-        self._thread = threading.Thread(target=self._run, name='tpweb-queue', daemon=True)
-        self._thread.start()
-        return OK
+        """Avvio atomico rispetto agli strumenti: il controllo dei flag e la nascita del thread avvengono sotto lo stesso lucchetto."""
+        with self.gate.lock:
+            if self.is_processing:
+                return RUNNING
+            verdict = self.gate.queue_verdict(len(self.queue) > 0)
+            if verdict != OK:
+                return verdict
+            self.completed_count = 0
+            self.error_count = 0
+            self.errors_shown = 0
+            self.model_name = None
+            self._final_elapsed = None
+            self.last_error = ''
+            self.last_steps = None
+            self.last_progress = 0
+            self.proc_start_time = time.time()
+            self._engine = self._engine_factory(self)
+            self.bus.publish('processing_started', self.counts()['all'])
+            self._thread = threading.Thread(target=self._run, name='tpweb-queue', daemon=True)
+            self._thread.start()
+            return OK
 
     def _run(self) -> None:
         try:

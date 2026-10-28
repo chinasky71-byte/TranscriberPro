@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from core.services.tool_gate import START_BLOCKED_KEYS
 from tpweb.queue_backend import EMPTY, RUNNING, WebQueue
 
 
@@ -106,7 +107,10 @@ def add_queue_routes(app: FastAPI, wq: WebQueue) -> None:
     @app.post('/api/queue/start')
     async def start():
         verdict = wq.start()
-        return JSONResponse({'verdict': verdict}, status_code=409 if verdict == RUNNING else 200)
+        body = {'verdict': verdict}
+        if verdict in START_BLOCKED_KEYS:                    # il messaggio e' lo stesso della GUI: la pagina lo traduce con queste chiavi
+            body['title_key'], body['text_key'] = START_BLOCKED_KEYS[verdict]
+        return JSONResponse(body, status_code=409 if verdict == RUNNING or verdict in START_BLOCKED_KEYS else 200)
 
     @app.post('/api/queue/stop')
     async def stop():
