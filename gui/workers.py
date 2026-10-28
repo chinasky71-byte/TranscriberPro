@@ -92,16 +92,7 @@ class PosterLoaderWorker(QThread):
         self.is_cancelled = True
 
 
-def format_file_size(nbytes: float) -> str:
-    """500 → '500 B', 1536 → '2 KB', ... Stringa vuota per valori negativi."""
-    if nbytes < 0:
-        return ''
-    s = float(nbytes)
-    for unit in ('B', 'KB', 'MB', 'GB'):
-        if s < 1024:
-            return f'{s:.0f} {unit}'
-        s /= 1024
-    return f'{s:.1f} TB'
+from core.services.file_scan import format_file_size, iter_videos, size_text  # noqa: E402,F401  (nomi storici del modulo)
 
 
 class FileSizeWorker(QThread):
@@ -120,11 +111,7 @@ class FileSizeWorker(QThread):
 
     def run(self):
         for p in self._paths:
-            try:
-                size = format_file_size(Path(p).stat().st_size)
-            except Exception:
-                size = ''
-            self.size_ready.emit(p, size)
+            self.size_ready.emit(p, size_text(p))
 
 
 class FolderScanWorker(QThread):
@@ -149,20 +136,9 @@ class FolderScanWorker(QThread):
 
     def run(self):
         found = 0
-        try:
-            for f_path in Path(self._folder).rglob('*'):
-                if self._cancelled:
-                    break
-                if f_path.suffix.lower() not in self._exts:
-                    continue
-                try:
-                    size = format_file_size(f_path.stat().st_size)
-                except Exception:
-                    size = ''
-                found += 1
-                self.file_found.emit(str(f_path), size)
-        except Exception as e:
-            logger.warning(f"FolderScanWorker: errore scansione: {e}")
+        for f_path, size in iter_videos(self._folder, self._exts, lambda: self._cancelled):
+            found += 1
+            self.file_found.emit(f_path, size)
         self.scan_done.emit(found)
 
 

@@ -9,6 +9,7 @@ from PyQt6.QtCore import QTimer, Qt, QSize
 import psutil
 import time
 
+from core.services.resource_sampler import ResourceSampler
 from utils.translations import tr
 from gui.icons import svg_icon
 from gui.design_tokens import T
@@ -243,92 +244,31 @@ class ResourceMonitor(QWidget):
             self.timer = None
     
     def update_resources(self):
-        """Aggiorna valori risorse"""
-        try:
-            # CPU
-            cpu_percent = psutil.cpu_percent(interval=0.1)
-            self.cpu_bar.setValue(int(cpu_percent))
-            self.cpu_value_label.setText(f"{cpu_percent:.1f}%")
-            
-            # RAM
-            ram = psutil.virtual_memory()
-            ram_percent = ram.percent
-            self.ram_bar.setValue(int(ram_percent))
-            self.ram_value_label.setText(f"{ram_percent:.1f}%")
-            
-            # GPU e VRAM (se disponibile)
-            if self.gpu_initialized and self.gpu_handle:
-                try:
-                    # GPU utilization
-                    gpu_util = pynvml.nvmlDeviceGetUtilizationRates(self.gpu_handle)
-                    gpu_percent = gpu_util.gpu
-                    self.gpu_bar.setValue(int(gpu_percent))
-                    self.gpu_value_label.setText(f"{gpu_percent}%")
-                    
-                    # VRAM
-                    vram_info = pynvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
-                    vram_percent = (vram_info.used / vram_info.total) * 100
-                    self.vram_bar.setValue(int(vram_percent))
-                    vram_used_gb = vram_info.used / (1024**3)
-                    vram_total_gb = vram_info.total / (1024**3)
-                    self.vram_value_label.setText(f"{vram_used_gb:.1f}GB")
-                    
-                except Exception as e:
-                    pass
-            
-            # Network speed
-            self._update_network_speed()
-        
-        except Exception as e:
-            pass
-    
-    def _update_network_speed(self):
-        """Aggiorna velocità rete"""
-        try:
-            current_net_io = psutil.net_io_counters()
-            current_time = time.time()
-            
-            if self.last_net_io is not None and self.last_update_time is not None:
-                # Calcola tempo trascorso
-                time_delta = current_time - self.last_update_time
-                
-                if time_delta > 0:
-                    # Calcola bytes trasferiti
-                    bytes_sent = current_net_io.bytes_sent - self.last_net_io.bytes_sent
-                    bytes_recv = current_net_io.bytes_recv - self.last_net_io.bytes_recv
-                    
-                    # Converti in KB/s o MB/s
-                    upload_speed_kbs = (bytes_sent / time_delta) / 1024
-                    download_speed_kbs = (bytes_recv / time_delta) / 1024
-                    
-                    # Format e aggiorna labels
-                    if download_speed_kbs >= 1024:
-                        self.download_label.setText(f"{download_speed_kbs / 1024:.2f} MB/s")
-                        self._set_speed_color(self.download_label, T.success)
-                    elif download_speed_kbs > 0.1:
-                        self.download_label.setText(f"{download_speed_kbs:.1f} KB/s")
-                        self._set_speed_color(self.download_label, T.success)
-                    else:
-                        self.download_label.setText("0.0 KB/s")
-                        self._set_speed_color(self.download_label, T.fg_4)
+        """Aggiorna valori risorse (il campionamento e' di core/services/resource_sampler.py, senza Qt)"""
+        gpu_on = self.gpu_initialized and self.gpu_handle
+        sampler = ResourceSampler(psutil, pynvml if gpu_on else None, self.gpu_handle if gpu_on else None, time.time)
+        sampler.last_net_io, sampler.last_update_time = self.last_net_io, self.last_update_time
+        s = sampler.sample()
+        self.last_net_io, self.last_update_time = sampler.last_net_io, sampler.last_update_time
+        if s.cpu is not None:
+            self.cpu_bar.setValue(int(s.cpu))
+            self.cpu_value_label.setText(f"{s.cpu:.1f}%")
+        if s.ram is not None:
+            self.ram_bar.setValue(int(s.ram))
+            self.ram_value_label.setText(f"{s.ram:.1f}%")
+        if s.gpu is not None:
+            self.gpu_bar.setValue(int(s.gpu))
+            self.gpu_value_label.setText(f"{s.gpu}%")
+        if s.vram_percent is not None:
+            self.vram_bar.setValue(int(s.vram_percent))
+            self.vram_value_label.setText(f"{s.vram_used_gb:.1f}GB")
+        if s.down is not None:
+            self.download_label.setText(s.down[0])
+            self._set_speed_color(self.download_label, T.success if s.down[1] else T.fg_4)
+        if s.up is not None:
+            self.upload_label.setText(s.up[0])
+            self._set_speed_color(self.upload_label, T.warn if s.up[1] else T.fg_4)
 
-                    if upload_speed_kbs >= 1024:
-                        self.upload_label.setText(f"{upload_speed_kbs / 1024:.2f} MB/s")
-                        self._set_speed_color(self.upload_label, T.warn)
-                    elif upload_speed_kbs > 0.1:
-                        self.upload_label.setText(f"{upload_speed_kbs:.1f} KB/s")
-                        self._set_speed_color(self.upload_label, T.warn)
-                    else:
-                        self.upload_label.setText("0.0 KB/s")
-                        self._set_speed_color(self.upload_label, T.fg_4)
-            
-            # Aggiorna valori per prossimo ciclo
-            self.last_net_io = current_net_io
-            self.last_update_time = current_time
-            
-        except Exception as e:
-            pass
-    
     def __del__(self):
         """Cleanup"""
         if self.gpu_initialized:

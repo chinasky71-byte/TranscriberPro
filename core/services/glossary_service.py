@@ -168,3 +168,32 @@ def save_terms(tmdb_id, new_terms: Dict[str, str], episodes_used: Sequence) -> P
     if episodes_used:
         mark_used(tmdb_id, episodes_used)
     return path
+
+
+def resolve_tmdb(candidates: Sequence[str]):
+    """(risultato TMDB o None, candidato usato o None). Prova i candidati in ordine e si ferma al primo che risolve.
+
+    Una cartella "Season N" non deve mai arrivare a search_tv: parse_filename la degrada a "Season" e search_tv restituisce comunque il
+    primo risultato di qualcosa, cioe' un tmdb_id sbagliato scritto in silenzio nel glossario (bug reale). Puo' impiegare decine di secondi
+    (piu' varianti del titolo, timeout 10 s ciascuna, piu' i ripieghi IMDb/OMDb): mai sul thread dell'interfaccia."""
+    result = used = None
+    try:
+        from utils.tmdb_client import get_tmdb_client
+        client = get_tmdb_client()
+        tried = set()
+        for cand in [c for c in candidates if c and c.strip()]:
+            if SEASON_DIR_RE.match(cand.strip()):
+                continue
+            # Stessa pulizia usata per le locandine (get_media_info): punti/underscore, tag release group, risoluzione.
+            parsed = client.parse_filename(cand)
+            clean = (parsed.get('title') or cand).strip()
+            if not clean or clean.lower() in tried:
+                continue
+            tried.add(clean.lower())
+            r = client.search_tv(clean, year=parsed.get('year'))
+            if r and r.get('id'):
+                result, used = r, clean
+                break
+    except Exception as e:
+        logger.warning(f"Ricerca TMDB fallita: {e}")
+    return result, used

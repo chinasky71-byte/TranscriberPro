@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><title>P1 prototipo</title>
+<style>
+ body{font:14px system-ui,sans-serif;margin:16px;background:#0f1419;color:#d7dde4}
+ #drop{border:2px dashed #3cc1e0;border-radius:8px;padding:24px;text-align:center;margin-bottom:12px}
+ #drop.over{background:#16303a}
+ #log{height:240px;overflow:auto;background:#0b0f13;border:1px solid #26303a;padding:6px;font:12px ui-monospace,monospace;white-space:pre}
+ button{margin:4px 4px 4px 0}
+ pre#out{background:#0b0f13;padding:8px;border:1px solid #26303a;max-height:200px;overflow:auto}
+</style></head><body>
+<h3>P1 – prototipo Transcriber Pro (web)</h3>
+<div id="drop">Trascina qui file dal Esplora risorse</div>
+<button id="pickFiles">Scegli file (dialogo nativo)</button>
+<button id="pickFolder">Scegli cartella (dialogo nativo)</button>
+<div id="log"></div>
+<pre id="out"></pre>
+<script>
+const MAXLINES = 5000;
+const logEl = document.getElementById('log');
+const out = document.getElementById('out');
+const R = {lines:0, msgs:0, batches:0, lat:[], longtasks:[], done:false, drops:[], dialogs:[]};
+window.__result = null;
+function show(){ out.textContent = JSON.stringify({lines:R.lines, msgs:R.msgs, batches:R.batches, done:R.done, drops:R.drops, dialogs:R.dialogs}, null, 1); }
+try { new PerformanceObserver(l => l.getEntries().forEach(e => R.longtasks.push(e.duration))).observe({entryTypes:['longtask']}); } catch(e) {}
+const es = new EventSource('/events');
+es.onmessage = ev => {
+  const recv = Date.now()/1000;
+  const b = JSON.parse(ev.data);
+  R.batches++;
+  const frag = document.createDocumentFragment();
+  for (const m of b.msgs) {
+    R.msgs++;
+    R.lat.push((recv - m.t) * 1000);
+    if (m.k === 'log') {
+      R.lines++;
+      const d = document.createElement('div'); d.textContent = m.text; frag.appendChild(d);
+    } else if (m.k === 'done') {
+      R.done = true;
+    }
+  }
+  logEl.appendChild(frag);
+  while (logEl.childElementCount > MAXLINES) logEl.removeChild(logEl.firstChild);
+  logEl.scrollTop = logEl.scrollHeight;
+  if (R.done) finish(); else if (R.batches % 10 === 0) show();
+};
+function pct(a, p){ if(!a.length) return null; const s=[...a].sort((x,y)=>x-y); return s[Math.min(s.length-1, Math.floor(p*s.length))]; }
+function finish(){
+  const sum = a => a.reduce((x,y)=>x+y,0);
+  window.__result = {
+    lines: R.lines, msgs: R.msgs, batches: R.batches, domLines: logEl.childElementCount,
+    latency_ms: {avg: sum(R.lat)/Math.max(R.lat.length,1), p50: pct(R.lat,.5), p95: pct(R.lat,.95), max: Math.max(...R.lat)},
+    longtasks: {count: R.longtasks.length, max_ms: R.longtasks.length? Math.max(...R.longtasks):0, total_ms: sum(R.longtasks)},
+  };
+  show();
+}
+// ---- trascinamento: un browser normale NON espone il percorso; una shell nativa potrebbe farlo
+const drop = document.getElementById('drop');
+['dragenter','dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave','drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => {
+  const files = [...(e.dataTransfer?.files || [])].map(f => ({name: f.name, size: f.size, path: f.path || null, fullPath: f.pywebviewFullPath || null}));
+  R.drops.push({n: files.length, files, types: [...(e.dataTransfer?.types || [])]});
+  show();
+});
+async function dlg(kind){
+  if (window.pywebview && window.pywebview.api && window.pywebview.api[kind]) {
+    const r = await window.pywebview.api[kind]();
+    R.dialogs.push({kind, result: r});
+  } else {
+    R.dialogs.push({kind, result: 'nessuna shell nativa: ponte JS assente'});
+  }
+  show();
+}
+document.getElementById('pickFiles').onclick = () => dlg('pick_files');
+document.getElementById('pickFolder').onclick = () => dlg('pick_folder');
+show();
+</script></body></html>
