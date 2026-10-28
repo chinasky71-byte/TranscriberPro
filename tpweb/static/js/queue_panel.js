@@ -1,5 +1,6 @@
 import { html, useState, useRef, useLayoutEffect } from '/static/js/lib.js';
 import { t } from '/static/js/i18n.js';
+import { ScannerCard } from '/static/js/scanner.js';
 import { Icon } from '/static/js/icon.js';
 import { useStore, setUi, getState, refreshQueue, loadPreview, addPaths, addFolder, removePaths, startQueue, stopQueue, clearQueue, setShutdown, openSettings } from '/static/js/store.js';
 import { Confirm, FileBrowser } from '/static/js/modals.js';
@@ -201,10 +202,7 @@ export function QueuePanel() {
       <button class="btn btn-primary" data-testid="add-folder" onClick=${() => setModal('folder')}><${Icon} name="folder" size=${14} class="ico-muted" />${t('add_folder')}</button>
       <button class="btn btn-primary" data-testid="clear" disabled=${running} onClick=${() => clearQueue()}><${Icon} name="trash" size=${14} class="ico-muted" />${t('clear_queue')}</button>
     </div>
-    <div class="scanner-card" data-testid="scanner-card">
-      <span class="scanner-title">Library Scanner</span><span class="scanner-state">${t('web_scanner_idle')}</span>
-      <span class="status-dot-grey"></span><${Icon} name="chevRight" size=${14} class="ico-muted" />
-    </div>
+    <${ScannerCard} />
     <div class="btn-row">
       <button class="btn btn-start" data-testid="start" disabled=${running || total === 0} onClick=${() => startQueue()}><${Icon} name="play" size=${15} />${t('start')}</button>
       <button class="btn btn-stop" data-testid="stop" disabled=${!running} onClick=${() => setModal('stop')}><${Icon} name="stop" size=${15} />${t('stop')}</button>

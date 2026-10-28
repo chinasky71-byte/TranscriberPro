@@ -17,6 +17,7 @@ let state = {
   ui: { filter: 'all', selected: [], anchor: null, current: null, tab: 'queue', scannerOpen: false, settings: null, tool: null },
   message: null,
   env: {},
+  libraryTick: 0,
   tools: { sync: { status: 'idle', run_id: 0, mode: null, progress: 0, rows_rt: {}, outcome: null, output_path: null, errors: [], log: [], plan: { rows: [], srt_files: [], runnable: 0, summary: { ready: 0, check: 0, nosrt: 0, left: 0 }, dirs: { video_dir: '', srt_dir: '', recursive: false } } },
     glossary: { status: 'idle', log: [], report: null, error: null, gate: null, venv_available: true, phase: '', done: 0, total: 0, msg: '', run_info: null } },
   log: [],                                   // {id, text, kind}: le righe le decide il server (filtro, barre sul posto, colori)
@@ -124,6 +125,7 @@ function onMessages(msgs) {
         setState({ tools: { ...state.tools, sync: { ...state.tools.sync, log: cur.slice(-2000) } } });
         break;
       }
+      case 'library_changed': setState({ libraryTick: state.libraryTick + 1 }); break;
       case 'env_line': setState({ env: { ...state.env, [m.d.job]: { ...state.env[m.d.job], running: true, lines: [...((state.env[m.d.job] || {}).lines || []), m.d.line].slice(-50), last_line: m.d.line } } }); break;
       case 'env_done': setState({ env: { ...state.env, [m.d.job]: { ...state.env[m.d.job], running: false, exit_code: m.d.exit_code, last_line: m.d.last_line } } }); break;
       case 'scan_finished': selectLast(); structural = true; break;
