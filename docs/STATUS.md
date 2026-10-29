@@ -22,7 +22,13 @@ nothing reads).
   9.17%) and does expose token-level timestamps, but it would cost a second
   transformers version in the product for a phase that is 40 s of a 5-minute run,
   so ADR-008 stands —
-  `docs/benchmarks/2026-10-26-asr-reference-clip-a.md`.
+  `docs/benchmarks/2026-10-26-asr-reference-clip-a.md`. Round 9 of the same file
+  measures NVIDIA's speech-LLM (Nemotron 3.5 Transcribe 30B): from audio alone it
+  reaches chrF 74.5 with the best length control of any engine (1.075×) in 24 s per
+  10 minutes, but it emits **no timestamps** for its own translation, and every
+  workaround (CTC times, per-cue slicing, post-hoc alignment) costs coverage or
+  quality. It is the closest thing to a one-stage engine we have measured, and it
+  needs an aligner the repository does not have.
 - **Translation**: **TranslateGemma-12B GGUF on llama.cpp only**, English →
   Italian (ADR-009). The GGUF file is resolved from `llm_translator_gguf_dir`
   and `llm_translator_gguf_quant` (`Q4_K_M` by default; `Q3_K_M`/`IQ3_M` as

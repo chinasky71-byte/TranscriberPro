@@ -27,6 +27,46 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-28 — Nemotron 3.5 Transcribe 30B (SALM): the best audio→Italian, no timings
+
+- Branch / commits: `docs/nemotron-transcribe-round9`.
+- Goal: NVIDIA's speech-LLM is the only candidate that could collapse ASR and
+  translation into one stage. Round 9 measures it on clip A against the same
+  professional Italian reference as rounds 1-8.
+- Done (files, commands): round 9 appended to
+  `docs/benchmarks/2026-10-26-asr-reference-clip-a.md`. Environment built for the
+  test, outside the repository: NeMo-Speech.cpp `66d50d9` (llama.cpp `bd4f514`),
+  preset `vulkan-speech -DNEMO_SPEECH_BUILD_SPEECHLM=ON`, apt deps
+  (`libvulkan-dev glslc spirv-headers libsentencepiece-dev pkg-config`) plus
+  CMake/Ninja from pip, weights `AD-Q2_0_M` + `Encoder-F16` (14.2 GiB) from a
+  third-party GGUF of `nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B`.
+- Tests and results: **N** (`--translate-to it`, whole audio) gives Italian from
+  audio at **chrF 74.5**, length **1.075x** (best of every engine tried), in
+  **24.3 s per 10 minutes** — against 76.9 chrF and ~3 minutes for the 12B
+  translating a professional English subtitle. But **no timestamps**: `words: []`,
+  and the tool rejects `--word-times` with `--translate-to` because the CTC head is
+  trained on transcription. Forcing them via the card's canonical instruction (row
+  B) gives timed Italian with **coverage 80%** and fragmented cues; qwen3 cues plus
+  per-cue audio translation (row D) restores coverage to 96% but drops chrF to 72.7,
+  length to 1.20x and costs **8.4 min per 10 min** (2.8 s/cue, model reload each
+  call). Post-hoc alignment of N's Italian onto VAD spans covers only 56 of 104
+  professional cues. VRAM measured at **15.25 GiB of 15.92 (96%)**, peak 15.77 with
+  the desktop. `AD-IQ4_NL` cannot load: the SALM loader hardcodes
+  `n_gpu_layers = 999 or 0`, and a local fork (NGL override + CPU in the device
+  list) is what makes it load — out of scope.
+- Decisions / ADRs: **ADR-008 and ADR-009 stand**. N is the best audio→Italian
+  engine measured, but a subtitle needs words on a timeline and none of the three
+  workarounds closes that gap; the missing component is a forced aligner for the
+  translated text, which the repository does not have since ADR-009 removed the
+  matching stage of the synchroniser.
+- Known issues: the round's N figure is text-level (no cues to window) while B and D
+  are windowed, so they are comparable in direction, not exactly; the two plain
+  transcription rows are measured against the **English** reference, not the
+  Italian one. Build and weights stay outside the repository (scratch dir).
+- Next step: nothing on this model family unless it emits word times for its own
+  translation; the next practical work is the glossary for rare terms and replacing
+  the broken Italian sidecars on the `Our Oceans` season.
+
 ## 2026-10-28 — Nemotron 3.5 ASR streaming tried against the ASR reference
 
 - Branch / commits: `docs/nemotron-asr-round8`.
