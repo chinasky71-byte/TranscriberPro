@@ -27,6 +27,40 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-28 — Nemotron 3.5 ASR streaming tried against the ASR reference
+
+- Branch / commits: `docs/nemotron-asr-round8`.
+- Goal: NVIDIA published two streaming ASR models with open weights
+  (`nemotron-speech-streaming-en-0.6b`, English-only, and
+  `nemotron-3.5-asr-streaming-0.6b`, multilingual). Round 8 of the ASR reference
+  evaluation asks whether either can replace Qwen3-ASR (ADR-008).
+- Done (files, commands): round 8 appended to
+  `docs/benchmarks/2026-10-26-asr-reference-clip-a.md`, with the table of both
+  models across chunk sizes, on **clip A** and with the same reference and the
+  same exclusions as rounds 1-7 (135 cues -> 129, 709 words), so the numbers sit
+  next to the qwen3 baseline. Test environment: `transformers>=5.13` with
+  `AutoModelForRNNT` in a separate venv with CPU-only torch, because the product
+  venv is pinned at transformers 4.57 and was not touched.
+- Tests and results: English-only model **10.58% WER / chrF 0.931** at 15 s
+  chunks (674 of 709 words), against **9.17% / 0.944** for qwen3 on the same
+  clip; multilingual model 15.94% at 60 s and **51.76% at 240 s**, where it drops
+  half the audio. CPU speed ~16x realtime (36 s for 10 minutes) against 41.5 s of
+  GPU for qwen3.
+- Decisions / ADRs: none changed — **ADR-008 stands**. The English-only model is
+  the closest competitor so far (1.4 WER points behind with a third of the
+  parameters) but it is not a replacement: it returns no cue timestamps in the
+  transformers API (only a per-token `durations` tensor), so it cannot feed the
+  subtitle blocks, and the ASR phase is not the bottleneck (40 s against ~4
+  minutes of translation). Recorded in the round: the large-chunk collapse and
+  that removing fillers *worsens* the WER because the reference keeps them.
+- Known issues: the comparison is text-level, not windowed, because the models
+  emit no cues; qwen3's figure comes from the pipeline (cleanup, watermark
+  removed) while the Nemotron figures are raw model output, so the gap is
+  directionally solid but not measured with identical post-processing. The
+  weights stay outside the repository.
+- Next step: none on the ASR side. If a future model returns word timestamps at
+  0.6B, it becomes worth a second look; otherwise Qwen3-ASR stays.
+
 ## 2026-10-28 — Translation engine campaign: compendium and harness
 
 - Branch / commits: `docs/translation-engine-compendium`.
