@@ -390,6 +390,122 @@ compared text inside 10-second windows.
   if that day comes.
 
 
+## Round 9 — NVIDIA Nemotron 3.5 Transcribe 30B-A4B, the speech-LLM (2026-10-28)
+
+The third NVIDIA model of the day is a different animal: a **SALM**
+(speech-augmented language model), 30B MoE with 4B active, an audio encoder plus a
+speaker encoder, which transcribes **and translates speech itself**. It is the only
+candidate that could collapse ASR and translation into one stage, so it was tested
+on clip A against the same Italian professional reference as rounds 1-8.
+
+- weights: `nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B`, run from a third-party
+  GGUF (`AtomicChat/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-GGUF`), because the
+  BF16 checkpoint is 62.9 GiB
+- decoder `AD-Q2_0_M` (12.64 GiB) + `Encoder-F16` (1.56 GiB, required next to it)
+- runtime: **NeMo-Speech.cpp** `66d50d9` (llama.cpp `bd4f514`), preset
+  `vulkan-speech` **plus `-DNEMO_SPEECH_BUILD_SPEECHLM=ON`** — without that flag the
+  SALM component is not built and the tool refuses the model
+- build needs: `libvulkan-dev glslc spirv-headers libsentencepiece-dev pkg-config`
+  (apt), CMake ≥3.26 and Ninja (pip is enough). No ROCm/HIP backend exists; Vulkan
+  is the AMD path
+- licence: OpenMDW-1.1
+
+### VRAM, measured (not estimated)
+
+Sampled from `mem_info_vram_used` every 0.5 s during a 10-minute run:
+
+| | GiB |
+|---|---|
+| baseline (desktop) | 0.52 |
+| **peak with the model** | **15.77** |
+| attributable to the model | **15.25** (96% of the 15.92 GiB card) |
+
+Breakdown: 12.64 decoder + 1.56 encoder + ~1.05 KV cache and compute buffers at the
+defaults (`slots=16`, `n_batch=2048`). It runs, with ~0.15 GiB of headroom: any other
+GPU user would push it over. The card's own "16 GB GPU" settings
+(`--asr.salm.max_sequences 2 --asr.salm.n_batch 512 --asr.salm.encoder_max_batch 2`)
+were **not** used here.
+
+### The tests
+
+All on clip A (10 minutes), reference = track 22, italic cues excluded.
+
+| configuration | output | chrF | coverage | length | 10-min wall |
+|---|---|---|---|---|---|
+| **N** `--translate-to it`, whole audio | Italian, **no timings** | **74.5**¹ | — | **1.075×** | **24.3 s** |
+| B `--instruction` + `--word-times -f srt` | Italian **with timings** | 74.7² | **80%** | — | 25.1 s |
+| D qwen3 cues + per-cue audio translation | Italian per cue | 72.7² | **96%** | 1.20× | **8.4 min** |
+| plain transcription `-f srt --word-times` | English with timings | 0.945³ | 76.9% | — | 24.9 s |
+| plain transcription, text only | English | WER 12.41%³ | — | 721/709 words | 24.3 s |
+
+¹ text-level comparison (no cues to window), ² windowed as in rounds 1-8,
+³ the reference for these two rows is the **English** track.
+
+### N is the best audio→Italian engine measured today, and it has no timings
+
+`--translate-to it` on the whole file gives, from **audio alone**, an Italian text
+that is 2.4 chrF points below the 12B translating a **professional English
+subtitle** (74.5 vs 76.9 on the same 10 minutes), in **24 seconds instead of ~3
+minutes**, with the best length control of every engine tried (1.075× the
+reference, against 1.12-1.20× for the rest).
+
+What it does not give is any timestamp: `--format json` returns `words: []`, and the
+tool rejects `--word-times` together with `--translate-to` — explicitly, because the
+CTC head that produces word times is trained on **transcription**. Forcing the times
+through an instruction (row B) confirms the reason:
+
+- with the canonical instruction from the model card — `Please translate the given
+  speech to Italian.` — the model does translate and does emit times, but they come
+  from the CTC alignment of the **English** transcript against audio that is being
+  rendered in Italian: cues fragment (`"Io"`, `"lavoro come falegname."` as separate
+  cues), 16 gaps longer than 4 s swallow real dialogue, and **coverage drops to 80%**
+  against qwen3's 96%;
+- with a longer, well-meant instruction ("Translate the English speech into natural
+  spoken Italian, one subtitle per line, no explanations.") the model **ignores the
+  task and transcribes in English** (chrF 31.5). The card's phrasing is not a
+  suggestion, it is the interface.
+
+### Why the two-pass workaround does not rescue it
+
+Giving N the times from qwen3 and translating **the audio of each cue** (row D) does
+restore coverage to 96% — the timing half of the idea works — but slicing speech into
+2-second pieces costs context: chrF falls to 72.7 and the output grows to 1.20× the
+reference, with 11 empty cues. And the cost is brutal: **2.8 s per cue** (each call
+reloads 12.6 GiB from disk), i.e. ~8.4 minutes per 10 minutes of audio, ~45 minutes
+per episode against the current ~8.
+
+Post-hoc alignment of N's Italian onto the audio was tried too (monotonic
+sentence↔VAD-span mapping, no GPU): 125 sentences, 104 VAD spans, but the VAD finds
+**198 s of speech in 600** on this quiet material and only 56 of the 104 professional
+cues end up covered. Where it places, it places well (median +0.50 s, p90 +1.55 s,
+98% within ±2 s) — but covering half the material is not a solution, it is the
+signature of a missing aligner.
+
+### Offload: not available, and the arithmetic is against it anyway
+
+`AD-IQ4_NL` (18.33 GiB, the quantization the GGUF card recommends for Vulkan) cannot
+load: `radv/amdgpu: Not enough memory`, Vulkan device lost. The SALM loader hardcodes
+`mp.n_gpu_layers = cfg.gpu >= 0 ? 999 : 0` — all on the GPU or all on the CPU — and
+exposes no per-tensor override for the experts. A local patch (`NEMO_SALM_NGL` mapped
+to `n_gpu_layers`, plus the CPU device added to the model's device list) makes IQ4
+load and translate at NGL=40/45, but that is a **fork of the runtime**, not a
+configuration: out of scope for the product.
+
+### Verdict
+
+- **N** stays as the reference for "what an audio→Italian model can do": 74.5 chrF,
+  1.075×, 24 s. It is the one result of the day that beats the current pipeline on
+  speed with comparable quality.
+- It is **not adoptable**: a subtitle needs words placed on a timeline, its own
+  timeline is unreliable (80% coverage), and none of the three workarounds (row B,
+  row D, post-hoc alignment) closes the gap. The missing component is a real forced
+  aligner for the **translated** text, which this repository does not have — ADR-009
+  removed the matching stage of the synchroniser.
+- **ADR-008 and ADR-009 stand.** If a future model of this family emits word times
+  for its own translation, or if an aligner lands in the repo, this round is the
+  measurement to compare against.
+
+
 ## Next
 
 - Round 3: clip C (40:00–50:00), the tie-break with the same two variants.
