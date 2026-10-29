@@ -336,10 +336,14 @@ Runtime: `transformers>=5.13` with `AutoModelForRNNT` and `AutoProcessor`
 touched: the test ran in a separate venv with CPU-only torch, which is also why
 the timings below are CPU timings.
 
-The models have no cue output: `generate()` returns text plus a `durations`
-tensor (per emitted token), so the comparison is **text-level** — WER and chrF on
-the whole clip text, not windowed. That is also the reason they cannot drive the
-pipeline as they come: qwen3 provides word timestamps through its own aligner.
+**Timestamps: available, and finer than the pipeline needs.** `generate()` returns
+text plus a `durations` tensor; `processor.decode(sequences, durations=...)`
+converts it into token-level `{token, start, end}` in **seconds** at 80 ms
+granularity, following NeMo's `compute_rnnt_timestamps`. Verified on the first
+minute of clip A (`'Yes' 0.48 -> 0.56`, `'Mother' 1.44 -> 1.52`, ...,
+`'Lizzie' 59.76 -> 60.00`). So cue building is possible; the metrics below are
+text-level only because that is what makes them comparable with rounds 1-7, which
+compared text inside 10-second windows.
 
 | Model | chunk | WER | chrF | words produced | time (CPU) |
 |---|---|---|---|---|---|
@@ -369,10 +373,21 @@ pipeline as they come: qwen3 provides word timestamps through its own aligner.
 - **The verbatim hypothesis is wrong**: removing fillers (`um`, `uh`) from the
   hypothesis *worsens* the WER (10.58% → 11.00%), because the professional
   reference keeps them. Verbatim transcription is correct here.
-- **Verdict: not a replacement.** 1.4 WER points against a third of the
-  parameters is a good result, but it buys nothing in this pipeline: the ASR
-  phase is ~40 s per episode against ~4 minutes of translation, and the missing
-  cue timestamps mean it cannot drive the subtitle blocks at all. ADR-008 stands.
+- **Verdict: not a replacement, and the reason is accuracy, not timestamps.** A
+  correction to an earlier reading of this round: the models *do* expose
+  token-level timestamps in seconds (see above), so a new engine could be
+  written. What it would buy is nothing, and what it would cost is real:
+  +1.4 WER points (about 10 more word errors per 10-minute clip), a second
+  transformers version in the product (5.13 against the pinned 4.57 of ADR-007,
+  either an upgrade to re-verify or a subprocess with its own venv, the pattern
+  already used for the spaCy gender selector), and a new engine module with cue
+  building and language detection. The ASR phase is ~40 s of a run whose
+  translation is ~4 minutes, and the two phases never share VRAM, so a 4x faster
+  engine saves ~30 s and costs accuracy. ADR-008 stands.
+- **When it would become the right trade**: on a host where the ASR is the
+  bottleneck — many files, no GPU for ASR, or a CPU-only install. At 0.6B and
+  ~16x realtime on CPU with timestamps available, it is the documented fallback
+  if that day comes.
 
 
 ## Next

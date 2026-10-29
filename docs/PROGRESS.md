@@ -46,17 +46,26 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
   clip; multilingual model 15.94% at 60 s and **51.76% at 240 s**, where it drops
   half the audio. CPU speed ~16x realtime (36 s for 10 minutes) against 41.5 s of
   GPU for qwen3.
-- Decisions / ADRs: none changed — **ADR-008 stands**. The English-only model is
-  the closest competitor so far (1.4 WER points behind with a third of the
-  parameters) but it is not a replacement: it returns no cue timestamps in the
-  transformers API (only a per-token `durations` tensor), so it cannot feed the
-  subtitle blocks, and the ASR phase is not the bottleneck (40 s against ~4
-  minutes of translation). Recorded in the round: the large-chunk collapse and
-  that removing fillers *worsens* the WER because the reference keeps them.
-- Known issues: the comparison is text-level, not windowed, because the models
-  emit no cues; qwen3's figure comes from the pipeline (cleanup, watermark
-  removed) while the Nemotron figures are raw model output, so the gap is
-  directionally solid but not measured with identical post-processing. The
+- Decisions / ADRs: none changed — **ADR-008 stands**, but for accuracy rather
+  than for timestamps. An earlier reading of this round said the models return no
+  cue timestamps; that was wrong: `processor.decode(sequences, durations=...)`
+  yields token-level `{token, start, end}` in seconds at 80 ms granularity
+  (verified on clip A). The English-only model is therefore technically
+  integrable; what it costs is +1.4 WER points (~10 more word errors per
+  10 minutes), a second transformers version in the product (5.13 against the
+  pinned 4.57, either re-verify the venv or use a subprocess with its own venv as
+  the spaCy gender selector does) and a new engine module with cue building and
+  language detection — for a phase that is 40 s of a run whose translation is
+  ~4 minutes and never shares VRAM with it. Recorded in the round: the
+  large-chunk collapse, that removing fillers *worsens* the WER because the
+  reference keeps them, and the condition under which this model becomes the
+  right trade (ASR-bound hosts: many files, no GPU for ASR).
+- Known issues: the comparison is text-level, not windowed, because rounds 1-7
+  compared text inside 10-second windows and that is what makes the figures
+  comparable; the models do emit token timestamps, so a windowed comparison is
+  possible in a future round. qwen3's figure comes from the pipeline (cleanup,
+  watermark removed) while the Nemotron figures are raw model output, so the gap
+  is directionally solid but not measured with identical post-processing. The
   weights stay outside the repository.
 - Next step: none on the ASR side. If a future model returns word timestamps at
   0.6B, it becomes worth a second look; otherwise Qwen3-ASR stays.

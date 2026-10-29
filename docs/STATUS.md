@@ -18,8 +18,10 @@ nothing reads).
   whisperx were removed; the VAD needed by the subtitle synchroniser is ours
   (`core/vad.py`, Silero on onnxruntime, vendored weights). NVIDIA's
   Nemotron 3.5 ASR streaming models were re-tested on the same reference clip in
-  round 8: the English-only 0.6B comes within 1.4 WER points but returns no cue
-  timestamps, so ADR-008 stands —
+  round 8: the English-only 0.6B comes within 1.4 WER points (10.58% against
+  9.17%) and does expose token-level timestamps, but it would cost a second
+  transformers version in the product for a phase that is 40 s of a 5-minute run,
+  so ADR-008 stands —
   `docs/benchmarks/2026-10-26-asr-reference-clip-a.md`.
 - **Translation**: **TranslateGemma-12B GGUF on llama.cpp only**, English →
   Italian (ADR-009). The GGUF file is resolved from `llm_translator_gguf_dir`
