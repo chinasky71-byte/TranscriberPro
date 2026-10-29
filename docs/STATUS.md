@@ -16,7 +16,11 @@ nothing reads).
   video end to end (Demucs, chunking, ASR, clean/format, translation, save).
 - **ASR**: **Qwen3-ASR only** (ADR-008): faster-whisper, Canary, ctranslate2 and
   whisperx were removed; the VAD needed by the subtitle synchroniser is ours
-  (`core/vad.py`, Silero on onnxruntime, vendored weights).
+  (`core/vad.py`, Silero on onnxruntime, vendored weights). NVIDIA's
+  Nemotron 3.5 ASR streaming models were re-tested on the same reference clip in
+  round 8: the English-only 0.6B comes within 1.4 WER points but returns no cue
+  timestamps, so ADR-008 stands —
+  `docs/benchmarks/2026-10-26-asr-reference-clip-a.md`.
 - **Translation**: **TranslateGemma-12B GGUF on llama.cpp only**, English →
   Italian (ADR-009). The GGUF file is resolved from `llm_translator_gguf_dir`
   and `llm_translator_gguf_quant` (`Q4_K_M` by default; `Q3_K_M`/`IQ3_M` as

@@ -319,6 +319,62 @@ that needs a second sample before it is called real.
 gets wrong, and the ASR now gets them right at the source, for free and without a
 second model in the loop.
 
+## Round 8 — NVIDIA Nemotron 3.5 ASR streaming (2026-10-28)
+
+NVIDIA released two streaming ASR models with open weights; both were tested on
+**clip A** with the same reference and the same exclusions as rounds 1-7 (135
+cues → 129 after dropping italic-only cues, 709 words), so the numbers are
+directly comparable with the qwen3 baseline above (**9.17% WER**, chrF 94.36).
+
+- `nvidia/nemotron-speech-streaming-en-0.6b` — English only, 0.6B
+- `nvidia/nemotron-3.5-asr-streaming-0.6b` — multilingual (19 transcription-ready
+  locales, Italian included), same size
+- licence `openmdw-1.1`, architecture Cache-Aware FastConformer-RNNT
+
+Runtime: `transformers>=5.13` with `AutoModelForRNNT` and `AutoProcessor`
+(**no NeMo**). The product venv is pinned at transformers 4.57 and was not
+touched: the test ran in a separate venv with CPU-only torch, which is also why
+the timings below are CPU timings.
+
+The models have no cue output: `generate()` returns text plus a `durations`
+tensor (per emitted token), so the comparison is **text-level** — WER and chrF on
+the whole clip text, not windowed. That is also the reason they cannot drive the
+pipeline as they come: qwen3 provides word timestamps through its own aligner.
+
+| Model | chunk | WER | chrF | words produced | time (CPU) |
+|---|---|---|---|---|---|
+| **qwen3** (current, rounds 1-7) | ~20 s (pipeline) | **9.17%** | **0.944** | — | 41.5 s (GPU) |
+| Nemotron EN 0.6B | **15 s** | **10.58%** | 0.931 | 674 / 709 | 36 s |
+| Nemotron EN 0.6B | 30 s | 11.00% | 0.929 | 668 | 35 s |
+| Nemotron EN 0.6B | 60 s | 13.26% | 0.93 | 687 | 37 s |
+| Nemotron EN 0.6B | 120 s | 14.39% | 0.92 | 689 | 30 s |
+| Nemotron multilingual | 10 s | 19.04% | 0.88 | 663 | 38 s |
+| Nemotron multilingual | 15 s | 17.35% | 0.89 | 664 | 36 s |
+| Nemotron multilingual | 30 s | 16.64% | 0.89 | 659 | 35 s |
+| Nemotron multilingual | 60 s | 15.94% | 0.90 | 666 | 37 s |
+| Nemotron multilingual | 120 s | 18.48% | 0.88 | 650 | 42 s |
+| Nemotron multilingual | 240 s | **51.76%** | 0.60 | **396 / 709** | 45 s |
+
+### What the round says
+
+- **The English-only model is the closest competitor qwen3 has met**: 1.4 WER
+  points behind at 15 s chunks, with **0.6B parameters against 1.7B + a 0.6B
+  aligner**, running on CPU at ~16x realtime.
+- **The multilingual variant is not usable here**: 6.8 points behind, and it
+  transcribes English worse than its English-only sibling, as NVIDIA's card says.
+- **A trap worth recording**: at 240 s chunks the multilingual model **drops half
+  the audio** (396 of 709 words, 51.76% WER). It is a cache-aware streaming
+  architecture with a 5000-frame position limit; anyone testing it "offline" on a
+  whole file would conclude it is broken. Its operating point is 15-60 s.
+- **The verbatim hypothesis is wrong**: removing fillers (`um`, `uh`) from the
+  hypothesis *worsens* the WER (10.58% → 11.00%), because the professional
+  reference keeps them. Verbatim transcription is correct here.
+- **Verdict: not a replacement.** 1.4 WER points against a third of the
+  parameters is a good result, but it buys nothing in this pipeline: the ASR
+  phase is ~40 s per episode against ~4 minutes of translation, and the missing
+  cue timestamps mean it cannot drive the subtitle blocks at all. ADR-008 stands.
+
+
 ## Next
 
 - Round 3: clip C (40:00–50:00), the tie-break with the same two variants.
