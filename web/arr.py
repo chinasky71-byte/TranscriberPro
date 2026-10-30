@@ -179,6 +179,23 @@ def _lookups(payload: Any) -> List[Dict[str, Any]]:
     return _dicts(payload)[:MAX_LOOKUPS]
 
 
+def _file_paths(server: Server, path: str, params: Dict[str, Any]) -> Dict[int, str]:
+    """`file id -> path` from `/episodefile` or `/moviefile`.
+
+    Sonarr 5.0's `/api/v3/episode?seriesId=` reports `hasFile` and
+    `episodeFileId` but **not** `episodeFile`, so the path of an episode file is
+    a second call (measured on the reference Sonarr, 2026-10-30). Older versions
+    inline the file in the episode row, which is still honoured first.
+    """
+    out: Dict[int, str] = {}
+    for row in _dicts(_api(server, path, params)):
+        file_id = row.get("id")
+        file_path = row.get("path")
+        if file_id is not None and file_path:
+            out[int(file_id)] = str(file_path)
+    return out
+
+
 def search(get: Callable[..., Any], term: str) -> SearchResult:
     """Search every configured server; returns groups ready for the template."""
     term = (term or "").strip()
@@ -213,6 +230,7 @@ def _series_group(server: Server, rules, roots, row: Dict[str, Any]) -> Group:
         group.items.append(Item(title, "not in the library yet", "", False, False,
                                 "add it in Sonarr so it has a file"))
         return group
+    files: Optional[Dict[int, str]] = None
     for episode in _dicts(_api(server, "/episode", {"seriesId": series_id})):
         if not episode.get("hasFile"):
             continue
@@ -221,8 +239,12 @@ def _series_group(server: Server, rules, roots, row: Dict[str, Any]) -> Group:
         code = (f"S{int(season):02d}E{int(number):02d}"
                 if season is not None and number is not None else "?")
         ep_title = episode.get("title") or ""
-        file_row = episode.get("episodeFile") or {}
-        path = file_row.get("path") or ""
+        path = (episode.get("episodeFile") or {}).get("path") or ""
+        if not path:
+            if files is None:                      # one call per series, not per episode
+                files = _file_paths(server, "/episodefile", {"seriesId": series_id})
+            file_id = episode.get("episodeFileId")
+            path = files.get(int(file_id), "") if file_id is not None else ""
         group.items.append(_item(rules, roots, code, ep_title, path))
     group.items.sort(key=lambda item: item.title)
     return group
@@ -240,6 +262,9 @@ def _movie_group(server: Server, rules, roots, row: Dict[str, Any]) -> Group:
     detail = _api(server, f"/movie/{movie_id}") or {}
     file_row = (detail.get("movieFile") if isinstance(detail, dict) else None) or {}
     path = file_row.get("path") or ""
+    if not path:
+        # Radarr can omit `movieFile` from the detail too: same fallback as episodes
+        path = next(iter(_file_paths(server, "/moviefile", {"movieId": movie_id}).values()), "")
     if not path:
         group.items.append(Item(title, "no file", "", False, False,
                                 "the movie has no file in Radarr"))

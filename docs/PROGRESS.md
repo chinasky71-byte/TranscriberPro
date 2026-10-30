@@ -27,6 +27,43 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-30 — Library search validated on a real Sonarr: the episode file is a second call
+
+- Branch / commits: `fix/webui-arr-episode-files`, merged `--no-ff` into
+  `development`.
+- Goal: the previous step was green only against fake servers. Point the search at
+  a real Sonarr (5.0.0.2635, 288 series) and see whether the pages are right.
+- Done (files, commands): `web/arr.py`: `_file_paths()` reads
+  `/api/v3/episodefile?seriesId=` (or `/moviefile?movieId=`) into a
+  `file id -> path` map, called **once per series**; `_series_group()` still
+  honours an inline `episodeFile` first, so Sonarr 3.x keeps working without the
+  extra call. `linux_tests/test_web_arr.py`: the fake Sonarr now models the real
+  shape (`hasFile` + `episodeFileId`, files behind `/episodefile`) and a second
+  test covers the older inline shape.
+- Tests and results: **724 passed, 15 skipped** (737+2 collected, 69 s). The new
+  test fails against the old `web/arr.py` (`allowed: False`, path `''`, reason
+  `no file on the server`) and passes after the fix — verified by stashing only
+  that file. Against the real library: "1923" 15/15 episodes resolved and
+  queueable, "Outlander: Blood of My Blood" 13 episodes with 10 already
+  subtitled and 3 missing, "1983"/"1943" reported as not in the library.
+  Measured cause: Sonarr 5.0's `/api/v3/episode?seriesId=` returns `hasFile` and
+  `episodeFileId` but **no** `episodeFile` object, so before this fix every
+  episode became `no file on the server`, `Group.missing` was empty and the
+  "Queue the N missing" button could never appear. The fake server had invented
+  the field, which is exactly the class of gap a fake server cannot close.
+- Decisions / ADRs: no new ADR. The fallback order (inline field first, then the
+  per-series file list) keeps one code path for both generations of the API, and
+  the extra call is per series, not per episode.
+- Known issues: Radarr's `movieFile` fallback is written but **unverified** — no
+  Radarr instance is configured. `arr_path_map` stays empty on the reference
+  machine because this Sonarr already reports local paths
+  (`/mnt/storage/tvshows/...`); the map is still needed for a containerised
+  server. The series search fans out over the first three lookup matches, and a
+  series with many episodes issues one `/episode` plus one `/episodefile` call.
+- Next step: queue one season from the WebUI and let the pipeline write the
+  subtitles, then re-open the same search and check that those episodes flip to
+  `sub ok`.
+
 ## 2026-10-30 — WebUI library search through Sonarr/Radarr
 
 - Branch / commits: `feat/webui-arr-search` — `3da25b7` (work in progress, tests
