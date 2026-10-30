@@ -27,12 +27,19 @@ RADARR_KEY = "test-radarr-key"
 TV_PATH = "/tv/Show"
 MOVIE_PATH = "/movies/The Lost Leonardo (2021)"
 
+# Sonarr 5.0's `/episode?seriesId=` carries `hasFile` and `episodeFileId` but no
+# `episodeFile` object: the path is a second call, measured on a real instance.
 EPISODES = [
     {"seasonNumber": 1, "episodeNumber": 1, "title": "Providence", "hasFile": True,
-     "episodeFile": {"path": f"{TV_PATH}/S01E01.mkv"}},
+     "episodeFileId": 101},
     {"seasonNumber": 1, "episodeNumber": 2, "title": "S.W.A.K.", "hasFile": True,
-     "episodeFile": {"path": f"{TV_PATH}/S01E02.mkv"}},
+     "episodeFileId": 102},
     {"seasonNumber": 1, "episodeNumber": 3, "title": "No file yet", "hasFile": False},
+]
+
+EPISODE_FILES = [
+    {"id": 101, "seasonNumber": 1, "path": f"{TV_PATH}/S01E01.mkv"},
+    {"id": 102, "seasonNumber": 1, "path": f"{TV_PATH}/S01E02.mkv"},
 ]
 
 
@@ -62,15 +69,19 @@ class _Fake(BaseHTTPRequestHandler):
 
 class _Sonarr(_Fake):
     key = SONARR_KEY
+    episodes = EPISODES
 
     def do_GET(self):
         if not self._authorised():
             return
         if self.path.startswith("/api/v3/series/lookup"):
             self._send(200, [{"id": 7, "title": "Outlander - Blood of My Blood", "year": 2025}])
+        elif self.path.startswith("/api/v3/episodefile"):   # before /episode: prefix
+            assert "seriesId=7" in self.path
+            self._send(200, EPISODE_FILES)
         elif self.path.startswith("/api/v3/episode"):
             assert "seriesId=7" in self.path
-            self._send(200, EPISODES)
+            self._send(200, type(self).episodes)
         else:
             self._send(404, {})
 
@@ -264,3 +275,35 @@ def test_http_error_is_reported_without_the_key(servers):
     assert result.groups == []
     assert result.warnings and "401" in result.warnings[0]
     assert "wrong-key-abcdef" not in result.warnings[0]
+
+
+def test_episode_paths_come_from_the_episodefile_endpoint(servers):
+    """A real Sonarr 5.0 omits `episodeFile` from the episode list and keeps the
+    path in `/api/v3/episodefile`: reading only the episode row leaves every
+    episode "no file on the server" and the queue button never appears."""
+    cfg = {
+        "sonarr_url": servers["sonarr"], "sonarr_api_key": SONARR_KEY,
+        "allowed_media_roots": [str(servers["media"])],
+        "arr_path_map": servers["map"],
+    }
+    item = arr.search(_getter(cfg), "outlander").groups[0].items[0]
+    assert item.allowed is True
+    assert item.path == str(servers["ep1"])
+    assert item.reason == ""
+
+
+def test_an_older_sonarr_with_the_inline_episode_file_still_works(servers, monkeypatch):
+    """Sonarr 3.x inlines `episodeFile`; that shape must keep working, and it must
+    not cost a second call."""
+    monkeypatch.setattr(_Sonarr, "episodes", [
+        {"seasonNumber": 1, "episodeNumber": 1, "title": "Providence", "hasFile": True,
+         "episodeFile": {"path": f"{TV_PATH}/S01E01.mkv"}},
+    ])
+    cfg = {
+        "sonarr_url": servers["sonarr"], "sonarr_api_key": SONARR_KEY,
+        "allowed_media_roots": [str(servers["media"])],
+        "arr_path_map": servers["map"],
+    }
+    items = arr.search(_getter(cfg), "outlander").groups[0].items
+    assert [i.path for i in items] == [str(servers["ep1"])]
+    assert items[0].has_subtitle is True          # the .it.srt sidecar exists
