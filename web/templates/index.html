@@ -6,6 +6,19 @@
   </div>
 </section>
 
+{% if search_enabled %}
+<section class="card">
+  <h2>Search the library</h2>
+  <form id="search-form" class="row" hx-get="/ui/search" hx-target="#search-results"
+        hx-swap="innerHTML"
+        hx-trigger="submit, keyup changed delay:400ms from:input[name='term'], search-again">
+    <input name="term" placeholder="Series or film title, e.g. Outlander" autocomplete="off">
+    <button class="btn small" type="submit">Search</button>
+  </form>
+  <div id="search-results"></div>
+</section>
+{% endif %}
+
 <section class="card">
   <h2>Add to queue</h2>
   <form class="stack" hx-post="/ui/jobs" hx-target="#queue" hx-swap="innerHTML">

@@ -27,6 +27,84 @@ newest-first order, the rule stated in `AGENTS.md` and in this header).
 - Next step:
 ```
 
+## 2026-10-30 — WebUI library search through Sonarr/Radarr
+
+- Branch / commits: `feat/webui-arr-search` — `3da25b7` (work in progress, tests
+  hanging), resumed and finished here, merged `--no-ff` into `development`.
+- Goal: choosing what to transcribe should not mean walking the filesystem from
+  the browser. Sonarr and Radarr already know the library, so the queue page asks
+  them for a title, shows the episodes with their subtitle state and queues the
+  missing ones with one click. Optional and off by default: without URL and key
+  the box is not rendered and the file picker stays the only way in.
+- Done (files, commands):
+  - `web/arr.py` (new): `servers()` from `sonarr_url`/`sonarr_api_key` and
+    `radarr_url`/`radarr_api_key`; `search()` over `/api/v3/series/lookup` +
+    `/api/v3/episode?seriesId=` and `/api/v3/movie/lookup` + `/api/v3/movie/{id}`;
+    every server path mapped with `utils/path_map.to_local()` (`<server>=<local>`
+    rules, same as the Library Scanner), validated with `web/paths.py::is_allowed`
+    and annotated with `browse.has_subtitle()`. Returns `SearchResult(groups,
+    warnings)`: a server that does not answer becomes a warning, not a missing
+    panel. `MIN_TERM = 2` and `MAX_LOOKUPS = 3` bound the fan-out of a box that
+    fires while typing. Requests use an opener with an empty `ProxyHandler` — a
+    Sonarr on the LAN must not go through `http_proxy` — and only `http`/`https`
+    bases are ever used.
+  - `web/config_schema.py`: `as_url()` (empty = off; otherwise `http(s)` with a
+    host, so a `file://` URL cannot reach `urllib`) and `as_path_map()` (one
+    `<server>=<local>` rule per line or `;`-separated, invalid lines rejected
+    instead of silently dropped); the two API keys join `SECRET_CONFIG_KEYS`
+    (write-only).
+  - `utils/config.py`: `sonarr_url`, `sonarr_api_key`, `radarr_url`,
+    `radarr_api_key`, `arr_path_map`, all empty — the feature is off until
+    someone fills them in.
+  - `web/ui.py`: settings group "Library search (Sonarr / Radarr)" with a
+    `map` field kind (textarea), `GET /ui/search`, `_search_enabled()` computed
+    once per page instead of inside the 2-second queue poll.
+  - `web/templates/_search.html` (new) and `index.html`: results per series with
+    per-episode status and a "Queue the N missing" form that posts `paths` to the
+    existing `POST /ui/jobs`; the search box appears only when a server is
+    configured and re-runs after a queue to refresh the badges. `app.css`: the
+    results list was unstyled.
+  - `linux_tests/test_web_arr.py`: 12 tests with two fake servers (Sonarr and
+    Radarr on 127.0.0.1) plus the config contract; `linux_tests/test_web_ui.py`:
+    6 more (settings group, save/validate/never-echo, search box only when
+    configured, "not configured" message, dead server, minimum term).
+- Tests and results: `venv/bin/python -m pytest linux_tests -q` → **722 passed,
+  15 skipped** in 69.5 s (737 collected; this branch adds 18 tests, the earlier
+  701 in `STATUS.md` predates commits landed after 2026-10-27).
+  The hang that stopped the previous session was the fixture itself:
+  `for srv in servers: ... servers.append(srv)` appended to the list it was
+  iterating, so teardown never started working and the process spawned threads
+  until the harness died of `ENOSPC`. Reproduced with `timeout 25 pytest
+  linux_tests/test_web_arr.py` (one dot, exit 124) while the one test without the
+  fixture passed in 0.05 s; isomorphing the loop shape outside pytest reached
+  100 000 iterations without terminating. The fixture now starts a fixed tuple of
+  servers, answers 401 on a wrong key instead of asserting inside a handler
+  thread, clears `TP_MEDIA_ROOTS` (it overrides `allowed_media_roots`) and sets
+  `NO_PROXY`, and shuts both servers down in teardown: 0.31 s for the file.
+  Two further bugs were found by testing the feature end to end rather than the
+  module: `sonarr_url`/`radarr_url`/`arr_path_map` were whitelisted but had no
+  validator, so `normalise_values()` raised `keys not writable` and the settings
+  group could never be saved; and `search_enabled` was computed inside
+  `_queue_context`, whose dict `index.html` receives as `queue`, so the search box
+  would never have appeared.
+- Decisions / ADRs: no new ADR — the integration is optional, read-only on both
+  sides and silent until configured, so it adds no default dependency. Path
+  mapping reuses `utils/path_map.py` instead of inventing a second rule format;
+  validation reuses `web/paths.py::is_allowed`, the check the queue applies.
+  Failures are per server (warning next to the results) so a Radarr that is down
+  cannot hide the Sonarr library.
+- Known issues: the episode list is whatever `/api/v3/episode?seriesId=` returns,
+  so a series with thousands of episodes is rendered in full (no paging, no
+  server-side filter); a title that matches more than three series shows only the
+  first three (deliberate, but invisible in the UI); the movie panel issues one
+  extra `GET /api/v3/movie/{id}` per match; nothing was validated against a real
+  Sonarr/Radarr instance yet — only against the two fake servers — because the
+  reference machine has neither configured.
+- Next step: point a real Sonarr and Radarr at it on the reference machine
+  (`/tv=/mnt/storage/tvshows`), transcribe one season from the browser, and check
+  that the `arr_path_map` hint is enough when it is wrong; then decide whether the
+  picker is demoted below the search box.
+
 ## 2026-10-28 — Nemotron 3.5 Transcribe 30B (SALM): the best audio→Italian, no timings
 
 - Branch / commits: `docs/nemotron-transcribe-round9`.

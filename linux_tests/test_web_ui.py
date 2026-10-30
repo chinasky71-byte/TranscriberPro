@@ -482,3 +482,81 @@ def test_show_key_dalla_cartella(tmp_path):
     other = tmp_path / "Film.mkv"
     other.write_text("x", encoding="utf-8")
     assert show_key_from_path(other) == tmp_path.name.lower().replace("_", "-")
+
+
+def test_settings_page_has_the_library_search_group(tmp_path):
+    """Sonarr/Radarr are optional: the group exists, the URL and the map are text
+    fields, the two API keys are write-only, and the page says how to fill them."""
+    app, _ = _make(tmp_path)
+    with TestClient(app) as client:
+        page = client.get("/settings").text
+    assert "Library search (Sonarr / Radarr)" in page
+    assert 'name="sonarr_url"' in page and 'name="radarr_url"' in page
+    assert 'name="secret:sonarr_api_key"' in page and 'name="secret:radarr_api_key"' in page
+    assert 'name="arr_path_map"' in page
+    assert "<textarea name=\"arr_path_map\"" in page      # one rule per line
+
+
+def test_library_search_settings_are_saved_validated_and_never_echoed(tmp_path):
+    app, _ = _make(tmp_path)
+    config = app.state.config
+    form = dict(SETTINGS_FORM, allowed_media_roots=str(tmp_path),
+                sonarr_url="http://sonarr:8989/", radarr_url="http://radarr:7878",
+                arr_path_map="/tv=/mnt/storage/tvshows\n/movies=/mnt/storage/films")
+    form["secret:sonarr_api_key"] = "arr-secret-key"
+    with TestClient(app) as client:
+        saved = client.post("/settings", data=form)
+        assert "Settings saved" in saved.text
+        assert "arr-secret-key" not in saved.text
+        assert config.get("sonarr_url") == "http://sonarr:8989"        # trailing / dropped
+        assert config.get("arr_path_map") == "/tv=/mnt/storage/tvshows\n/movies=/mnt/storage/films"
+        assert config.get("sonarr_api_key") == "arr-secret-key"
+
+        page = client.get("/settings").text
+        assert "arr-secret-key" not in page
+        assert 'name="secret:sonarr_api_key"' in page                  # stored, not shown
+
+        bad_url = client.post("/settings", data=dict(form, sonarr_url="sonarr:8989"))
+        assert "http(s) URL" in bad_url.text
+        assert config.get("sonarr_url") == "http://sonarr:8989"        # nothing saved
+        bad_map = client.post("/settings", data=dict(form, arr_path_map="/tv"))
+        assert "arr_path_map" in bad_map.text
+        assert config.get("arr_path_map").startswith("/tv=/mnt/storage/tvshows")
+
+
+def test_queue_page_shows_the_search_box_only_with_a_configured_server(tmp_path):
+    app, _ = _make(tmp_path)
+    with TestClient(app) as client:
+        assert "Search the library" not in client.get("/").text
+    app.state.config.set("sonarr_url", "http://sonarr:8989", save=False)
+    app.state.config.set("sonarr_api_key", "k", save=False)
+    with TestClient(app) as client:
+        assert "Search the library" in client.get("/").text
+
+
+def test_search_without_a_server_says_so(tmp_path):
+    app, _ = _make(tmp_path)
+    with TestClient(app) as client:
+        page = client.get("/ui/search?term=outlander")
+    assert page.status_code == 200
+    assert "not configured" in page.text
+
+
+def test_search_reports_a_server_that_does_not_answer(tmp_path):
+    """A wrong URL is a message on the page, not a 500 and not an empty result list."""
+    app, _ = _make(tmp_path)
+    app.state.config.set("sonarr_url", "http://127.0.0.1:1", save=False)
+    app.state.config.set("sonarr_api_key", "k", save=False)
+    with TestClient(app) as client:
+        page = client.get("/ui/search?term=outlander")
+    assert page.status_code == 200
+    assert "Sonarr" in page.text and "cannot reach" in page.text
+
+
+def test_search_asks_for_two_characters(tmp_path):
+    app, _ = _make(tmp_path)
+    app.state.config.set("sonarr_url", "http://127.0.0.1:1", save=False)
+    app.state.config.set("sonarr_api_key", "k", save=False)
+    with TestClient(app) as client:
+        page = client.get("/ui/search?term=o")
+    assert page.status_code == 200 and "at least 2 characters" in page.text

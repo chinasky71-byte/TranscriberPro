@@ -17,9 +17,11 @@ Rules:
 from __future__ import annotations
 
 import os
+import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, Tuple
 
+from utils import path_map
 from utils.config import Config
 
 MEDIA_ROOTS_KEY = "allowed_media_roots"
@@ -27,6 +29,9 @@ START_DIR_KEY = "picker_start_dir"
 GGUF_DIR_KEY = "llm_translator_gguf_dir"
 PERCENT_KEY = "translation_max_untranslated_pct"
 TARGET_LANGUAGE_KEY = "target_language"
+# Library search (web/arr.py): the two servers' base URL and the path rules.
+ARR_URL_KEYS = ("sonarr_url", "radarr_url")
+ARR_MAP_KEY = "arr_path_map"
 # Lingua di destinazione: una sola (ADR-009). Il motore traduce verso l'italiano
 # e rifiuta il resto, quindi un campo libero sarebbe solo un modo di sbagliare.
 TARGET_LANGUAGES = ("ita",)
@@ -45,6 +50,8 @@ SAFE_CONFIG_KEYS = {
     TARGET_LANGUAGE_KEY,
     "llm_translator_gguf_quant",
     GGUF_DIR_KEY,
+    *ARR_URL_KEYS,
+    ARR_MAP_KEY,
     PERCENT_KEY,
     "enable_diarization",
     "dialogue_style_enabled",
@@ -57,6 +64,8 @@ SAFE_CONFIG_KEYS = {
 }
 
 SECRET_CONFIG_KEYS = {
+    "sonarr_api_key",
+    "radarr_api_key",
     "huggingface_token",
     "opensubtitles_password",
     "opensubtitles_api_key",
@@ -179,6 +188,52 @@ def as_start_dir(value: Any) -> str:
     return as_dir(START_DIR_KEY, value)
 
 
+def as_url(key: str, value: Any) -> str:
+    """A base URL for Sonarr/Radarr, or the empty string.
+
+    Empty means "this server is not configured", which is how the feature stays
+    off. Anything else must be `http`/`https` with a host: `web/arr.py` hands the
+    value to `urllib`, and a `file://` URL there would read a local file instead
+    of asking a server.
+    """
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ConfigError(f"{key}: expected a URL or an empty value")
+    text = value.strip().rstrip("/")
+    if not text:
+        return ""
+    parts = urllib.parse.urlsplit(text)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        raise ConfigError(f"{key}: expected an http(s) URL, e.g. http://sonarr:8989")
+    return text
+
+
+def as_path_map(value: Any) -> str:
+    """The server-path to local-path rules, one per line, or empty.
+
+    Both one rule per line and a `;`-separated string are accepted, because the
+    settings field is small and people paste either form. Invalid lines are
+    rejected here instead of being silently dropped: a rule the user wrote and
+    this module ignored would look like working configuration while every
+    result stayed unreachable.
+    """
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ConfigError(f"{ARR_MAP_KEY}: expected <server prefix>=<local prefix> per line")
+    lines = [line.strip() for line in value.replace(";", "\n").splitlines()]
+    lines = [line for line in lines if line and not line.startswith("#")]
+    for line in lines:
+        server, separator, local = line.partition("=")
+        if not separator or not server.strip() or not local.strip():
+            raise ConfigError(f"{ARR_MAP_KEY}: expected <server prefix>=<local prefix> "
+                              f"per line, got: {line}")
+    if lines and not path_map.parse_map("\n".join(lines)):
+        raise ConfigError(f"{ARR_MAP_KEY}: no usable rule in {lines[0]!r}")
+    return "\n".join(lines)
+
+
 def as_secret(key: str, value: Any) -> str:
     if value is None:
         return ""
@@ -209,6 +264,10 @@ def normalise_values(values: Mapping[str, Any]) -> Dict[str, Any]:
             cleaned[key] = text
         elif key == MEDIA_ROOTS_KEY:
             cleaned[key] = as_media_roots(value)
+        elif key in ARR_URL_KEYS:
+            cleaned[key] = as_url(key, value)
+        elif key == ARR_MAP_KEY:
+            cleaned[key] = as_path_map(value)
         elif key in (START_DIR_KEY, GGUF_DIR_KEY):
             cleaned[key] = as_dir(key, value)
         elif key in NUMBER_CONFIG_KEYS:

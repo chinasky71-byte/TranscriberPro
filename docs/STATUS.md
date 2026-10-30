@@ -1,8 +1,8 @@
 # Project status
 
-Updated: 2026-10-27
+Updated: 2026-10-30
 Line: `development` (active product); `master` is legacy (ADR-006)
-Branch: `development` · last merge: ADR-009, one translation engine
+Branch: `development` · last merge: WebUI library search (Sonarr/Radarr)
 WebUI: **not running** (start it with the command in `web/README.md`; `--no-auth` for a private network)
 Environment: Ubuntu 26.04, Radeon RX 9060 XT 16 GB (gfx1200, RDNA4),
 ROCm 7.0, torch 2.10.0+rocm7.0 only — no ctranslate2/whisperx (ADR-008);
@@ -65,6 +65,14 @@ nothing reads).
   validation, `picker_start_dir`) and OCR review (bitmap next to the OCR text,
   corrections, sidecar SRT). Glossary review reads `glossary_engine` reports.
   Server-rendered with HTMX + Alpine, assets vendored locally.
+- **Library search through Sonarr/Radarr**: the queue page asks a configured
+  Sonarr/Radarr for a title, shows every episode with its subtitle state and
+  queues the missing ones with one click. Off until `sonarr_url`/`sonarr_api_key`
+  (or the Radarr pair) are set in Settings; server paths are mapped to local
+  ones with `arr_path_map` (`<server>=<local>`), validated against the allowed
+  media roots and never guessed. A server that is down is reported next to the
+  results. Validated against two fake servers only — not yet against a real
+  instance (`docs/PROGRESS.md`, 2026-10-30).
 - **Install policy and preflight (ADR-007)**: two supported backends, CUDA and
   ROCm on AMD RDNA3/RDNA4/CDNA; a job whose GPU does not answer fails in a
   second with the remedy (`allow_cpu` per job to override). `install.sh` detects the hardware (`auto` is the
@@ -80,7 +88,7 @@ nothing reads).
 - **ADRs** 001–009, support matrix, contributing rules, guard tests.
 - **Tests**: unit/guard tests in `linux_tests/` (bench, boundaries, events,
   docs links, translation gate, i18n, web API/UI/picker/OCR/glossary, Docker,
-  install isolation). The suite is fully green: 701 passed, 15 skipped.
+  install isolation). The suite is fully green: 722 passed, 15 skipped.
 
 ## In progress / next
 

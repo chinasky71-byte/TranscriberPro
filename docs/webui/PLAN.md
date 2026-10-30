@@ -15,6 +15,7 @@ tests, and an update to `docs/STATUS.md` and `docs/PROGRESS.md`.
 | 7 | `feat/pyqt-optional` | Qt removed from default requirements; `--gui` optional | install without Qt | done |
 | 8 | `feat/docker` | Multi-stage Dockerfile, compose rocm/cuda/cpu, volumes | `docker compose up` produces the SRT | artifacts done — image build and GPU run pending (no container daemon on the dev host; see notes) |
 | 9 | `feat/webui-picker` | Read-only file picker over the allowed roots, multi-select and multi-add, `skip_existing`, `picker_start_dir` in settings | pick a file from the browser and queue several at once | done |
+| 10 | `feat/webui-arr-search` | Library search through Sonarr/Radarr: `web/arr.py`, `sonarr_*`/`radarr_*`/`arr_path_map` settings, results partial with per-episode subtitle state and "Queue the N missing" | a series is queued from the browser without touching the filesystem; a server that is down is a warning, not an empty page | done — commit `3da25b7` plus this session, merge `--no-ff`; validated against two fake servers, not yet against a real instance |
 
 ## Step 0 checklist
 

@@ -336,6 +336,16 @@ class Config:
         'punctuation_device':       'cpu',
         'punctuation_min_density':  0.0,     # 0.0 = solo testi senza ALCUNA punteggiatura
 
+        # Sonarr / Radarr: la ricerca nella WebUI chiede a loro cosa c'e' in
+        # libreria, invece di navigare le cartelle. Vuoti = integrazione spenta.
+        'sonarr_url': '',
+        'sonarr_api_key': '',
+        'radarr_url': '',
+        'radarr_api_key': '',
+        # Percorsi come li vede il server -> percorsi locali, una regola per riga:
+        #   <prefisso server>=<prefisso locale>    es. /tv=/mnt/storage/tvshows
+        'arr_path_map': '',
+
         # Library Scanner Settings
         # Nessun endpoint ne' chiave di default: la regola privacy vieta di
         # committare indirizzi di rete e credenziali. Entrambi si impostano
