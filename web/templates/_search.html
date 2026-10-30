@@ -1,0 +1,26 @@
+{% if error %}<p class="alert error">{{ error }}</p>{% endif %}
+{% if message %}<p class="muted">{{ message }}</p>{% endif %}
+{% for group in groups %}
+<section class="card search-group">
+  <div class="row between">
+    <h3>{{ group.title }} <span class="muted">· {{ group.subtitle }}</span></h3>
+    {% if group.missing %}
+    <form hx-post="/ui/jobs" hx-target="#queue" hx-swap="innerHTML" class="row">
+      {% for item in group.missing %}<input type="hidden" name="paths" value="{{ item.path }}">{% endfor %}
+      <button class="btn primary" type="submit">Queue the {{ group.missing|length }} missing</button>
+    </form>
+    {% endif %}
+  </div>
+  <ul class="search-items">
+    {% for item in group.items %}
+    <li>
+      <span class="badge {{ 'done' if item.has_subtitle else ('failed' if not item.allowed else 'queued') }}">
+        {{ 'sub ok' if item.has_subtitle else ('no' if not item.allowed else 'missing') }}
+      </span>
+      <code>{{ item.title }}</code> {{ item.subtitle }}
+      {% if item.reason %}<span class="muted">· {{ item.reason }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endfor %}

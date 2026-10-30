@@ -16,8 +16,10 @@ from core.jobs.models import TERMINAL
 from utils.job_overrides import clean
 from web import browse
 from web.auth import SESSION_COOKIE, request_token, token_matches
-from web.config_schema import (ENUM_CONFIG_KEYS, MEDIA_ROOTS_KEY, NUMBER_CONFIG_KEYS,
-                               START_DIR_KEY, ConfigError, apply_values, read_values)
+from web import arr
+from web.config_schema import (ARR_MAP_KEY, ENUM_CONFIG_KEYS, MEDIA_ROOTS_KEY,
+                               NUMBER_CONFIG_KEYS, START_DIR_KEY, ConfigError,
+                               apply_values, read_values)
 from web.ocr_review import OcrSessionError, OcrSessionNotFound
 from web import glossary as fixed_glossary
 from web.glossary import GlossaryError, GlossaryNotFound
@@ -63,6 +65,15 @@ SETTINGS_GROUPS = (
     ("Media", (
         ("roots", MEDIA_ROOTS_KEY, "Allowed media roots (one path per line)"),
         ("dir", START_DIR_KEY, "File picker start folder"),
+    )),
+    # ADR-free, integrazione facoltativa: se URL e chiave mancano, la ricerca in
+    # coda non viene mostrata e il picker resta l'unico modo di scegliere i file.
+    ("Library search (Sonarr / Radarr)", (
+        ("text", "sonarr_url", "Sonarr URL (e.g. http://sonarr:8989)"),
+        ("secret", "sonarr_api_key", "Sonarr API key"),
+        ("text", "radarr_url", "Radarr URL (e.g. http://radarr:7878)"),
+        ("secret", "radarr_api_key", "Radarr API key"),
+        ("text", ARR_MAP_KEY, "Server path -> local path, one per line (e.g. /tv=/mnt/storage/tvshows)"),
     )),
     ("Secrets", (
         ("secret", "huggingface_token", "Hugging Face token"),
@@ -144,6 +155,7 @@ def _queue_context(request: Request, error: str = "", message: str = "") -> Dict
         row["eta"] = _eta_of(job, now)
         rows.append(row)
     active = next((row for row in rows if row["status"] == "running"), None)
+    config = request.app.state.config
     return {
         "status": _status_context(request),
         "jobs": rows,
@@ -151,6 +163,7 @@ def _queue_context(request: Request, error: str = "", message: str = "") -> Dict
         "counts": _counts(jobs),
         "error": error,
         "message": message,
+        "search_enabled": bool(arr.servers(lambda key, default=None: config.get(key, default))),
     }
 
 
@@ -341,6 +354,29 @@ def _picker_context(request: Request, path: str = "", error: str = "") -> Dict[s
         listing = browse.list_directory("", roots, start=start)
         error = str(exc)
     return {"status": _status_context(request), "listing": listing, "error": error}
+
+
+@router.get("/ui/search", response_class=HTMLResponse, dependencies=[Depends(_auth)])
+def ui_search(request: Request, term: str = Query("")) -> HTMLResponse:
+    """Cerca in Sonarr/Radarr e restituisce le puntate con lo stato dei sottotitoli."""
+    config = request.app.state.config
+    groups: list = []
+    error, message = "", ""
+    if not arr.servers(lambda key, default=None: config.get(key, default)):
+        message = ("Sonarr/Radarr non configurati: compila URL e API key in Impostazioni "
+                   "per cercare qui invece di navigare le cartelle.")
+    elif not (term or "").strip():
+        message = "Scrivi il titolo di una serie o di un film."
+    else:
+        try:
+            groups = arr.search(lambda key, default=None: config.get(key, default), term)
+            if not groups:
+                message = f"Nessun risultato per «{term.strip()}»."
+        except arr.ArrError as exc:
+            error = str(exc)
+    return _render(request, "_search.html", {
+        "groups": groups, "term": term, "error": error, "message": message,
+    })
 
 
 @router.get("/ui/browse", response_class=HTMLResponse, dependencies=[Depends(_auth)])

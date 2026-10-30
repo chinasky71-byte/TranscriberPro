@@ -27,6 +27,7 @@ START_DIR_KEY = "picker_start_dir"
 GGUF_DIR_KEY = "llm_translator_gguf_dir"
 PERCENT_KEY = "translation_max_untranslated_pct"
 TARGET_LANGUAGE_KEY = "target_language"
+ARR_MAP_KEY = "arr_path_map"
 # Lingua di destinazione: una sola (ADR-009). Il motore traduce verso l'italiano
 # e rifiuta il resto, quindi un campo libero sarebbe solo un modo di sbagliare.
 TARGET_LANGUAGES = ("ita",)
@@ -45,6 +46,9 @@ SAFE_CONFIG_KEYS = {
     TARGET_LANGUAGE_KEY,
     "llm_translator_gguf_quant",
     GGUF_DIR_KEY,
+    "sonarr_url",
+    "radarr_url",
+    ARR_MAP_KEY,
     PERCENT_KEY,
     "enable_diarization",
     "dialogue_style_enabled",
@@ -57,6 +61,8 @@ SAFE_CONFIG_KEYS = {
 }
 
 SECRET_CONFIG_KEYS = {
+    "sonarr_api_key",
+    "radarr_api_key",
     "huggingface_token",
     "opensubtitles_password",
     "opensubtitles_api_key",
