@@ -862,11 +862,13 @@ class BaseTranslator(ABC):
         `_apply_glossary_posthoc`, che non tocca la struttura della frase.
         """
         base = NLLBFineTunedTranslator(self.log_callback)
+        done = False
         try:
             texts = [re.sub(r'\s*\n\s*', ' ', d["text"]).strip()
                      for d in lines_payload]
             out = base._run_translation(texts, 'eng_Latn', 'ita_Latn',
                                         add_context=False)
+            done = True
             return {d["id"]: (t or "").strip()
                     for d, t in zip(lines_payload, out)}
         except Exception as exc:
@@ -875,7 +877,11 @@ class BaseTranslator(ABC):
             return {}
         finally:
             try:
-                base.cleanup()
+                # Messaggio dedicato: il solito «NLLB fine-tuned scaricato» da solo farebbe credere che sia stato NLLB
+                # a tradurre il file; qui ha ritradotto soltanto le frasi del serbatoio.
+                base.cleanup(announce=False)
+                if done:                       # dopo un fallimento resta solo l'avviso di errore, senza «completato»
+                    self.log(tr('tl_reservoir_nllb_unloaded'))
             except Exception:
                 pass
 
@@ -3015,8 +3021,9 @@ class NLLBFineTunedTranslator(NLLBTranslator):
         )
         self.current_batch_size = self.batch_manager.current_batch_size
 
-    def cleanup(self):
+    def cleanup(self, announce: bool = True):
         """Scarica modello NLLB fine-tuned dalla VRAM (override: usa singleton FT, non base).
+        `announce=False`: niente messaggio a schermo (lo scrive il chiamante, es. il serbatoio).
 
         Azzera prima le reference dell'istanza (self.model/tokenizer/device)
         e il batch_manager: sono copie/consumer diretti del singleton. Senza
@@ -3029,7 +3036,8 @@ class NLLBFineTunedTranslator(NLLBTranslator):
             self.device = None
             self.batch_manager = None
             _unload_nllb_ft_singleton()
-            self.log(tr('tl_fine_tuned_nllb_model_unloaded'))
+            if announce:
+                self.log(tr('tl_fine_tuned_nllb_model_unloaded'))
         except Exception as e:
             logger.error(f"Errore durante cleanup NLLB FT: {e}")
 
