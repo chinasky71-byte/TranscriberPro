@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Ricerca in Sonarr/Radarr (web/arr.py) con un server finto: mappa percorsi, stato sottotitoli, coda."""
+"""Library search through Sonarr/Radarr (web/arr.py): two fake servers, path mapping,
+subtitle state, paths outside the roots, and the config contract behind it.
+
+The two fake servers are plain `ThreadingHTTPServer`s on 127.0.0.1 with a fixed
+port 0, started once per test and shut down in teardown — the same pattern as
+`test_library_scanner_fake_server.py`.
+"""
 import json
 import sys
 import threading
@@ -12,151 +18,249 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from web import arr  # noqa: E402
+from web.config_schema import ConfigError, normalise_values  # noqa: E402
 
-SONARR_KEY = "k-sonarr-123"
-RADARR_KEY = "k-radarr-456"
+SONARR_KEY = "test-sonarr-key"
+RADARR_KEY = "test-radarr-key"
+
+# The paths as the servers see them (a container: /tv, /movies).
+TV_PATH = "/tv/Show"
+MOVIE_PATH = "/movies/The Lost Leonardo (2021)"
+
+EPISODES = [
+    {"seasonNumber": 1, "episodeNumber": 1, "title": "Providence", "hasFile": True,
+     "episodeFile": {"path": f"{TV_PATH}/S01E01.mkv"}},
+    {"seasonNumber": 1, "episodeNumber": 2, "title": "S.W.A.K.", "hasFile": True,
+     "episodeFile": {"path": f"{TV_PATH}/S01E02.mkv"}},
+    {"seasonNumber": 1, "episodeNumber": 3, "title": "No file yet", "hasFile": False},
+]
 
 
-class _Server(ThreadingHTTPServer):
-    """Daemon threads: un server finto non deve tenere vivo il processo a fine test."""
-    daemon_threads = True
-    allow_reuse_address = True
+class _Fake(BaseHTTPRequestHandler):
+    """Shared JSON plumbing; each server subclass answers its own paths."""
+
+    key = ""
+
+    def log_message(self, *args):                 # keep the test output clean
+        pass
+
+    def _send(self, code, payload):
+        body = json.dumps(payload).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _authorised(self):
+        # a wrong key answers 401 in the body, so the client sees a real error
+        if self.headers.get("X-Api-Key") != self.key:
+            self._send(401, {"error": "unauthorised"})
+            return False
+        return True
 
 
-def _handler(server_path: str, episodes, movie_path: str):
-    class Handler(BaseHTTPRequestHandler):
-        def log_message(self, *a):        # silenzio nei test
-            pass
+class _Sonarr(_Fake):
+    key = SONARR_KEY
 
-        def _send(self, payload):
-            body = json.dumps(payload).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+    def do_GET(self):
+        if not self._authorised():
+            return
+        if self.path.startswith("/api/v3/series/lookup"):
+            self._send(200, [{"id": 7, "title": "Outlander - Blood of My Blood", "year": 2025}])
+        elif self.path.startswith("/api/v3/episode"):
+            assert "seriesId=7" in self.path
+            self._send(200, EPISODES)
+        else:
+            self._send(404, {})
 
-        def do_GET(self):
-            key = self.headers.get("X-Api-Key")
-            if self.path.startswith("/api/v3/series/lookup"):
-                assert key == SONARR_KEY
-                self._send([{"id": 7, "title": "Outlander - Blood of My Blood", "year": 2025}])
-            elif self.path.startswith("/api/v3/episode"):
-                assert key == SONARR_KEY
-                assert "seriesId=7" in self.path
-                self._send(episodes)
-            elif self.path.startswith("/api/v3/movie/lookup"):
-                assert key == RADARR_KEY
-                self._send([{"id": 3, "title": "The Lost Leonardo", "year": 2021}])
-            elif self.path.startswith("/api/v3/movie/3"):
-                assert key == RADARR_KEY
-                self._send({"id": 3, "title": "The Lost Leonardo", "year": 2021,
-                            "movieFile": {"path": server_path}})
-            else:                          # pragma: no cover
-                self.send_response(404)
-                self.end_headers()
 
-    return Handler
+class _Radarr(_Fake):
+    key = RADARR_KEY
+
+    def do_GET(self):
+        if not self._authorised():
+            return
+        if self.path.startswith("/api/v3/movie/lookup"):
+            self._send(200, [{"id": 3, "title": "The Lost Leonardo", "year": 2021}])
+        elif self.path.startswith("/api/v3/movie/3"):
+            self._send(200, {"id": 3, "title": "The Lost Leonardo", "year": 2021,
+                             "movieFile": {"path": f"{MOVIE_PATH}/The Lost Leonardo.mkv"}})
+        else:
+            self._send(404, {})
 
 
 @pytest.fixture
-def fake_servers(tmp_path):
-    """Due server finti (Sonarr e Radarr) con i percorsi come li vedrebbe il server."""
+def servers(tmp_path, monkeypatch):
+    """Two fake servers (Sonarr, Radarr) and the local media they point at."""
+    # `compute_roots` prefers TP_MEDIA_ROOTS over the config: an ambient value
+    # would silently replace the roots these tests set up.
+    monkeypatch.delenv("TP_MEDIA_ROOTS", raising=False)
+    # with HTTP(S)_PROXY set, urllib would send 127.0.0.1 to the proxy
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+    monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
+
     media = tmp_path / "media"
-    (media / "Show").mkdir(parents=True)
-    ep1 = media / "Show" / "S01E01.mkv"
-    ep2 = media / "Show" / "S01E02.mkv"
-    for f in (ep1, ep2):
-        f.write_text("x")
-    (media / "Show" / "S01E01.it.srt").write_text("1\n00:00:01,000 --> 00:00:02,000\nCiao\n")
+    (media / "tv" / "Show").mkdir(parents=True)
+    movie_dir = media / "movies" / "The Lost Leonardo (2021)"
+    movie_dir.mkdir(parents=True)
+    ep1 = media / "tv" / "Show" / "S01E01.mkv"
+    ep2 = media / "tv" / "Show" / "S01E02.mkv"
+    movie = movie_dir / "The Lost Leonardo.mkv"
+    for path in (ep1, ep2, movie):
+        path.write_text("x", encoding="utf-8")
+    (media / "tv" / "Show" / "S01E01.it.srt").write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\nCiao\n", encoding="utf-8")
 
-    episodes = [
-        {"seasonNumber": 1, "episodeNumber": 1, "title": "Providence", "hasFile": True,
-         "episodeFile": {"path": "/tv/Show/S01E01.mkv"}},
-        {"seasonNumber": 1, "episodeNumber": 2, "title": "S.W.A.K.", "hasFile": True,
-         "episodeFile": {"path": "/tv/Show/S01E02.mkv"}},
-        {"seasonNumber": 1, "episodeNumber": 3, "title": "No file yet", "hasFile": False},
-    ]
-    movie = str(media / "Show" / "S01E02.mkv")
-
-    # Sonarr e Radarr servono percorsi diversi: due server separati
-    srv_sonarr = _Server(("127.0.0.1", 0), _handler("/tv/Show/S01E01.mkv", episodes, movie))
-    srv_radarr = _Server(("127.0.0.1", 0), _handler(movie, episodes, movie))
-    servers = [srv_sonarr, srv_radarr]
-    for srv in servers:
-        threading.Thread(target=srv.serve_forever, daemon=True).start()
-        servers.append(srv)
-    yield {
-        "media": media, "ep1": ep1, "ep2": ep2, "movie": Path(movie),
-        "sonarr": f"http://127.0.0.1:{srv_sonarr.server_port}",
-        "radarr": f"http://127.0.0.1:{srv_radarr.server_port}",
-    }
-    for srv in servers:
-        srv.shutdown()
-        srv.server_close()
+    started = []
+    for handler in (_Sonarr, _Radarr):
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.02},
+                         daemon=True).start()
+        started.append(srv)
+    try:
+        yield {
+            "media": media, "ep1": ep1, "ep2": ep2, "movie": movie,
+            "sonarr": f"http://127.0.0.1:{started[0].server_address[1]}",
+            "radarr": f"http://127.0.0.1:{started[1].server_address[1]}",
+            "map": f"/tv={media}/tv\n/movies={media}/movies",
+        }
+    finally:
+        for srv in started:
+            srv.shutdown()
+            srv.server_close()
 
 
 def _getter(values):
     return lambda key, default=None: values.get(key, default)
 
 
+# ---- configuration contract ------------------------------------------------------------------------------------------
+
 def test_servers_need_url_and_key():
     assert arr.servers(_getter({"sonarr_url": "http://x:8989"})) == []
     assert len(arr.servers(_getter({"sonarr_url": "http://x:8989", "sonarr_api_key": "k"}))) == 1
 
 
-def test_search_maps_paths_and_marks_subtitle_state(fake_servers):
+def test_a_non_http_url_is_never_used():
+    """`file://` through urllib would read a local file instead of asking a server."""
+    for base in ("file:///etc/passwd", "ftp://host/x", "sonarr:8989"):
+        assert arr.servers(_getter({"sonarr_url": base, "sonarr_api_key": "k"})) == []
+
+
+def test_config_accepts_urls_and_map_and_clears_them():
+    cleaned = normalise_values({
+        "sonarr_url": " http://sonarr:8989/ ", "sonarr_api_key": " k ",
+        "radarr_url": "https://radarr.lan:7878", "radarr_api_key": " r ",
+        "arr_path_map": "/tv=/mnt/tv; /movies=/mnt/films\n# a comment\n",
+    })
+    assert cleaned["sonarr_url"] == "http://sonarr:8989"
+    assert cleaned["sonarr_api_key"] == "k"
+    assert cleaned["arr_path_map"] == "/tv=/mnt/tv\n/movies=/mnt/films"
+    assert normalise_values({"sonarr_url": "", "arr_path_map": ""}) == {
+        "sonarr_url": "", "arr_path_map": ""}
+
+
+def test_config_rejects_a_bad_url_and_a_bad_map_line():
+    with pytest.raises(ConfigError) as url_error:
+        normalise_values({"sonarr_url": "file:///etc/passwd"})
+    assert "sonarr_url" in str(url_error.value) and "http" in str(url_error.value)
+    for bad in ("/tv", "/tv=", "=/mnt/tv"):
+        with pytest.raises(ConfigError) as map_error:
+            normalise_values({"arr_path_map": bad})
+        assert "arr_path_map" in str(map_error.value)
+
+
+def test_secrets_are_write_only():
+    from web.config_schema import read_values
+
+    class Config:
+        values = {"sonarr_api_key": "secret-key", "radarr_api_key": ""}
+
+        def get(self, key, default=None):
+            return self.values.get(key, default)
+
+    values = read_values(Config())
+    assert values["sonarr_api_key"] == {"is_set": True}
+    assert values["radarr_api_key"] == {"is_set": False}
+    assert "secret-key" not in json.dumps(values, default=str)
+
+
+# ---- search ---------------------------------------------------------------------------------------------------------
+
+def test_search_maps_paths_and_marks_subtitle_state(servers):
     cfg = {
-        "sonarr_url": fake_servers["sonarr"], "sonarr_api_key": SONARR_KEY,
-        "allowed_media_roots": [str(fake_servers["media"])],
-        "arr_path_map": f"/tv={fake_servers['media']}",
+        "sonarr_url": servers["sonarr"], "sonarr_api_key": SONARR_KEY,
+        "allowed_media_roots": [str(servers["media"])],
+        "arr_path_map": servers["map"],
     }
-    groups = arr.search(_getter(cfg), "outlander")
-    assert len(groups) == 1
-    group = groups[0]
-    assert group.title.startswith("Outlander") and len(group.items) == 2   # l'episodio senza file è escluso
-    by_code = {i.title: i for i in group.items}
-    assert by_code["S01E01"].path == str(fake_servers["ep1"])
-    assert by_code["S01E01"].has_subtitle is True          # il sidecar .it.srt esiste
+    result = arr.search(_getter(cfg), "outlander")
+    assert result.warnings == []
+    assert len(result.groups) == 1
+    group = result.groups[0]
+    assert group.title.startswith("Outlander")
+    assert len(group.items) == 2                     # the episode without a file is skipped
+    by_code = {item.title: item for item in group.items}
+    assert by_code["S01E01"].path == str(servers["ep1"])
+    assert by_code["S01E01"].has_subtitle is True    # the .it.srt sidecar exists
     assert by_code["S01E02"].has_subtitle is False
-    assert [i.title for i in group.missing] == ["S01E02"]  # solo quello senza sottotitoli
+    assert [item.title for item in group.missing] == ["S01E02"]
 
 
-def test_paths_outside_the_roots_are_reported_not_queued(fake_servers):
+def test_paths_outside_the_roots_are_reported_not_queued(servers):
     cfg = {
-        "sonarr_url": fake_servers["sonarr"], "sonarr_api_key": SONARR_KEY,
+        "sonarr_url": servers["sonarr"], "sonarr_api_key": SONARR_KEY,
         "allowed_media_roots": ["/nonexistent-root"],
-        "arr_path_map": f"/tv={fake_servers['media']}",
+        "arr_path_map": servers["map"],
     }
-    item = arr.search(_getter(cfg), "outlander")[0].items[0]
+    item = arr.search(_getter(cfg), "outlander").groups[0].items[0]
     assert item.allowed is False and item.queueable is False
-    assert "cartelle ammesse" in item.reason
+    assert "allowed roots" in item.reason
 
 
-def test_without_mapping_the_server_path_is_not_queueable(fake_servers):
+def test_without_mapping_the_server_path_is_not_queueable(servers):
     cfg = {
-        "sonarr_url": fake_servers["sonarr"], "sonarr_api_key": SONARR_KEY,
-        "allowed_media_roots": [str(fake_servers["media"])],
-        "arr_path_map": "",                      # nessuna mappa
+        "sonarr_url": servers["sonarr"], "sonarr_api_key": SONARR_KEY,
+        "allowed_media_roots": [str(servers["media"])],
+        "arr_path_map": "",                          # no rules at all
     }
-    item = arr.search(_getter(cfg), "outlander")[0].items[0]
-    assert item.allowed is False and "/tv/" in item.path
+    item = arr.search(_getter(cfg), "outlander").groups[0].items[0]
+    assert item.allowed is False and item.path.startswith("/tv/")
 
 
-def test_movie_search_returns_one_file(fake_servers):
+def test_movie_search_returns_one_file(servers):
     cfg = {
-        "radarr_url": fake_servers["radarr"], "radarr_api_key": RADARR_KEY,
-        "allowed_media_roots": [str(fake_servers["media"])],
-        "arr_path_map": f"/tv={fake_servers['media']}",
+        "radarr_url": servers["radarr"], "radarr_api_key": RADARR_KEY,
+        "allowed_media_roots": [str(servers["media"])],
+        "arr_path_map": servers["map"],
     }
-    group = arr.search(_getter(cfg), "lost leonardo")[0]
+    group = arr.search(_getter(cfg), "lost leonardo").groups[0]
     assert group.title == "The Lost Leonardo"
-    assert group.items[0].path == str(fake_servers["movie"])
+    assert group.items[0].path == str(servers["movie"])
     assert group.items[0].allowed is True
 
 
-def test_http_error_is_reported_without_the_key(fake_servers):
-    cfg = {"sonarr_url": "http://127.0.0.1:1", "sonarr_api_key": "super-secret-key"}
-    with pytest.raises(arr.ArrError) as exc:
-        arr.search(_getter(cfg), "outlander")
-    assert "super-secret-key" not in str(exc.value)
+def test_a_dead_server_is_a_warning_and_the_other_one_still_answers(servers):
+    cfg = {
+        "sonarr_url": servers["sonarr"], "sonarr_api_key": SONARR_KEY,
+        "radarr_url": "http://127.0.0.1:1", "radarr_api_key": RADARR_KEY,
+        "allowed_media_roots": [str(servers["media"])],
+        "arr_path_map": servers["map"],
+    }
+    result = arr.search(_getter(cfg), "outlander")
+    assert len(result.groups) == 1                   # Sonarr answered
+    assert result.warnings and "Radarr" in result.warnings[0]
+
+
+def test_a_short_term_asks_no_server(servers):
+    cfg = {"sonarr_url": servers["sonarr"], "sonarr_api_key": SONARR_KEY}
+    result = arr.search(_getter(cfg), "o")
+    assert result.groups == [] and result.warnings == []
+
+
+def test_http_error_is_reported_without_the_key(servers):
+    cfg = {"sonarr_url": servers["sonarr"], "sonarr_api_key": "wrong-key-abcdef"}
+    result = arr.search(_getter(cfg), "outlander")
+    assert result.groups == []
+    assert result.warnings and "401" in result.warnings[0]
+    assert "wrong-key-abcdef" not in result.warnings[0]

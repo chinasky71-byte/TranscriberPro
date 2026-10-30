@@ -29,6 +29,11 @@
           <textarea name="{{ key }}" rows="3" spellcheck="false"
                     placeholder="/media{{ pathsep }}/srv/media">{{ current }}</textarea>
         </label>
+      {% elif kind == 'map' %}
+        <label>{{ label }}
+          <textarea name="{{ key }}" rows="3" spellcheck="false"
+                    placeholder="/tv=/mnt/storage/tvshows">{{ current }}</textarea>
+        </label>
       {% elif kind == 'secret' %}
         {% set is_set = current.is_set if current is mapping else false %}
         <label>{{ label }} <span class="badge {{ 'done' if is_set else 'queued' }}">{{ 'set' if is_set else 'not set' }}</span>

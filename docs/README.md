@@ -17,7 +17,6 @@ when touched (documentation hard rule).
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | branch model, PR, session protocol, releases | authoritative |
 | [`SUPPORT_MATRIX.md`](SUPPORT_MATRIX.md) | supported platforms and tiers | authoritative |
 | [`HANDOFF_SINGLE_TRANSLATION_ENGINE.md`](HANDOFF_SINGLE_TRANSLATION_ENGINE.md) | resume point for the single-translation-engine work (ADR-009), closed | historical |
-| [`HANDOFF_WEBUI_ARR_SEARCH.md`](HANDOFF_WEBUI_ARR_SEARCH.md) | resume point for the Sonarr/Radarr library search in the WebUI (branch `feat/webui-arr-search`, tests not green yet) | authoritative |
 
 ## Architecture
 

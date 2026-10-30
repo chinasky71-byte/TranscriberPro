@@ -66,14 +66,15 @@ SETTINGS_GROUPS = (
         ("roots", MEDIA_ROOTS_KEY, "Allowed media roots (one path per line)"),
         ("dir", START_DIR_KEY, "File picker start folder"),
     )),
-    # ADR-free, integrazione facoltativa: se URL e chiave mancano, la ricerca in
-    # coda non viene mostrata e il picker resta l'unico modo di scegliere i file.
+    # Optional integration, off by default: without URL and key the search box is
+    # not shown and the picker stays the only way to choose files.
     ("Library search (Sonarr / Radarr)", (
         ("text", "sonarr_url", "Sonarr URL (e.g. http://sonarr:8989)"),
         ("secret", "sonarr_api_key", "Sonarr API key"),
         ("text", "radarr_url", "Radarr URL (e.g. http://radarr:7878)"),
         ("secret", "radarr_api_key", "Radarr API key"),
-        ("text", ARR_MAP_KEY, "Server path -> local path, one per line (e.g. /tv=/mnt/storage/tvshows)"),
+        ("map", ARR_MAP_KEY,
+         "Server path -> local path, one rule per line (e.g. /tv=/mnt/storage/tvshows)"),
     )),
     ("Secrets", (
         ("secret", "huggingface_token", "Hugging Face token"),
@@ -155,7 +156,6 @@ def _queue_context(request: Request, error: str = "", message: str = "") -> Dict
         row["eta"] = _eta_of(job, now)
         rows.append(row)
     active = next((row for row in rows if row["status"] == "running"), None)
-    config = request.app.state.config
     return {
         "status": _status_context(request),
         "jobs": rows,
@@ -163,8 +163,17 @@ def _queue_context(request: Request, error: str = "", message: str = "") -> Dict
         "counts": _counts(jobs),
         "error": error,
         "message": message,
-        "search_enabled": bool(arr.servers(lambda key, default=None: config.get(key, default))),
     }
+
+
+def _search_enabled(request: Request) -> bool:
+    """True when at least one *arr server has both a URL and an API key.
+
+    The queue page polls `_queue_context` every two seconds, so this check lives
+    outside it: a search box that is off must cost nothing.
+    """
+    config = request.app.state.config
+    return bool(arr.servers(lambda key, default=None: config.get(key, default)))
 
 
 def _render(request: Request, name: str, context: Dict[str, Any]) -> HTMLResponse:
@@ -223,6 +232,8 @@ async def _read_settings_form(request: Request) -> Dict[str, Any]:
             elif kind == "roots":
                 text = (form.get(key) or "")
                 raw[key] = [line.strip() for line in text.splitlines() if line.strip()]
+            elif kind == "map":
+                raw[key] = form.get(key) or ""      # `as_path_map` normalises it
             else:
                 raw[key] = form.get(key) or ""
     return raw
@@ -340,6 +351,7 @@ def index(request: Request) -> HTMLResponse:
         "status": _status_context(request),
         "queue": _queue_context(request),
         "languages": LANGUAGES,
+        "search_enabled": _search_enabled(request),
     })
 
 
@@ -358,24 +370,26 @@ def _picker_context(request: Request, path: str = "", error: str = "") -> Dict[s
 
 @router.get("/ui/search", response_class=HTMLResponse, dependencies=[Depends(_auth)])
 def ui_search(request: Request, term: str = Query("")) -> HTMLResponse:
-    """Cerca in Sonarr/Radarr e restituisce le puntate con lo stato dei sottotitoli."""
+    """Search Sonarr/Radarr and return the episodes with their subtitle state."""
     config = request.app.state.config
-    groups: list = []
+    result = arr.SearchResult()
     error, message = "", ""
-    if not arr.servers(lambda key, default=None: config.get(key, default)):
-        message = ("Sonarr/Radarr non configurati: compila URL e API key in Impostazioni "
-                   "per cercare qui invece di navigare le cartelle.")
-    elif not (term or "").strip():
-        message = "Scrivi il titolo di una serie o di un film."
+    if not _search_enabled(request):
+        message = ("Sonarr/Radarr are not configured: set the URL and the API key in "
+                   "Settings to search here instead of browsing folders.")
+    elif len((term or "").strip()) < arr.MIN_TERM:
+        message = f"Type at least {arr.MIN_TERM} characters of a series or film title."
     else:
+        message = ""
         try:
-            groups = arr.search(lambda key, default=None: config.get(key, default), term)
-            if not groups:
-                message = f"Nessun risultato per «{term.strip()}»."
-        except arr.ArrError as exc:
+            result = arr.search(lambda key, default=None: config.get(key, default), term)
+        except (arr.ArrError, OSError, ValueError) as exc:   # defensive: never a 500
             error = str(exc)
+        if not result.groups and not result.warnings and not error:
+            message = f"No results for «{term.strip()}»."
     return _render(request, "_search.html", {
-        "groups": groups, "term": term, "error": error, "message": message,
+        "groups": result.groups, "warnings": result.warnings,
+        "term": term, "error": error, "message": message,
     })
 
 
