@@ -4,7 +4,7 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
-![Version](https://img.shields.io/badge/Version-1.34.42-orange)
+![Version](https://img.shields.io/badge/Version-1.34.43-orange)
 
 AI-powered application for automatic subtitle transcription, translation, and bitmap OCR from video files, with two interfaces on the same engine: a local web UI (`tpweb/`, the default) and the PyQt6 desktop GUI (being phased out).
 
@@ -625,10 +625,11 @@ This project is licensed under the MIT License.
 
 ## Changelog
 
-The complete, per-version history is in [CHANGELOG.md](CHANGELOG.md); the condensed notes of the older README (v1.0.0 → v1.34.42) are kept in
+The complete, per-version history is in [CHANGELOG.md](CHANGELOG.md); the condensed notes of the older README (v1.0.0 → v1.34.43) are kept in
 [docs/CHANGELOG_README_ARCHIVIO.md](docs/CHANGELOG_README_ARCHIVIO.md). Recent highlights:
 
 - **Web UI** (`tpweb/`) merged into `master`: second interface (queue, settings, tools, Library Scanner, native window, headless-safe lifecycle), checked against the Qt window on Windows (reports in `docs/webui_rapporti/`).
+- **v1.34.43** — Log: the reservoir no longer prints a generic «NLLB fine-tuned unloaded» (it looked like NLLB had translated the file); it says it only retranslated the reservoir sentences.
 - **v1.34.42** — Web UI history: sortable columns (name, date, language, duration, size) and a «Clear history» pill with an irreversible-operation warning.
 - **v1.34.41** — Library Scanner client, row logic and import/OCR/Superpower actions moved out of the GUI (`core/services/`, no Qt).
 - **v1.34.40** — OCR review logic, transcription profile and translation-model dialog moved out of the GUI (`core/jobs/`, `core/services/`).
@@ -1277,6 +1278,7 @@ La storia completa, versione per versione, è in [CHANGELOG.md](CHANGELOG.md); l
 [docs/CHANGELOG_README_ARCHIVIO.md](docs/CHANGELOG_README_ARCHIVIO.md). In evidenza:
 
 - **Interfaccia web** (`tpweb/`) unita in `master`: seconda interfaccia (coda, impostazioni, strumenti, Library Scanner, finestra nativa, ciclo di vita sicuro con la GUI e la coda headless), confrontata con la finestra Qt su Windows (rapporti in `docs/webui_rapporti/`).
+- **v1.34.43** — Log: il serbatoio non stampa più il generico «NLLB fine-tuned scaricato» (sembrava che NLLB avesse tradotto il file); dice che ha ritradotto solo le frasi del serbatoio.
 - **v1.34.42** — Cronologia dell'interfaccia web: colonne ordinabili (nome, data, lingua, durata, dimensione) e pillola «Cancella cronologia» con avvertimento di operazione non reversibile.
 - **v1.34.41** — Client, logica delle righe e azioni di importazione/OCR/Superpower del Library Scanner spostati fuori dalla GUI (`core/services/`, senza Qt).
 - **v1.34.40** — Logica di revisione OCR, profilo di trascrizione e dialogo del modello di traduzione spostata fuori dalla GUI (`core/jobs/`, `core/services/`).

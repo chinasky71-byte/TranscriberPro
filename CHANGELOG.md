@@ -3,6 +3,10 @@
 Tutte le modifiche rilevanti di Transcriber Pro. Versioni secondo
 [SemVer](https://semver.org/lang/it/): `APP_VERSION` in `main.py` è l'unica fonte di verità.
 
+## 1.34.43 — 2026-10-30 — Log del serbatoio NLLB più chiaro
+
+- Con TranslateGemma il log mostrava «Modello NLLB fine-tuned scaricato dalla VRAM»: vero (il serbatoio L3 aveva caricato NLLB-FT per 1 frase) ma fuorviante. Ora il serbatoio scrive un messaggio dedicato (solo se è riuscito); `NLLBFineTunedTranslator.cleanup(announce=...)`. Test: `test_reservoir_nllb_message.py`. Nessun cambio alla traduzione.
+
 ## 1.34.42 — 2026-10-28 — Cronologia web: ordinamento e cancellazione
 
 - **Ordinamento:** clic sull'intestazione di Nome, Data, Lingua, Durata o Dimensione (crescente → decrescente → ordine del file). Si ordina sul server sui dati veri (data ISO, secondi, byte), non sul testo mostrato; l'indice di riga resta la posizione nel file.
